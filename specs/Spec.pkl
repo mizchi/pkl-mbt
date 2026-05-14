@@ -1,0 +1,279 @@
+amends "../pkspec/Spec.pkl"
+
+feature = "Pure MoonBit Pkl parser and interpreter"
+
+local pureMoonBitCore = new Goal {
+  id = "GOAL-PKL-PURE"
+  name = "Pure MoonBit Pkl core"
+  description =
+    "Provide a MoonBit-only Pkl parser, evaluator, and typechecker core that can run without a native Pkl dependency."
+  priority = 100
+  reviewStatus = "approved"
+  rationale =
+    "The project should be embeddable in MoonBit targets and keep implementation layers regenerable from strict contracts."
+}
+
+local parseArithmetic = new Scenario {
+  id = "PKL-001"
+  name = "parse arithmetic expressions"
+  description =
+    "The parser builds a CST-backed program for integer arithmetic expressions and preserves source length."
+  contributes { "GOAL-PKL-PURE" }
+  reviewStatus = "approved"
+  severity = "critical"
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Start with expression parsing as the first executable slice"
+      rationale =
+        "Arithmetic precedence is small enough for TDD and exercises the cst-backed parser shape."
+    }
+  }
+}
+
+local evalArithmetic = new Scenario {
+  id = "PKL-002"
+  name = "evaluate arithmetic and let bindings"
+  description =
+    "The interpreter evaluates integer arithmetic with precedence and resolves top-level let bindings."
+  contributes { "GOAL-PKL-PURE" }
+  reviewStatus = "approved"
+  severity = "critical"
+}
+
+local rejectInvalidTypes = new Scenario {
+  id = "PKL-003"
+  name = "reject invalid integer operations"
+  description = "The typechecker rejects binary arithmetic when either operand is not an Int."
+  contributes { "GOAL-PKL-PURE" }
+  reviewStatus = "approved"
+  severity = "critical"
+}
+
+local incrementalTypecheck = new Scenario {
+  id = "PKL-004"
+  name = "typecheck source through ripple"
+  description =
+    "A source-backed analysis session uses ripple input and query nodes to recompute typechecking after source changes."
+  contributes { "GOAL-PKL-PURE" }
+  reviewStatus = "approved"
+  severity = "major"
+}
+
+local pklObjectModel = new Scenario {
+  id = "PKL-005"
+  name = "support initial Pkl object and module syntax"
+  description =
+    "The parser accepts module declarations, top-level properties, object literals, and member access; evaluator and typechecker resolve object fields."
+  contributes { "GOAL-PKL-PURE" }
+  reviewStatus = "approved"
+  severity = "critical"
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Add object/module syntax before import and stdlib work"
+      rationale =
+        "Object fields and member lookup are the minimum model needed before import resolution or richer Pkl type semantics can be useful."
+    }
+  }
+}
+
+local pklImports = new Scenario {
+  id = "PKL-006"
+  name = "support Pkl imports and module resolution"
+  description =
+    "Import clauses resolve modules from the AnalysisSession source graph and make imported modules available for evaluation and typechecking."
+  contributes { "GOAL-PKL-PURE" }
+  reviewStatus = "approved"
+  severity = "critical"
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Resolve import clauses through AnalysisSession inputs"
+      rationale =
+        "A source-backed resolver keeps the implementation pure MoonBit and lets ripple track imported source dependencies."
+    }
+  }
+}
+
+local pklStdlib = new Scenario {
+  id = "PKL-007"
+  name = "support Pkl standard library surface"
+  description =
+    "The AnalysisSession resolver recognizes selected pkl: standard library modules and exposes them as pure MoonBit module sources."
+  contributes { "GOAL-PKL-PURE" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Seed standard library support with pkl:math"
+      rationale =
+        "Representing pkl: modules as built-in source keeps the parser/evaluator path uniform while letting coverage grow incrementally."
+    }
+  }
+}
+
+local pklRichTypes = new Scenario {
+  id = "PKL-008"
+  name = "support richer Pkl type semantics"
+  description =
+    "The parser and typechecker accept primitive Pkl-style type annotations and reject mismatched property/member values."
+  contributes { "GOAL-PKL-PURE" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Start richer type semantics with primitive annotations"
+      rationale =
+        "Primitive annotations provide a testable type contract before class, union, and runtime validation semantics are added."
+    }
+  }
+}
+
+local pklCli = new Scenario {
+  id = "PKL-009"
+  name = "provide a usable CLI"
+  description =
+    "The native command-line entrypoint can parse, typecheck, and evaluate Pkl source files."
+  contributes { "GOAL-PKL-PURE" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Add parse/check/eval native CLI subcommands"
+      rationale =
+        "A small CLI gives pkspec an end-to-end surface while the embeddable AnalysisSession remains the core API."
+    }
+  }
+}
+
+local pklStringEscapes = new Scenario {
+  id = "PKL-010"
+  name = "support Pkl string escape compatibility"
+  description =
+    "Common string escapes are decoded by the parser and rendered by the evaluator/CLI output path."
+  contributes { "GOAL-PKL-PURE" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Decode and render common string escapes"
+      rationale =
+        "Escaped quotes and line breaks are required for realistic module properties and CLI output."
+    }
+  }
+}
+
+local upstreamPklFixtures = new Scenario {
+  id = "PKL-011"
+  name = "use upstream apple/pkl fixtures as compatibility checks"
+  description =
+    "The contract suite references Apple's Pkl repository as a git submodule and runs selected upstream LanguageSnippetTests fixtures through the pure MoonBit CLI."
+  contributes { "GOAL-PKL-PURE" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Track upstream Pkl fixtures through a git submodule"
+      rationale =
+        "The implementation is still a Pkl subset, so an explicit smoke list keeps upstream compatibility executable without pretending the full upstream suite is supported."
+    }
+  }
+}
+
+local pklCommentsAndForwardRefs = new Scenario {
+  id = "PKL-012"
+  name = "support Pkl comments and module property forward references"
+  description =
+    "The lexer preserves line/block comments as trivia, and module property evaluation/typechecking resolves sibling properties regardless of declaration order."
+  contributes { "GOAL-PKL-PURE" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Add trivia comments and lazy module property resolution"
+      rationale =
+        "Upstream snippets commonly use comments, and apple/pkl fixtures such as basic/import1.pkl rely on module properties referencing later sibling properties."
+    }
+  }
+}
+
+local pklObjectBodyProperties = new Scenario {
+  id = "PKL-013"
+  name = "support Pkl object body property shorthand"
+  description =
+    "Module and object members can use `name { ... }` object bodies as shorthand for object-valued properties."
+  contributes { "GOAL-PKL-PURE" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Parse object body property shorthand"
+      rationale =
+        "Apple Pkl snippets use nested object bodies heavily; modules/objects.pkl is the smallest upstream fixture for this syntax."
+    }
+  }
+}
+
+local pklLocalAndImportExpressions = new Scenario {
+  id = "PKL-014"
+  name = "support Pkl local module bindings and import expressions"
+  description =
+    "Module-level `local` bindings are available to sibling properties without being exported, and `import(\"...\")` expressions resolve through the same pure MoonBit module resolver as import clauses."
+  contributes { "GOAL-PKL-PURE" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Add local bindings and import expressions"
+      rationale =
+        "Apple Pkl's basic/import2.pkl fixture uses `local i = import(\"imported.pkl\")`, so import expressions need to participate in both analysis and CLI file loading."
+    }
+  }
+}
+
+local upstreamParserSuite = new Scenario {
+  id = "PKL-015"
+  name = "parse upstream apple/pkl snippet corpus"
+  description =
+    "The native parser accepts every syntactically valid fixture selected by apple/pkl's ParserComparisonTest LanguageSnippetTests input corpus."
+  contributes { "GOAL-PKL-PURE" }
+  reviewStatus = "approved"
+  severity = "critical"
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Use apple/pkl ParserComparisonTest exclusions for parse-only compatibility"
+      rationale =
+        "Parser completion needs a broad upstream oracle. Matching the upstream parser test's invalid fixture exclusions gives this project an executable parse coverage target without requiring evaluator/typechecker parity."
+    }
+  }
+}
+
+goals { pureMoonBitCore }
+
+scenarios {
+  parseArithmetic
+  evalArithmetic
+  rejectInvalidTypes
+  incrementalTypecheck
+  pklObjectModel
+  pklImports
+  pklStdlib
+  pklRichTypes
+  pklCli
+  pklStringEscapes
+  upstreamPklFixtures
+  pklCommentsAndForwardRefs
+  pklObjectBodyProperties
+  pklLocalAndImportExpressions
+  upstreamParserSuite
+}

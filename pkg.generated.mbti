@@ -1,0 +1,239 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/pickle"
+
+import {
+  "mizchi/cst",
+  "moonbitlang/core/debug",
+}
+
+// Values
+pub fn as_kw() -> @cst.SyntaxKind
+
+pub fn at_sign() -> @cst.SyntaxKind
+
+pub fn bang() -> @cst.SyntaxKind
+
+pub fn binary_expr() -> @cst.SyntaxKind
+
+pub fn colon() -> @cst.SyntaxKind
+
+pub fn comma() -> @cst.SyntaxKind
+
+pub fn comment() -> @cst.SyntaxKind
+
+pub fn dot() -> @cst.SyntaxKind
+
+pub fn eof() -> @cst.SyntaxKind
+
+pub fn eq() -> @cst.SyntaxKind
+
+pub fn error_kind() -> @cst.SyntaxKind
+
+pub fn eval_source(String) -> EvalResult
+
+pub fn false_kw() -> @cst.SyntaxKind
+
+pub fn gt() -> @cst.SyntaxKind
+
+pub fn identifier() -> @cst.SyntaxKind
+
+pub fn import_decl() -> @cst.SyntaxKind
+
+pub fn import_expr() -> @cst.SyntaxKind
+
+pub fn import_kw() -> @cst.SyntaxKind
+
+pub fn int_token() -> @cst.SyntaxKind
+
+pub fn is_separator(@cst.SyntaxKind) -> Bool
+
+pub fn is_trivia(@cst.SyntaxKind) -> Bool
+
+pub fn kind_name(@cst.SyntaxKind) -> String
+
+pub fn lbrace() -> @cst.SyntaxKind
+
+pub fn lbracket() -> @cst.SyntaxKind
+
+pub fn let_decl() -> @cst.SyntaxKind
+
+pub fn let_kw() -> @cst.SyntaxKind
+
+pub fn literal_expr() -> @cst.SyntaxKind
+
+pub fn local_kw() -> @cst.SyntaxKind
+
+pub fn lparen() -> @cst.SyntaxKind
+
+pub fn lt() -> @cst.SyntaxKind
+
+pub fn member_access() -> @cst.SyntaxKind
+
+pub fn minus() -> @cst.SyntaxKind
+
+pub fn module_decl() -> @cst.SyntaxKind
+
+pub fn module_kw() -> @cst.SyntaxKind
+
+pub fn module_node() -> @cst.SyntaxKind
+
+pub fn name_ref() -> @cst.SyntaxKind
+
+pub fn new_kw() -> @cst.SyntaxKind
+
+pub fn newline() -> @cst.SyntaxKind
+
+pub fn null_kw() -> @cst.SyntaxKind
+
+pub fn object_expr() -> @cst.SyntaxKind
+
+pub fn object_member() -> @cst.SyntaxKind
+
+pub fn paren_expr() -> @cst.SyntaxKind
+
+pub fn parse_source(String) -> ParseResult
+
+pub fn percent() -> @cst.SyntaxKind
+
+pub fn pipe() -> @cst.SyntaxKind
+
+pub fn plus() -> @cst.SyntaxKind
+
+pub fn property_decl() -> @cst.SyntaxKind
+
+pub fn question() -> @cst.SyntaxKind
+
+pub fn rbrace() -> @cst.SyntaxKind
+
+pub fn rbracket() -> @cst.SyntaxKind
+
+pub fn render_type(Type) -> String
+
+pub fn render_value(Value) -> String
+
+pub fn rparen() -> @cst.SyntaxKind
+
+pub fn semicolon() -> @cst.SyntaxKind
+
+pub fn slash() -> @cst.SyntaxKind
+
+pub fn star() -> @cst.SyntaxKind
+
+pub fn string_token() -> @cst.SyntaxKind
+
+pub fn true_kw() -> @cst.SyntaxKind
+
+pub fn typecheck_source(String) -> TypecheckResult
+
+pub fn unsupported_expr() -> @cst.SyntaxKind
+
+pub fn whitespace() -> @cst.SyntaxKind
+
+// Errors
+
+// Types and methods
+pub struct AnalysisSession {
+  // private fields
+}
+pub fn AnalysisSession::eval_path(Self, String) -> EvalResult
+pub fn AnalysisSession::new() -> Self
+pub fn AnalysisSession::set_source(Self, String, String) -> Unit
+pub fn AnalysisSession::typecheck_path(Self, String) -> TypecheckResult
+
+pub(all) enum BinaryOp {
+  Add
+  Subtract
+  Multiply
+  Divide
+} derive(Eq, @debug.Debug)
+
+pub(all) struct Binding {
+  name : String
+  type_name : String?
+  value : Expr
+  exported : Bool
+} derive(Eq, @debug.Debug)
+
+pub(all) struct Diagnostic {
+  message : String
+} derive(Eq, @debug.Debug)
+
+pub(all) enum EvalResult {
+  EvalOk(Value)
+  EvalError(Array[Diagnostic])
+} derive(Eq, @debug.Debug)
+
+pub(all) enum Expr {
+  IntLiteral(Int)
+  BoolLiteral(Bool)
+  StringLiteral(String)
+  NullLiteral
+  Identifier(String)
+  ImportExpr(String)
+  ObjectLiteral(Array[ObjectMember])
+  MemberAccess(Expr, String)
+  BinaryExpr(BinaryOp, Expr, Expr)
+  UnsupportedExpr
+  ErrorExpr(String)
+} derive(Eq, @debug.Debug)
+
+pub(all) struct ImportDecl {
+  uri : String
+  import_name : String
+} derive(Eq, @debug.Debug)
+
+pub(all) struct ObjectMember {
+  name : String
+  type_name : String?
+  value : Expr
+} derive(Eq, @debug.Debug)
+
+pub(all) struct ParseResult {
+  root : @cst.SyntaxNode
+  program : Program
+  diagnostics : Array[Diagnostic]
+} derive(Eq)
+
+pub(all) struct Program {
+  module_name : String?
+  imports : Array[ImportDecl]
+  bindings : Array[Binding]
+  body : Expr?
+} derive(Eq, @debug.Debug)
+
+pub(all) enum Type {
+  IntType
+  BoolType
+  StringType
+  NullType
+  ObjectType(Array[TypeMember])
+  UnknownType
+} derive(Eq, @debug.Debug)
+
+pub(all) struct TypeMember {
+  name : String
+  typ : Type
+} derive(Eq, @debug.Debug)
+
+pub(all) enum TypecheckResult {
+  TypeOk(Type)
+  TypeError(Array[Diagnostic])
+} derive(Eq, @debug.Debug)
+
+pub(all) enum Value {
+  IntValue(Int)
+  BoolValue(Bool)
+  StringValue(String)
+  NullValue
+  ObjectValue(Array[ValueMember])
+} derive(Eq, @debug.Debug)
+
+pub(all) struct ValueMember {
+  name : String
+  value : Value
+} derive(Eq, @debug.Debug)
+
+// Type aliases
+
+// Traits
+

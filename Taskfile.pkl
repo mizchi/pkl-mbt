@@ -1,0 +1,202 @@
+amends "package://pkg.pkl-lang.org/github.com/mizchi/pkfire/pkfire@0.6.0#/Taskfile.pkl"
+
+local moonSources: Listing<String> = new {
+  "*.mbt"
+  "moon.pkg"
+  "moon.mod.json"
+  "cmd/**/*.mbt"
+  "cmd/**/moon.pkg"
+  "README.mbt.md"
+}
+
+local generatedInterfaces: Listing<String> = new {
+  "pkg.generated.mbti"
+  "cmd/main/pkg.generated.mbti"
+}
+
+local specSources: Listing<String> = new {
+  "pkspec/**/*.pkl"
+  "specs/**/*.pkl"
+  "fixtures/**/*.pkl"
+}
+
+local supportScripts: Listing<String> = new {
+  "scripts/**/*.sh"
+}
+
+local upstreamFixtureSources: Listing<String> = new {
+  ".gitmodules"
+  "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/**/*.pkl"
+  "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/basic/import1.pkl"
+  "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/basic/import2.pkl"
+  "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/basic/import3.pkl"
+  "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/basic/imported.pkl"
+  "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/basic/parens.pkl"
+  "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/modules/filename with spaces 2.pkl"
+  "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/modules/filename with spaces.pkl"
+  "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/modules/objects.pkl"
+}
+
+local commonTools: Mapping<String, String> = new {
+  ["moon"] = "0.1.20260512"
+  ["pkspec"] = "0.1.6"
+}
+
+local fmt: Task = new {
+  name = "fmt"
+  description = "Format MoonBit and Pkl files"
+  cmd =
+    "moon fmt && pkf format Taskfile.pkl specs/*.pkl pkspec/*.pkl pkspec/adapters/*.pkl fixtures/*.pkl"
+  inputs = new {
+    ...moonSources
+    ...specSources
+    "Taskfile.pkl"
+  }
+  tools = commonTools
+  cache = false
+}
+
+local fmtCheck: Task = new {
+  name = "fmt-check"
+  description = "Check MoonBit formatting"
+  cmd = "moon fmt --check"
+  inputs = moonSources
+  tools = commonTools
+}
+
+local info: Task = new {
+  name = "info"
+  description = "Regenerate MoonBit public interfaces"
+  cmd = "moon info"
+  inputs = moonSources
+  outputs = generatedInterfaces
+  tools = commonTools
+}
+
+local infoCheck: Task = new {
+  name = "info-check"
+  description = "Verify generated MoonBit interfaces are up to date"
+  cmd = "git diff --exit-code -- ':(glob)**/*.generated.mbti'"
+  inputs = new {
+    ...moonSources
+    ...generatedInterfaces
+  }
+  deps { info }
+  tools = commonTools
+}
+
+local check: Task = new {
+  name = "check"
+  description = "Type-check the default JS target with warnings denied"
+  cmd = "moon check --deny-warn --target js"
+  inputs = moonSources
+  tools = commonTools
+}
+
+local checkNative: Task = new {
+  name = "check-native"
+  description = "Type-check the native target with warnings denied"
+  cmd = "moon check --deny-warn --target native"
+  inputs = moonSources
+  tools = commonTools
+}
+
+local test: Task = new {
+  name = "test"
+  description = "Run MoonBit tests on the default JS target"
+  cmd = "moon test --target js"
+  inputs = moonSources
+  tools = commonTools
+}
+
+local testNative: Task = new {
+  name = "test-native"
+  description = "Run MoonBit tests on the native target"
+  cmd = "moon test --target native"
+  inputs = moonSources
+  tools = commonTools
+}
+
+local pkspecExec: Task = new {
+  name = "pkspec"
+  description = "Run pkspec executable contract tests"
+  cmd = "pkspec exec -f specs/Test.pkl"
+  inputs = new {
+    ...moonSources
+    ...specSources
+    ...supportScripts
+    ...upstreamFixtureSources
+  }
+  tools = commonTools
+}
+
+local spec: Task = new {
+  name = "spec"
+  description = "Render SPEC.md from pkspec scenarios and tests"
+  cmd = "pkspec spec --output SPEC.md specs/Spec.pkl specs/Test.pkl"
+  inputs = specSources
+  outputs { "SPEC.md" }
+  tools = commonTools
+}
+
+local specCheck: Task = new {
+  name = "spec-check"
+  description = "Verify approved pkspec scenarios are implemented"
+  cmd = "pkspec spec --check specs/Spec.pkl specs/Test.pkl"
+  inputs = specSources
+  tools = commonTools
+}
+
+local ci: Task = new {
+  name = "ci"
+  description = "Local CI gate for the default target"
+  cmd = "true"
+  deps { fmtCheck; infoCheck; check; test; pkspecExec; specCheck }
+  tools = commonTools
+  cache = false
+}
+
+local releaseCheck: Task = new {
+  name = "release-check"
+  description = "Full local gate across JS and native targets"
+  cmd = "true"
+  deps { ci; checkNative; testNative; spec }
+  tools = commonTools
+  cache = false
+}
+
+local preCommit: Task = new {
+  name = "pre-commit"
+  description = "Fast pre-commit gate"
+  cmd = "true"
+  deps { fmtCheck; check; test; specCheck }
+  tools = commonTools
+  cache = false
+}
+
+local defaultTask: Task = new {
+  name = "default"
+  description = "Default pkfire target"
+  cmd = "true"
+  deps { ci }
+  tools = commonTools
+  cache = false
+}
+
+tasks {
+  defaultTask
+  fmt
+  fmtCheck
+  info
+  infoCheck
+  check
+  checkNative
+  test
+  testNative
+  pkspecExec
+  spec
+  specCheck
+  ci
+  releaseCheck
+  preCommit
+}

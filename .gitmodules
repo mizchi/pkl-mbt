@@ -1,0 +1,3 @@
+[submodule "third_party/apple-pkl"]
+	path = third_party/apple-pkl
+	url = https://github.com/apple/pkl.git

@@ -1,0 +1,71 @@
+amends "../pkspec/Test.pkl"
+
+local moonUnit = new Test {
+  name = "moon unit tests"
+  description =
+    "MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session."
+  tags { "moonbit"; "unit"; "contract" }
+  specRef {
+    "PKL-001"
+    "PKL-002"
+    "PKL-003"
+    "PKL-004"
+    "PKL-005"
+    "PKL-006"
+    "PKL-007"
+    "PKL-008"
+    "PKL-009"
+    "PKL-010"
+    "PKL-012"
+    "PKL-013"
+    "PKL-014"
+  }
+  cmd = "moon test --target js"
+  timeoutSec = 120
+}
+
+local cliEval = new Test {
+  name = "cli eval"
+  description = "The native CLI evaluates a Pkl file and prints module object properties."
+  tags { "moonbit"; "cli"; "contract" }
+  specRef { "PKL-009" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli.pkl"
+  workdir = ".."
+  expectStdoutContains { "name = \"hawk\"" }
+  timeoutSec = 120
+}
+
+local upstreamSmoke = new Test {
+  name = "upstream apple pkl fixture smoke"
+  description =
+    "Selected fixtures from the apple/pkl submodule parse and evaluate through the native CLI."
+  tags { "moonbit"; "upstream"; "compatibility"; "contract" }
+  specRef { "PKL-011"; "PKL-012"; "PKL-013"; "PKL-014" }
+  cmd = "./scripts/upstream-smoke.sh"
+  workdir = ".."
+  expectStdoutContains {
+    "upstream parse ok: basic/import1.pkl"
+    "upstream eval ok: basic/parens.pkl"
+    "upstream eval ok: basic/import1.pkl"
+    "upstream eval ok: basic/import2.pkl"
+    "upstream eval ok: basic/import3.pkl"
+    "upstream eval ok: modules/filename with spaces.pkl"
+    "upstream eval ok: modules/filename with spaces 2.pkl"
+    "upstream eval ok: modules/objects.pkl"
+  }
+  timeoutSec = 180
+}
+
+local upstreamParserSuite = new Test {
+  name = "upstream apple pkl parser suite"
+  description =
+    "All apple/pkl LanguageSnippetTests parser fixtures, excluding the same invalid cases as ParserComparisonTest, parse through the native CLI."
+  tags { "moonbit"; "upstream"; "parser"; "compatibility"; "contract" }
+  specRef { "PKL-015" }
+  cmd = "./scripts/upstream-parse-suite.sh"
+  workdir = ".."
+  expectStdoutContains { "ok 802" }
+  timeoutSec = 180
+}
+
+tests { moonUnit; cliEval; upstreamSmoke; upstreamParserSuite }

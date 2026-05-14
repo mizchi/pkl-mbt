@@ -1,0 +1,9 @@
+import {
+  "mizchi/pickle" @pickle,
+  "moonbitlang/x/fs" @fs,
+  "moonbitlang/x/sys" @sys,
+}
+
+options(
+  "is-main": true,
+)

@@ -1,0 +1,204 @@
+///|
+fn usage() -> Unit {
+  println("usage: pickle <parse|check|eval> <file.pkl>")
+  println("       pickle parse-many <file.pkl>...")
+}
+
+///|
+fn fail(message : String) -> Unit {
+  println(message)
+  @sys.exit(1)
+}
+
+///|
+fn resolve_import_path(from : String, uri : String) -> String {
+  if uri.has_prefix("/") || uri.find(":") is Some(_) {
+    return uri
+  }
+  match from.rev_find("/") {
+    Some(idx) => String::unsafe_substring(from, start=0, end=idx + 1) + uri
+    None => uri
+  }
+}
+
+///|
+fn stack_contains(stack : Array[String], path : String) -> Bool {
+  for item in stack {
+    if item == path {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn push_stack(stack : Array[String], path : String) -> Array[String] {
+  let next : Array[String] = []
+  for item in stack {
+    next.push(item)
+  }
+  next.push(path)
+  next
+}
+
+///|
+fn load_expr_imports(
+  session : @pickle.AnalysisSession,
+  from : String,
+  expr : @pickle.Expr,
+  stack : Array[String],
+) -> Unit {
+  match expr {
+    ImportExpr(uri) =>
+      load_path(
+        session,
+        resolve_import_path(from, uri),
+        push_stack(stack, from),
+      )
+    ObjectLiteral(members) =>
+      for field in members {
+        load_expr_imports(session, from, field.value, stack)
+      }
+    MemberAccess(target, _) => load_expr_imports(session, from, target, stack)
+    BinaryExpr(_, left, right) => {
+      load_expr_imports(session, from, left, stack)
+      load_expr_imports(session, from, right, stack)
+    }
+    _ => ()
+  }
+}
+
+///|
+fn load_path(
+  session : @pickle.AnalysisSession,
+  path : String,
+  stack : Array[String],
+) -> Unit {
+  if path.has_prefix("pkl:") {
+    return
+  }
+  if stack_contains(stack, path) {
+    fail("cyclic import \{path}")
+  }
+  let source = @fs.read_file_to_string(path) catch {
+    _ => {
+      fail("failed to read \{path}")
+      ""
+    }
+  }
+  session.set_source(path, source)
+  let parsed = @pickle.parse_source(source)
+  for decl in parsed.program.imports {
+    load_path(
+      session,
+      resolve_import_path(path, decl.uri),
+      push_stack(stack, path),
+    )
+  }
+  for binding in parsed.program.bindings {
+    load_expr_imports(session, path, binding.value, stack)
+  }
+  match parsed.program.body {
+    Some(expr) => load_expr_imports(session, path, expr, stack)
+    None => ()
+  }
+}
+
+///|
+fn print_diagnostics(diagnostics : Array[@pickle.Diagnostic]) -> Unit {
+  for diagnostic in diagnostics {
+    println(diagnostic.message)
+  }
+}
+
+///|
+fn parse_file(path : String) -> Bool {
+  let source = @fs.read_file_to_string(path) catch {
+    _ => {
+      println("failed to read \{path}")
+      return false
+    }
+  }
+  let parsed = @pickle.parse_source(source)
+  if parsed.diagnostics.length() > 0 {
+    println("\{path}:")
+    print_diagnostics(parsed.diagnostics)
+    false
+  } else {
+    true
+  }
+}
+
+///|
+fn main {
+  let args = @sys.get_cli_args()
+  if args.length() < 3 {
+    usage()
+    @sys.exit(1)
+  }
+  let command = args[1]
+  if command == "parse-many" {
+    let mut passed = 0
+    let mut failed = 0
+    for i = 2; i < args.length(); i = i + 1 {
+      if parse_file(args[i]) {
+        passed += 1
+      } else {
+        failed += 1
+      }
+    }
+    if failed > 0 {
+      println("failed \{failed} of \{passed + failed}")
+      @sys.exit(1)
+    }
+    println("ok \{passed}")
+    return
+  }
+  if args.length() != 3 {
+    usage()
+    @sys.exit(1)
+  }
+  let path = args[2]
+  let source = @fs.read_file_to_string(path) catch {
+    _ => {
+      fail("failed to read \{path}")
+      ""
+    }
+  }
+  match command {
+    "parse" => {
+      let parsed = @pickle.parse_source(source)
+      if parsed.diagnostics.length() > 0 {
+        print_diagnostics(parsed.diagnostics)
+        @sys.exit(1)
+      }
+      println("ok")
+    }
+    "check" => {
+      let session = @pickle.AnalysisSession::new()
+      load_path(session, path, [])
+      match session.typecheck_path(path) {
+        TypeOk(typ) => println(@pickle.render_type(typ))
+        TypeError(diagnostics) => {
+          print_diagnostics(diagnostics)
+          @sys.exit(1)
+        }
+      }
+    }
+    "eval" => {
+      let session = @pickle.AnalysisSession::new()
+      load_path(session, path, [])
+      match session.eval_path(path) {
+        EvalOk(value) => println(@pickle.render_value(value))
+        EvalError(diagnostics) => {
+          print_diagnostics(diagnostics)
+          @sys.exit(1)
+        }
+      }
+    }
+    _ => {
+      usage()
+      @sys.exit(1)
+    }
+  }
+}

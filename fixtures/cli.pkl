@@ -1,0 +1,2 @@
+name: String = "hawk"
+age: Int = 2
