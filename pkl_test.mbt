@@ -913,6 +913,36 @@ test "typecheck Pkl constrained callable signature metadata" {
 }
 
 ///|
+test "typecheck Pkl constrained higher-order callable metadata" {
+  assert_true(
+    typecheck_source(
+      "function apply(f, n): Int = f(n)\nfunction accept(n: Int(isBetween(0, 10))): Int = n\nvalue = apply(accept, 3)",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+  guard typecheck_source(
+      "function apply(f, n): Int = f(n)\nfunction accept(n: Int(isBetween(0, 10))): Int = n\nvalue = apply(accept, 11)",
+    )
+    is TypeError(function_diagnostics) else {
+    panic()
+  }
+  inspect(
+    function_diagnostics[0].message,
+    content="function apply argument 2 type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+  )
+  guard typecheck_source(
+      "local apply = (f, n): Int -> f(n)\nlocal accept = (n: Int(this.isBetween(0, 10))): Int -> n\nvalue = apply(accept, 11)",
+    )
+    is TypeError(lambda_diagnostics) else {
+    panic()
+  }
+  inspect(
+    lambda_diagnostics[0].message,
+    content="function apply argument 2 type annotation Int(this.isBetween(0,10)) constraint isBetween rejects 11",
+  )
+}
+
+///|
 test "typecheck Pkl constrained type annotations" {
   let parsed = parse_source("value: Int(isBetween(0, 10)) = 3")
   assert_true(

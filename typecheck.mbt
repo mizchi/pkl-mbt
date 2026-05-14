@@ -1575,6 +1575,87 @@ fn infer_argument_types(
 }
 
 ///|
+fn function_parameter_index(
+  parameters : Array[FunctionParameter],
+  name : String,
+) -> Int? {
+  for i = 0; i < parameters.length(); i = i + 1 {
+    if parameters[i].name == name {
+      return Some(i)
+    }
+  }
+  None
+}
+
+///|
+fn callable_parameter_types_from_type(typ : Type) -> Array[Type]? {
+  match typ {
+    FunctionType(parameter_types, _) => Some(parameter_types)
+    NullableType(FunctionType(parameter_types, _)) => Some(parameter_types)
+    _ => None
+  }
+}
+
+///|
+fn validate_higher_order_constrained_call(
+  label : String,
+  parameters : Array[FunctionParameter],
+  body : Expr,
+  argument_types : Array[Type],
+  arguments : Array[Expr],
+  diagnostics : Array[Diagnostic],
+) -> Bool {
+  match body {
+    CallExpr(Identifier(callee_name), call_arguments) =>
+      match function_parameter_index(parameters, callee_name) {
+        Some(callee_index) =>
+          match
+            callable_parameter_types_from_type(argument_types[callee_index]) {
+            Some(callable_parameter_types) => {
+              let mut limit = call_arguments.length()
+              if callable_parameter_types.length() < limit {
+                limit = callable_parameter_types.length()
+              }
+              for i = 0; i < limit; i = i + 1 {
+                match
+                  constrained_type_annotation_name(callable_parameter_types[i]) {
+                  Some(type_name) =>
+                    match call_arguments[i] {
+                      Identifier(argument_name) =>
+                        match
+                          function_parameter_index(parameters, argument_name) {
+                          Some(argument_index) =>
+                            match
+                              pkl_constrained_type_annotation_expr_rejection_message(
+                                Some(type_name),
+                                arguments[argument_index],
+                              ) {
+                              Some(message) => {
+                                diagnostics.push(Diagnostic::{
+                                  message: "\{label} argument \{argument_index + 1} \{message}",
+                                })
+                                return false
+                              }
+                              None => ()
+                            }
+                          None => ()
+                        }
+                      _ => ()
+                    }
+                  None => ()
+                }
+              }
+              true
+            }
+            None => true
+          }
+        None => true
+      }
+    _ => true
+  }
+}
+
+///|
 fn infer_lambda_application(
   label : String,
   parameters : Array[FunctionParameter],
@@ -1636,6 +1717,11 @@ fn infer_lambda_application(
       None => argument_types[i]
     }
     call_cache.push({ name: parameter.name, typ: parameter_type })
+  }
+  if !validate_higher_order_constrained_call(
+      label, parameters, body, argument_types, arguments, diagnostics,
+    ) {
+    return UnknownType
   }
   let inferred_return = infer_expr_with_bindings(
     body, bindings, env, type_env, call_cache, stack, diagnostics, resolve_import,

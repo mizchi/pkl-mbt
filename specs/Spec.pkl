@@ -955,8 +955,8 @@ local constrainedHigherOrderCallableMetadata = new Scenario {
     "The typechecker preserves constrained callable metadata when functions are passed as higher-order arguments, so downstream calls through parameters can still reject invalid constrained arguments when enough static information is available."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-048"; "PKL-047"; "PKL-044" }
-  tags { "typechecker"; "next" }
-  reviewStatus = "draft"
+  tags { "typechecker" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -964,6 +964,26 @@ local constrainedHigherOrderCallableMetadata = new Scenario {
       summary = "Keep higher-order callable constraints separate"
       rationale =
         "Callable aliases now keep constrained parameter metadata in function types. Propagating those contracts through higher-order parameters needs richer flow-sensitive call information than simple aliases."
+    }
+  }
+}
+
+local constrainedMethodParameterEvaluation = new Scenario {
+  id = "PKL-050"
+  name = "enforce Pkl constrained method parameter annotations"
+  description =
+    "Class method calls validate constrained method parameter annotations in the typechecker and evaluator, so typed object method calls reject invalid constrained arguments."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-049"; "PKL-041"; "PKL-046" }
+  tags { "typechecker"; "evaluator"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Apply constrained callable checks to method dispatch"
+      rationale =
+        "Free functions and callable aliases now preserve and check constrained arguments. Class method calls still need the same contract treatment through receiver-based method lookup and member-call typechecking."
     }
   }
 }
@@ -1020,4 +1040,5 @@ scenarios {
   constrainedParameterEvaluation
   constrainedCallableSignatureMetadata
   constrainedHigherOrderCallableMetadata
+  constrainedMethodParameterEvaluation
 }
