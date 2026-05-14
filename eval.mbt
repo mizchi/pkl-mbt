@@ -314,10 +314,17 @@ fn resolve_binding_value(
                 diagnostics,
                 resolve_import,
               ) {
-              Some(value) => {
-                cache.push({ name, value })
-                Some(value)
-              }
+              Some(value) =>
+                if pkl_constrained_type_annotation_value_is_valid(
+                    binding.type_name,
+                    value,
+                    diagnostics,
+                  ) {
+                  cache.push({ name, value })
+                  Some(value)
+                } else {
+                  None
+                }
               None => None
             }
           }
@@ -1043,7 +1050,14 @@ fn eval_object_members(
         diagnostics,
         resolve_import,
       ) {
-      Some(value) => values.push({ name: field.name, value })
+      Some(value) =>
+        if pkl_constrained_type_annotation_value_is_valid(
+            field.type_name,
+            value,
+            diagnostics,
+          ) {
+          values.push({ name: field.name, value })
+        }
       None => ()
     }
   }

@@ -895,8 +895,8 @@ local constrainedAnnotationEvaluation = new Scenario {
     "Constrained annotations evaluate supported predicate expressions against the annotated value so contracts such as `Int(isBetween(0, 10))` can reject out-of-range values."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-045"; "PKL-041"; "PKL-044" }
-  tags { "typechecker"; "evaluator"; "next" }
-  reviewStatus = "draft"
+  tags { "typechecker"; "evaluator" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -904,6 +904,26 @@ local constrainedAnnotationEvaluation = new Scenario {
       summary = "Move from base-type recognition to constraint checking"
       rationale =
         "Constraint annotation text now preserves the base type contract. The next step is evaluating supported predicates with receiver bindings instead of accepting every value that matches only the base type."
+    }
+  }
+}
+
+local constrainedParameterEvaluation = new Scenario {
+  id = "PKL-047"
+  name = "enforce Pkl constrained function parameter annotations"
+  description =
+    "Function and lambda calls validate constrained parameter annotations such as `x: Int(isBetween(0, 10))`, rejecting invalid arguments at call boundaries in the typechecker and evaluator."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-046"; "PKL-023"; "PKL-044" }
+  tags { "typechecker"; "evaluator"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Carry constrained annotation checks into callable boundaries"
+      rationale =
+        "Top-level and object member annotations now reject supported `isBetween` violations. Function parameters need the same contract enforcement so constraints continue to hold when values cross callable boundaries."
     }
   }
 }
@@ -957,4 +977,5 @@ scenarios {
   callableRuntimeValues
   constrainedTypeAnnotations
   constrainedAnnotationEvaluation
+  constrainedParameterEvaluation
 }

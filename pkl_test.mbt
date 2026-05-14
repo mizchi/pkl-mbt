@@ -863,6 +863,50 @@ test "typecheck Pkl constrained type annotations" {
 }
 
 ///|
+test "evaluate and typecheck Pkl constrained type annotation predicates" {
+  assert_true(
+    typecheck_source("value: Int(isBetween(0, 10)) = 3") ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+  guard typecheck_source("value: Int(isBetween(0, 10)) = 11")
+    is TypeError(type_diagnostics) else {
+    panic()
+  }
+  inspect(
+    type_diagnostics[0].message,
+    content="type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+  )
+  assert_true(
+    eval_source("value: Int(isBetween(0, 10)) = 3") ==
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(3) }])),
+  )
+  guard eval_source("value: Int(this.isBetween(0, 10)) = 11")
+    is EvalError(eval_diagnostics) else {
+    panic()
+  }
+  inspect(
+    eval_diagnostics[0].message,
+    content="type annotation Int(this.isBetween(0,10)) constraint isBetween rejects 11",
+  )
+  guard typecheck_source("value = new { n: Int(isBetween(0, 10)) = 11 }")
+    is TypeError(member_type_diagnostics) else {
+    panic()
+  }
+  inspect(
+    member_type_diagnostics[0].message,
+    content="type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+  )
+  guard eval_source("value = new { n: Int(isBetween(0, 10)) = 11 }")
+    is EvalError(member_eval_diagnostics) else {
+    panic()
+  }
+  inspect(
+    member_eval_diagnostics[0].message,
+    content="type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+  )
+}
+
+///|
 test "typecheck Pkl nullable annotations" {
   let parsed = parse_source("name: String? = null")
   assert_true(parsed.program.bindings[0].type_name == Some("String?"))

@@ -1525,6 +1525,11 @@ fn resolve_binding_type(
               type_env,
               diagnostics,
             )
+            pkl_push_constrained_type_annotation_expr_diagnostic(
+              binding.type_name,
+              binding.value,
+              diagnostics,
+            )
             cache.push({ name, typ })
             Some(typ)
           }
@@ -2299,6 +2304,11 @@ fn infer_object_members(
         diagnostics,
       ),
     })
+    pkl_push_constrained_type_annotation_expr_diagnostic(
+      field.type_name,
+      field.value,
+      diagnostics,
+    )
   }
   fields
 }
