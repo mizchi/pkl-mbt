@@ -262,3 +262,67 @@ test "typecheck Pkl collection subscript access" {
     TypeOk(StringType),
   )
 }
+
+///|
+test "parser reports unsupported syntax inventory" {
+  let parsed = parse_source("value = max(1, 2)\nother = 1")
+  inspect(parsed.diagnostics.length(), content="0")
+  inspect(parsed.unsupported_syntax.length(), content="1")
+  let item = parsed.unsupported_syntax[0]
+  inspect(item.start, content="8")
+  inspect(item.end, content="17")
+  inspect(item.text, content="max(1, 2)")
+  inspect(item.kind, content="unsupported_expr")
+
+  let supported = parse_source("let xs = new Listing { 1; 2 }\nxs[0]")
+  inspect(supported.unsupported_syntax.length(), content="0")
+}
+
+///|
+test "parse Pkl class function and typealias declarations" {
+  let parsed = parse_source(
+    "class Bird { name: String }\ntypealias Label = String\nfunction identity(x) = x\nbird: Bird = new { name = \"hawk\" }\nlabel: Label = \"raptor\"",
+  )
+  inspect(parsed.diagnostics.length(), content="0")
+  inspect(parsed.program.declarations.length(), content="3")
+  guard parsed.program.declarations[0] is ClassDeclaration(class_decl) else {
+    panic()
+  }
+  inspect(class_decl.name, content="Bird")
+  inspect(class_decl.properties[0].name, content="name")
+  assert_true(class_decl.properties[0].type_name == Some("String"))
+  guard parsed.program.declarations[1] is TypeAliasDeclaration(type_alias) else {
+    panic()
+  }
+  inspect(type_alias.name, content="Label")
+  inspect(type_alias.target, content="String")
+  guard parsed.program.declarations[2] is FunctionDeclaration(function_decl) else {
+    panic()
+  }
+  inspect(function_decl.name, content="identity")
+  inspect(function_decl.parameters.length(), content="1")
+  assert_true(function_decl.body == Some(Identifier("x")))
+}
+
+///|
+test "typecheck resolves declared class and typealias annotations" {
+  guard typecheck_source(
+      "class Bird { name: String }\ntypealias Label = String\nbird: Bird = new { name = \"hawk\" }\nlabel: Label = \"raptor\"",
+    )
+    is TypeOk(ObjectType(fields)) else {
+    panic()
+  }
+  inspect(render_type(fields[0].typ), content="Bird")
+  assert_true(fields[1].typ == StringType)
+
+  guard typecheck_source(
+      "class Bird { name: String }\nbird: Bird = new { age = 2 }",
+    )
+    is TypeError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="type annotation Bird missing member name",
+  )
+}

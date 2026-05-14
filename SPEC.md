@@ -11,18 +11,18 @@
   - contributes to: GOAL-PKL-PURE
   - body: _not yet implemented_
 
-- [ ] **inventory unsupported syntax in tolerant parser output** [draft] — verifies: PKL-016 — tags: next, backlog, parser
-  > The parser reports which accepted source ranges still lower to UnsupportedExpr so parser completion can be driven by an explicit compatibility gap list instead of hidden tolerant recovery.
+- [ ] **inventory unsupported syntax in tolerant parser output** — verifies: PKL-016 — tags: parser
+  > ParseResult exposes an unsupported_syntax coverage report with source ranges, text, and syntax kind for accepted code that still lowers to UnsupportedExpr.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-015
-  - decisions: 1 entry(ies)
+  - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **model Pkl class function and typealias declarations** [draft] — verifies: PKL-019 — tags: next, backlog, parser, typechecker
-  > Class, function, and typealias declarations are represented in Program instead of being skipped, and the typechecker can resolve declared class names in property annotations.
+- [ ] **model Pkl class function and typealias declarations** — verifies: PKL-019 — tags: parser, typechecker
+  > Program retains class, function, and typealias declarations, and the typechecker resolves declared class and typealias names in property annotations.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-016, PKL-008
-  - decisions: 1 entry(ies)
+  - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **parse Pkl call lambda and operator expressions** [draft] — verifies: PKL-018 — tags: next, backlog, parser
@@ -134,7 +134,7 @@
   > The native CLI evaluates a Pkl file and prints module object properties.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-017 — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-019 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
@@ -149,10 +149,6 @@
 
 ## Outstanding questions
 
-- **PKL-016** — Should unsupported ranges be exposed as diagnostics, CST node metadata, or a separate parser coverage report?
-- **PKL-016** — Which upstream fixtures should become the first zero-UnsupportedExpr acceptance set?
-- **PKL-019** — Should function bodies be represented before function evaluation exists?
-- **PKL-019** — What minimum class model is enough to typecheck object literals against declared properties?
 - **PKL-018** — Should evaluator support be added in the same slice, or should this first be parser-only AST coverage?
 - **PKL-018** — Which operators should remain parse-only until the typechecker has richer Pkl semantics?
 - **PKL-020** — Should amends resolution be implemented before class inheritance, or share one merge model?

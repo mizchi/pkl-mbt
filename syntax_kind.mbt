@@ -284,6 +284,21 @@ pub fn subscript_access() -> @cst.SyntaxKind {
 }
 
 ///|
+pub fn class_decl() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(118)
+}
+
+///|
+pub fn function_decl() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(119)
+}
+
+///|
+pub fn typealias_decl() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(120)
+}
+
+///|
 pub fn is_trivia(kind : @cst.SyntaxKind) -> Bool {
   match kind.raw() {
     2 | 3 | 4 => true
@@ -359,6 +374,9 @@ pub fn kind_name(kind : @cst.SyntaxKind) -> String {
     115 => "mapping_expr"
     116 => "mapping_entry"
     117 => "subscript_access"
+    118 => "class_decl"
+    119 => "function_decl"
+    120 => "typealias_decl"
     _ => "unknown"
   }
 }

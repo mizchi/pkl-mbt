@@ -1,20 +1,25 @@
 ///|
 priv struct Parser {
+  source : String
   tokens : Array[Token]
   len : Int
   mut pos : Int
   builder : @cst.GreenNodeBuilder
   diagnostics : Array[Diagnostic]
+  unsupported_syntax : Array[UnsupportedSyntax]
 }
 
 ///|
-fn Parser::new(tokens : Array[Token]) -> Parser {
+fn Parser::new(source : String) -> Parser {
+  let tokens = tokenize(source)
   Parser::{
+    source,
     tokens,
     len: tokens.length(),
     pos: 0,
     builder: @cst.GreenNodeBuilder::new(),
     diagnostics: [],
+    unsupported_syntax: [],
   }
 }
 
@@ -175,6 +180,49 @@ fn Parser::add_error(self : Parser, message : String) -> Unit {
 }
 
 ///|
+fn Parser::current_offset(self : Parser) -> Int {
+  let mut offset = 0
+  let limit = if self.pos < self.len { self.pos } else { self.len }
+  for i = 0; i < limit; i = i + 1 {
+    offset += self.tokens[i].text().length()
+  }
+  offset
+}
+
+///|
+fn Parser::source_slice(self : Parser, start : Int, end : Int) -> String {
+  if end <= start || start < 0 || end > self.source.length() {
+    ""
+  } else {
+    String::unsafe_substring(self.source, start~, end~)
+  }
+}
+
+///|
+fn Parser::record_unsupported_syntax(
+  self : Parser,
+  start : Int,
+  end : Int,
+  kind : String,
+) -> Unit {
+  self.unsupported_syntax.push(UnsupportedSyntax::{
+    start,
+    end,
+    text: self.source_slice(start, end),
+    kind,
+  })
+}
+
+///|
+fn Parser::parse_empty_unsupported_expr(self : Parser) -> Expr {
+  let offset = self.current_offset()
+  self.builder.start_node(unsupported_expr())
+  self.builder.finish_node()
+  self.record_unsupported_syntax(offset, offset, kind_name(unsupported_expr()))
+  UnsupportedExpr
+}
+
+///|
 fn Parser::bump(self : Parser) -> Token {
   let tok = self.peek()
   self.builder.token(tok.kind(), tok.text())
@@ -332,10 +380,22 @@ fn Parser::expect(
 }
 
 ///|
+fn Parser::expect_text(self : Parser, text : String, expected : String) -> Unit {
+  self.skip_whitespace()
+  if self.at_text(text) {
+    ignore(self.bump())
+  } else {
+    self.add_error("expected \{expected}, got \{self.peek().text()}")
+    self.builder.token(error_kind(), "")
+  }
+}
+
+///|
 fn Parser::parse(self : Parser) -> ParseResult {
   self.builder.start_node(module_node())
   let mut module_name : String? = None
   let imports : Array[ImportDecl] = []
+  let declarations : Array[Declaration] = []
   let bindings : Array[Binding] = []
   self.consume_separators()
   let mut body : Expr? = None
@@ -383,6 +443,21 @@ fn Parser::parse(self : Parser) -> ParseResult {
         Some(binding) => bindings.push(binding)
         None => ()
       }
+    } else if self.at_text("class") {
+      match self.parse_class_decl() {
+        Some(decl) => declarations.push(ClassDeclaration(decl))
+        None => ()
+      }
+    } else if self.at_text("typealias") {
+      match self.parse_typealias_decl() {
+        Some(decl) => declarations.push(TypeAliasDeclaration(decl))
+        None => ()
+      }
+    } else if self.at_text("function") {
+      match self.parse_function_decl() {
+        Some(decl) => declarations.push(FunctionDeclaration(decl))
+        None => ()
+      }
     } else if is_decl_text(self.peek().text()) {
       self.skip_unknown_member()
     } else if body is None {
@@ -396,8 +471,9 @@ fn Parser::parse(self : Parser) -> ParseResult {
   let green = self.builder.finish()
   {
     root: @cst.SyntaxNode::new_root(green),
-    program: { module_name, imports, bindings, body },
+    program: { module_name, imports, declarations, bindings, body },
     diagnostics: self.diagnostics,
+    unsupported_syntax: self.unsupported_syntax,
   }
 }
 
@@ -461,7 +537,7 @@ fn Parser::parse_let_decl(self : Parser) -> Binding? {
     ignore(self.bump())
     self.parse_expr()
   } else {
-    UnsupportedExpr
+    self.parse_empty_unsupported_expr()
   }
   self.builder.finish_node()
   if name == "" {
@@ -487,7 +563,7 @@ fn Parser::parse_local_decl(self : Parser) -> Binding? {
     ignore(self.bump())
     self.parse_expr()
   } else {
-    UnsupportedExpr
+    self.parse_empty_unsupported_expr()
   }
   self.builder.finish_node()
   if name == "" {
@@ -536,9 +612,9 @@ fn Parser::parse_type_annotation(self : Parser) -> String? {
         break
       }
       brackets -= 1
-    } else if self.at(lt()) {
+    } else if parens == 0 && brackets == 0 && self.at(lt()) {
       angles += 1
-    } else if self.at(gt()) {
+    } else if parens == 0 && brackets == 0 && self.at(gt()) {
       if angles == 0 {
         break
       }
@@ -585,6 +661,201 @@ fn Parser::parse_import_decl(self : Parser) -> ImportDecl? {
 }
 
 ///|
+fn Parser::skip_type_tail(self : Parser) -> Unit {
+  let mut parens = 0
+  let mut brackets = 0
+  let mut angles = 0
+  while !self.at(eof()) {
+    if parens == 0 && brackets == 0 && angles == 0 {
+      if self.at(eq()) ||
+        self.at(lbrace()) ||
+        self.at(rbrace()) ||
+        self.at(comma()) ||
+        self.at(rparen()) ||
+        is_separator(self.peek_kind()) {
+        break
+      }
+    }
+    if self.at(lparen()) {
+      parens += 1
+    } else if self.at(rparen()) {
+      if parens == 0 {
+        break
+      }
+      parens -= 1
+    } else if self.at(lbracket()) {
+      brackets += 1
+    } else if self.at(rbracket()) {
+      if brackets == 0 {
+        break
+      }
+      brackets -= 1
+    } else if parens == 0 && brackets == 0 && self.at(lt()) {
+      angles += 1
+    } else if parens == 0 && brackets == 0 && self.at(gt()) {
+      if angles == 0 {
+        break
+      }
+      angles -= 1
+    }
+    ignore(self.bump())
+  }
+}
+
+///|
+fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
+  self.builder.start_node(class_decl())
+  self.expect_text("class", "class")
+  let name = match self.expect(identifier(), "class name") {
+    Some(tok) => tok.text()
+    None => ""
+  }
+  while !self.at(eof()) && !self.at(lbrace()) {
+    if is_separator(self.peek_kind()) || self.at(rbrace()) {
+      break
+    }
+    ignore(self.bump())
+  }
+  let properties : Array[ClassProperty] = []
+  if self.at(lbrace()) {
+    ignore(self.bump())
+    self.consume_separators()
+    while !self.at(eof()) && !self.at(rbrace()) {
+      self.skip_member_header()
+      if self.at_property_decl() {
+        match self.parse_class_property_decl() {
+          Some(property) => properties.push(property)
+          None => ()
+        }
+      } else {
+        self.skip_unknown_member()
+      }
+      self.consume_separators()
+    }
+    ignore(self.expect(rbrace(), "}"))
+  } else {
+    self.skip_unknown_member()
+  }
+  self.builder.finish_node()
+  if name == "" {
+    None
+  } else {
+    Some({ name, properties })
+  }
+}
+
+///|
+fn Parser::parse_class_property_decl(self : Parser) -> ClassProperty? {
+  self.builder.start_node(property_decl())
+  if !self.at(identifier()) {
+    self.skip_unknown_member()
+    self.builder.finish_node()
+    return None
+  }
+  let name = match self.expect(identifier(), "class property name") {
+    Some(tok) => tok.text()
+    None => ""
+  }
+  let type_name = self.parse_type_annotation()
+  let value = if ({
+      self.skip_whitespace()
+      self.at(lbrace())
+    }) {
+    Some(self.parse_object_body())
+  } else if ({
+      self.skip_whitespace()
+      self.at(eq())
+    }) {
+    ignore(self.bump())
+    Some(self.parse_expr())
+  } else {
+    None
+  }
+  self.builder.finish_node()
+  if name == "" {
+    None
+  } else {
+    Some({ name, type_name, value })
+  }
+}
+
+///|
+fn Parser::parse_typealias_decl(self : Parser) -> TypeAliasDecl? {
+  self.builder.start_node(typealias_decl())
+  self.expect_text("typealias", "typealias")
+  let name = match self.expect(identifier(), "typealias name") {
+    Some(tok) => tok.text()
+    None => ""
+  }
+  let target = if ({
+      self.skip_whitespace()
+      self.at(eq())
+    }) {
+    ignore(self.bump())
+    self.skip_whitespace()
+    let type_name = if self.at(identifier()) { self.bump().text() } else { "" }
+    self.skip_type_tail()
+    type_name
+  } else {
+    ""
+  }
+  self.builder.finish_node()
+  if name == "" || target == "" {
+    None
+  } else {
+    Some({ name, target })
+  }
+}
+
+///|
+fn Parser::parse_function_decl(self : Parser) -> FunctionDecl? {
+  self.builder.start_node(function_decl())
+  self.expect_text("function", "function")
+  let name = match self.expect(identifier(), "function name") {
+    Some(tok) => tok.text()
+    None => ""
+  }
+  let parameters : Array[String] = []
+  self.skip_whitespace()
+  if self.at(lparen()) {
+    ignore(self.bump())
+    self.skip_whitespace()
+    while !self.at(eof()) && !self.at(rparen()) {
+      if self.at(identifier()) {
+        parameters.push(self.bump().text())
+        self.skip_type_tail()
+      } else if self.at(comma()) {
+        ignore(self.bump())
+      } else {
+        ignore(self.bump())
+      }
+      self.skip_whitespace()
+      if self.at(comma()) {
+        ignore(self.bump())
+        self.skip_whitespace()
+      }
+    }
+    ignore(self.expect(rparen(), ")"))
+  }
+  let _return_type = self.parse_type_annotation()
+  let body = if ({
+      self.skip_whitespace()
+      self.at(eq())
+    }) {
+    ignore(self.bump())
+    Some(self.parse_expr())
+  } else {
+    None
+  }
+  self.builder.finish_node()
+  if name == "" {
+    None
+  } else {
+    Some({ name, parameters, body })
+  }
+}
+
+///|
 fn Parser::parse_property_decl(self : Parser) -> Binding? {
   self.builder.start_node(property_decl())
   if !self.at(identifier()) {
@@ -609,7 +880,7 @@ fn Parser::parse_property_decl(self : Parser) -> Binding? {
     ignore(self.bump())
     self.parse_expr()
   } else {
-    UnsupportedExpr
+    self.parse_empty_unsupported_expr()
   }
   self.builder.finish_node()
   if name == "" {
@@ -668,6 +939,7 @@ fn Parser::parse_postfix_expr(self : Parser) -> Expr {
   while keep_going {
     self.skip_whitespace()
     if self.at(dot()) {
+      let unsupported_start = self.current_offset()
       self.builder.start_node_at(checkpoint, member_access())
       ignore(self.bump())
       let field_name = if self.at(identifier()) {
@@ -680,12 +952,23 @@ fn Parser::parse_postfix_expr(self : Parser) -> Expr {
       }
       self.builder.finish_node()
       expr = if field_name == "" {
+        self.record_unsupported_syntax(
+          unsupported_start,
+          self.current_offset(),
+          kind_name(unsupported_expr()),
+        )
         UnsupportedExpr
       } else {
         MemberAccess(expr, field_name)
       }
     } else if self.at(lparen()) {
+      let unsupported_start = self.current_offset()
       self.skip_balanced_group(lparen(), rparen())
+      self.record_unsupported_syntax(
+        unsupported_start,
+        self.current_offset(),
+        kind_name(unsupported_expr()),
+      )
       expr = UnsupportedExpr
     } else if self.at(lbracket()) {
       self.builder.start_node_at(checkpoint, subscript_access())
@@ -695,7 +978,13 @@ fn Parser::parse_postfix_expr(self : Parser) -> Expr {
       self.builder.finish_node()
       expr = SubscriptAccess(expr, key)
     } else if self.at(question()) || self.at(bang()) {
+      let unsupported_start = self.current_offset()
       ignore(self.bump())
+      self.record_unsupported_syntax(
+        unsupported_start,
+        self.current_offset(),
+        kind_name(unsupported_expr()),
+      )
       expr = UnsupportedExpr
     } else {
       keep_going = false
@@ -772,6 +1061,7 @@ fn Parser::parse_unsupported_expr(self : Parser) -> Expr {
   let mut brackets = 0
   let mut consumed = false
   self.skip_trivia()
+  let unsupported_start = self.current_offset()
   while !self.at(eof()) {
     if consumed && parens == 0 && braces == 0 && brackets == 0 {
       if self.at(rbrace()) ||
@@ -813,6 +1103,11 @@ fn Parser::parse_unsupported_expr(self : Parser) -> Expr {
   if !consumed && !self.at(eof()) {
     ignore(self.bump())
   }
+  self.record_unsupported_syntax(
+    unsupported_start,
+    self.current_offset(),
+    kind_name(unsupported_expr()),
+  )
   self.builder.finish_node()
   UnsupportedExpr
 }
@@ -930,7 +1225,7 @@ fn Parser::parse_mapping_entry(self : Parser) -> MappingEntry? {
     }) {
     self.parse_object_body()
   } else {
-    UnsupportedExpr
+    self.parse_empty_unsupported_expr()
   }
   self.builder.finish_node()
   Some({ key, value })
@@ -982,7 +1277,7 @@ fn Parser::parse_object_member(self : Parser) -> ObjectMember? {
     ignore(self.bump())
     self.parse_expr()
   } else {
-    UnsupportedExpr
+    self.parse_empty_unsupported_expr()
   }
   self.builder.finish_node()
   if name == "" {
@@ -1068,5 +1363,5 @@ fn import_alias_from_uri(uri : String) -> String {
 
 ///|
 pub fn parse_source(source : String) -> ParseResult {
-  Parser::new(tokenize(source)).parse()
+  Parser::new(source).parse()
 }

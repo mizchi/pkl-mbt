@@ -4,6 +4,14 @@ pub(all) struct Diagnostic {
 } derive(Eq, Debug)
 
 ///|
+pub(all) struct UnsupportedSyntax {
+  start : Int
+  end : Int
+  text : String
+  kind : String
+} derive(Eq, Debug)
+
+///|
 pub(all) enum BinaryOp {
   Add
   Subtract
@@ -57,9 +65,43 @@ pub(all) struct Binding {
 } derive(Eq, Debug)
 
 ///|
+pub(all) enum Declaration {
+  ClassDeclaration(ClassDecl)
+  FunctionDeclaration(FunctionDecl)
+  TypeAliasDeclaration(TypeAliasDecl)
+} derive(Eq, Debug)
+
+///|
+pub(all) struct ClassDecl {
+  name : String
+  properties : Array[ClassProperty]
+} derive(Eq, Debug)
+
+///|
+pub(all) struct ClassProperty {
+  name : String
+  type_name : String?
+  value : Expr?
+} derive(Eq, Debug)
+
+///|
+pub(all) struct FunctionDecl {
+  name : String
+  parameters : Array[String]
+  body : Expr?
+} derive(Eq, Debug)
+
+///|
+pub(all) struct TypeAliasDecl {
+  name : String
+  target : String
+} derive(Eq, Debug)
+
+///|
 pub(all) struct Program {
   module_name : String?
   imports : Array[ImportDecl]
+  declarations : Array[Declaration]
   bindings : Array[Binding]
   body : Expr?
 } derive(Eq, Debug)
@@ -69,4 +111,5 @@ pub(all) struct ParseResult {
   root : @cst.SyntaxNode
   program : Program
   diagnostics : Array[Diagnostic]
+  unsupported_syntax : Array[UnsupportedSyntax]
 } derive(Eq)

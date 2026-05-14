@@ -5,6 +5,7 @@ pub(all) enum Type {
   StringType
   NullType
   ObjectType(Array[TypeMember])
+  ClassType(String, Array[TypeMember])
   ListingType(Array[Type])
   MappingType(Array[TypeEntry])
   UnknownType
@@ -95,6 +96,7 @@ pub fn render_type(typ : Type) -> String {
     StringType => "String"
     NullType => "Null"
     ObjectType(_) => "Object"
+    ClassType(name, _) => name
     ListingType(_) => "Listing"
     MappingType(_) => "Mapping"
     UnknownType => "Unknown"
@@ -102,7 +104,7 @@ pub fn render_type(typ : Type) -> String {
 }
 
 ///|
-fn type_from_annotation(name : String) -> Type? {
+fn builtin_type_from_annotation(name : String) -> Type? {
   match name {
     "Int" => Some(IntType)
     "String" => Some(StringType)
@@ -117,25 +119,94 @@ fn type_from_annotation(name : String) -> Type? {
 }
 
 ///|
+fn type_from_annotation(name : String, type_env : Array[TypeBinding]) -> Type? {
+  match builtin_type_from_annotation(name) {
+    Some(typ) => Some(typ)
+    None => lookup_type(type_env, name)
+  }
+}
+
+///|
+fn type_accepts(expected : Type, inferred : Type) -> Bool {
+  if expected == inferred {
+    return true
+  }
+  match (expected, inferred) {
+    (UnknownType, _) => true
+    (ObjectType(_), ObjectType(_)) => true
+    (ObjectType(_), ClassType(_, _)) => true
+    (ClassType(_, expected_members), ObjectType(actual_members)) => {
+      let mut ok = true
+      for expected_member in expected_members {
+        match lookup_member_type(actual_members, expected_member.name) {
+          Some(actual) =>
+            if !type_accepts(expected_member.typ, actual) {
+              ok = false
+            }
+          None => ok = false
+        }
+      }
+      ok
+    }
+    (ListingType(_), ListingType(_)) => true
+    (MappingType(_), MappingType(_)) => true
+    _ => false
+  }
+}
+
+///|
+fn class_type_mismatch_message(
+  annotation_name : String,
+  expected : Type,
+  inferred : Type,
+) -> String? {
+  match (expected, inferred) {
+    (ClassType(_, expected_members), ObjectType(actual_members)) => {
+      let mut message : String? = None
+      for expected_member in expected_members {
+        if message is None {
+          match lookup_member_type(actual_members, expected_member.name) {
+            Some(actual) =>
+              if !type_accepts(expected_member.typ, actual) {
+                message = Some(
+                  "type annotation \{annotation_name} member \{expected_member.name} expects \{render_type(expected_member.typ)}, got \{render_type(actual)}",
+                )
+              }
+            None =>
+              message = Some(
+                "type annotation \{annotation_name} missing member \{expected_member.name}",
+              )
+          }
+        }
+      }
+      message
+    }
+    _ => None
+  }
+}
+
+///|
 fn apply_type_annotation(
   type_name : String?,
   inferred : Type,
+  type_env : Array[TypeBinding],
   diagnostics : Array[Diagnostic],
 ) -> Type {
   match type_name {
     None => inferred
     Some(name) =>
-      match type_from_annotation(name) {
+      match type_from_annotation(name, type_env) {
         Some(expected) =>
-          if expected == inferred ||
-            (expected is ObjectType(_) && inferred is ObjectType(_)) ||
-            (expected is ListingType(_) && inferred is ListingType(_)) ||
-            (expected is MappingType(_) && inferred is MappingType(_)) {
+          if type_accepts(expected, inferred) {
             expected
           } else {
-            diagnostics.push(Diagnostic::{
-              message: "type annotation \{name} does not accept \{render_type(inferred)}",
-            })
+            let message = match
+              class_type_mismatch_message(name, expected, inferred) {
+              Some(detail) => detail
+              None =>
+                "type annotation \{name} does not accept \{render_type(inferred)}"
+            }
+            diagnostics.push(Diagnostic::{ message, })
             UnknownType
           }
         None => {
@@ -174,10 +245,86 @@ fn lookup_mapping_value_type(entries : Array[TypeEntry], key : Type) -> Type? {
 }
 
 ///|
+fn class_properties_to_members(
+  properties : Array[ClassProperty],
+  type_env : Array[TypeBinding],
+  diagnostics : Array[Diagnostic],
+) -> Array[TypeMember] {
+  let members : Array[TypeMember] = []
+  for property in properties {
+    let typ = match property.type_name {
+      Some(type_name) =>
+        match type_from_annotation(type_name, type_env) {
+          Some(resolved) => resolved
+          None => {
+            diagnostics.push(Diagnostic::{
+              message: "unknown type annotation \{type_name}",
+            })
+            UnknownType
+          }
+        }
+      None => UnknownType
+    }
+    members.push({ name: property.name, typ })
+  }
+  members
+}
+
+///|
+fn collect_declared_types(
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+) -> Array[TypeBinding] {
+  let type_env : Array[TypeBinding] = []
+  for decl in declarations {
+    match decl {
+      ClassDeclaration(class_decl) =>
+        type_env.push({
+          name: class_decl.name,
+          typ: ClassType(class_decl.name, []),
+        })
+      TypeAliasDeclaration(type_alias) =>
+        match builtin_type_from_annotation(type_alias.target) {
+          Some(typ) => type_env.push({ name: type_alias.name, typ })
+          None => ()
+        }
+      FunctionDeclaration(_) => ()
+    }
+  }
+  for decl in declarations {
+    match decl {
+      ClassDeclaration(class_decl) =>
+        type_env.push({
+          name: class_decl.name,
+          typ: ClassType(
+            class_decl.name,
+            class_properties_to_members(
+              class_decl.properties,
+              type_env,
+              diagnostics,
+            ),
+          ),
+        })
+      TypeAliasDeclaration(type_alias) =>
+        match type_from_annotation(type_alias.target, type_env) {
+          Some(typ) => type_env.push({ name: type_alias.name, typ })
+          None =>
+            diagnostics.push(Diagnostic::{
+              message: "unknown type annotation \{type_alias.target}",
+            })
+        }
+      FunctionDeclaration(_) => ()
+    }
+  }
+  type_env
+}
+
+///|
 fn resolve_binding_type(
   name : String,
   bindings : Array[Binding],
   env : Array[TypeBinding],
+  type_env : Array[TypeBinding],
   cache : Array[TypeBinding],
   stack : Array[String],
   diagnostics : Array[Diagnostic],
@@ -198,6 +345,7 @@ fn resolve_binding_type(
               binding.value,
               bindings,
               env,
+              type_env,
               cache,
               push_type_stack(stack, name),
               diagnostics,
@@ -206,6 +354,7 @@ fn resolve_binding_type(
             let typ = apply_type_annotation(
               binding.type_name,
               inferred,
+              type_env,
               diagnostics,
             )
             cache.push({ name, typ })
@@ -221,6 +370,7 @@ fn infer_expr_with_bindings(
   expr : Expr,
   bindings : Array[Binding],
   env : Array[TypeBinding],
+  type_env : Array[TypeBinding],
   cache : Array[TypeBinding],
   stack : Array[String],
   diagnostics : Array[Diagnostic],
@@ -252,6 +402,7 @@ fn infer_expr_with_bindings(
           field.value,
           bindings,
           env,
+          type_env,
           cache,
           stack,
           diagnostics,
@@ -259,7 +410,12 @@ fn infer_expr_with_bindings(
         )
         fields.push({
           name: field.name,
-          typ: apply_type_annotation(field.type_name, inferred, diagnostics),
+          typ: apply_type_annotation(
+            field.type_name,
+            inferred,
+            type_env,
+            diagnostics,
+          ),
         })
       }
       ObjectType(fields)
@@ -269,7 +425,7 @@ fn infer_expr_with_bindings(
       for element in elements {
         item_types.push(
           infer_expr_with_bindings(
-            element, bindings, env, cache, stack, diagnostics, resolve_import,
+            element, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
           ),
         )
       }
@@ -282,6 +438,7 @@ fn infer_expr_with_bindings(
           entry.key,
           bindings,
           env,
+          type_env,
           cache,
           stack,
           diagnostics,
@@ -291,6 +448,7 @@ fn infer_expr_with_bindings(
           entry.value,
           bindings,
           env,
+          type_env,
           cache,
           stack,
           diagnostics,
@@ -303,9 +461,19 @@ fn infer_expr_with_bindings(
     MemberAccess(target_expr, member_name) =>
       match
         infer_expr_with_bindings(
-          target_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+          target_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
         ) {
         ObjectType(members) =>
+          match lookup_member_type(members, member_name) {
+            Some(typ) => typ
+            None => {
+              diagnostics.push(Diagnostic::{
+                message: "unknown member \{member_name}",
+              })
+              UnknownType
+            }
+          }
+        ClassType(_, members) =>
           match lookup_member_type(members, member_name) {
             Some(typ) => typ
             None => {
@@ -325,10 +493,10 @@ fn infer_expr_with_bindings(
       }
     SubscriptAccess(target_expr, key_expr) => {
       let target = infer_expr_with_bindings(
-        target_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+        target_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
       )
       let key = infer_expr_with_bindings(
-        key_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+        key_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
       )
       match target {
         ListingType(items) =>
@@ -373,7 +541,7 @@ fn infer_expr_with_bindings(
     Identifier(name) =>
       match
         resolve_binding_type(
-          name, bindings, env, cache, stack, diagnostics, resolve_import,
+          name, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
         ) {
         Some(typ) => typ
         None => {
@@ -383,10 +551,10 @@ fn infer_expr_with_bindings(
       }
     BinaryExpr(op, left_expr, right_expr) => {
       let left = infer_expr_with_bindings(
-        left_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+        left_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
       )
       let right = infer_expr_with_bindings(
-        right_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+        right_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
       )
       if left == IntType && right == IntType {
         IntType
@@ -437,6 +605,7 @@ fn infer_program(
   resolve_import : (String) -> TypecheckResult?,
 ) -> Type {
   let env : Array[TypeBinding] = []
+  let type_env = collect_declared_types(program.declarations, diagnostics)
   let cache : Array[TypeBinding] = []
   let fields : Array[TypeMember] = []
   infer_imports(program.imports, env, diagnostics, resolve_import)
@@ -446,6 +615,7 @@ fn infer_program(
         binding.name,
         program.bindings,
         env,
+        type_env,
         cache,
         [],
         diagnostics,
@@ -464,6 +634,7 @@ fn infer_program(
         expr,
         program.bindings,
         env,
+        type_env,
         cache,
         [],
         diagnostics,

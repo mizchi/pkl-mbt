@@ -262,23 +262,24 @@ local unsupportedSyntaxInventory = new Scenario {
   id = "PKL-016"
   name = "inventory unsupported syntax in tolerant parser output"
   description =
-    "The parser reports which accepted source ranges still lower to UnsupportedExpr so parser completion can be driven by an explicit compatibility gap list instead of hidden tolerant recovery."
+    "ParseResult exposes an unsupported_syntax coverage report with source ranges, text, and syntax kind for accepted code that still lowers to UnsupportedExpr."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-015" }
-  tags { "next"; "backlog"; "parser" }
-  reviewStatus = "draft"
-  pending = true
+  tags { "parser" }
+  reviewStatus = "approved"
   severity = "major"
-  openQuestions {
-    "Should unsupported ranges be exposed as diagnostics, CST node metadata, or a separate parser coverage report?"
-    "Which upstream fixtures should become the first zero-UnsupportedExpr acceptance set?"
-  }
   decisions {
     new Decision {
       date = "2026-05-14"
       summary = "Make parser completion resume from unsupported syntax inventory"
       rationale =
         "The parser now accepts the upstream corpus, but many constructs are intentionally tolerant. The next parser work needs a measurable unsupported-syntax inventory before expanding AST coverage."
+    }
+    new Decision {
+      date = "2026-05-14"
+      summary = "Expose unsupported syntax separately from parser diagnostics"
+      rationale =
+        "Unsupported syntax is an implementation coverage gap in otherwise accepted input, not a parse error. Keeping it on ParseResult preserves tolerant parsing while making the remaining AST work measurable."
     }
   }
 }
@@ -332,23 +333,24 @@ local declarationsAndClassTypes = new Scenario {
   id = "PKL-019"
   name = "model Pkl class function and typealias declarations"
   description =
-    "Class, function, and typealias declarations are represented in Program instead of being skipped, and the typechecker can resolve declared class names in property annotations."
+    "Program retains class, function, and typealias declarations, and the typechecker resolves declared class and typealias names in property annotations."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-016"; "PKL-008" }
-  tags { "next"; "backlog"; "parser"; "typechecker" }
-  reviewStatus = "draft"
-  pending = true
+  tags { "parser"; "typechecker" }
+  reviewStatus = "approved"
   severity = "major"
-  openQuestions {
-    "Should function bodies be represented before function evaluation exists?"
-    "What minimum class model is enough to typecheck object literals against declared properties?"
-  }
   decisions {
     new Decision {
       date = "2026-05-14"
       summary = "Track declaration AST work as the typechecker bridge"
       rationale =
         "The parser currently skips declarations to keep parse-only compatibility. Typechecker progress needs declarations preserved as structured contracts."
+    }
+    new Decision {
+      date = "2026-05-14"
+      summary = "Keep functions parse-only and use class properties as contracts"
+      rationale =
+        "Function evaluation is outside this slice, but retaining function declarations prevents parser coverage from hiding them. Class properties provide enough structure to validate object literals assigned to declared class annotations."
     }
   }
 }

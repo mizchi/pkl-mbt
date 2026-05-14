@@ -15,6 +15,8 @@ pub fn bang() -> @cst.SyntaxKind
 
 pub fn binary_expr() -> @cst.SyntaxKind
 
+pub fn class_decl() -> @cst.SyntaxKind
+
 pub fn colon() -> @cst.SyntaxKind
 
 pub fn comma() -> @cst.SyntaxKind
@@ -32,6 +34,8 @@ pub fn error_kind() -> @cst.SyntaxKind
 pub fn eval_source(String) -> EvalResult
 
 pub fn false_kw() -> @cst.SyntaxKind
+
+pub fn function_decl() -> @cst.SyntaxKind
 
 pub fn gt() -> @cst.SyntaxKind
 
@@ -131,6 +135,8 @@ pub fn subscript_access() -> @cst.SyntaxKind
 
 pub fn true_kw() -> @cst.SyntaxKind
 
+pub fn typealias_decl() -> @cst.SyntaxKind
+
 pub fn typecheck_source(String) -> TypecheckResult
 
 pub fn unsupported_expr() -> @cst.SyntaxKind
@@ -162,6 +168,23 @@ pub(all) struct Binding {
   exported : Bool
 } derive(Eq, @debug.Debug)
 
+pub(all) struct ClassDecl {
+  name : String
+  properties : Array[ClassProperty]
+} derive(Eq, @debug.Debug)
+
+pub(all) struct ClassProperty {
+  name : String
+  type_name : String?
+  value : Expr?
+} derive(Eq, @debug.Debug)
+
+pub(all) enum Declaration {
+  ClassDeclaration(ClassDecl)
+  FunctionDeclaration(FunctionDecl)
+  TypeAliasDeclaration(TypeAliasDecl)
+} derive(Eq, @debug.Debug)
+
 pub(all) struct Diagnostic {
   message : String
 } derive(Eq, @debug.Debug)
@@ -188,6 +211,12 @@ pub(all) enum Expr {
   ErrorExpr(String)
 } derive(Eq, @debug.Debug)
 
+pub(all) struct FunctionDecl {
+  name : String
+  parameters : Array[String]
+  body : Expr?
+} derive(Eq, @debug.Debug)
+
 pub(all) struct ImportDecl {
   uri : String
   import_name : String
@@ -208,11 +237,13 @@ pub(all) struct ParseResult {
   root : @cst.SyntaxNode
   program : Program
   diagnostics : Array[Diagnostic]
+  unsupported_syntax : Array[UnsupportedSyntax]
 } derive(Eq)
 
 pub(all) struct Program {
   module_name : String?
   imports : Array[ImportDecl]
+  declarations : Array[Declaration]
   bindings : Array[Binding]
   body : Expr?
 } derive(Eq, @debug.Debug)
@@ -223,9 +254,15 @@ pub(all) enum Type {
   StringType
   NullType
   ObjectType(Array[TypeMember])
+  ClassType(String, Array[TypeMember])
   ListingType(Array[Type])
   MappingType(Array[TypeEntry])
   UnknownType
+} derive(Eq, @debug.Debug)
+
+pub(all) struct TypeAliasDecl {
+  name : String
+  target : String
 } derive(Eq, @debug.Debug)
 
 pub(all) struct TypeEntry {
@@ -241,6 +278,13 @@ pub(all) struct TypeMember {
 pub(all) enum TypecheckResult {
   TypeOk(Type)
   TypeError(Array[Diagnostic])
+} derive(Eq, @debug.Debug)
+
+pub(all) struct UnsupportedSyntax {
+  start : Int
+  end : Int
+  text : String
+  kind : String
 } derive(Eq, @debug.Debug)
 
 pub(all) enum Value {
