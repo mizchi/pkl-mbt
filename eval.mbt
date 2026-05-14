@@ -41,6 +41,13 @@ priv struct ClassBinding {
 }
 
 ///|
+pub(all) struct ClassExport {
+  name : String
+  parent_name : String?
+  properties : Array[ClassProperty]
+} derive(Eq, Debug)
+
+///|
 fn lookup_value(env : Array[ValueBinding], name : String) -> Value? {
   let mut found : Value? = None
   for binding in env {
@@ -761,6 +768,61 @@ fn collect_class_bindings(
 }
 
 ///|
+fn imported_class_parent_name(
+  import_name : String,
+  parent_name : String,
+) -> String {
+  if parent_name.find(".") is Some(_) {
+    parent_name
+  } else {
+    "\{import_name}.\{parent_name}"
+  }
+}
+
+///|
+fn add_imported_class_bindings(
+  imports : Array[ImportDecl],
+  class_env : Array[ClassBinding],
+  resolve_import_classes : (String) -> Array[ClassExport]?,
+) -> Unit {
+  for decl in imports {
+    match resolve_import_classes(decl.uri) {
+      Some(exports) =>
+        for class_export in exports {
+          let parent_name = match class_export.parent_name {
+            Some(parent) =>
+              Some(imported_class_parent_name(decl.import_name, parent))
+            None => None
+          }
+          class_env.push({
+            name: "\{decl.import_name}.\{class_export.name}",
+            parent_name,
+            properties: class_export.properties,
+          })
+        }
+      None => ()
+    }
+  }
+}
+
+///|
+fn class_exports_from_parse_result(parsed : ParseResult) -> Array[ClassExport] {
+  let exports : Array[ClassExport] = []
+  for declaration in parsed.program.declarations {
+    match declaration {
+      ClassDeclaration(class_decl) =>
+        exports.push({
+          name: class_decl.name,
+          parent_name: class_decl.parent_name,
+          properties: class_decl.properties,
+        })
+      FunctionDeclaration(_) | TypeAliasDeclaration(_) => ()
+    }
+  }
+  exports
+}
+
+///|
 fn eval_imports(
   imports : Array[ImportDecl],
   env : Array[ValueBinding],
@@ -816,12 +878,18 @@ fn eval_program(
   program : Program,
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
+  resolve_import_classes : (String) -> Array[ClassExport]?,
 ) -> Value? {
   let env : Array[ValueBinding] = []
   let class_env = collect_class_bindings(program.declarations)
   let cache : Array[ValueBinding] = []
   let members : Array[ValueMember] = []
   eval_imports(program.imports, env, diagnostics, resolve_import)
+  add_imported_class_bindings(
+    program.imports,
+    class_env,
+    resolve_import_classes,
+  )
   for binding in program.bindings {
     match
       resolve_binding_value(
@@ -989,12 +1057,27 @@ fn eval_source_with_imports(
   source : String,
   resolve_import : (String) -> EvalResult?,
 ) -> EvalResult {
+  eval_source_with_import_details(source, resolve_import, fn(_) { None })
+}
+
+///|
+fn eval_source_with_import_details(
+  source : String,
+  resolve_import : (String) -> EvalResult?,
+  resolve_import_classes : (String) -> Array[ClassExport]?,
+) -> EvalResult {
   let parsed = parse_source(source)
   let diagnostics = parsed.diagnostics
   if diagnostics.length() > 0 {
     return EvalError(diagnostics)
   }
-  match eval_program(parsed.program, diagnostics, resolve_import) {
+  match
+    eval_program(
+      parsed.program,
+      diagnostics,
+      resolve_import,
+      resolve_import_classes,
+    ) {
     Some(value) =>
       if diagnostics.length() == 0 {
         EvalOk(value)

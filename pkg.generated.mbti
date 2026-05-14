@@ -239,6 +239,12 @@ pub(all) struct ClassDecl {
   properties : Array[ClassProperty]
 } derive(Eq, @debug.Debug)
 
+pub(all) struct ClassExport {
+  name : String
+  parent_name : String?
+  properties : Array[ClassProperty]
+} derive(Eq, @debug.Debug)
+
 pub(all) struct ClassProperty {
   name : String
   type_name : String?
@@ -363,6 +369,11 @@ pub(all) struct TypeAliasDecl {
 pub(all) struct TypeEntry {
   key : Type
   value : Type
+} derive(Eq, @debug.Debug)
+
+pub(all) struct TypeExport {
+  name : String
+  typ : Type
 } derive(Eq, @debug.Debug)
 
 pub(all) struct TypeMember {

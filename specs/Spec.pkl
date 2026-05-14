@@ -755,8 +755,8 @@ local classInheritanceQualifiedTypes = new Scenario {
     "Class inheritance and typed object expressions preserve qualified class names such as `library.Person` so imported class contracts can be resolved through the analysis session."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-038"; "PKL-006"; "PKL-036" }
-  tags { "parser"; "typechecker"; "imports"; "next" }
-  reviewStatus = "draft"
+  tags { "parser"; "typechecker"; "imports" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -764,6 +764,26 @@ local classInheritanceQualifiedTypes = new Scenario {
       summary = "Track cross-module class contract resolution after local inheritance"
       rationale =
         "Local class inheritance establishes contract/default merging. Pkl code also refers to imported class names with qualified paths, which requires preserving full type references and making imported declaration contracts available to the analysis session."
+    }
+  }
+}
+
+local classMethodDeclarations = new Scenario {
+  id = "PKL-040"
+  name = "model Pkl class method declarations"
+  description =
+    "Class bodies retain method declarations and typed object member access can resolve method signatures without treating methods as object properties."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-039"; "PKL-022" }
+  tags { "parser"; "typechecker"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Separate class methods from property contracts"
+      rationale =
+        "Class inheritance and imported class contracts are now property-focused. Pkl classes also contain methods, which need AST coverage and type signatures before method calls can be checked on typed objects."
     }
   }
 }
@@ -810,4 +830,5 @@ scenarios {
   typedObjectDefaultEvaluation
   classInheritanceDefaults
   classInheritanceQualifiedTypes
+  classMethodDeclarations
 }

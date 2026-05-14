@@ -163,10 +163,20 @@ fn typecheck_module_path(
 ) -> TypecheckResult {
   match parses.fetch(rt, path) {
     Some(parsed) =>
-      typecheck_parsed_with_imports(parsed, fn(uri) {
-        let resolved = resolve_import_path(path, uri)
-        Some(types_ref.val.unwrap().fetch(rt, resolved))
-      })
+      typecheck_parsed_with_import_details(
+        parsed,
+        fn(uri) {
+          let resolved = resolve_import_path(path, uri)
+          Some(types_ref.val.unwrap().fetch(rt, resolved))
+        },
+        fn(uri) {
+          let resolved = resolve_import_path(path, uri)
+          match parses.fetch(rt, resolved) {
+            Some(imported) => Some(type_exports_from_parse_result(imported))
+            None => None
+          }
+        },
+      )
     None => TypeError([Diagnostic::{ message: "unresolved import \{path}" }])
   }
 }
@@ -183,10 +193,23 @@ fn eval_module_path(
   }
   match get_module_source(sources, rt, path) {
     Some(source) =>
-      eval_source_with_imports(source, fn(uri) {
-        let resolved = resolve_import_path(path, uri)
-        Some(eval_module_path(sources, rt, resolved, push_stack(stack, path)))
-      })
+      eval_source_with_import_details(
+        source,
+        fn(uri) {
+          let resolved = resolve_import_path(path, uri)
+          Some(eval_module_path(sources, rt, resolved, push_stack(stack, path)))
+        },
+        fn(uri) {
+          let resolved = resolve_import_path(path, uri)
+          match get_module_source(sources, rt, resolved) {
+            Some(imported_source) =>
+              Some(
+                class_exports_from_parse_result(parse_source(imported_source)),
+              )
+            None => None
+          }
+        },
+      )
     None => EvalError([Diagnostic::{ message: "unresolved import \{path}" }])
   }
 }

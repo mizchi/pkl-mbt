@@ -559,6 +559,54 @@ test "support Pkl class inheritance defaults" {
 }
 
 ///|
+test "support Pkl qualified class inheritance types" {
+  let parsed = parse_source(
+    "import \"library.pkl\" as library\nclass Teacher extends library.Person { subject = \"math\" }\nteacher = new library.Person { age = 2 }",
+  )
+  inspect(parsed.diagnostics.length(), content="0")
+  guard parsed.program.declarations[0] is ClassDeclaration(class_decl) else {
+    panic()
+  }
+  assert_true(class_decl.parent_name == Some("library.Person"))
+  guard parsed.program.bindings[0].value is TypedObjectLiteral(type_name, _) else {
+    panic()
+  }
+  inspect(type_name, content="library.Person")
+
+  let session = AnalysisSession::new()
+  session.set_source(
+    "library.pkl", "class Person { name = \"anon\"; age: Int }\nmarker = 1",
+  )
+  session.set_source(
+    "main.pkl", "import \"library.pkl\" as library\nclass Teacher extends library.Person { subject = \"math\" }\nteacher = new Teacher { age = 3 }\nname = teacher.name\nsubject = teacher.subject",
+  )
+  guard session.typecheck_path("main.pkl") is TypeOk(ObjectType(fields)) else {
+    panic()
+  }
+  inspect(render_type(fields[0].typ), content="Teacher")
+  assert_true(fields[1].typ == StringType)
+  assert_true(fields[2].typ == StringType)
+
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "teacher",
+          value: ObjectValue([
+            ValueMember::{ name: "name", value: StringValue("anon") },
+            ValueMember::{ name: "subject", value: StringValue("math") },
+            ValueMember::{ name: "age", value: IntValue(3) },
+          ]),
+        },
+        ValueMember::{ name: "name", value: StringValue("anon") },
+        ValueMember::{ name: "subject", value: StringValue("math") },
+      ]),
+    ),
+  )
+}
+
+///|
 test "parse Pkl calls lambdas operators and conditionals" {
   let parsed = parse_source(
     "local f = (x, y) -> x + y\nvalue = f(1, 2)\nlogic = true || false && !false\nchoice = null ?? if (1 + 2 > 2) \"yes\" else \"no\"",

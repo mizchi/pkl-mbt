@@ -1583,14 +1583,10 @@ fn Parser::parse_object_expr(self : Parser) -> Expr {
   self.builder.start_node(object_expr())
   ignore(self.expect(new_kw(), "new"))
   self.skip_whitespace()
-  let type_name = if self.at(identifier()) { self.bump().text() } else { "" }
-  while !self.at(eof()) && !self.at(lbrace()) {
-    if is_separator(self.peek_kind()) || self.at(rbrace()) {
-      break
-    }
-    ignore(self.bump())
-    self.skip_whitespace()
-  }
+  let type_name = self.parse_type_text(
+    stop_at_arrow=false,
+    stop_at_expression_operator=false,
+  )
   let value = match type_name {
     "Listing" => self.parse_listing_body()
     "Mapping" => self.parse_mapping_body()

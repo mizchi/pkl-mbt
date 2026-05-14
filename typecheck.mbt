@@ -40,6 +40,12 @@ priv struct TypeBinding {
 }
 
 ///|
+pub(all) struct TypeExport {
+  name : String
+  typ : Type
+} derive(Eq, Debug)
+
+///|
 fn lookup_type(env : Array[TypeBinding], name : String) -> Type? {
   let mut found : Type? = None
   for binding in env {
@@ -603,6 +609,199 @@ fn copy_type_bindings(bindings : Array[TypeBinding]) -> Array[TypeBinding] {
 }
 
 ///|
+fn qualify_imported_type(
+  import_name : String,
+  type_export : TypeExport,
+) -> Type {
+  match type_export.typ {
+    ClassType(_, members) =>
+      ClassType("\{import_name}.\{type_export.name}", members)
+    _ => type_export.typ
+  }
+}
+
+///|
+fn imported_type_bindings(
+  imports : Array[ImportDecl],
+  resolve_import_types : (String) -> Array[TypeExport]?,
+) -> Array[TypeBinding] {
+  let bindings : Array[TypeBinding] = []
+  for decl in imports {
+    match resolve_import_types(decl.uri) {
+      Some(exports) =>
+        for type_export in exports {
+          bindings.push({
+            name: "\{decl.import_name}.\{type_export.name}",
+            typ: qualify_imported_type(decl.import_name, type_export),
+          })
+        }
+      None => ()
+    }
+  }
+  bindings
+}
+
+///|
+fn type_name_is_qualified(name : String) -> Bool {
+  name.find(".") is Some(_)
+}
+
+///|
+fn optional_type_name_is_qualified(name : String?) -> Bool {
+  match name {
+    Some(value) => type_name_is_qualified(value)
+    None => false
+  }
+}
+
+///|
+fn expr_uses_qualified_type_name(expr : Expr) -> Bool {
+  match expr {
+    TypedObjectLiteral(type_name, members) =>
+      type_name_is_qualified(type_name) ||
+      object_members_use_qualified_type_name(members)
+    ObjectLiteral(members) => object_members_use_qualified_type_name(members)
+    ListingLiteral(elements) => {
+      for element in elements {
+        if expr_uses_qualified_type_name(element) {
+          return true
+        }
+      }
+      false
+    }
+    MappingLiteral(entries) => {
+      for entry in entries {
+        if expr_uses_qualified_type_name(entry.key) ||
+          expr_uses_qualified_type_name(entry.value) {
+          return true
+        }
+      }
+      false
+    }
+    MemberAccess(target, _) | SafeMemberAccess(target, _) =>
+      expr_uses_qualified_type_name(target)
+    SubscriptAccess(target, key) =>
+      expr_uses_qualified_type_name(target) ||
+      expr_uses_qualified_type_name(key)
+    AmendExpr(base, members) =>
+      expr_uses_qualified_type_name(base) ||
+      object_members_use_qualified_type_name(members)
+    CallExpr(callee, arguments) => {
+      if expr_uses_qualified_type_name(callee) {
+        return true
+      }
+      for argument in arguments {
+        if expr_uses_qualified_type_name(argument) {
+          return true
+        }
+      }
+      false
+    }
+    LambdaExpr(parameters, body, return_type_name) => {
+      if optional_type_name_is_qualified(return_type_name) ||
+        function_parameters_use_qualified_type_name(parameters) {
+        return true
+      }
+      expr_uses_qualified_type_name(body)
+    }
+    NonNullExpr(inner) | UnaryExpr(_, inner) =>
+      expr_uses_qualified_type_name(inner)
+    BinaryExpr(_, left, right) =>
+      expr_uses_qualified_type_name(left) ||
+      expr_uses_qualified_type_name(right)
+    ConditionalExpr(condition, then_expr, else_expr) =>
+      expr_uses_qualified_type_name(condition) ||
+      expr_uses_qualified_type_name(then_expr) ||
+      expr_uses_qualified_type_name(else_expr)
+    _ => false
+  }
+}
+
+///|
+fn object_members_use_qualified_type_name(
+  members : Array[ObjectMember],
+) -> Bool {
+  for object_member in members {
+    if optional_type_name_is_qualified(object_member.type_name) ||
+      expr_uses_qualified_type_name(object_member.value) {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn function_parameters_use_qualified_type_name(
+  parameters : Array[FunctionParameter],
+) -> Bool {
+  for parameter in parameters {
+    if optional_type_name_is_qualified(parameter.type_name) {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn class_properties_use_qualified_type_name(
+  properties : Array[ClassProperty],
+) -> Bool {
+  for property in properties {
+    if optional_type_name_is_qualified(property.type_name) {
+      return true
+    }
+    match property.value {
+      Some(value) => if expr_uses_qualified_type_name(value) { return true }
+      None => ()
+    }
+  }
+  false
+}
+
+///|
+fn declaration_uses_qualified_type_name(declaration : Declaration) -> Bool {
+  match declaration {
+    ClassDeclaration(class_decl) => {
+      if optional_type_name_is_qualified(class_decl.parent_name) {
+        return true
+      }
+      class_properties_use_qualified_type_name(class_decl.properties)
+    }
+    FunctionDeclaration(function_decl) => {
+      if optional_type_name_is_qualified(function_decl.return_type_name) ||
+        function_parameters_use_qualified_type_name(function_decl.parameters) {
+        return true
+      }
+      match function_decl.body {
+        Some(body) => expr_uses_qualified_type_name(body)
+        None => false
+      }
+    }
+    TypeAliasDeclaration(type_alias) =>
+      type_name_is_qualified(type_alias.target)
+  }
+}
+
+///|
+fn program_uses_qualified_type_name(program : Program) -> Bool {
+  for declaration in program.declarations {
+    if declaration_uses_qualified_type_name(declaration) {
+      return true
+    }
+  }
+  for binding in program.bindings {
+    if optional_type_name_is_qualified(binding.type_name) ||
+      expr_uses_qualified_type_name(binding.value) {
+      return true
+    }
+  }
+  match program.body {
+    Some(body) => expr_uses_qualified_type_name(body)
+    None => false
+  }
+}
+
+///|
 fn narrow_positive_is_guard_type(original : Type, guard_type : Type) -> Type? {
   match original {
     UnionType(options) => {
@@ -986,7 +1185,16 @@ fn collect_declared_types(
   declarations : Array[Declaration],
   diagnostics : Array[Diagnostic],
 ) -> Array[TypeBinding] {
-  let type_env : Array[TypeBinding] = []
+  collect_declared_types_with_imports(declarations, diagnostics, [])
+}
+
+///|
+fn collect_declared_types_with_imports(
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  imported_types : Array[TypeBinding],
+) -> Array[TypeBinding] {
+  let type_env = copy_type_bindings(imported_types)
   for decl in declarations {
     match decl {
       ClassDeclaration(class_decl) =>
@@ -1024,6 +1232,27 @@ fn collect_declared_types(
     }
   }
   type_env
+}
+
+///|
+fn type_exports_from_parse_result(parsed : ParseResult) -> Array[TypeExport] {
+  let diagnostics : Array[Diagnostic] = []
+  let type_env = collect_declared_types(
+    parsed.program.declarations,
+    diagnostics,
+  )
+  let exports : Array[TypeExport] = []
+  for declaration in parsed.program.declarations {
+    match declaration {
+      ClassDeclaration(class_decl) =>
+        match lookup_type(type_env, class_decl.name) {
+          Some(typ) => exports.push({ name: class_decl.name, typ })
+          None => ()
+        }
+      FunctionDeclaration(_) | TypeAliasDeclaration(_) => ()
+    }
+  }
+  exports
 }
 
 ///|
@@ -1907,9 +2136,19 @@ fn infer_program(
   program : Program,
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> TypecheckResult?,
+  resolve_import_types : (String) -> Array[TypeExport]?,
 ) -> Type {
   let env : Array[TypeBinding] = []
-  let type_env = collect_declared_types(program.declarations, diagnostics)
+  let imported_types = if program_uses_qualified_type_name(program) {
+    imported_type_bindings(program.imports, resolve_import_types)
+  } else {
+    []
+  }
+  let type_env = collect_declared_types_with_imports(
+    program.declarations,
+    diagnostics,
+    imported_types,
+  )
   let cache : Array[TypeBinding] = []
   let fields : Array[TypeMember] = []
   let bindings = all_program_bindings(program)
@@ -1970,11 +2209,25 @@ fn typecheck_parsed_with_imports(
   parsed : ParseResult,
   resolve_import : (String) -> TypecheckResult?,
 ) -> TypecheckResult {
+  typecheck_parsed_with_import_details(parsed, resolve_import, fn(_) { None })
+}
+
+///|
+fn typecheck_parsed_with_import_details(
+  parsed : ParseResult,
+  resolve_import : (String) -> TypecheckResult?,
+  resolve_import_types : (String) -> Array[TypeExport]?,
+) -> TypecheckResult {
   let diagnostics = parsed.diagnostics
   if diagnostics.length() > 0 {
     return TypeError(diagnostics)
   }
-  let typ = infer_program(parsed.program, diagnostics, resolve_import)
+  let typ = infer_program(
+    parsed.program,
+    diagnostics,
+    resolve_import,
+    resolve_import_types,
+  )
   if diagnostics.length() == 0 {
     TypeOk(typ)
   } else {
