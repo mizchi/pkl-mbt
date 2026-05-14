@@ -338,6 +338,7 @@ pub(all) enum Type {
   ClassType(String, Array[TypeMember])
   ListingType(Array[Type])
   MappingType(Array[TypeEntry])
+  FunctionType(Array[Type], Type)
   UnknownType
 } derive(Eq, @debug.Debug)
 

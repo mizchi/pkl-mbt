@@ -408,6 +408,26 @@ local incrementalTypecheckGraph = new Scenario {
   }
 }
 
+local callableTypechecking = new Scenario {
+  id = "PKL-022"
+  name = "typecheck Pkl function declarations lambdas and calls"
+  description =
+    "The typechecker resolves function declarations and lambda bindings at call sites, infers return types from argument-bound parameter types, and reports call arity and non-function call errors."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-018"; "PKL-019" }
+  tags { "typechecker" }
+  reviewStatus = "approved"
+  severity = "critical"
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Typecheck callables without committing to evaluator closures"
+      rationale =
+        "The parser already retains function declarations, calls, and lambdas, but evaluator closure semantics are still separate work. A call-site typecheck model can validate Pkl function usage now by binding argument types to parameters while keeping runtime function evaluation out of scope."
+    }
+  }
+}
+
 goals { pureMoonBitCore }
 
 scenarios {
@@ -432,4 +452,5 @@ scenarios {
   declarationsAndClassTypes
   moduleInheritanceAndAmends
   incrementalTypecheckGraph
+  callableTypechecking
 }

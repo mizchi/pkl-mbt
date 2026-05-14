@@ -8,6 +8,7 @@ pub(all) enum Type {
   ClassType(String, Array[TypeMember])
   ListingType(Array[Type])
   MappingType(Array[TypeEntry])
+  FunctionType(Array[Type], Type)
   UnknownType
 } derive(Eq, Debug)
 
@@ -119,6 +120,7 @@ pub fn render_type(typ : Type) -> String {
     ClassType(name, _) => name
     ListingType(_) => "Listing"
     MappingType(_) => "Mapping"
+    FunctionType(_, _) => "Function"
     UnknownType => "Unknown"
   }
 }
@@ -170,6 +172,7 @@ fn type_accepts(expected : Type, inferred : Type) -> Bool {
     }
     (ListingType(_), ListingType(_)) => true
     (MappingType(_), MappingType(_)) => true
+    (FunctionType(_, _), FunctionType(_, _)) => true
     _ => false
   }
 }
@@ -262,6 +265,49 @@ fn lookup_mapping_value_type(entries : Array[TypeEntry], key : Type) -> Type? {
     }
   }
   found
+}
+
+///|
+fn function_parameter_types(count : Int) -> Array[Type] {
+  let parameters : Array[Type] = []
+  for _i = 0; _i < count; _i = _i + 1 {
+    parameters.push(UnknownType)
+  }
+  parameters
+}
+
+///|
+fn copy_type_bindings(bindings : Array[TypeBinding]) -> Array[TypeBinding] {
+  let copied : Array[TypeBinding] = []
+  for binding in bindings {
+    copied.push(binding)
+  }
+  copied
+}
+
+///|
+fn all_program_bindings(program : Program) -> Array[Binding] {
+  let bindings : Array[Binding] = []
+  for decl in program.declarations {
+    match decl {
+      FunctionDeclaration(function_decl) =>
+        match function_decl.body {
+          Some(body) =>
+            bindings.push({
+              name: function_decl.name,
+              type_name: None,
+              value: LambdaExpr(function_decl.parameters, body),
+              exported: false,
+            })
+          None => ()
+        }
+      _ => ()
+    }
+  }
+  for binding in program.bindings {
+    bindings.push(binding)
+  }
+  bindings
 }
 
 ///|
@@ -382,6 +428,153 @@ fn resolve_binding_type(
           }
         None => lookup_type(env, name)
       }
+  }
+}
+
+///|
+fn infer_argument_types(
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[TypeBinding],
+  type_env : Array[TypeBinding],
+  cache : Array[TypeBinding],
+  stack : Array[String],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> TypecheckResult?,
+) -> Array[Type] {
+  let argument_types : Array[Type] = []
+  for argument in arguments {
+    argument_types.push(
+      infer_expr_with_bindings(
+        argument, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+      ),
+    )
+  }
+  argument_types
+}
+
+///|
+fn infer_lambda_application(
+  label : String,
+  parameters : Array[String],
+  body : Expr,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[TypeBinding],
+  type_env : Array[TypeBinding],
+  cache : Array[TypeBinding],
+  stack : Array[String],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> TypecheckResult?,
+) -> Type {
+  if parameters.length() != arguments.length() {
+    diagnostics.push(Diagnostic::{
+      message: "\{label} expects \{parameters.length()} arguments, got \{arguments.length()}",
+    })
+    return UnknownType
+  }
+  let argument_types = infer_argument_types(
+    arguments, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+  )
+  let call_cache = copy_type_bindings(cache)
+  for i = 0; i < parameters.length(); i = i + 1 {
+    call_cache.push({ name: parameters[i], typ: argument_types[i] })
+  }
+  infer_expr_with_bindings(
+    body, bindings, env, type_env, call_cache, stack, diagnostics, resolve_import,
+  )
+}
+
+///|
+fn infer_function_type_call(
+  parameter_types : Array[Type],
+  return_type : Type,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[TypeBinding],
+  type_env : Array[TypeBinding],
+  cache : Array[TypeBinding],
+  stack : Array[String],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> TypecheckResult?,
+) -> Type {
+  if parameter_types.length() != arguments.length() {
+    diagnostics.push(Diagnostic::{
+      message: "function expects \{parameter_types.length()} arguments, got \{arguments.length()}",
+    })
+    return UnknownType
+  }
+  let argument_types = infer_argument_types(
+    arguments, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+  )
+  for i = 0; i < parameter_types.length(); i = i + 1 {
+    let expected = parameter_types[i]
+    if expected != UnknownType && !type_accepts(expected, argument_types[i]) {
+      diagnostics.push(Diagnostic::{
+        message: "function argument \{i + 1} expects \{render_type(expected)}, got \{render_type(argument_types[i])}",
+      })
+      return UnknownType
+    }
+  }
+  return_type
+}
+
+///|
+fn infer_call_expr(
+  callee : Expr,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[TypeBinding],
+  type_env : Array[TypeBinding],
+  cache : Array[TypeBinding],
+  stack : Array[String],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> TypecheckResult?,
+) -> Type {
+  match callee {
+    LambdaExpr(parameters, body) =>
+      return infer_lambda_application(
+        "function", parameters, body, arguments, bindings, env, type_env, cache,
+        stack, diagnostics, resolve_import,
+      )
+    Identifier(name) =>
+      match find_type_binding(bindings, name) {
+        Some(binding) =>
+          match binding.value {
+            LambdaExpr(parameters, body) =>
+              return infer_lambda_application(
+                "function \{name}",
+                parameters,
+                body,
+                arguments,
+                bindings,
+                env,
+                type_env,
+                cache,
+                stack,
+                diagnostics,
+                resolve_import,
+              )
+            _ => ()
+          }
+        None => ()
+      }
+    _ => ()
+  }
+  match
+    infer_expr_with_bindings(
+      callee, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+    ) {
+    FunctionType(parameter_types, return_type) =>
+      infer_function_type_call(
+        parameter_types, return_type, arguments, bindings, env, type_env, cache,
+        stack, diagnostics, resolve_import,
+      )
+    UnknownType => UnknownType
+    _ => {
+      diagnostics.push(Diagnostic::{ message: "call expects Function" })
+      UnknownType
+    }
   }
 }
 
@@ -581,18 +774,12 @@ fn infer_expr_with_bindings(
           UnknownType
         }
       }
-    CallExpr(_, _) => {
-      diagnostics.push(Diagnostic::{
-        message: "call expressions are parser-only",
-      })
-      UnknownType
-    }
-    LambdaExpr(_, _) => {
-      diagnostics.push(Diagnostic::{
-        message: "lambda expressions are parser-only",
-      })
-      UnknownType
-    }
+    CallExpr(callee, arguments) =>
+      infer_call_expr(
+        callee, arguments, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+      )
+    LambdaExpr(parameters, _) =>
+      FunctionType(function_parameter_types(parameters.length()), UnknownType)
     UnaryExpr(op, inner_expr) => {
       let inner = infer_expr_with_bindings(
         inner_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
@@ -837,12 +1024,13 @@ fn infer_program(
   let type_env = collect_declared_types(program.declarations, diagnostics)
   let cache : Array[TypeBinding] = []
   let fields : Array[TypeMember] = []
+  let bindings = all_program_bindings(program)
   infer_imports(program.imports, env, diagnostics, resolve_import)
   for binding in program.bindings {
     match
       resolve_binding_type(
         binding.name,
-        program.bindings,
+        bindings,
         env,
         type_env,
         cache,
@@ -861,7 +1049,7 @@ fn infer_program(
     Some(expr) =>
       infer_expr_with_bindings(
         expr,
-        program.bindings,
+        bindings,
         env,
         type_env,
         cache,

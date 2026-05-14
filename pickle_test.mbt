@@ -412,6 +412,33 @@ test "typecheck Pkl boolean comparison coalescing and conditional expressions" {
 }
 
 ///|
+test "typecheck Pkl function declarations and lambdas at call sites" {
+  let source = "function add(x, y) = x + y\nlocal inc = (n) -> n + 1\nsum = add(1, 2)\nnext = inc(sum)"
+  guard typecheck_source(source) is TypeOk(ObjectType(fields)) else { panic() }
+  inspect(fields[0].name, content="sum")
+  assert_true(fields[0].typ == IntType)
+  inspect(fields[1].name, content="next")
+  assert_true(fields[1].typ == IntType)
+}
+
+///|
+test "typecheck rejects invalid Pkl calls" {
+  guard typecheck_source("function add(x, y) = x + y\nvalue = add(1)")
+    is TypeError(arity_diagnostics) else {
+    panic()
+  }
+  inspect(
+    arity_diagnostics[0].message,
+    content="function add expects 2 arguments, got 1",
+  )
+
+  guard typecheck_source("value = 1(2)") is TypeError(call_diagnostics) else {
+    panic()
+  }
+  inspect(call_diagnostics[0].message, content="call expects Function")
+}
+
+///|
 test "evaluate and typecheck Pkl object amendments" {
   let source = "base = new { name = \"hawk\"; age = 2 }\nbird = (base) { age = 3; wing = \"wide\" }"
   assert_true(
