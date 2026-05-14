@@ -595,8 +595,8 @@ local nullGuardTypeNarrowing = new Scenario {
     "The typechecker narrows nullable identifiers through `x != null` and `x == null` guards so non-null branches can use the inner type without explicit coalescing."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-024"; "PKL-030" }
-  tags { "typechecker"; "next" }
-  reviewStatus = "draft"
+  tags { "typechecker" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -604,6 +604,26 @@ local nullGuardTypeNarrowing = new Scenario {
       summary = "Continue guard narrowing with null checks"
       rationale =
         "The control-flow machinery now handles `is` guards and compound Boolean conditions. Nullable values are the next common branch-local refinement because `x != null` should expose the inner type in the guarded branch."
+    }
+  }
+}
+
+local nullablePostfixTypechecking = new Scenario {
+  id = "PKL-032"
+  name = "typecheck Pkl nullable postfix operators"
+  description =
+    "The parser and typechecker support nullable postfix operators such as non-null assertion `!!` and safe member access `?.`, producing inner or nullable member types with diagnostics for invalid targets."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-024"; "PKL-031" }
+  tags { "parser"; "typechecker"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Continue nullable semantics with postfix operators"
+      rationale =
+        "Nullable annotations, coalescing, and control-flow narrowing are now covered. Pkl's postfix null operators are the next parser/typechecker boundary before deeper object/member semantics."
     }
   }
 }
@@ -642,4 +662,5 @@ scenarios {
   isGuardTypeNarrowing
   compoundGuardTypeNarrowing
   nullGuardTypeNarrowing
+  nullablePostfixTypechecking
 }

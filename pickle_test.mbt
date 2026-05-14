@@ -752,6 +752,42 @@ test "typecheck Pkl compound is guards narrow union types" {
 }
 
 ///|
+test "typecheck Pkl null guards narrow nullable types" {
+  assert_true(
+    typecheck_source(
+      "function inc(x: Int?): Int = if (x != null) x + 1 else 0\nvalue = inc(1)",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+  assert_true(
+    typecheck_source(
+      "function inc(x: Int?): Int = if (x == null) 0 else x + 1\nvalue = inc(1)",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+  assert_true(
+    typecheck_source(
+      "function positive(x: Int?): Boolean = x != null && x > 0\nvalue = positive(1)",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: BoolType }])),
+  )
+  assert_true(
+    typecheck_source(
+      "local input: Int? = 1\nvalue: Int = if (input != null) input + 1 else 0",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+
+  guard typecheck_source(
+      "function bad(x: String?): Int = if (x != null) x + 1 else 0\nvalue = bad(\"hawk\")",
+    )
+    is TypeError(diagnostics) else {
+    panic()
+  }
+  inspect(diagnostics[0].message, content="operator + expects Int operands")
+}
+
+///|
 test "evaluate and typecheck Pkl object amendments" {
   let source = "base = new { name = \"hawk\"; age = 2 }\nbird = (base) { age = 3; wing = \"wide\" }"
   assert_true(

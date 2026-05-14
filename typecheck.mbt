@@ -613,6 +613,39 @@ fn narrow_negative_is_guard_type(original : Type, guard_type : Type) -> Type? {
 }
 
 ///|
+fn push_narrowed_type_binding(
+  name : String,
+  guard_type : Type,
+  positive : Bool,
+  bindings : Array[Binding],
+  env : Array[TypeBinding],
+  type_env : Array[TypeBinding],
+  source_cache : Array[TypeBinding],
+  target_cache : Array[TypeBinding],
+  stack : Array[String],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> TypecheckResult?,
+) -> Unit {
+  match
+    resolve_binding_type(
+      name, bindings, env, type_env, source_cache, stack, diagnostics, resolve_import,
+    ) {
+    Some(original_type) => {
+      let narrowed = if positive {
+        narrow_positive_is_guard_type(original_type, guard_type)
+      } else {
+        narrow_negative_is_guard_type(original_type, guard_type)
+      }
+      match narrowed {
+        Some(typ) => target_cache.push({ name, typ })
+        None => ()
+      }
+    }
+    None => ()
+  }
+}
+
+///|
 fn apply_positive_is_guard_expr(
   expr : Expr,
   bindings : Array[Binding],
@@ -628,19 +661,68 @@ fn apply_positive_is_guard_expr(
     BinaryExpr(Is, Identifier(name), Identifier(type_name)) =>
       match type_from_annotation(type_name, type_env) {
         Some(guard_type) =>
-          match
-            resolve_binding_type(
-              name, bindings, env, type_env, source_cache, stack, diagnostics, resolve_import,
-            ) {
-            Some(original_type) =>
-              match narrow_positive_is_guard_type(original_type, guard_type) {
-                Some(narrowed) => target_cache.push({ name, typ: narrowed })
-                None => ()
-              }
-            None => ()
-          }
+          push_narrowed_type_binding(
+            name, guard_type, true, bindings, env, type_env, source_cache, target_cache,
+            stack, diagnostics, resolve_import,
+          )
         None => ()
       }
+    BinaryExpr(Equal, Identifier(name), NullLiteral) =>
+      push_narrowed_type_binding(
+        name,
+        NullType,
+        true,
+        bindings,
+        env,
+        type_env,
+        source_cache,
+        target_cache,
+        stack,
+        diagnostics,
+        resolve_import,
+      )
+    BinaryExpr(Equal, NullLiteral, Identifier(name)) =>
+      push_narrowed_type_binding(
+        name,
+        NullType,
+        true,
+        bindings,
+        env,
+        type_env,
+        source_cache,
+        target_cache,
+        stack,
+        diagnostics,
+        resolve_import,
+      )
+    BinaryExpr(NotEqual, Identifier(name), NullLiteral) =>
+      push_narrowed_type_binding(
+        name,
+        NullType,
+        false,
+        bindings,
+        env,
+        type_env,
+        source_cache,
+        target_cache,
+        stack,
+        diagnostics,
+        resolve_import,
+      )
+    BinaryExpr(NotEqual, NullLiteral, Identifier(name)) =>
+      push_narrowed_type_binding(
+        name,
+        NullType,
+        false,
+        bindings,
+        env,
+        type_env,
+        source_cache,
+        target_cache,
+        stack,
+        diagnostics,
+        resolve_import,
+      )
     BinaryExpr(And, left, right) => {
       apply_positive_is_guard_expr(
         left, bindings, env, type_env, source_cache, target_cache, stack, diagnostics,
@@ -671,19 +753,68 @@ fn apply_negative_is_guard_expr(
     BinaryExpr(Is, Identifier(name), Identifier(type_name)) =>
       match type_from_annotation(type_name, type_env) {
         Some(guard_type) =>
-          match
-            resolve_binding_type(
-              name, bindings, env, type_env, source_cache, stack, diagnostics, resolve_import,
-            ) {
-            Some(original_type) =>
-              match narrow_negative_is_guard_type(original_type, guard_type) {
-                Some(narrowed) => target_cache.push({ name, typ: narrowed })
-                None => ()
-              }
-            None => ()
-          }
+          push_narrowed_type_binding(
+            name, guard_type, false, bindings, env, type_env, source_cache, target_cache,
+            stack, diagnostics, resolve_import,
+          )
         None => ()
       }
+    BinaryExpr(Equal, Identifier(name), NullLiteral) =>
+      push_narrowed_type_binding(
+        name,
+        NullType,
+        false,
+        bindings,
+        env,
+        type_env,
+        source_cache,
+        target_cache,
+        stack,
+        diagnostics,
+        resolve_import,
+      )
+    BinaryExpr(Equal, NullLiteral, Identifier(name)) =>
+      push_narrowed_type_binding(
+        name,
+        NullType,
+        false,
+        bindings,
+        env,
+        type_env,
+        source_cache,
+        target_cache,
+        stack,
+        diagnostics,
+        resolve_import,
+      )
+    BinaryExpr(NotEqual, Identifier(name), NullLiteral) =>
+      push_narrowed_type_binding(
+        name,
+        NullType,
+        true,
+        bindings,
+        env,
+        type_env,
+        source_cache,
+        target_cache,
+        stack,
+        diagnostics,
+        resolve_import,
+      )
+    BinaryExpr(NotEqual, NullLiteral, Identifier(name)) =>
+      push_narrowed_type_binding(
+        name,
+        NullType,
+        true,
+        bindings,
+        env,
+        type_env,
+        source_cache,
+        target_cache,
+        stack,
+        diagnostics,
+        resolve_import,
+      )
     _ => ()
   }
 }
