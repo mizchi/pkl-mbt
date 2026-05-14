@@ -715,8 +715,8 @@ local typedObjectDefaultEvaluation = new Scenario {
     "Typed object expressions such as `new Bird { ... }` materialize class property defaults during evaluation while preserving explicitly supplied object members as overrides."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-036"; "PKL-035" }
-  tags { "evaluator"; "next" }
-  reviewStatus = "draft"
+  tags { "evaluator" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -724,6 +724,26 @@ local typedObjectDefaultEvaluation = new Scenario {
       summary = "Make typed object evaluation match class default contracts"
       rationale =
         "Typed object expressions can now be checked against class contracts, but the evaluator still treats them as plain object literals. Materializing class defaults closes the gap between accepted `new Class {}` code and its runtime object value."
+    }
+  }
+}
+
+local classInheritanceDefaults = new Scenario {
+  id = "PKL-038"
+  name = "support Pkl class inheritance defaults"
+  description =
+    "Class declarations with inheritance merge base class property contracts and defaults so typed object expressions can omit inherited default-backed members and override inherited properties."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-037"; "PKL-036"; "PKL-019" }
+  tags { "parser"; "typechecker"; "evaluator"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Extend typed object semantics through class inheritance"
+      rationale =
+        "Typed object expressions now have class contracts and class default values. The next class-model step is to preserve inheritance clauses and reuse the same contract/default merge behavior across base and derived classes."
     }
   }
 }
@@ -768,4 +788,5 @@ scenarios {
   classDefaultMemberCompletion
   typedObjectExpressionTypechecking
   typedObjectDefaultEvaluation
+  classInheritanceDefaults
 }

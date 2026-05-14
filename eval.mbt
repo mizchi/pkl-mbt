@@ -34,6 +34,12 @@ priv struct ValueBinding {
 }
 
 ///|
+priv struct ClassBinding {
+  name : String
+  properties : Array[ClassProperty]
+}
+
+///|
 fn lookup_value(env : Array[ValueBinding], name : String) -> Value? {
   let mut found : Value? = None
   for binding in env {
@@ -50,6 +56,20 @@ fn lookup_member(members : Array[ValueMember], name : String) -> Value? {
   for field in members {
     if field.name == name {
       found = Some(field.value)
+    }
+  }
+  found
+}
+
+///|
+fn lookup_class_properties(
+  env : Array[ClassBinding],
+  name : String,
+) -> Array[ClassProperty]? {
+  let mut found : Array[ClassProperty]? = None
+  for binding in env {
+    if binding.name == name {
+      found = Some(binding.properties)
     }
   }
   found
@@ -136,6 +156,7 @@ fn resolve_binding_value(
   name : String,
   bindings : Array[Binding],
   env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
   cache : Array[ValueBinding],
   stack : Array[String],
   diagnostics : Array[Diagnostic],
@@ -157,6 +178,7 @@ fn resolve_binding_value(
                 binding.value,
                 bindings,
                 env,
+                class_env,
                 cache,
                 push_binding_stack(stack, name),
                 diagnostics,
@@ -179,6 +201,7 @@ fn eval_expr_with_bindings(
   expr : Expr,
   bindings : Array[Binding],
   env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
   cache : Array[ValueBinding],
   stack : Array[String],
   diagnostics : Array[Diagnostic],
@@ -207,15 +230,20 @@ fn eval_expr_with_bindings(
       Some(
         ObjectValue(
           eval_object_members(
-            members, bindings, env, cache, stack, diagnostics, resolve_import,
+            members, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
           ),
         ),
       )
-    TypedObjectLiteral(_, members) =>
+    TypedObjectLiteral(type_name, members) =>
       Some(
         ObjectValue(
-          eval_object_members(
-            members, bindings, env, cache, stack, diagnostics, resolve_import,
+          merge_value_members(
+            eval_class_default_members(
+              type_name, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+            ),
+            eval_object_members(
+              members, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+            ),
           ),
         ),
       )
@@ -224,7 +252,7 @@ fn eval_expr_with_bindings(
       for element in elements {
         match
           eval_expr_with_bindings(
-            element, bindings, env, cache, stack, diagnostics, resolve_import,
+            element, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
           ) {
           Some(value) => values.push(value)
           None => ()
@@ -239,6 +267,7 @@ fn eval_expr_with_bindings(
           entry.key,
           bindings,
           env,
+          class_env,
           cache,
           stack,
           diagnostics,
@@ -248,6 +277,7 @@ fn eval_expr_with_bindings(
           entry.value,
           bindings,
           env,
+          class_env,
           cache,
           stack,
           diagnostics,
@@ -263,7 +293,7 @@ fn eval_expr_with_bindings(
     MemberAccess(target_expr, member_name) =>
       match
         eval_expr_with_bindings(
-          target_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+          target_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
         ) {
         Some(ObjectValue(members)) =>
           match lookup_member(members, member_name) {
@@ -286,7 +316,7 @@ fn eval_expr_with_bindings(
     SafeMemberAccess(target_expr, member_name) =>
       match
         eval_expr_with_bindings(
-          target_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+          target_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
         ) {
         Some(NullValue) => Some(NullValue)
         Some(ObjectValue(members)) =>
@@ -309,10 +339,10 @@ fn eval_expr_with_bindings(
       }
     SubscriptAccess(target_expr, key_expr) => {
       let target = eval_expr_with_bindings(
-        target_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+        target_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
       )
       let key = eval_expr_with_bindings(
-        key_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+        key_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
       )
       match (target, key) {
         (Some(ListingValue(elements)), Some(IntValue(index))) =>
@@ -348,7 +378,7 @@ fn eval_expr_with_bindings(
     AmendExpr(base_expr, members) =>
       match
         eval_expr_with_bindings(
-          base_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+          base_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
         ) {
         Some(ObjectValue(base_members)) =>
           Some(
@@ -356,7 +386,7 @@ fn eval_expr_with_bindings(
               merge_value_members(
                 base_members,
                 eval_object_members(
-                  members, bindings, env, cache, stack, diagnostics, resolve_import,
+                  members, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
                 ),
               ),
             ),
@@ -372,7 +402,7 @@ fn eval_expr_with_bindings(
     Identifier(name) =>
       match
         resolve_binding_value(
-          name, bindings, env, cache, stack, diagnostics, resolve_import,
+          name, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
         ) {
         Some(value) => Some(value)
         None => {
@@ -385,7 +415,7 @@ fn eval_expr_with_bindings(
         SafeMemberAccess(target_expr, _) =>
           match
             eval_expr_with_bindings(
-              target_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+              target_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
             ) {
             Some(NullValue) => Some(NullValue)
             Some(_) => {
@@ -412,7 +442,7 @@ fn eval_expr_with_bindings(
     NonNullExpr(inner_expr) =>
       match
         eval_expr_with_bindings(
-          inner_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+          inner_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
         ) {
         Some(NullValue) => {
           diagnostics.push(Diagnostic::{ message: "non-null assertion failed" })
@@ -423,7 +453,7 @@ fn eval_expr_with_bindings(
       }
     UnaryExpr(op, inner_expr) => {
       let inner = eval_expr_with_bindings(
-        inner_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+        inner_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
       )
       match (op, inner) {
         (Negate, Some(IntValue(value))) => Some(IntValue(0 - value))
@@ -447,7 +477,7 @@ fn eval_expr_with_bindings(
       match op {
         And => {
           let left = eval_expr_with_bindings(
-            left_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+            left_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
           )
           match left {
             Some(BoolValue(false)) => return Some(BoolValue(false))
@@ -462,7 +492,7 @@ fn eval_expr_with_bindings(
           }
           match
             eval_expr_with_bindings(
-              right_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+              right_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
             ) {
             Some(BoolValue(value)) => return Some(BoolValue(value))
             Some(_) => {
@@ -476,7 +506,7 @@ fn eval_expr_with_bindings(
         }
         Or => {
           let left = eval_expr_with_bindings(
-            left_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+            left_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
           )
           match left {
             Some(BoolValue(true)) => return Some(BoolValue(true))
@@ -491,7 +521,7 @@ fn eval_expr_with_bindings(
           }
           match
             eval_expr_with_bindings(
-              right_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+              right_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
             ) {
             Some(BoolValue(value)) => return Some(BoolValue(value))
             Some(_) => {
@@ -505,12 +535,13 @@ fn eval_expr_with_bindings(
         }
         NullCoalesce => {
           let left = eval_expr_with_bindings(
-            left_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+            left_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
           )
           match left {
             Some(NullValue) =>
               return eval_expr_with_bindings(
-                right_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+                right_expr, bindings, env, class_env, cache, stack, diagnostics,
+                resolve_import,
               )
             Some(value) => return Some(value)
             None => return None
@@ -525,10 +556,10 @@ fn eval_expr_with_bindings(
         _ => ()
       }
       let left = eval_expr_with_bindings(
-        left_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+        left_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
       )
       let right = eval_expr_with_bindings(
-        right_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+        right_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
       )
       match (left, right) {
         (Some(IntValue(a)), Some(IntValue(b))) =>
@@ -602,15 +633,15 @@ fn eval_expr_with_bindings(
     ConditionalExpr(condition_expr, then_expr, else_expr) =>
       match
         eval_expr_with_bindings(
-          condition_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+          condition_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
         ) {
         Some(BoolValue(true)) =>
           eval_expr_with_bindings(
-            then_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+            then_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
           )
         Some(BoolValue(false)) =>
           eval_expr_with_bindings(
-            else_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+            else_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
           )
         Some(_) => {
           diagnostics.push(Diagnostic::{
@@ -636,6 +667,7 @@ fn eval_object_members(
   members : Array[ObjectMember],
   bindings : Array[Binding],
   env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
   cache : Array[ValueBinding],
   stack : Array[String],
   diagnostics : Array[Diagnostic],
@@ -648,6 +680,7 @@ fn eval_object_members(
         field.value,
         bindings,
         env,
+        class_env,
         cache,
         stack,
         diagnostics,
@@ -658,6 +691,56 @@ fn eval_object_members(
     }
   }
   values
+}
+
+///|
+fn eval_class_default_members(
+  type_name : String,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Array[ValueMember] {
+  let defaults : Array[ObjectMember] = []
+  match lookup_class_properties(class_env, type_name) {
+    Some(properties) =>
+      for property in properties {
+        match property.value {
+          Some(value) =>
+            defaults.push({
+              name: property.name,
+              type_name: property.type_name,
+              value,
+            })
+          None => ()
+        }
+      }
+    None => ()
+  }
+  eval_object_members(
+    defaults, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+  )
+}
+
+///|
+fn collect_class_bindings(
+  declarations : Array[Declaration],
+) -> Array[ClassBinding] {
+  let classes : Array[ClassBinding] = []
+  for declaration in declarations {
+    match declaration {
+      ClassDeclaration(class_decl) =>
+        classes.push({
+          name: class_decl.name,
+          properties: class_decl.properties,
+        })
+      FunctionDeclaration(_) | TypeAliasDeclaration(_) => ()
+    }
+  }
+  classes
 }
 
 ///|
@@ -718,6 +801,7 @@ fn eval_program(
   resolve_import : (String) -> EvalResult?,
 ) -> Value? {
   let env : Array[ValueBinding] = []
+  let class_env = collect_class_bindings(program.declarations)
   let cache : Array[ValueBinding] = []
   let members : Array[ValueMember] = []
   eval_imports(program.imports, env, diagnostics, resolve_import)
@@ -727,6 +811,7 @@ fn eval_program(
         binding.name,
         program.bindings,
         env,
+        class_env,
         cache,
         [],
         diagnostics,
@@ -745,6 +830,7 @@ fn eval_program(
         expr,
         program.bindings,
         env,
+        class_env,
         cache,
         [],
         diagnostics,

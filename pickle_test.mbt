@@ -465,6 +465,48 @@ test "parse and typecheck Pkl typed object expressions" {
 }
 
 ///|
+test "evaluate Pkl typed object class defaults" {
+  assert_true(
+    eval_source(
+      "class Bird { name = \"hawk\"; age: Int }\nbird = new Bird { age = 2 }",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "bird",
+          value: ObjectValue([
+            ValueMember::{ name: "name", value: StringValue("hawk") },
+            ValueMember::{ name: "age", value: IntValue(2) },
+          ]),
+        },
+      ]),
+    ),
+  )
+  assert_true(
+    eval_source(
+      "class Bird { name = \"hawk\"; age = 1 }\nbird = new Bird { name = \"owl\" }",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "bird",
+          value: ObjectValue([
+            ValueMember::{ name: "name", value: StringValue("owl") },
+            ValueMember::{ name: "age", value: IntValue(1) },
+          ]),
+        },
+      ]),
+    ),
+  )
+  assert_true(
+    eval_source(
+      "class Bird { name = \"hawk\" }\nlet bird = new Bird {}\nbird.name",
+    ) ==
+    EvalOk(StringValue("hawk")),
+  )
+}
+
+///|
 test "parse Pkl calls lambdas operators and conditionals" {
   let parsed = parse_source(
     "local f = (x, y) -> x + y\nvalue = f(1, 2)\nlogic = true || false && !false\nchoice = null ?? if (1 + 2 > 2) \"yes\" else \"no\"",
