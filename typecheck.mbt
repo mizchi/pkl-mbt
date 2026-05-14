@@ -474,7 +474,11 @@ fn apply_type_annotation(
       match type_from_annotation(name, type_env) {
         Some(expected) =>
           if type_accepts(expected, inferred) {
-            expected
+            match (expected, inferred) {
+              (NullableType(ObjectType([])), ObjectType(_)) =>
+                NullableType(inferred)
+              _ => expected
+            }
           } else {
             let message = match
               class_type_mismatch_message(name, expected, inferred) {
@@ -1161,6 +1165,25 @@ fn infer_call_expr(
         parameter_types, return_type, arguments, bindings, env, type_env, cache,
         stack, diagnostics, resolve_import,
       )
+    NullableType(FunctionType(parameter_types, return_type)) => {
+      let inferred_return = infer_function_type_call(
+        parameter_types, return_type, arguments, bindings, env, type_env, cache,
+        stack, diagnostics, resolve_import,
+      )
+      if inferred_return == UnknownType {
+        UnknownType
+      } else {
+        nullable_type(inferred_return)
+      }
+    }
+    NullType =>
+      match callee {
+        SafeMemberAccess(_, _) => NullType
+        _ => {
+          diagnostics.push(Diagnostic::{ message: "call expects Function" })
+          UnknownType
+        }
+      }
     UnknownType => UnknownType
     _ => {
       diagnostics.push(Diagnostic::{ message: "call expects Function" })
@@ -1382,6 +1405,7 @@ fn infer_expr_with_bindings(
               UnknownType
             }
           }
+        NullType => NullType
         UnknownType => UnknownType
         _ => {
           diagnostics.push(Diagnostic::{

@@ -843,6 +843,43 @@ test "typecheck Pkl nullable postfix operators" {
 }
 
 ///|
+test "typecheck Pkl null-safe invocation chains" {
+  let parsed = parse_source("value = box?.f(1)")
+  assert_true(
+    parsed.program.bindings[0].value ==
+    CallExpr(SafeMemberAccess(Identifier("box"), "f"), [IntLiteral(1)]),
+  )
+
+  assert_true(
+    typecheck_source(
+      "local box: Object? = new { f = (x: Int): Int -> x + 1 }\nvalue: Int? = box?.f(1)",
+    ) ==
+    TypeOk(
+      ObjectType([TypeMember::{ name: "value", typ: NullableType(IntType) }]),
+    ),
+  )
+  assert_true(
+    typecheck_source("value = null?.f()") ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: NullType }])),
+  )
+  assert_true(
+    eval_source("value = null?.f()") ==
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: NullValue }])),
+  )
+
+  guard typecheck_source(
+      "local box: Object? = new { f = (x: Int): Int -> x + 1 }\nvalue = box?.f(true)",
+    )
+    is TypeError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="function argument 1 expects Int, got Boolean",
+  )
+}
+
+///|
 test "evaluate and typecheck Pkl object amendments" {
   let source = "base = new { name = \"hawk\"; age = 2 }\nbird = (base) { age = 3; wing = \"wide\" }"
   assert_true(

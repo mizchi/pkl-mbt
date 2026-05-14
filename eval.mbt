@@ -372,12 +372,29 @@ fn eval_expr_with_bindings(
           None
         }
       }
-    CallExpr(_, _) => {
-      diagnostics.push(Diagnostic::{
-        message: "call expressions are parser-only",
-      })
-      None
-    }
+    CallExpr(callee, _) =>
+      match callee {
+        SafeMemberAccess(target_expr, _) =>
+          match
+            eval_expr_with_bindings(
+              target_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+            ) {
+            Some(NullValue) => Some(NullValue)
+            Some(_) => {
+              diagnostics.push(Diagnostic::{
+                message: "call expressions are parser-only",
+              })
+              None
+            }
+            None => None
+          }
+        _ => {
+          diagnostics.push(Diagnostic::{
+            message: "call expressions are parser-only",
+          })
+          None
+        }
+      }
     LambdaExpr(_, _, _) => {
       diagnostics.push(Diagnostic::{
         message: "lambda expressions are parser-only",

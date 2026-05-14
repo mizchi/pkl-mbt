@@ -635,8 +635,8 @@ local nullSafeInvocationTypechecking = new Scenario {
     "The parser and typechecker distinguish null-safe member invocation chains such as `value?.method()` from ordinary calls, preserving nullable short-circuit behavior through calls and chained accesses."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-032"; "PKL-022" }
-  tags { "parser"; "typechecker"; "next" }
-  reviewStatus = "draft"
+  tags { "parser"; "typechecker"; "evaluator" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -644,6 +644,26 @@ local nullSafeInvocationTypechecking = new Scenario {
       summary = "Track null-safe invocation after safe member access"
       rationale =
         "Safe member access and non-null assertion are now modeled. Upstream Pkl fixtures also use `?.` before method calls, which needs call-chain semantics rather than treating the member lookup and call as independent expressions."
+    }
+  }
+}
+
+local classDefaultPropertyTypechecking = new Scenario {
+  id = "PKL-034"
+  name = "infer Pkl class property default types"
+  description =
+    "Class declarations use property default expressions as member type contracts when no explicit annotation is present, so assignments to declared class types still reject incompatible object members."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-019"; "PKL-022" }
+  tags { "typechecker"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Use class defaults as contract sources"
+      rationale =
+        "Class property AST already retains default expressions, but the typechecker currently treats unannotated class properties as Unknown. Inferring default expression types will make class contracts stricter without adding constructor semantics."
     }
   }
 }
@@ -684,4 +704,5 @@ scenarios {
   nullGuardTypeNarrowing
   nullablePostfixTypechecking
   nullSafeInvocationTypechecking
+  classDefaultPropertyTypechecking
 }
