@@ -835,8 +835,8 @@ local classMethodBodyTypechecking = new Scenario {
     "Class method bodies are checked with parameter bindings plus the receiver's property contract, so annotated method signatures reject invalid implementations before runtime."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-040"; "PKL-041"; "PKL-023" }
-  tags { "typechecker"; "next" }
-  reviewStatus = "draft"
+  tags { "typechecker" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -844,6 +844,26 @@ local classMethodBodyTypechecking = new Scenario {
       summary = "Close the method signature/body gap"
       rationale =
         "Class methods now have AST signatures and runtime dispatch. The remaining semantic gap is that method body expressions are not validated with receiver member types the way top-level callable bodies are checked at call sites."
+    }
+  }
+}
+
+local callableRuntimeValues = new Scenario {
+  id = "PKL-044"
+  name = "model Pkl callable runtime values"
+  description =
+    "The evaluator represents function and lambda expressions as callable runtime values so callables can be stored, passed as arguments, and invoked beyond direct AST call sites."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-042"; "PKL-023" }
+  tags { "evaluator"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Generalize callable evaluation into values"
+      rationale =
+        "Function declarations and lambda bindings can now be called directly. Pkl code also passes callables around, so the next runtime step is a proper callable value representation instead of only AST-pattern dispatch."
     }
   }
 }
@@ -894,4 +914,5 @@ scenarios {
   classMethodInvocationEvaluation
   callableEvaluation
   classMethodBodyTypechecking
+  callableRuntimeValues
 }

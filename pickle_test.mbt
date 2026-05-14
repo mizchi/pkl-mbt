@@ -365,6 +365,23 @@ test "evaluate Pkl class method invocations" {
 }
 
 ///|
+test "typecheck Pkl class method bodies with receiver bindings" {
+  assert_true(
+    typecheck_source(
+      "class Counter { base = 40\nfunction add(n: Int): Int = base + n }\ncounter = new Counter {}\nvalue = counter.add(2)",
+    )
+    is TypeOk(_),
+  )
+  guard typecheck_source(
+      "class BadCounter { base = \"hawk\"\nfunction add(n: Int): Int = base + n }\nbad = new BadCounter {}\nvalue = bad.add(2)",
+    )
+    is TypeError(diagnostics) else {
+    panic()
+  }
+  inspect(diagnostics[0].message, content="operator + expects Int operands")
+}
+
+///|
 test "typecheck resolves declared class and typealias annotations" {
   guard typecheck_source(
       "class Bird { name: String }\ntypealias Label = String\nbird: Bird = new { name = \"hawk\" }\nlabel: Label = \"raptor\"",

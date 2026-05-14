@@ -1214,6 +1214,90 @@ fn class_methods_to_members(
 }
 
 ///|
+fn push_class_method_receiver_bindings(
+  cache : Array[TypeBinding],
+  class_name : String,
+  members : Array[TypeMember],
+) -> Unit {
+  for type_member in members {
+    cache.push({
+      name: type_member.name,
+      typ: member_contract_type(type_member.typ),
+    })
+  }
+  cache.push({ name: "this", typ: ClassType(class_name, members) })
+}
+
+///|
+fn validate_class_method_body(
+  class_name : String,
+  members : Array[TypeMember],
+  function_decl : FunctionDecl,
+  type_env : Array[TypeBinding],
+  diagnostics : Array[Diagnostic],
+) -> Unit {
+  match function_decl.body {
+    Some(body) => {
+      let method_cache : Array[TypeBinding] = []
+      push_class_method_receiver_bindings(method_cache, class_name, members)
+      let parameter_types = function_parameter_types(
+        function_decl.parameters,
+        type_env,
+        diagnostics,
+      )
+      for i = 0; i < function_decl.parameters.length(); i = i + 1 {
+        method_cache.push({
+          name: function_decl.parameters[i].name,
+          typ: parameter_types[i],
+        })
+      }
+      let inferred_return = infer_expr_with_bindings(
+        body,
+        [],
+        [],
+        type_env,
+        method_cache,
+        [],
+        diagnostics,
+        fn(_) { None },
+      )
+      match function_decl.return_type_name {
+        Some(type_name) =>
+          match type_from_annotation(type_name, type_env) {
+            Some(expected) =>
+              if !type_accepts(expected, inferred_return) {
+                diagnostics.push(Diagnostic::{
+                  message: "method \{class_name}.\{function_decl.name} return annotation \{type_name} does not accept \{render_type(inferred_return)}",
+                })
+              }
+            None =>
+              diagnostics.push(Diagnostic::{
+                message: "unknown type annotation \{type_name}",
+              })
+          }
+        None => ()
+      }
+    }
+    None => ()
+  }
+}
+
+///|
+fn validate_class_method_bodies(
+  class_name : String,
+  members : Array[TypeMember],
+  methods : Array[FunctionDecl],
+  type_env : Array[TypeBinding],
+  diagnostics : Array[Diagnostic],
+) -> Unit {
+  for class_method in methods {
+    validate_class_method_body(
+      class_name, members, class_method, type_env, diagnostics,
+    )
+  }
+}
+
+///|
 fn class_decl_to_members(
   class_decl : ClassDecl,
   type_env : Array[TypeBinding],
@@ -1223,7 +1307,7 @@ fn class_decl_to_members(
     class_properties_to_members(class_decl.properties, type_env, diagnostics),
     class_methods_to_members(class_decl.methods, type_env, diagnostics),
   )
-  match class_decl.parent_name {
+  let members = match class_decl.parent_name {
     Some(parent_name) =>
       match lookup_type(type_env, parent_name) {
         Some(ClassType(_, base_members)) =>
@@ -1243,6 +1327,14 @@ fn class_decl_to_members(
       }
     None => own_members
   }
+  validate_class_method_bodies(
+    class_decl.name,
+    members,
+    class_decl.methods,
+    type_env,
+    diagnostics,
+  )
+  members
 }
 
 ///|
