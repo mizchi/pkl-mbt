@@ -69,6 +69,8 @@ fn load_expr_imports(
         load_expr_imports(session, from, entry.value, stack)
       }
     MemberAccess(target, _) => load_expr_imports(session, from, target, stack)
+    SafeMemberAccess(target, _) =>
+      load_expr_imports(session, from, target, stack)
     SubscriptAccess(target, key) => {
       load_expr_imports(session, from, target, stack)
       load_expr_imports(session, from, key, stack)
@@ -90,6 +92,7 @@ fn load_expr_imports(
       }
     }
     LambdaExpr(_, body, _) => load_expr_imports(session, from, body, stack)
+    NonNullExpr(inner) => load_expr_imports(session, from, inner, stack)
     UnaryExpr(_, inner) => load_expr_imports(session, from, inner, stack)
     ConditionalExpr(condition, then_expr, else_expr) => {
       load_expr_imports(session, from, condition, stack)

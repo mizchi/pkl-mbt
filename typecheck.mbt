@@ -61,6 +61,14 @@ fn lookup_member_type(members : Array[TypeMember], name : String) -> Type? {
 }
 
 ///|
+fn nullable_type(typ : Type) -> Type {
+  match typ {
+    NullableType(_) => typ
+    _ => NullableType(typ)
+  }
+}
+
+///|
 fn merge_type_members(
   base : Array[TypeMember],
   overrides : Array[TypeMember],
@@ -1329,6 +1337,59 @@ fn infer_expr_with_bindings(
           UnknownType
         }
       }
+    SafeMemberAccess(target_expr, member_name) =>
+      match
+        infer_expr_with_bindings(
+          target_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+        ) {
+        ObjectType(members) =>
+          match lookup_member_type(members, member_name) {
+            Some(typ) => typ
+            None => {
+              diagnostics.push(Diagnostic::{
+                message: "unknown member \{member_name}",
+              })
+              UnknownType
+            }
+          }
+        ClassType(_, members) =>
+          match lookup_member_type(members, member_name) {
+            Some(typ) => typ
+            None => {
+              diagnostics.push(Diagnostic::{
+                message: "unknown member \{member_name}",
+              })
+              UnknownType
+            }
+          }
+        NullableType(ObjectType(members)) =>
+          match lookup_member_type(members, member_name) {
+            Some(typ) => nullable_type(typ)
+            None => {
+              diagnostics.push(Diagnostic::{
+                message: "unknown member \{member_name}",
+              })
+              UnknownType
+            }
+          }
+        NullableType(ClassType(_, members)) =>
+          match lookup_member_type(members, member_name) {
+            Some(typ) => nullable_type(typ)
+            None => {
+              diagnostics.push(Diagnostic::{
+                message: "unknown member \{member_name}",
+              })
+              UnknownType
+            }
+          }
+        UnknownType => UnknownType
+        _ => {
+          diagnostics.push(Diagnostic::{
+            message: "safe member access expects Object",
+          })
+          UnknownType
+        }
+      }
     SubscriptAccess(target_expr, key_expr) => {
       let target = infer_expr_with_bindings(
         target_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
@@ -1441,6 +1502,21 @@ fn infer_expr_with_bindings(
         return_type,
       )
     }
+    NonNullExpr(inner_expr) =>
+      match
+        infer_expr_with_bindings(
+          inner_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+        ) {
+        NullableType(inner) => inner
+        NullType => {
+          diagnostics.push(Diagnostic::{
+            message: "non-null assertion rejects Null",
+          })
+          UnknownType
+        }
+        UnknownType => UnknownType
+        typ => typ
+      }
     UnaryExpr(op, inner_expr) => {
       let inner = infer_expr_with_bindings(
         inner_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,

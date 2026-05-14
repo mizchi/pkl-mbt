@@ -1,6 +1,6 @@
 # Test SPEC
 
-36 tests across 2 module(s) — 32 pending, 4 active
+37 tests across 2 module(s) — 33 pending, 4 active
 
 ## `specs/`
 
@@ -159,6 +159,13 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **typecheck Pkl null-safe invocation chains** [draft] — verifies: PKL-033 — tags: parser, typechecker, next
+  > The parser and typechecker distinguish null-safe member invocation chains such as `value?.method()` from ordinary calls, preserving nullable short-circuit behavior through calls and chained accesses.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-032, PKL-022
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
 - [ ] **typecheck Pkl nullable and generic typealias annotations** — verifies: PKL-026 — tags: parser, typechecker
   > Typealias declarations preserve nullable and generic target annotation text, and the typechecker resolves aliases to nullable, Listing, and Mapping contracts.
   - contributes to: GOAL-PKL-PURE
@@ -173,7 +180,7 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **typecheck Pkl nullable postfix operators** [draft] — verifies: PKL-032 — tags: parser, typechecker, next
+- [ ] **typecheck Pkl nullable postfix operators** — verifies: PKL-032 — tags: parser, typechecker
   > The parser and typechecker support nullable postfix operators such as non-null assertion `!!` and safe member access `?.`, producing inner or nullable member types with diagnostics for invalid targets.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-024, PKL-031
@@ -218,7 +225,7 @@
   > The native CLI evaluates a Pkl file and prints module object properties.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031 — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 

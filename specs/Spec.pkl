@@ -615,8 +615,8 @@ local nullablePostfixTypechecking = new Scenario {
     "The parser and typechecker support nullable postfix operators such as non-null assertion `!!` and safe member access `?.`, producing inner or nullable member types with diagnostics for invalid targets."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-024"; "PKL-031" }
-  tags { "parser"; "typechecker"; "next" }
-  reviewStatus = "draft"
+  tags { "parser"; "typechecker" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -624,6 +624,26 @@ local nullablePostfixTypechecking = new Scenario {
       summary = "Continue nullable semantics with postfix operators"
       rationale =
         "Nullable annotations, coalescing, and control-flow narrowing are now covered. Pkl's postfix null operators are the next parser/typechecker boundary before deeper object/member semantics."
+    }
+  }
+}
+
+local nullSafeInvocationTypechecking = new Scenario {
+  id = "PKL-033"
+  name = "typecheck Pkl null-safe invocation chains"
+  description =
+    "The parser and typechecker distinguish null-safe member invocation chains such as `value?.method()` from ordinary calls, preserving nullable short-circuit behavior through calls and chained accesses."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-032"; "PKL-022" }
+  tags { "parser"; "typechecker"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Track null-safe invocation after safe member access"
+      rationale =
+        "Safe member access and non-null assertion are now modeled. Upstream Pkl fixtures also use `?.` before method calls, which needs call-chain semantics rather than treating the member lookup and call as independent expressions."
     }
   }
 }
@@ -663,4 +683,5 @@ scenarios {
   compoundGuardTypeNarrowing
   nullGuardTypeNarrowing
   nullablePostfixTypechecking
+  nullSafeInvocationTypechecking
 }

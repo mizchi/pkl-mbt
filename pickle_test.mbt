@@ -788,6 +788,61 @@ test "typecheck Pkl null guards narrow nullable types" {
 }
 
 ///|
+test "typecheck Pkl nullable postfix operators" {
+  let parsed = parse_source(
+    "name: String? = \"hawk\"\nvalue = name!!\nbird: Bird? = new { name = \"hawk\" }\nlabel = bird?.name",
+  )
+  assert_true(
+    parsed.program.bindings[1].value == NonNullExpr(Identifier("name")),
+  )
+  assert_true(
+    parsed.program.bindings[3].value ==
+    SafeMemberAccess(Identifier("bird"), "name"),
+  )
+
+  assert_true(
+    typecheck_source("local name: String? = \"hawk\"\nvalue: String = name!!") ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: StringType }])),
+  )
+  assert_true(
+    typecheck_source(
+      "class Bird { name: String }\nlocal bird: Bird? = new { name = \"hawk\" }\nlabel: String? = bird?.name",
+    ) ==
+    TypeOk(
+      ObjectType([TypeMember::{ name: "label", typ: NullableType(StringType) }]),
+    ),
+  )
+  assert_true(
+    typecheck_source(
+      "class Bird { name: String }\nlocal bird: Bird = new { name = \"hawk\" }\nlabel: String = bird?.name\nvalue: Int = 1!!",
+    ) ==
+    TypeOk(
+      ObjectType([
+        TypeMember::{ name: "label", typ: StringType },
+        TypeMember::{ name: "value", typ: IntType },
+      ]),
+    ),
+  )
+
+  guard typecheck_source("value = null!!") is TypeError(non_null_diagnostics) else {
+    panic()
+  }
+  inspect(
+    non_null_diagnostics[0].message,
+    content="non-null assertion rejects Null",
+  )
+
+  guard typecheck_source("value = 1?.name")
+    is TypeError(safe_member_diagnostics) else {
+    panic()
+  }
+  inspect(
+    safe_member_diagnostics[0].message,
+    content="safe member access expects Object",
+  )
+}
+
+///|
 test "evaluate and typecheck Pkl object amendments" {
   let source = "base = new { name = \"hawk\"; age = 2 }\nbird = (base) { age = 3; wing = \"wide\" }"
   assert_true(

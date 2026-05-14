@@ -275,6 +275,30 @@ fn eval_expr_with_bindings(
         }
         None => None
       }
+    SafeMemberAccess(target_expr, member_name) =>
+      match
+        eval_expr_with_bindings(
+          target_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+        ) {
+        Some(NullValue) => Some(NullValue)
+        Some(ObjectValue(members)) =>
+          match lookup_member(members, member_name) {
+            Some(value) => Some(value)
+            None => {
+              diagnostics.push(Diagnostic::{
+                message: "unknown member \{member_name}",
+              })
+              None
+            }
+          }
+        Some(_) => {
+          diagnostics.push(Diagnostic::{
+            message: "safe member access expects Object",
+          })
+          None
+        }
+        None => None
+      }
     SubscriptAccess(target_expr, key_expr) => {
       let target = eval_expr_with_bindings(
         target_expr, bindings, env, cache, stack, diagnostics, resolve_import,
@@ -360,6 +384,18 @@ fn eval_expr_with_bindings(
       })
       None
     }
+    NonNullExpr(inner_expr) =>
+      match
+        eval_expr_with_bindings(
+          inner_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+        ) {
+        Some(NullValue) => {
+          diagnostics.push(Diagnostic::{ message: "non-null assertion failed" })
+          None
+        }
+        Some(value) => Some(value)
+        None => None
+      }
     UnaryExpr(op, inner_expr) => {
       let inner = eval_expr_with_bindings(
         inner_expr, bindings, env, cache, stack, diagnostics, resolve_import,

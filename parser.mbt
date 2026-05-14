@@ -1294,6 +1294,7 @@ fn Parser::parse_postfix_expr(self : Parser) -> Expr {
     self.skip_whitespace()
     if self.at(dot()) || self.at(qdot()) {
       let unsupported_start = self.current_offset()
+      let safe = self.at(qdot())
       self.builder.start_node_at(checkpoint, member_access())
       ignore(self.bump())
       let field_name = if self.at(identifier()) {
@@ -1312,6 +1313,8 @@ fn Parser::parse_postfix_expr(self : Parser) -> Expr {
           kind_name(unsupported_expr()),
         )
         UnsupportedExpr
+      } else if safe {
+        SafeMemberAccess(expr, field_name)
       } else {
         MemberAccess(expr, field_name)
       }
@@ -1354,7 +1357,12 @@ fn Parser::parse_postfix_expr(self : Parser) -> Expr {
       let members = self.parse_object_body_members()
       self.builder.finish_node()
       expr = AmendExpr(expr, members)
-    } else if self.at(question()) || self.at(non_null()) {
+    } else if self.at(non_null()) {
+      self.builder.start_node_at(checkpoint, unary_expr())
+      ignore(self.bump())
+      self.builder.finish_node()
+      expr = NonNullExpr(expr)
+    } else if self.at(question()) {
       let unsupported_start = self.current_offset()
       ignore(self.bump())
       self.record_unsupported_syntax(
