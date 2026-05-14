@@ -890,11 +890,10 @@ pub fn typecheck_source(source : String) -> TypecheckResult {
 }
 
 ///|
-fn typecheck_source_with_imports(
-  source : String,
+fn typecheck_parsed_with_imports(
+  parsed : ParseResult,
   resolve_import : (String) -> TypecheckResult?,
 ) -> TypecheckResult {
-  let parsed = parse_source(source)
   let diagnostics = parsed.diagnostics
   if diagnostics.length() > 0 {
     return TypeError(diagnostics)
@@ -905,4 +904,12 @@ fn typecheck_source_with_imports(
   } else {
     TypeError(diagnostics)
   }
+}
+
+///|
+fn typecheck_source_with_imports(
+  source : String,
+  resolve_import : (String) -> TypecheckResult?,
+) -> TypecheckResult {
+  typecheck_parsed_with_imports(parse_source(source), resolve_import)
 }

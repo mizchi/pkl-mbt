@@ -193,8 +193,16 @@ pub struct AnalysisSession {
 }
 pub fn AnalysisSession::eval_path(Self, String) -> EvalResult
 pub fn AnalysisSession::new() -> Self
+pub fn AnalysisSession::reset_stats(Self) -> Unit
 pub fn AnalysisSession::set_source(Self, String, String) -> Unit
+pub fn AnalysisSession::stats(Self) -> AnalysisStats
 pub fn AnalysisSession::typecheck_path(Self, String) -> TypecheckResult
+
+pub(all) struct AnalysisStats {
+  parse_count : Int
+  typecheck_count : Int
+  eval_count : Int
+} derive(Eq, @debug.Debug)
 
 pub(all) enum BinaryOp {
   Add

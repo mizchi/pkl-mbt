@@ -80,6 +80,17 @@ test "analysis session resolves import clauses for typechecking and evaluation" 
 }
 
 ///|
+test "analysis session reports cyclic imports during typechecking" {
+  let session = AnalysisSession::new()
+  session.set_source("a.pkl", "import \"b.pkl\" as b\nvalue = b.value")
+  session.set_source("b.pkl", "import \"a.pkl\" as a\nvalue = a.value")
+  guard session.typecheck_path("a.pkl") is TypeError(diagnostics) else {
+    panic()
+  }
+  inspect(diagnostics[0].message, content="cyclic import a.pkl")
+}
+
+///|
 test "analysis session resolves selected pkl standard library modules" {
   let session = AnalysisSession::new()
   session.set_source("main.pkl", "import \"pkl:math\" as math\nmath.maxInt32")

@@ -2,21 +2,64 @@
 pub struct AnalysisSession {
   priv db : @ripple.Database
   priv sources : @ripple.Input[String, String]
-  priv types : @ripple.Query[String, TypecheckResult]
+  priv types : @ripple.CycleQuery[String, TypecheckResult]
   priv evals : @ripple.Query[String, EvalResult]
+  priv counters : AnalysisCounters
 }
+
+///|
+priv struct AnalysisCounters {
+  mut parse_count : Int
+  mut typecheck_count : Int
+  mut eval_count : Int
+}
+
+///|
+pub(all) struct AnalysisStats {
+  parse_count : Int
+  typecheck_count : Int
+  eval_count : Int
+} derive(Eq, Debug)
 
 ///|
 pub fn AnalysisSession::new() -> AnalysisSession {
   let db = @ripple.Database::new()
+  let rt = db.runtime()
   let sources : @ripple.Input[String, String] = db.input()
-  let types : @ripple.Query[String, TypecheckResult] = db.query(fn(rt, path) {
-    typecheck_module_path(sources, rt, path, [])
+  sources.register(rt)
+  let counters = AnalysisCounters::{
+    parse_count: 0,
+    typecheck_count: 0,
+    eval_count: 0,
+  }
+  let parses : @ripple.Query[String, ParseResult?] = db.query(fn(rt, path) {
+    counters.parse_count = counters.parse_count + 1
+    match get_module_source(sources, rt, path) {
+      Some(source) => Some(parse_source(source))
+      None => None
+    }
   })
+  parses.register(rt)
+  let types_ref : Ref[@ripple.CycleQuery[String, TypecheckResult]?] = {
+    val: None,
+  }
+  let types : @ripple.CycleQuery[String, TypecheckResult] = db.cycle_query_with_recover(
+    fn(rt, path) {
+      counters.typecheck_count = counters.typecheck_count + 1
+      typecheck_module_path(parses, types_ref, rt, path)
+    },
+    fn(_rt, path) {
+      TypeError([Diagnostic::{ message: "cyclic import \{path}" }])
+    },
+  )
+  types_ref.val = Some(types)
+  types.register(rt)
   let evals : @ripple.Query[String, EvalResult] = db.query(fn(rt, path) {
+    counters.eval_count = counters.eval_count + 1
     eval_module_path(sources, rt, path, [])
   })
-  AnalysisSession::{ db, sources, types, evals }
+  evals.register(rt)
+  AnalysisSession::{ db, sources, types, evals, counters }
 }
 
 ///|
@@ -42,6 +85,22 @@ pub fn AnalysisSession::eval_path(
   path : String,
 ) -> EvalResult {
   self.evals.fetch(self.db.runtime(), path)
+}
+
+///|
+pub fn AnalysisSession::reset_stats(self : AnalysisSession) -> Unit {
+  self.counters.parse_count = 0
+  self.counters.typecheck_count = 0
+  self.counters.eval_count = 0
+}
+
+///|
+pub fn AnalysisSession::stats(self : AnalysisSession) -> AnalysisStats {
+  AnalysisStats::{
+    parse_count: self.counters.parse_count,
+    typecheck_count: self.counters.typecheck_count,
+    eval_count: self.counters.eval_count,
+  }
 }
 
 ///|
@@ -97,21 +156,16 @@ fn get_module_source(
 
 ///|
 fn typecheck_module_path(
-  sources : @ripple.Input[String, String],
+  parses : @ripple.Query[String, ParseResult?],
+  types_ref : Ref[@ripple.CycleQuery[String, TypecheckResult]?],
   rt : @ripple.Runtime,
   path : String,
-  stack : Array[String],
 ) -> TypecheckResult {
-  if stack_contains(stack, path) {
-    return TypeError([Diagnostic::{ message: "cyclic import \{path}" }])
-  }
-  match get_module_source(sources, rt, path) {
-    Some(source) =>
-      typecheck_source_with_imports(source, fn(uri) {
+  match parses.fetch(rt, path) {
+    Some(parsed) =>
+      typecheck_parsed_with_imports(parsed, fn(uri) {
         let resolved = resolve_import_path(path, uri)
-        Some(
-          typecheck_module_path(sources, rt, resolved, push_stack(stack, path)),
-        )
+        Some(types_ref.val.unwrap().fetch(rt, resolved))
       })
     None => TypeError([Diagnostic::{ message: "unresolved import \{path}" }])
   }

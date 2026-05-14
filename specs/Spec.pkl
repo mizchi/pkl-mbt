@@ -382,6 +382,32 @@ local moduleInheritanceAndAmends = new Scenario {
   }
 }
 
+local incrementalTypecheckGraph = new Scenario {
+  id = "PKL-021"
+  name = "typecheck incrementally through ripple dependency graph"
+  description =
+    "AnalysisSession registers source, parse, and typecheck query nodes with ripple so unrelated source edits do not re-run typechecking, and unchanged dependency type results are backdated."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-004"; "PKL-006"; "PKL-020" }
+  tags { "typechecker"; "incremental"; "ripple" }
+  reviewStatus = "approved"
+  severity = "critical"
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Split module typechecking into parse and type queries"
+      rationale =
+        "Importing modules through a ripple type query lets dependency edges point at module type results instead of raw recursive calls, so unchanged inferred types can avoid downstream recomputation."
+    }
+    new Decision {
+      date = "2026-05-14"
+      summary = "Register ripple inputs and queries for deep verification"
+      rationale =
+        "Without registered verifiers, low-durability source edits conservatively invalidate too much work. Registering source, parse, and typecheck nodes lets ripple verify only the keys touched by a diff."
+    }
+  }
+}
+
 goals { pureMoonBitCore }
 
 scenarios {
@@ -405,4 +431,5 @@ scenarios {
   callableExpressions
   declarationsAndClassTypes
   moduleInheritanceAndAmends
+  incrementalTypecheckGraph
 }
