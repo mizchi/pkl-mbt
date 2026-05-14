@@ -1,7 +1,7 @@
 ///|
 fn usage() -> Unit {
-  println("usage: pickle <parse|check|eval> <file.pkl>")
-  println("       pickle parse-many <file.pkl>...")
+  println("usage: pkl <parse|check|eval> <file.pkl>")
+  println("       pkl parse-many <file.pkl>...")
 }
 
 ///|
@@ -43,9 +43,9 @@ fn push_stack(stack : Array[String], path : String) -> Array[String] {
 
 ///|
 fn load_expr_imports(
-  session : @pickle.AnalysisSession,
+  session : @pkl.AnalysisSession,
   from : String,
-  expr : @pickle.Expr,
+  expr : @pkl.Expr,
   stack : Array[String],
 ) -> Unit {
   match expr {
@@ -109,7 +109,7 @@ fn load_expr_imports(
 
 ///|
 fn load_path(
-  session : @pickle.AnalysisSession,
+  session : @pkl.AnalysisSession,
   path : String,
   stack : Array[String],
 ) -> Unit {
@@ -126,7 +126,7 @@ fn load_path(
     }
   }
   session.set_source(path, source)
-  let parsed = @pickle.parse_source(source)
+  let parsed = @pkl.parse_source(source)
   for decl in parsed.program.imports {
     load_path(
       session,
@@ -153,7 +153,7 @@ fn load_path(
 }
 
 ///|
-fn print_diagnostics(diagnostics : Array[@pickle.Diagnostic]) -> Unit {
+fn print_diagnostics(diagnostics : Array[@pkl.Diagnostic]) -> Unit {
   for diagnostic in diagnostics {
     println(diagnostic.message)
   }
@@ -167,7 +167,7 @@ fn parse_file(path : String) -> Bool {
       return false
     }
   }
-  let parsed = @pickle.parse_source(source)
+  let parsed = @pkl.parse_source(source)
   if parsed.diagnostics.length() > 0 {
     println("\{path}:")
     print_diagnostics(parsed.diagnostics)
@@ -215,7 +215,7 @@ fn main {
   }
   match command {
     "parse" => {
-      let parsed = @pickle.parse_source(source)
+      let parsed = @pkl.parse_source(source)
       if parsed.diagnostics.length() > 0 {
         print_diagnostics(parsed.diagnostics)
         @sys.exit(1)
@@ -223,10 +223,10 @@ fn main {
       println("ok")
     }
     "check" => {
-      let session = @pickle.AnalysisSession::new()
+      let session = @pkl.AnalysisSession::new()
       load_path(session, path, [])
       match session.typecheck_path(path) {
-        TypeOk(typ) => println(@pickle.render_type(typ))
+        TypeOk(typ) => println(@pkl.render_type(typ))
         TypeError(diagnostics) => {
           print_diagnostics(diagnostics)
           @sys.exit(1)
@@ -234,10 +234,10 @@ fn main {
       }
     }
     "eval" => {
-      let session = @pickle.AnalysisSession::new()
+      let session = @pkl.AnalysisSession::new()
       load_path(session, path, [])
       match session.eval_path(path) {
-        EvalOk(value) => println(@pickle.render_value(value))
+        EvalOk(value) => println(@pkl.render_value(value))
         EvalError(diagnostics) => {
           print_diagnostics(diagnostics)
           @sys.exit(1)

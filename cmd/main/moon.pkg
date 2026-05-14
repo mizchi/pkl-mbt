@@ -1,5 +1,5 @@
 import {
-  "mizchi/pkl" @pickle,
+  "mizchi/pkl" @pkl,
   "moonbitlang/x/fs" @fs,
   "moonbitlang/x/sys" @sys,
 }
