@@ -349,6 +349,7 @@ pub(all) enum Type {
   FunctionType(Array[Type], Type)
   UnionType(Array[Type])
   NullableType(Type)
+  DefaultedType(Type)
   UnknownType
 } derive(Eq, @debug.Debug)
 

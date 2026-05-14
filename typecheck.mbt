@@ -11,6 +11,7 @@ pub(all) enum Type {
   FunctionType(Array[Type], Type)
   UnionType(Array[Type])
   NullableType(Type)
+  DefaultedType(Type)
   UnknownType
 } derive(Eq, Debug)
 
@@ -58,6 +59,22 @@ fn lookup_member_type(members : Array[TypeMember], name : String) -> Type? {
     }
   }
   found
+}
+
+///|
+fn member_contract_type(typ : Type) -> Type {
+  match typ {
+    DefaultedType(inner) => inner
+    _ => typ
+  }
+}
+
+///|
+fn is_defaulted_member_type(typ : Type) -> Bool {
+  match typ {
+    DefaultedType(_) => true
+    _ => false
+  }
 }
 
 ///|
@@ -145,6 +162,7 @@ pub fn render_type(typ : Type) -> String {
       buf.to_string()
     }
     NullableType(inner) => "\{render_type(inner)}?"
+    DefaultedType(inner) => render_type(inner)
     UnknownType => "Unknown"
   }
 }
@@ -375,6 +393,10 @@ fn type_accepts(expected : Type, inferred : Type) -> Bool {
       }
       ok
     }
+    (DefaultedType(expected_inner), actual) =>
+      type_accepts(expected_inner, member_contract_type(actual))
+    (expected, DefaultedType(actual_inner)) =>
+      type_accepts(expected, actual_inner)
     (NullableType(_), NullType) => true
     (NullableType(expected_inner), NullableType(actual_inner)) =>
       type_accepts(expected_inner, actual_inner)
@@ -385,10 +407,13 @@ fn type_accepts(expected : Type, inferred : Type) -> Bool {
       for expected_member in expected_members {
         match lookup_member_type(actual_members, expected_member.name) {
           Some(actual) =>
-            if !type_accepts(expected_member.typ, actual) {
+            if !type_accepts(member_contract_type(expected_member.typ), actual) {
               ok = false
             }
-          None => ok = false
+          None =>
+            if !is_defaulted_member_type(expected_member.typ) {
+              ok = false
+            }
         }
       }
       ok
@@ -457,15 +482,20 @@ fn class_type_mismatch_message(
         if message is None {
           match lookup_member_type(actual_members, expected_member.name) {
             Some(actual) =>
-              if !type_accepts(expected_member.typ, actual) {
+              if !type_accepts(
+                  member_contract_type(expected_member.typ),
+                  actual,
+                ) {
                 message = Some(
                   "type annotation \{annotation_name} member \{expected_member.name} expects \{render_type(expected_member.typ)}, got \{render_type(actual)}",
                 )
               }
             None =>
-              message = Some(
-                "type annotation \{annotation_name} missing member \{expected_member.name}",
-              )
+              if !is_defaulted_member_type(expected_member.typ) {
+                message = Some(
+                  "type annotation \{annotation_name} missing member \{expected_member.name}",
+                )
+              }
           }
         }
       }
@@ -909,7 +939,11 @@ fn class_properties_to_members(
           None => UnknownType
         }
     }
-    members.push({ name: property.name, typ })
+    let member_type = match property.value {
+      Some(_) => DefaultedType(typ)
+      None => typ
+    }
+    members.push({ name: property.name, typ: member_type })
   }
   members
 }
@@ -1362,7 +1396,7 @@ fn infer_expr_with_bindings(
         ) {
         ObjectType(members) =>
           match lookup_member_type(members, member_name) {
-            Some(typ) => typ
+            Some(typ) => member_contract_type(typ)
             None => {
               diagnostics.push(Diagnostic::{
                 message: "unknown member \{member_name}",
@@ -1372,7 +1406,7 @@ fn infer_expr_with_bindings(
           }
         ClassType(_, members) =>
           match lookup_member_type(members, member_name) {
-            Some(typ) => typ
+            Some(typ) => member_contract_type(typ)
             None => {
               diagnostics.push(Diagnostic::{
                 message: "unknown member \{member_name}",
@@ -1395,7 +1429,7 @@ fn infer_expr_with_bindings(
         ) {
         ObjectType(members) =>
           match lookup_member_type(members, member_name) {
-            Some(typ) => typ
+            Some(typ) => member_contract_type(typ)
             None => {
               diagnostics.push(Diagnostic::{
                 message: "unknown member \{member_name}",
@@ -1405,7 +1439,7 @@ fn infer_expr_with_bindings(
           }
         ClassType(_, members) =>
           match lookup_member_type(members, member_name) {
-            Some(typ) => typ
+            Some(typ) => member_contract_type(typ)
             None => {
               diagnostics.push(Diagnostic::{
                 message: "unknown member \{member_name}",
@@ -1415,7 +1449,7 @@ fn infer_expr_with_bindings(
           }
         NullableType(ObjectType(members)) =>
           match lookup_member_type(members, member_name) {
-            Some(typ) => nullable_type(typ)
+            Some(typ) => nullable_type(member_contract_type(typ))
             None => {
               diagnostics.push(Diagnostic::{
                 message: "unknown member \{member_name}",
@@ -1425,7 +1459,7 @@ fn infer_expr_with_bindings(
           }
         NullableType(ClassType(_, members)) =>
           match lookup_member_type(members, member_name) {
-            Some(typ) => nullable_type(typ)
+            Some(typ) => nullable_type(member_contract_type(typ))
             None => {
               diagnostics.push(Diagnostic::{
                 message: "unknown member \{member_name}",

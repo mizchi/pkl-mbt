@@ -375,6 +375,47 @@ test "typecheck infers Pkl class property default types" {
 }
 
 ///|
+test "typecheck allows Pkl class defaults to satisfy missing members" {
+  guard typecheck_source(
+      "class Bird { name = \"hawk\"; age: Int }\nbird: Bird = new { age = 2 }",
+    )
+    is TypeOk(ObjectType(fields)) else {
+    panic()
+  }
+  inspect(render_type(fields[0].typ), content="Bird")
+
+  guard typecheck_source(
+      "class Bird { name: String = \"hawk\"; age: Int = 1 }\nbird: Bird = new {}",
+    )
+    is TypeOk(ObjectType(default_fields)) else {
+    panic()
+  }
+  inspect(render_type(default_fields[0].typ), content="Bird")
+
+  guard typecheck_source(
+      "class Bird { name = \"hawk\"; age: Int }\nbird: Bird = new { name = 1; age = 2 }",
+    )
+    is TypeError(name_diagnostics) else {
+    panic()
+  }
+  inspect(
+    name_diagnostics[0].message,
+    content="type annotation Bird member name expects String, got Int",
+  )
+
+  guard typecheck_source(
+      "class Bird { name = \"hawk\"; age: Int }\nbird: Bird = new {}",
+    )
+    is TypeError(age_diagnostics) else {
+    panic()
+  }
+  inspect(
+    age_diagnostics[0].message,
+    content="type annotation Bird missing member age",
+  )
+}
+
+///|
 test "parse Pkl calls lambdas operators and conditionals" {
   let parsed = parse_source(
     "local f = (x, y) -> x + y\nvalue = f(1, 2)\nlogic = true || false && !false\nchoice = null ?? if (1 + 2 > 2) \"yes\" else \"no\"",
