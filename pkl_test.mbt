@@ -766,6 +766,24 @@ test "evaluate Pkl function declarations lambdas and calls" {
 }
 
 ///|
+test "evaluate Pkl callable runtime values" {
+  assert_true(
+    eval_source("local inc = (n) -> n + 1\nlocal f = inc\nvalue = f(41)") ==
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(42) }])),
+  )
+  assert_true(
+    eval_source(
+      "function apply(f, n) = f(n)\nlocal inc = (n) -> n + 1\nvalue = apply(inc, 2)",
+    ) ==
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(3) }])),
+  )
+  assert_true(
+    eval_source("local box = new { f = (x) -> x + 1 }\nvalue = box.f(2)") ==
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(3) }])),
+  )
+}
+
+///|
 test "typecheck rejects invalid Pkl calls" {
   guard typecheck_source("function add(x, y) = x + y\nvalue = add(1)")
     is TypeError(arity_diagnostics) else {

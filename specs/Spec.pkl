@@ -855,8 +855,8 @@ local callableRuntimeValues = new Scenario {
     "The evaluator represents function and lambda expressions as callable runtime values so callables can be stored, passed as arguments, and invoked beyond direct AST call sites."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-042"; "PKL-023" }
-  tags { "evaluator"; "next" }
-  reviewStatus = "draft"
+  tags { "evaluator" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -864,6 +864,26 @@ local callableRuntimeValues = new Scenario {
       summary = "Generalize callable evaluation into values"
       rationale =
         "Function declarations and lambda bindings can now be called directly. Pkl code also passes callables around, so the next runtime step is a proper callable value representation instead of only AST-pattern dispatch."
+    }
+  }
+}
+
+local constrainedTypeAnnotations = new Scenario {
+  id = "PKL-045"
+  name = "typecheck Pkl constrained type annotations"
+  description =
+    "Type annotations with constraint calls such as `Int(isBetween(0, 10))` retain their base type contract so stdlib-like signatures can be parsed and checked before full constraint evaluation exists."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-023"; "PKL-028"; "PKL-044" }
+  tags { "parser"; "typechecker"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Handle constraint annotations as base-type contracts first"
+      rationale =
+        "The upstream stdlib uses annotations like `Int(this.isBetween(...))`. Evaluating the constraint expressions is separate work, but recognizing the base type removes a common blocker for stdlib and method signatures."
     }
   }
 }
@@ -915,4 +935,5 @@ scenarios {
   callableEvaluation
   classMethodBodyTypechecking
   callableRuntimeValues
+  constrainedTypeAnnotations
 }

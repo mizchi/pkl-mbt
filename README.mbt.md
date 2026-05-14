@@ -24,12 +24,12 @@ For parser coverage, `./scripts/upstream-parse-suite.sh` parses the upstream `La
 
 ## Status Estimate
 
-As of `PKL-043`, this package has 43 implemented pkspec scenarios. The next tracked slice is `PKL-044`, callable runtime values.
+As of `PKL-044`, this package has 44 implemented pkspec scenarios. The next tracked slice is `PKL-045`, constrained type annotations.
 
 These are rough implementation estimates, not formal coverage numbers:
 
 - Parser: 60-70%. The upstream parser snippet corpus is accepted in parse-only mode, but some constructs still parse tolerantly or lack full semantic AST coverage.
-- Interpreter: 30-40%. Core arithmetic, object/module flows, imports, collections, class defaults/inheritance, method calls, and direct function/lambda calls work; callable values and broad stdlib behavior are still incomplete.
+- Interpreter: 35-45%. Core arithmetic, object/module flows, imports, collections, class defaults/inheritance, method calls, direct function/lambda calls, and callable runtime values work; broad stdlib behavior is still incomplete.
 - Typechecker: 40-50%. Primitive, nullable, generic collection, union, narrowing, call, typed object, class inheritance, imported class, and class method body checks exist; full Pkl constraints, type parameters, stdlib types, and deeper module/class semantics remain.
 
 Overall this is roughly 40%+ complete as a pure MoonBit Pkl core, or closer to the 30% range if measured as an Apple Pkl compatibility replacement.

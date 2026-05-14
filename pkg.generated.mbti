@@ -408,6 +408,7 @@ pub(all) enum Value {
   ObjectValue(Array[ValueMember])
   ListingValue(Array[Value])
   MappingValue(Array[ValueEntry])
+  FunctionValue(Array[FunctionParameter], Expr, String?)
 } derive(Eq, @debug.Debug)
 
 pub(all) struct ValueEntry {

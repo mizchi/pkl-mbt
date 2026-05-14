@@ -7,6 +7,7 @@ pub(all) enum Value {
   ObjectValue(Array[ValueMember])
   ListingValue(Array[Value])
   MappingValue(Array[ValueEntry])
+  FunctionValue(Array[FunctionParameter], Expr, String?)
 } derive(Eq, Debug)
 
 ///|
@@ -476,6 +477,74 @@ fn eval_class_method_call(
 }
 
 ///|
+fn callee_label(callee : Expr) -> String {
+  match callee {
+    Identifier(name) => "function \{name}"
+    _ => "function"
+  }
+}
+
+///|
+fn class_method_call_available(
+  target_expr : Expr,
+  method_name : String,
+  bindings : Array[Binding],
+  class_env : Array[ClassBinding],
+) -> Bool {
+  match typed_object_class_name_for_expr(target_expr, bindings, []) {
+    Some(type_name) =>
+      lookup_class_method(class_env, type_name, method_name) is Some(_)
+    None => false
+  }
+}
+
+///|
+fn eval_callable_call(
+  callee : Expr,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match
+    eval_expr_with_bindings(
+      callee, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+    ) {
+    Some(FunctionValue(parameters, body, _)) =>
+      eval_lambda_application(
+        callee_label(callee),
+        parameters,
+        body,
+        arguments,
+        bindings,
+        env,
+        class_env,
+        cache,
+        stack,
+        diagnostics,
+        resolve_import,
+      )
+    Some(NullValue) =>
+      match callee {
+        SafeMemberAccess(_, _) => Some(NullValue)
+        _ => {
+          diagnostics.push(Diagnostic::{ message: "call expects Function" })
+          None
+        }
+      }
+    Some(_) => {
+      diagnostics.push(Diagnostic::{ message: "call expects Function" })
+      None
+    }
+    None => None
+  }
+}
+
+///|
 fn eval_expr_with_bindings(
   expr : Expr,
   bindings : Array[Binding],
@@ -692,65 +761,41 @@ fn eval_expr_with_bindings(
     CallExpr(callee, arguments) =>
       match callee {
         MemberAccess(target_expr, method_name) =>
-          eval_class_method_call(
-            target_expr, method_name, arguments, false, bindings, env, class_env,
-            cache, stack, diagnostics, resolve_import,
-          )
-        SafeMemberAccess(target_expr, method_name) =>
-          eval_class_method_call(
-            target_expr, method_name, arguments, true, bindings, env, class_env,
-            cache, stack, diagnostics, resolve_import,
-          )
-        LambdaExpr(parameters, body, _) =>
-          eval_lambda_application(
-            "function", parameters, body, arguments, bindings, env, class_env, cache,
-            stack, diagnostics, resolve_import,
-          )
-        Identifier(name) =>
-          match find_binding(bindings, name) {
-            Some(binding) =>
-              match binding.value {
-                LambdaExpr(parameters, body, _) =>
-                  eval_lambda_application(
-                    "function \{name}",
-                    parameters,
-                    body,
-                    arguments,
-                    bindings,
-                    env,
-                    class_env,
-                    cache,
-                    stack,
-                    diagnostics,
-                    resolve_import,
-                  )
-                _ => {
-                  diagnostics.push(Diagnostic::{
-                    message: "call expressions are parser-only",
-                  })
-                  None
-                }
-              }
-            None => {
-              diagnostics.push(Diagnostic::{
-                message: "call expressions are parser-only",
-              })
-              None
-            }
+          if class_method_call_available(
+              target_expr, method_name, bindings, class_env,
+            ) {
+            eval_class_method_call(
+              target_expr, method_name, arguments, false, bindings, env, class_env,
+              cache, stack, diagnostics, resolve_import,
+            )
+          } else {
+            eval_callable_call(
+              callee, arguments, bindings, env, class_env, cache, stack, diagnostics,
+              resolve_import,
+            )
           }
-        _ => {
-          diagnostics.push(Diagnostic::{
-            message: "call expressions are parser-only",
-          })
-          None
-        }
+        SafeMemberAccess(target_expr, method_name) =>
+          if class_method_call_available(
+              target_expr, method_name, bindings, class_env,
+            ) {
+            eval_class_method_call(
+              target_expr, method_name, arguments, true, bindings, env, class_env,
+              cache, stack, diagnostics, resolve_import,
+            )
+          } else {
+            eval_callable_call(
+              callee, arguments, bindings, env, class_env, cache, stack, diagnostics,
+              resolve_import,
+            )
+          }
+        _ =>
+          eval_callable_call(
+            callee, arguments, bindings, env, class_env, cache, stack, diagnostics,
+            resolve_import,
+          )
       }
-    LambdaExpr(_, _, _) => {
-      diagnostics.push(Diagnostic::{
-        message: "lambda expressions are parser-only",
-      })
-      None
-    }
+    LambdaExpr(parameters, body, return_type_name) =>
+      Some(FunctionValue(parameters, body, return_type_name))
     NonNullExpr(inner_expr) =>
       match
         eval_expr_with_bindings(
@@ -1294,6 +1339,7 @@ pub fn render_value(value : Value) -> String {
     ObjectValue(members) => render_object_members(members)
     ListingValue(elements) => render_listing_elements(elements)
     MappingValue(entries) => render_mapping_entries(entries)
+    FunctionValue(_, _, _) => "<function>"
   }
 }
 
