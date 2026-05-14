@@ -428,6 +428,86 @@ local callableTypechecking = new Scenario {
   }
 }
 
+local callableAnnotationTypechecking = new Scenario {
+  id = "PKL-023"
+  name = "typecheck Pkl callable parameter and return annotations"
+  description =
+    "Function declarations and lambda expressions retain parameter and return type annotations, and the typechecker validates call arguments plus annotated return values."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-022"; "PKL-008" }
+  tags { "parser"; "typechecker" }
+  reviewStatus = "approved"
+  severity = "critical"
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Preserve callable annotations in AST"
+      rationale =
+        "Call-site inference is useful for unannotated functions, but Pkl code commonly declares parameter and return contracts. Keeping these annotations in the parser AST lets the typechecker reject invalid calls and return bodies without implementing runtime function closures."
+    }
+  }
+}
+
+local nullableTypechecking = new Scenario {
+  id = "PKL-024"
+  name = "typecheck Pkl nullable annotations"
+  description =
+    "The parser preserves nullable type annotation suffixes such as `String?`, and the typechecker accepts null or the inner type while narrowing null-coalescing expressions."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-008"; "PKL-018"; "PKL-023" }
+  tags { "parser"; "typechecker" }
+  reviewStatus = "approved"
+  severity = "critical"
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Represent nullable annotations explicitly"
+      rationale =
+        "Pkl commonly uses `T?` for optional properties and parameters. Preserving the suffix in parser output and modeling it as a distinct type lets annotations accept null while keeping invalid inner values rejected."
+    }
+  }
+}
+
+local genericCollectionTypechecking = new Scenario {
+  id = "PKL-025"
+  name = "typecheck Pkl generic collection annotations"
+  description =
+    "The parser preserves generic annotation text for Listing and Mapping types, and the typechecker validates listing element and mapping key/value types."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-017"; "PKL-024" }
+  tags { "parser"; "typechecker" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Validate generic collection annotations structurally"
+      rationale =
+        "Collections already carry literal element and entry types. Parsing `Listing<T>` and `Mapping<K,V>` into expected element contracts catches mismatches without requiring a full Pkl generic type system yet."
+    }
+  }
+}
+
+local richTypealiasTypechecking = new Scenario {
+  id = "PKL-026"
+  name = "typecheck Pkl nullable and generic typealias annotations"
+  description =
+    "Typealias declarations preserve nullable and generic target annotation text, and the typechecker resolves aliases to nullable, Listing, and Mapping contracts."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-024"; "PKL-025" }
+  tags { "parser"; "typechecker" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Reuse annotation parsing for typealias targets"
+      rationale =
+        "Aliases are part of the type contract surface. Keeping only the first identifier loses optional and generic structure, so typealias parsing should preserve the same normalized annotation text as property and parameter annotations."
+    }
+  }
+}
+
 goals { pureMoonBitCore }
 
 scenarios {
@@ -453,4 +533,8 @@ scenarios {
   moduleInheritanceAndAmends
   incrementalTypecheckGraph
   callableTypechecking
+  callableAnnotationTypechecking
+  nullableTypechecking
+  genericCollectionTypechecking
+  richTypealiasTypechecking
 }

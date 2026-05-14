@@ -9,6 +9,7 @@ pub(all) enum Type {
   ListingType(Array[Type])
   MappingType(Array[TypeEntry])
   FunctionType(Array[Type], Type)
+  NullableType(Type)
   UnknownType
 } derive(Eq, Debug)
 
@@ -121,6 +122,7 @@ pub fn render_type(typ : Type) -> String {
     ListingType(_) => "Listing"
     MappingType(_) => "Mapping"
     FunctionType(_, _) => "Function"
+    NullableType(inner) => "\{render_type(inner)}?"
     UnknownType => "Unknown"
   }
 }
@@ -141,7 +143,91 @@ fn builtin_type_from_annotation(name : String) -> Type? {
 }
 
 ///|
+fn split_top_level_generic_arguments(text : String) -> Array[String] {
+  let parts : Array[String] = []
+  let buf = StringBuilder::new()
+  let mut parens = 0
+  let mut brackets = 0
+  let mut angles = 0
+  for char in text {
+    if char == ',' && parens == 0 && brackets == 0 && angles == 0 {
+      parts.push(buf.to_string())
+      buf.reset()
+    } else {
+      if char == '(' {
+        parens += 1
+      } else if char == ')' && parens > 0 {
+        parens -= 1
+      } else if char == '[' {
+        brackets += 1
+      } else if char == ']' && brackets > 0 {
+        brackets -= 1
+      } else if char == '<' {
+        angles += 1
+      } else if char == '>' && angles > 0 {
+        angles -= 1
+      }
+      buf.write_string(char.to_string())
+    }
+  }
+  let last = buf.to_string()
+  if last != "" || parts.length() > 0 {
+    parts.push(last)
+  }
+  parts
+}
+
+///|
+fn generic_argument_text(name : String, prefix : String) -> String? {
+  let start = prefix.length() + 1
+  if name.has_prefix(prefix + "<") &&
+    name.has_suffix(">") &&
+    name.length() > start {
+    Some(String::unsafe_substring(name, start~, end=name.length() - 1))
+  } else {
+    None
+  }
+}
+
+///|
 fn type_from_annotation(name : String, type_env : Array[TypeBinding]) -> Type? {
+  if name.has_suffix("?") {
+    let inner_name = String::unsafe_substring(
+      name,
+      start=0,
+      end=name.length() - 1,
+    )
+    match type_from_annotation(inner_name, type_env) {
+      Some(inner) => return Some(NullableType(inner))
+      None => return None
+    }
+  }
+  match generic_argument_text(name, "Listing") {
+    Some(inner_text) =>
+      match type_from_annotation(inner_text, type_env) {
+        Some(inner) => return Some(ListingType([inner]))
+        None => return None
+      }
+    None => ()
+  }
+  match generic_argument_text(name, "Mapping") {
+    Some(inner_text) => {
+      let parts = split_top_level_generic_arguments(inner_text)
+      if parts.length() != 2 {
+        return None
+      }
+      match
+        (
+          type_from_annotation(parts[0], type_env),
+          type_from_annotation(parts[1], type_env),
+        ) {
+        (Some(key), Some(value)) =>
+          return Some(MappingType([TypeEntry::{ key, value }]))
+        _ => return None
+      }
+    }
+    None => ()
+  }
   match builtin_type_from_annotation(name) {
     Some(typ) => Some(typ)
     None => lookup_type(type_env, name)
@@ -157,6 +243,11 @@ fn type_accepts(expected : Type, inferred : Type) -> Bool {
     (UnknownType, _) => true
     (ObjectType(_), ObjectType(_)) => true
     (ObjectType(_), ClassType(_, _)) => true
+    (NullableType(_), NullType) => true
+    (NullableType(expected_inner), NullableType(actual_inner)) =>
+      type_accepts(expected_inner, actual_inner)
+    (NullableType(expected_inner), actual) =>
+      type_accepts(expected_inner, actual)
     (ClassType(_, expected_members), ObjectType(actual_members)) => {
       let mut ok = true
       for expected_member in expected_members {
@@ -170,8 +261,38 @@ fn type_accepts(expected : Type, inferred : Type) -> Bool {
       }
       ok
     }
-    (ListingType(_), ListingType(_)) => true
-    (MappingType(_), MappingType(_)) => true
+    (ListingType(expected_items), ListingType(actual_items)) => {
+      if expected_items.length() == 0 {
+        return true
+      }
+      let expected_item = common_type(expected_items)
+      let mut ok = true
+      for actual_item in actual_items {
+        if !type_accepts(expected_item, actual_item) {
+          ok = false
+        }
+      }
+      ok
+    }
+    (MappingType(expected_entries), MappingType(actual_entries)) => {
+      if expected_entries.length() == 0 {
+        return true
+      }
+      let expected_key = common_type(
+        expected_entries.map(fn(entry) { entry.key }),
+      )
+      let expected_value = common_type(
+        expected_entries.map(fn(entry) { entry.value }),
+      )
+      let mut ok = true
+      for actual_entry in actual_entries {
+        if !type_accepts(expected_key, actual_entry.key) ||
+          !type_accepts(expected_value, actual_entry.value) {
+          ok = false
+        }
+      }
+      ok
+    }
     (FunctionType(_, _), FunctionType(_, _)) => true
     _ => false
   }
@@ -268,12 +389,28 @@ fn lookup_mapping_value_type(entries : Array[TypeEntry], key : Type) -> Type? {
 }
 
 ///|
-fn function_parameter_types(count : Int) -> Array[Type] {
-  let parameters : Array[Type] = []
-  for _i = 0; _i < count; _i = _i + 1 {
-    parameters.push(UnknownType)
+fn function_parameter_types(
+  parameters : Array[FunctionParameter],
+  type_env : Array[TypeBinding],
+  diagnostics : Array[Diagnostic],
+) -> Array[Type] {
+  let types : Array[Type] = []
+  for parameter in parameters {
+    match parameter.type_name {
+      Some(type_name) =>
+        match type_from_annotation(type_name, type_env) {
+          Some(typ) => types.push(typ)
+          None => {
+            diagnostics.push(Diagnostic::{
+              message: "unknown type annotation \{type_name}",
+            })
+            types.push(UnknownType)
+          }
+        }
+      None => types.push(UnknownType)
+    }
   }
-  parameters
+  types
 }
 
 ///|
@@ -296,7 +433,11 @@ fn all_program_bindings(program : Program) -> Array[Binding] {
             bindings.push({
               name: function_decl.name,
               type_name: None,
-              value: LambdaExpr(function_decl.parameters, body),
+              value: LambdaExpr(
+                function_decl.parameters,
+                body,
+                function_decl.return_type_name,
+              ),
               exported: false,
             })
           None => ()
@@ -456,7 +597,8 @@ fn infer_argument_types(
 ///|
 fn infer_lambda_application(
   label : String,
-  parameters : Array[String],
+  parameters : Array[FunctionParameter],
+  return_type_name : String?,
   body : Expr,
   arguments : Array[Expr],
   bindings : Array[Binding],
@@ -478,11 +620,54 @@ fn infer_lambda_application(
   )
   let call_cache = copy_type_bindings(cache)
   for i = 0; i < parameters.length(); i = i + 1 {
-    call_cache.push({ name: parameters[i], typ: argument_types[i] })
+    let parameter = parameters[i]
+    let parameter_type = match parameter.type_name {
+      Some(type_name) =>
+        match type_from_annotation(type_name, type_env) {
+          Some(expected) =>
+            if type_accepts(expected, argument_types[i]) {
+              expected
+            } else {
+              diagnostics.push(Diagnostic::{
+                message: "\{label} argument \{i + 1} expects \{render_type(expected)}, got \{render_type(argument_types[i])}",
+              })
+              return UnknownType
+            }
+          None => {
+            diagnostics.push(Diagnostic::{
+              message: "unknown type annotation \{type_name}",
+            })
+            UnknownType
+          }
+        }
+      None => argument_types[i]
+    }
+    call_cache.push({ name: parameter.name, typ: parameter_type })
   }
-  infer_expr_with_bindings(
+  let inferred_return = infer_expr_with_bindings(
     body, bindings, env, type_env, call_cache, stack, diagnostics, resolve_import,
   )
+  match return_type_name {
+    Some(type_name) =>
+      match type_from_annotation(type_name, type_env) {
+        Some(expected) =>
+          if type_accepts(expected, inferred_return) {
+            expected
+          } else {
+            diagnostics.push(Diagnostic::{
+              message: "\{label} return annotation \{type_name} does not accept \{render_type(inferred_return)}",
+            })
+            UnknownType
+          }
+        None => {
+          diagnostics.push(Diagnostic::{
+            message: "unknown type annotation \{type_name}",
+          })
+          UnknownType
+        }
+      }
+    None => inferred_return
+  }
 }
 
 ///|
@@ -532,19 +717,20 @@ fn infer_call_expr(
   resolve_import : (String) -> TypecheckResult?,
 ) -> Type {
   match callee {
-    LambdaExpr(parameters, body) =>
+    LambdaExpr(parameters, body, return_type_name) =>
       return infer_lambda_application(
-        "function", parameters, body, arguments, bindings, env, type_env, cache,
-        stack, diagnostics, resolve_import,
+        "function", parameters, return_type_name, body, arguments, bindings, env,
+        type_env, cache, stack, diagnostics, resolve_import,
       )
     Identifier(name) =>
       match find_type_binding(bindings, name) {
         Some(binding) =>
           match binding.value {
-            LambdaExpr(parameters, body) =>
+            LambdaExpr(parameters, body, return_type_name) =>
               return infer_lambda_application(
                 "function \{name}",
                 parameters,
+                return_type_name,
                 body,
                 arguments,
                 bindings,
@@ -778,8 +964,25 @@ fn infer_expr_with_bindings(
       infer_call_expr(
         callee, arguments, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
       )
-    LambdaExpr(parameters, _) =>
-      FunctionType(function_parameter_types(parameters.length()), UnknownType)
+    LambdaExpr(parameters, _, return_type_name) => {
+      let return_type = match return_type_name {
+        Some(type_name) =>
+          match type_from_annotation(type_name, type_env) {
+            Some(typ) => typ
+            None => {
+              diagnostics.push(Diagnostic::{
+                message: "unknown type annotation \{type_name}",
+              })
+              UnknownType
+            }
+          }
+        None => UnknownType
+      }
+      FunctionType(
+        function_parameter_types(parameters, type_env, diagnostics),
+        return_type,
+      )
+    }
     UnaryExpr(op, inner_expr) => {
       let inner = infer_expr_with_bindings(
         inner_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
@@ -876,6 +1079,16 @@ fn infer_expr_with_bindings(
         NullCoalesce =>
           if left == NullType {
             right
+          } else if left is NullableType(inner) {
+            if right == NullType {
+              left
+            } else if type_accepts(inner, right) {
+              inner
+            } else if type_accepts(left, right) {
+              left
+            } else {
+              UnknownType
+            }
           } else if right == NullType || left == right {
             left
           } else {

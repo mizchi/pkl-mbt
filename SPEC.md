@@ -1,6 +1,6 @@
 # Test SPEC
 
-26 tests across 2 module(s) — 22 pending, 4 active
+30 tests across 2 module(s) — 26 pending, 4 active
 
 ## `specs/`
 
@@ -117,10 +117,38 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **typecheck Pkl callable parameter and return annotations** (critical) — verifies: PKL-023 — tags: parser, typechecker
+  > Function declarations and lambda expressions retain parameter and return type annotations, and the typechecker validates call arguments plus annotated return values.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-022, PKL-008
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
 - [ ] **typecheck Pkl function declarations lambdas and calls** (critical) — verifies: PKL-022 — tags: typechecker
   > The typechecker resolves function declarations and lambda bindings at call sites, infers return types from argument-bound parameter types, and reports call arity and non-function call errors.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-018, PKL-019
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **typecheck Pkl generic collection annotations** — verifies: PKL-025 — tags: parser, typechecker
+  > The parser preserves generic annotation text for Listing and Mapping types, and the typechecker validates listing element and mapping key/value types.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-017, PKL-024
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **typecheck Pkl nullable and generic typealias annotations** — verifies: PKL-026 — tags: parser, typechecker
+  > Typealias declarations preserve nullable and generic target annotation text, and the typechecker resolves aliases to nullable, Listing, and Mapping contracts.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-024, PKL-025
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **typecheck Pkl nullable annotations** (critical) — verifies: PKL-024 — tags: parser, typechecker
+  > The parser preserves nullable type annotation suffixes such as `String?`, and the typechecker accepts null or the inner type while narrowing null-coalescing expressions.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-008, PKL-018, PKL-023
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
@@ -148,7 +176,7 @@
   > The native CLI evaluates a Pkl file and prints module object properties.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022 — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 

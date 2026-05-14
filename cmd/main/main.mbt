@@ -89,7 +89,7 @@ fn load_expr_imports(
         load_expr_imports(session, from, argument, stack)
       }
     }
-    LambdaExpr(_, body) => load_expr_imports(session, from, body, stack)
+    LambdaExpr(_, body, _) => load_expr_imports(session, from, body, stack)
     UnaryExpr(_, inner) => load_expr_imports(session, from, inner, stack)
     ConditionalExpr(condition, then_expr, else_expr) => {
       load_expr_imports(session, from, condition, stack)

@@ -354,7 +354,7 @@ fn eval_expr_with_bindings(
       })
       None
     }
-    LambdaExpr(_, _) => {
+    LambdaExpr(_, _, _) => {
       diagnostics.push(Diagnostic::{
         message: "lambda expressions are parser-only",
       })

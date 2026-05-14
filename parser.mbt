@@ -197,8 +197,70 @@ fn Parser::function_literal_at_current(self : Parser) -> Bool {
     } else if kind == rparen() {
       depth -= 1
       if depth == 0 {
-        return self.peek_non_trivia_kind(i + 1) == arrow()
+        return self.lambda_arrow_after_parameter_list(i + 1)
       }
+    }
+    i += 1
+  }
+  false
+}
+
+///|
+fn Parser::lambda_arrow_after_parameter_list(
+  self : Parser,
+  start : Int,
+) -> Bool {
+  let mut i = start
+  while i < self.len && is_trivia(self.tokens[i].kind()) {
+    i += 1
+  }
+  if i >= self.len {
+    return false
+  }
+  if self.tokens[i].kind() == arrow() {
+    return true
+  }
+  if self.tokens[i].kind() != colon() {
+    return false
+  }
+  i += 1
+  let mut parens = 0
+  let mut brackets = 0
+  let mut angles = 0
+  while i < self.len {
+    let kind = self.tokens[i].kind()
+    if parens == 0 && brackets == 0 && angles == 0 {
+      if kind == arrow() {
+        return true
+      }
+      if kind == eq() ||
+        kind == lbrace() ||
+        kind == rbrace() ||
+        is_separator(kind) {
+        return false
+      }
+    }
+    if kind == lparen() {
+      parens += 1
+    } else if kind == rparen() {
+      if parens == 0 {
+        return false
+      }
+      parens -= 1
+    } else if kind == lbracket() {
+      brackets += 1
+    } else if kind == rbracket() {
+      if brackets == 0 {
+        return false
+      }
+      brackets -= 1
+    } else if parens == 0 && brackets == 0 && kind == lt() {
+      angles += 1
+    } else if parens == 0 && brackets == 0 && kind == gt() {
+      if angles == 0 {
+        return false
+      }
+      angles -= 1
     }
     i += 1
   }
@@ -685,11 +747,17 @@ fn Parser::parse_type_annotation(self : Parser) -> String? {
   }
   ignore(self.bump())
   self.skip_whitespace()
-  let type_name = if self.at(identifier()) {
-    Some(self.bump().text())
-  } else {
+  let type_name = self.parse_type_text(stop_at_arrow=true)
+  if type_name == "" {
     None
+  } else {
+    Some(type_name)
   }
+}
+
+///|
+fn Parser::parse_type_text(self : Parser, stop_at_arrow~ : Bool) -> String {
+  let buf = StringBuilder::new()
   let mut parens = 0
   let mut brackets = 0
   let mut angles = 0
@@ -698,6 +766,8 @@ fn Parser::parse_type_annotation(self : Parser) -> String? {
       if self.at(eq()) ||
         self.at(lbrace()) ||
         self.at(rbrace()) ||
+        self.at(comma()) ||
+        (stop_at_arrow && self.at(arrow())) ||
         is_separator(self.peek_kind()) {
         break
       }
@@ -724,9 +794,12 @@ fn Parser::parse_type_annotation(self : Parser) -> String? {
       }
       angles -= 1
     }
-    ignore(self.bump())
+    let tok = self.bump()
+    if !is_trivia(tok.kind()) {
+      buf.write_string(tok.text())
+    }
   }
-  type_name
+  buf.to_string()
 }
 
 ///|
@@ -897,9 +970,7 @@ fn Parser::parse_typealias_decl(self : Parser) -> TypeAliasDecl? {
     }) {
     ignore(self.bump())
     self.skip_whitespace()
-    let type_name = if self.at(identifier()) { self.bump().text() } else { "" }
-    self.skip_type_tail()
-    type_name
+    self.parse_type_text(stop_at_arrow=false)
   } else {
     ""
   }
@@ -912,6 +983,16 @@ fn Parser::parse_typealias_decl(self : Parser) -> TypeAliasDecl? {
 }
 
 ///|
+fn Parser::parse_function_parameter(self : Parser) -> FunctionParameter? {
+  if !self.at(identifier()) {
+    return None
+  }
+  let name = self.bump().text()
+  let type_name = self.parse_type_annotation()
+  Some({ name, type_name })
+}
+
+///|
 fn Parser::parse_function_decl(self : Parser) -> FunctionDecl? {
   self.builder.start_node(function_decl())
   self.expect_text("function", "function")
@@ -919,19 +1000,20 @@ fn Parser::parse_function_decl(self : Parser) -> FunctionDecl? {
     Some(tok) => tok.text()
     None => ""
   }
-  let parameters : Array[String] = []
+  let parameters : Array[FunctionParameter] = []
   self.skip_whitespace()
   if self.at(lparen()) {
     ignore(self.bump())
     self.skip_whitespace()
     while !self.at(eof()) && !self.at(rparen()) {
-      if self.at(identifier()) {
-        parameters.push(self.bump().text())
-        self.skip_type_tail()
-      } else if self.at(comma()) {
-        ignore(self.bump())
-      } else {
-        ignore(self.bump())
+      match self.parse_function_parameter() {
+        Some(parameter) => parameters.push(parameter)
+        None =>
+          if self.at(comma()) {
+            ignore(self.bump())
+          } else {
+            ignore(self.bump())
+          }
       }
       self.skip_whitespace()
       if self.at(comma()) {
@@ -941,7 +1023,7 @@ fn Parser::parse_function_decl(self : Parser) -> FunctionDecl? {
     }
     ignore(self.expect(rparen(), ")"))
   }
-  let _return_type = self.parse_type_annotation()
+  let return_type_name = self.parse_type_annotation()
   let body = if ({
       self.skip_whitespace()
       self.at(eq())
@@ -955,7 +1037,7 @@ fn Parser::parse_function_decl(self : Parser) -> FunctionDecl? {
   if name == "" {
     None
   } else {
-    Some({ name, parameters, body })
+    Some({ name, parameters, return_type_name, body })
   }
 }
 
@@ -1366,14 +1448,12 @@ fn Parser::parse_primary_expr(self : Parser) -> Expr {
 fn Parser::parse_lambda_expr(self : Parser) -> Expr {
   self.builder.start_node(lambda_expr())
   ignore(self.expect(lparen(), "("))
-  let parameters : Array[String] = []
+  let parameters : Array[FunctionParameter] = []
   self.skip_whitespace()
   while !self.at(eof()) && !self.at(rparen()) {
-    if self.at(identifier()) {
-      parameters.push(self.bump().text())
-      self.skip_type_tail()
-    } else {
-      ignore(self.bump())
+    match self.parse_function_parameter() {
+      Some(parameter) => parameters.push(parameter)
+      None => ignore(self.bump())
     }
     self.skip_whitespace()
     if self.at(comma()) {
@@ -1382,10 +1462,11 @@ fn Parser::parse_lambda_expr(self : Parser) -> Expr {
     }
   }
   ignore(self.expect(rparen(), ")"))
+  let return_type_name = self.parse_type_annotation()
   ignore(self.expect(arrow(), "->"))
   let body = self.parse_expr()
   self.builder.finish_node()
-  LambdaExpr(parameters, body)
+  LambdaExpr(parameters, body, return_type_name)
 }
 
 ///|

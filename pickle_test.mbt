@@ -314,6 +314,7 @@ test "parse Pkl class function and typealias declarations" {
   }
   inspect(function_decl.name, content="identity")
   inspect(function_decl.parameters.length(), content="1")
+  inspect(function_decl.parameters[0].name, content="x")
   assert_true(function_decl.body == Some(Identifier("x")))
 }
 
@@ -348,12 +349,13 @@ test "parse Pkl calls lambdas operators and conditionals" {
   inspect(parsed.diagnostics.length(), content="0")
   inspect(parsed.unsupported_syntax.length(), content="0")
 
-  guard parsed.program.bindings[0].value is LambdaExpr(parameters, lambda_body) else {
+  guard parsed.program.bindings[0].value
+    is LambdaExpr(parameters, lambda_body, None) else {
     panic()
   }
   inspect(parameters.length(), content="2")
-  inspect(parameters[0], content="x")
-  inspect(parameters[1], content="y")
+  inspect(parameters[0].name, content="x")
+  inspect(parameters[1].name, content="y")
   assert_true(lambda_body == BinaryExpr(Add, Identifier("x"), Identifier("y")))
 
   assert_true(
@@ -436,6 +438,159 @@ test "typecheck rejects invalid Pkl calls" {
     panic()
   }
   inspect(call_diagnostics[0].message, content="call expects Function")
+}
+
+///|
+test "typecheck Pkl callable parameter and return annotations" {
+  assert_true(
+    typecheck_source(
+      "function add(x: Int, y: Int): Int = x + y\nvalue = add(1, 2)",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+  assert_true(
+    typecheck_source(
+      "local stringify = (x: String): String -> x\nvalue = stringify(\"hawk\")",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: StringType }])),
+  )
+
+  guard typecheck_source(
+      "function add(x: Int, y: Int): Int = x + y\nvalue = add(1, true)",
+    )
+    is TypeError(argument_diagnostics) else {
+    panic()
+  }
+  inspect(
+    argument_diagnostics[0].message,
+    content="function add argument 2 expects Int, got Boolean",
+  )
+
+  guard typecheck_source("function bad(x: Int): String = x\nvalue = bad(1)")
+    is TypeError(return_diagnostics) else {
+    panic()
+  }
+  inspect(
+    return_diagnostics[0].message,
+    content="function bad return annotation String does not accept Int",
+  )
+}
+
+///|
+test "typecheck Pkl nullable annotations" {
+  let parsed = parse_source("name: String? = null")
+  assert_true(parsed.program.bindings[0].type_name == Some("String?"))
+
+  assert_true(
+    typecheck_source("name: String? = null\nother: String? = \"hawk\"") ==
+    TypeOk(
+      ObjectType([
+        TypeMember::{ name: "name", typ: NullableType(StringType) },
+        TypeMember::{ name: "other", typ: NullableType(StringType) },
+      ]),
+    ),
+  )
+  guard typecheck_source("name: String? = 1") is TypeError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="type annotation String? does not accept Int",
+  )
+  assert_true(
+    typecheck_source(
+      "function label(x: String?): String = x ?? \"none\"\nvalue = label(null)",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: StringType }])),
+  )
+}
+
+///|
+test "typecheck Pkl generic collection annotations" {
+  let parsed = parse_source(
+    "numbers: Listing<Int> = new Listing { 1; 2 }\nhabitats: Mapping<String, String> = new Mapping { [\"hawk\"] = \"forest\" }",
+  )
+  assert_true(parsed.program.bindings[0].type_name == Some("Listing<Int>"))
+  assert_true(
+    parsed.program.bindings[1].type_name == Some("Mapping<String,String>"),
+  )
+
+  assert_true(
+    typecheck_source(
+      "numbers: Listing<Int> = new Listing { 1; 2 }\nhabitats: Mapping<String, String> = new Mapping { [\"hawk\"] = \"forest\" }",
+    ) ==
+    TypeOk(
+      ObjectType([
+        TypeMember::{ name: "numbers", typ: ListingType([IntType]) },
+        TypeMember::{
+          name: "habitats",
+          typ: MappingType([TypeEntry::{ key: StringType, value: StringType }]),
+        },
+      ]),
+    ),
+  )
+
+  guard typecheck_source("numbers: Listing<Int> = new Listing { 1; \"two\" }")
+    is TypeError(listing_diagnostics) else {
+    panic()
+  }
+  inspect(
+    listing_diagnostics[0].message,
+    content="type annotation Listing<Int> does not accept Listing",
+  )
+
+  guard typecheck_source(
+      "habitats: Mapping<String, String> = new Mapping { [\"hawk\"] = 1 }",
+    )
+    is TypeError(mapping_diagnostics) else {
+    panic()
+  }
+  inspect(
+    mapping_diagnostics[0].message,
+    content="type annotation Mapping<String,String> does not accept Mapping",
+  )
+}
+
+///|
+test "typecheck Pkl rich typealias annotations" {
+  let parsed = parse_source(
+    "typealias MaybeName = String?\ntypealias Names = Listing<String>\ntypealias HabitatMap = Mapping<String, String>",
+  )
+  guard parsed.program.declarations[0] is TypeAliasDeclaration(maybe_name) else {
+    panic()
+  }
+  inspect(maybe_name.target, content="String?")
+  guard parsed.program.declarations[1] is TypeAliasDeclaration(names) else {
+    panic()
+  }
+  inspect(names.target, content="Listing<String>")
+  guard parsed.program.declarations[2] is TypeAliasDeclaration(habitat_map) else {
+    panic()
+  }
+  inspect(habitat_map.target, content="Mapping<String,String>")
+
+  assert_true(
+    typecheck_source(
+      "typealias MaybeName = String?\ntypealias Names = Listing<String>\nname: MaybeName = null\nnames: Names = new Listing { \"hawk\" }",
+    ) ==
+    TypeOk(
+      ObjectType([
+        TypeMember::{ name: "name", typ: NullableType(StringType) },
+        TypeMember::{ name: "names", typ: ListingType([StringType]) },
+      ]),
+    ),
+  )
+
+  guard typecheck_source(
+      "typealias Names = Listing<String>\nnames: Names = new Listing { 1 }",
+    )
+    is TypeError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="type annotation Names does not accept Listing",
+  )
 }
 
 ///|

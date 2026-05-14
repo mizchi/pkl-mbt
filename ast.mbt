@@ -55,7 +55,7 @@ pub(all) enum Expr {
   SubscriptAccess(Expr, Expr)
   AmendExpr(Expr, Array[ObjectMember])
   CallExpr(Expr, Array[Expr])
-  LambdaExpr(Array[String], Expr)
+  LambdaExpr(Array[FunctionParameter], Expr, String?)
   UnaryExpr(UnaryOp, Expr)
   BinaryExpr(BinaryOp, Expr, Expr)
   ConditionalExpr(Expr, Expr, Expr)
@@ -125,8 +125,15 @@ pub(all) struct ClassProperty {
 ///|
 pub(all) struct FunctionDecl {
   name : String
-  parameters : Array[String]
+  parameters : Array[FunctionParameter]
+  return_type_name : String?
   body : Expr?
+} derive(Eq, Debug)
+
+///|
+pub(all) struct FunctionParameter {
+  name : String
+  type_name : String?
 } derive(Eq, Debug)
 
 ///|
