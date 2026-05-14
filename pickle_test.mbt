@@ -735,6 +735,20 @@ test "typecheck Pkl function declarations and lambdas at call sites" {
 }
 
 ///|
+test "evaluate Pkl function declarations lambdas and calls" {
+  let source = "function add(x: Int, y: Int): Int = x + y\nlocal inc = (n) -> n + 1\nsum = add(1, 2)\nnext = inc(sum)"
+  assert_true(
+    eval_source(source) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "sum", value: IntValue(3) },
+        ValueMember::{ name: "next", value: IntValue(4) },
+      ]),
+    ),
+  )
+}
+
+///|
 test "typecheck rejects invalid Pkl calls" {
   guard typecheck_source("function add(x, y) = x + y\nvalue = add(1)")
     is TypeError(arity_diagnostics) else {

@@ -815,8 +815,8 @@ local callableEvaluation = new Scenario {
     "The evaluator can call top-level function declarations and lambda values with argument bindings, aligning runtime behavior with the callable AST and typechecker support."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-022"; "PKL-023"; "PKL-041" }
-  tags { "evaluator"; "next" }
-  reviewStatus = "draft"
+  tags { "evaluator" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -824,6 +824,26 @@ local callableEvaluation = new Scenario {
       summary = "Move from method-only dispatch to general callable evaluation"
       rationale =
         "Method invocation now evaluates function bodies with scoped argument bindings. The same closure model should be generalized to top-level function declarations and lambda values without coupling it to class receiver lookup."
+    }
+  }
+}
+
+local classMethodBodyTypechecking = new Scenario {
+  id = "PKL-043"
+  name = "typecheck Pkl class method bodies with receiver bindings"
+  description =
+    "Class method bodies are checked with parameter bindings plus the receiver's property contract, so annotated method signatures reject invalid implementations before runtime."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-040"; "PKL-041"; "PKL-023" }
+  tags { "typechecker"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Close the method signature/body gap"
+      rationale =
+        "Class methods now have AST signatures and runtime dispatch. The remaining semantic gap is that method body expressions are not validated with receiver member types the way top-level callable bodies are checked at call sites."
     }
   }
 }
@@ -873,4 +893,5 @@ scenarios {
   classMethodDeclarations
   classMethodInvocationEvaluation
   callableEvaluation
+  classMethodBodyTypechecking
 }

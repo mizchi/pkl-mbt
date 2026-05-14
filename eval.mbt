@@ -181,6 +181,35 @@ fn find_binding(bindings : Array[Binding], name : String) -> Binding? {
 }
 
 ///|
+fn all_eval_bindings(program : Program) -> Array[Binding] {
+  let bindings : Array[Binding] = []
+  for declaration in program.declarations {
+    match declaration {
+      FunctionDeclaration(function_decl) =>
+        match function_decl.body {
+          Some(body) =>
+            bindings.push({
+              name: function_decl.name,
+              type_name: None,
+              value: LambdaExpr(
+                function_decl.parameters,
+                body,
+                function_decl.return_type_name,
+              ),
+              exported: false,
+            })
+          None => ()
+        }
+      ClassDeclaration(_) | TypeAliasDeclaration(_) => ()
+    }
+  }
+  for binding in program.bindings {
+    bindings.push(binding)
+  }
+  bindings
+}
+
+///|
 fn stack_contains_binding(stack : Array[String], name : String) -> Bool {
   for item in stack {
     if item == name {
@@ -308,6 +337,49 @@ fn push_receiver_method_bindings(
 }
 
 ///|
+fn eval_lambda_application(
+  label : String,
+  parameters : Array[FunctionParameter],
+  body : Expr,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  if parameters.length() != arguments.length() {
+    diagnostics.push(Diagnostic::{
+      message: "\{label} expects \{parameters.length()} arguments, got \{arguments.length()}",
+    })
+    return None
+  }
+  let argument_values : Array[Value] = []
+  let mut arguments_ok = true
+  for argument in arguments {
+    match
+      eval_expr_with_bindings(
+        argument, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+      ) {
+      Some(value) => argument_values.push(value)
+      None => arguments_ok = false
+    }
+  }
+  if !arguments_ok {
+    return None
+  }
+  let call_cache = copy_value_bindings(cache)
+  for i = 0; i < parameters.length(); i = i + 1 {
+    call_cache.push({ name: parameters[i].name, value: argument_values[i] })
+  }
+  eval_expr_with_bindings(
+    body, bindings, env, class_env, call_cache, stack, diagnostics, resolve_import,
+  )
+}
+
+///|
 fn eval_class_method_call(
   target_expr : Expr,
   method_name : String,
@@ -369,13 +441,7 @@ fn eval_class_method_call(
                     })
                   }
                   eval_expr_with_bindings(
-                    body,
-                    bindings,
-                    env,
-                    class_env,
-                    method_cache,
-                    [],
-                    diagnostics,
+                    body, bindings, env, class_env, method_cache, stack, diagnostics,
                     resolve_import,
                   )
                 }
@@ -635,6 +701,43 @@ fn eval_expr_with_bindings(
             target_expr, method_name, arguments, true, bindings, env, class_env,
             cache, stack, diagnostics, resolve_import,
           )
+        LambdaExpr(parameters, body, _) =>
+          eval_lambda_application(
+            "function", parameters, body, arguments, bindings, env, class_env, cache,
+            stack, diagnostics, resolve_import,
+          )
+        Identifier(name) =>
+          match find_binding(bindings, name) {
+            Some(binding) =>
+              match binding.value {
+                LambdaExpr(parameters, body, _) =>
+                  eval_lambda_application(
+                    "function \{name}",
+                    parameters,
+                    body,
+                    arguments,
+                    bindings,
+                    env,
+                    class_env,
+                    cache,
+                    stack,
+                    diagnostics,
+                    resolve_import,
+                  )
+                _ => {
+                  diagnostics.push(Diagnostic::{
+                    message: "call expressions are parser-only",
+                  })
+                  None
+                }
+              }
+            None => {
+              diagnostics.push(Diagnostic::{
+                message: "call expressions are parser-only",
+              })
+              None
+            }
+          }
         _ => {
           diagnostics.push(Diagnostic::{
             message: "call expressions are parser-only",
@@ -1088,6 +1191,7 @@ fn eval_program(
   let class_env = collect_class_bindings(program.declarations)
   let cache : Array[ValueBinding] = []
   let members : Array[ValueMember] = []
+  let bindings = all_eval_bindings(program)
   eval_imports(program.imports, env, diagnostics, resolve_import)
   add_imported_class_bindings(
     program.imports,
@@ -1095,29 +1199,28 @@ fn eval_program(
     resolve_import_classes,
   )
   for binding in program.bindings {
-    match
-      resolve_binding_value(
-        binding.name,
-        program.bindings,
-        env,
-        class_env,
-        cache,
-        [],
-        diagnostics,
-        resolve_import,
-      ) {
-      Some(value) =>
-        if binding.exported {
-          members.push({ name: binding.name, value })
-        }
-      None => ()
+    if binding.exported {
+      match
+        resolve_binding_value(
+          binding.name,
+          bindings,
+          env,
+          class_env,
+          cache,
+          [],
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(value) => members.push({ name: binding.name, value })
+        None => ()
+      }
     }
   }
   match program.body {
     Some(expr) =>
       eval_expr_with_bindings(
         expr,
-        program.bindings,
+        bindings,
         env,
         class_env,
         cache,
