@@ -253,13 +253,21 @@ fn pkl_push_constrained_type_annotation_expr_diagnostic(
   expr : Expr,
   diagnostics : Array[Diagnostic],
 ) -> Unit {
-  match pkl_int_literal_value(expr) {
-    Some(value) =>
-      match pkl_constrained_int_rejection_message(type_name, value) {
-        Some(message) => diagnostics.push(Diagnostic::{ message, })
-        None => ()
-      }
+  match
+    pkl_constrained_type_annotation_expr_rejection_message(type_name, expr) {
+    Some(message) => diagnostics.push(Diagnostic::{ message, })
     None => ()
+  }
+}
+
+///|
+fn pkl_constrained_type_annotation_expr_rejection_message(
+  type_name : String?,
+  expr : Expr,
+) -> String? {
+  match pkl_int_literal_value(expr) {
+    Some(value) => pkl_constrained_int_rejection_message(type_name, value)
+    None => None
   }
 }
 
@@ -277,15 +285,23 @@ fn pkl_constrained_type_annotation_value_is_valid(
   value : Value,
   diagnostics : Array[Diagnostic],
 ) -> Bool {
-  match pkl_value_int(value) {
-    Some(inner) =>
-      match pkl_constrained_int_rejection_message(type_name, inner) {
-        Some(message) => {
-          diagnostics.push(Diagnostic::{ message, })
-          false
-        }
-        None => true
-      }
+  match
+    pkl_constrained_type_annotation_value_rejection_message(type_name, value) {
+    Some(message) => {
+      diagnostics.push(Diagnostic::{ message, })
+      false
+    }
     None => true
+  }
+}
+
+///|
+fn pkl_constrained_type_annotation_value_rejection_message(
+  type_name : String?,
+  value : Value,
+) -> String? {
+  match pkl_value_int(value) {
+    Some(inner) => pkl_constrained_int_rejection_message(type_name, inner)
+    None => None
   }
 }

@@ -1592,6 +1592,19 @@ fn infer_lambda_application(
         match type_from_annotation(type_name, type_env) {
           Some(expected) =>
             if type_accepts(expected, argument_types[i]) {
+              match
+                pkl_constrained_type_annotation_expr_rejection_message(
+                  parameter.type_name,
+                  arguments[i],
+                ) {
+                Some(message) => {
+                  diagnostics.push(Diagnostic::{
+                    message: "\{label} argument \{i + 1} \{message}",
+                  })
+                  return UnknownType
+                }
+                None => ()
+              }
               expected
             } else {
               diagnostics.push(Diagnostic::{

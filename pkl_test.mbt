@@ -837,6 +837,52 @@ test "typecheck Pkl callable parameter and return annotations" {
 }
 
 ///|
+test "enforce Pkl constrained function parameter annotations" {
+  assert_true(
+    typecheck_source(
+      "function accept(n: Int(isBetween(0, 10))): Int = n\nvalue = accept(3)",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+  guard typecheck_source(
+      "function accept(n: Int(isBetween(0, 10))): Int = n\nvalue = accept(11)",
+    )
+    is TypeError(type_diagnostics) else {
+    panic()
+  }
+  inspect(
+    type_diagnostics[0].message,
+    content="function accept argument 1 type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+  )
+  guard typecheck_source(
+      "local accept = (n: Int(this.isBetween(0, 10))): Int -> n\nvalue = accept(11)",
+    )
+    is TypeError(lambda_diagnostics) else {
+    panic()
+  }
+  inspect(
+    lambda_diagnostics[0].message,
+    content="function accept argument 1 type annotation Int(this.isBetween(0,10)) constraint isBetween rejects 11",
+  )
+  assert_true(
+    eval_source(
+      "function accept(n: Int(isBetween(0, 10))) = n\nlocal f = accept\nvalue = f(3)",
+    ) ==
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(3) }])),
+  )
+  guard eval_source(
+      "function accept(n: Int(isBetween(0, 10))) = n\nlocal f = accept\nvalue = f(11)",
+    )
+    is EvalError(eval_diagnostics) else {
+    panic()
+  }
+  inspect(
+    eval_diagnostics[0].message,
+    content="function f argument 1 type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+  )
+}
+
+///|
 test "typecheck Pkl constrained type annotations" {
   let parsed = parse_source("value: Int(isBetween(0, 10)) = 3")
   assert_true(

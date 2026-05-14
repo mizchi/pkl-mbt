@@ -915,8 +915,8 @@ local constrainedParameterEvaluation = new Scenario {
     "Function and lambda calls validate constrained parameter annotations such as `x: Int(isBetween(0, 10))`, rejecting invalid arguments at call boundaries in the typechecker and evaluator."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-046"; "PKL-023"; "PKL-044" }
-  tags { "typechecker"; "evaluator"; "next" }
-  reviewStatus = "draft"
+  tags { "typechecker"; "evaluator" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -924,6 +924,26 @@ local constrainedParameterEvaluation = new Scenario {
       summary = "Carry constrained annotation checks into callable boundaries"
       rationale =
         "Top-level and object member annotations now reject supported `isBetween` violations. Function parameters need the same contract enforcement so constraints continue to hold when values cross callable boundaries."
+    }
+  }
+}
+
+local constrainedCallableSignatureMetadata = new Scenario {
+  id = "PKL-048"
+  name = "preserve Pkl constrained callable signature metadata"
+  description =
+    "Callable values retain constrained parameter annotations through aliases and higher-order arguments so the typechecker can reject invalid calls after functions are stored or passed around."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-047"; "PKL-044"; "PKL-028" }
+  tags { "typechecker"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Track callable constraints beyond direct AST calls"
+      rationale =
+        "Direct function and lambda calls now check constrained parameter annotations, and runtime callable values keep the original parameters. The typechecker still erases constraint text into plain function types when callables flow through aliases or higher-order parameters."
     }
   }
 }
@@ -978,4 +998,5 @@ scenarios {
   constrainedTypeAnnotations
   constrainedAnnotationEvaluation
   constrainedParameterEvaluation
+  constrainedCallableSignatureMetadata
 }

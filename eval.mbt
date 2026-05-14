@@ -380,6 +380,19 @@ fn eval_lambda_application(
   }
   let call_cache = copy_value_bindings(cache)
   for i = 0; i < parameters.length(); i = i + 1 {
+    match
+      pkl_constrained_type_annotation_value_rejection_message(
+        parameters[i].type_name,
+        argument_values[i],
+      ) {
+      Some(message) => {
+        diagnostics.push(Diagnostic::{
+          message: "\{label} argument \{i + 1} \{message}",
+        })
+        return None
+      }
+      None => ()
+    }
     call_cache.push({ name: parameters[i].name, value: argument_values[i] })
   }
   eval_expr_with_bindings(
@@ -443,6 +456,19 @@ fn eval_class_method_call(
                   let method_cache = copy_value_bindings(cache)
                   push_receiver_method_bindings(method_cache, receiver_members)
                   for i = 0; i < function_decl.parameters.length(); i = i + 1 {
+                    match
+                      pkl_constrained_type_annotation_value_rejection_message(
+                        function_decl.parameters[i].type_name,
+                        argument_values[i],
+                      ) {
+                      Some(message) => {
+                        diagnostics.push(Diagnostic::{
+                          message: "method \{method_name} argument \{i + 1} \{message}",
+                        })
+                        return None
+                      }
+                      None => ()
+                    }
                     method_cache.push({
                       name: function_decl.parameters[i].name,
                       value: argument_values[i],
