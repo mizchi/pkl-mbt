@@ -319,6 +319,31 @@ test "parse Pkl class function and typealias declarations" {
 }
 
 ///|
+test "parse and typecheck Pkl class method declarations" {
+  let source = "class Bird { function label(prefix: String): String = prefix }\nbird = new Bird {}\nvalue = bird.label"
+  let parsed = parse_source(source)
+  inspect(parsed.diagnostics.length(), content="0")
+  guard parsed.program.declarations[0] is ClassDeclaration(class_decl) else {
+    panic()
+  }
+  inspect(class_decl.methods.length(), content="1")
+  inspect(class_decl.methods[0].name, content="label")
+  inspect(class_decl.methods[0].parameters.length(), content="1")
+  inspect(class_decl.methods[0].parameters[0].name, content="prefix")
+  assert_true(class_decl.methods[0].parameters[0].type_name == Some("String"))
+  assert_true(class_decl.methods[0].return_type_name == Some("String"))
+
+  guard typecheck_source(source) is TypeOk(ObjectType(fields)) else { panic() }
+  assert_true(fields[1].typ == FunctionType([StringType], StringType))
+  assert_true(
+    eval_source(
+      "class Bird { function label(): String = \"hawk\" }\nbird = new Bird {}",
+    ) ==
+    EvalOk(ObjectValue([ValueMember::{ name: "bird", value: ObjectValue([]) }])),
+  )
+}
+
+///|
 test "typecheck resolves declared class and typealias annotations" {
   guard typecheck_source(
       "class Bird { name: String }\ntypealias Label = String\nbird: Bird = new { name = \"hawk\" }\nlabel: Label = \"raptor\"",

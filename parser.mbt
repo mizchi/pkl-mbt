@@ -892,12 +892,18 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
     }
   }
   let properties : Array[ClassProperty] = []
+  let methods : Array[FunctionDecl] = []
   if self.at(lbrace()) {
     ignore(self.bump())
     self.consume_separators()
     while !self.at(eof()) && !self.at(rbrace()) {
       self.skip_member_header()
-      if self.at_property_decl() {
+      if self.at_text("function") {
+        match self.parse_function_decl() {
+          Some(class_method) => methods.push(class_method)
+          None => ()
+        }
+      } else if self.at_property_decl() {
         match self.parse_class_property_decl() {
           Some(property) => properties.push(property)
           None => ()
@@ -915,7 +921,7 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
   if name == "" {
     None
   } else {
-    Some({ name, parent_name, properties })
+    Some({ name, parent_name, properties, methods })
   }
 }
 

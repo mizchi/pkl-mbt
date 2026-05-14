@@ -600,6 +600,39 @@ fn function_parameter_types(
 }
 
 ///|
+fn function_return_type(
+  return_type_name : String?,
+  type_env : Array[TypeBinding],
+  diagnostics : Array[Diagnostic],
+) -> Type {
+  match return_type_name {
+    Some(type_name) =>
+      match type_from_annotation(type_name, type_env) {
+        Some(typ) => typ
+        None => {
+          diagnostics.push(Diagnostic::{
+            message: "unknown type annotation \{type_name}",
+          })
+          UnknownType
+        }
+      }
+    None => UnknownType
+  }
+}
+
+///|
+fn function_signature_type(
+  function_decl : FunctionDecl,
+  type_env : Array[TypeBinding],
+  diagnostics : Array[Diagnostic],
+) -> Type {
+  FunctionType(
+    function_parameter_types(function_decl.parameters, type_env, diagnostics),
+    function_return_type(function_decl.return_type_name, type_env, diagnostics),
+  )
+}
+
+///|
 fn copy_type_bindings(bindings : Array[TypeBinding]) -> Array[TypeBinding] {
   let copied : Array[TypeBinding] = []
   for binding in bindings {
@@ -743,6 +776,18 @@ fn function_parameters_use_qualified_type_name(
 }
 
 ///|
+fn function_decl_uses_qualified_type_name(function_decl : FunctionDecl) -> Bool {
+  if optional_type_name_is_qualified(function_decl.return_type_name) ||
+    function_parameters_use_qualified_type_name(function_decl.parameters) {
+    return true
+  }
+  match function_decl.body {
+    Some(body) => expr_uses_qualified_type_name(body)
+    None => false
+  }
+}
+
+///|
 fn class_properties_use_qualified_type_name(
   properties : Array[ClassProperty],
 ) -> Bool {
@@ -759,24 +804,27 @@ fn class_properties_use_qualified_type_name(
 }
 
 ///|
+fn class_methods_use_qualified_type_name(methods : Array[FunctionDecl]) -> Bool {
+  for class_method in methods {
+    if function_decl_uses_qualified_type_name(class_method) {
+      return true
+    }
+  }
+  false
+}
+
+///|
 fn declaration_uses_qualified_type_name(declaration : Declaration) -> Bool {
   match declaration {
     ClassDeclaration(class_decl) => {
       if optional_type_name_is_qualified(class_decl.parent_name) {
         return true
       }
-      class_properties_use_qualified_type_name(class_decl.properties)
+      class_properties_use_qualified_type_name(class_decl.properties) ||
+      class_methods_use_qualified_type_name(class_decl.methods)
     }
-    FunctionDeclaration(function_decl) => {
-      if optional_type_name_is_qualified(function_decl.return_type_name) ||
-        function_parameters_use_qualified_type_name(function_decl.parameters) {
-        return true
-      }
-      match function_decl.body {
-        Some(body) => expr_uses_qualified_type_name(body)
-        None => false
-      }
-    }
+    FunctionDeclaration(function_decl) =>
+      function_decl_uses_qualified_type_name(function_decl)
     TypeAliasDeclaration(type_alias) =>
       type_name_is_qualified(type_alias.target)
   }
@@ -1148,15 +1196,32 @@ fn class_properties_to_members(
 }
 
 ///|
+fn class_methods_to_members(
+  methods : Array[FunctionDecl],
+  type_env : Array[TypeBinding],
+  diagnostics : Array[Diagnostic],
+) -> Array[TypeMember] {
+  let members : Array[TypeMember] = []
+  for class_method in methods {
+    members.push({
+      name: class_method.name,
+      typ: DefaultedType(
+        function_signature_type(class_method, type_env, diagnostics),
+      ),
+    })
+  }
+  members
+}
+
+///|
 fn class_decl_to_members(
   class_decl : ClassDecl,
   type_env : Array[TypeBinding],
   diagnostics : Array[Diagnostic],
 ) -> Array[TypeMember] {
-  let own_members = class_properties_to_members(
-    class_decl.properties,
-    type_env,
-    diagnostics,
+  let own_members = merge_type_members(
+    class_properties_to_members(class_decl.properties, type_env, diagnostics),
+    class_methods_to_members(class_decl.methods, type_env, diagnostics),
   )
   match class_decl.parent_name {
     Some(parent_name) =>

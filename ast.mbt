@@ -117,6 +117,7 @@ pub(all) struct ClassDecl {
   name : String
   parent_name : String?
   properties : Array[ClassProperty]
+  methods : Array[FunctionDecl]
 } derive(Eq, Debug)
 
 ///|

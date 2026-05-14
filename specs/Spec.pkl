@@ -775,8 +775,8 @@ local classMethodDeclarations = new Scenario {
     "Class bodies retain method declarations and typed object member access can resolve method signatures without treating methods as object properties."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-039"; "PKL-022" }
-  tags { "parser"; "typechecker"; "next" }
-  reviewStatus = "draft"
+  tags { "parser"; "typechecker" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -784,6 +784,26 @@ local classMethodDeclarations = new Scenario {
       summary = "Separate class methods from property contracts"
       rationale =
         "Class inheritance and imported class contracts are now property-focused. Pkl classes also contain methods, which need AST coverage and type signatures before method calls can be checked on typed objects."
+    }
+  }
+}
+
+local classMethodInvocationEvaluation = new Scenario {
+  id = "PKL-041"
+  name = "evaluate Pkl class method invocations"
+  description =
+    "Typed object method calls dispatch to class method bodies with receiver and argument bindings, while method declarations remain separate from object value members."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-040"; "PKL-022"; "PKL-037" }
+  tags { "evaluator"; "typechecker"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Defer runtime method dispatch until method signatures are modeled"
+      rationale =
+        "Class method declarations are now available to the parser and typechecker. Executing method bodies needs receiver-aware bindings and call dispatch in the interpreter, which is a separate runtime slice."
     }
   }
 }
@@ -831,4 +851,5 @@ scenarios {
   classInheritanceDefaults
   classInheritanceQualifiedTypes
   classMethodDeclarations
+  classMethodInvocationEvaluation
 }
