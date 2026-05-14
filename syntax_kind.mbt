@@ -265,12 +265,18 @@ pub fn unsupported_expr() -> @cst.SyntaxKind {
 
 ///|
 pub fn is_trivia(kind : @cst.SyntaxKind) -> Bool {
-  kind == whitespace() || kind == newline() || kind == comment()
+  match kind.raw() {
+    2 | 3 | 4 => true
+    _ => false
+  }
 }
 
 ///|
 pub fn is_separator(kind : @cst.SyntaxKind) -> Bool {
-  kind == newline() || kind == semicolon()
+  match kind.raw() {
+    3 | 42 => true
+    _ => false
+  }
 }
 
 ///|

@@ -22,41 +22,18 @@ fn Token::text(self : Token) -> String {
 ///|
 priv struct Lexer {
   input : String
+  len : Int
   mut pos : Int
 }
 
 ///|
 fn Lexer::new(input : String) -> Lexer {
-  Lexer::{ input, pos: 0 }
+  Lexer::{ input, len: input.length(), pos: 0 }
 }
 
 ///|
-fn Lexer::peek(self : Lexer) -> Char? {
-  if self.pos >= self.input.length() {
-    None
-  } else {
-    Some(self.input[self.pos].to_int().unsafe_to_char())
-  }
-}
-
-///|
-fn Lexer::peek_next(self : Lexer) -> Char? {
-  if self.pos + 1 >= self.input.length() {
-    None
-  } else {
-    Some(self.input[self.pos + 1].to_int().unsafe_to_char())
-  }
-}
-
-///|
-fn Lexer::advance(self : Lexer) -> Char? {
-  match self.peek() {
-    Some(c) => {
-      self.pos += 1
-      Some(c)
-    }
-    None => None
-  }
+fn Lexer::char_at(self : Lexer, index : Int) -> Char {
+  self.input[index].to_int().unsafe_to_char()
 }
 
 ///|
@@ -81,11 +58,7 @@ fn is_horizontal_space(c : Char) -> Bool {
 
 ///|
 fn Lexer::slice_from(self : Lexer, start : Int) -> String {
-  let buf = StringBuilder::new()
-  for i = start; i < self.pos; i = i + 1 {
-    buf.write_char(self.input[i].to_int().unsafe_to_char())
-  }
-  buf.to_string()
+  String::unsafe_substring(self.input, start~, end=self.pos)
 }
 
 ///|
@@ -106,139 +79,126 @@ fn keyword_or_identifier(text : String) -> @cst.SyntaxKind {
 
 ///|
 fn Lexer::next_token(self : Lexer) -> Token {
-  match self.peek() {
-    None => Token::new(eof(), "")
-    Some(c) => {
-      if is_horizontal_space(c) {
-        let start = self.pos
-        while (match self.peek() {
-                Some(ch) => is_horizontal_space(ch)
-                None => false
-              }) {
-          ignore(self.advance())
-        }
-        return Token::new(whitespace(), self.slice_from(start))
+  if self.pos >= self.len {
+    return Token::new(eof(), "")
+  }
+  let start = self.pos
+  let c = self.char_at(start)
+  if is_horizontal_space(c) {
+    self.pos += 1
+    while self.pos < self.len && is_horizontal_space(self.char_at(self.pos)) {
+      self.pos += 1
+    }
+    return Token::new(whitespace(), self.slice_from(start))
+  }
+  if c == '\n' {
+    self.pos += 1
+    return Token::new(newline(), "\n")
+  }
+  if c == '/' && self.pos + 1 < self.len {
+    let next = self.char_at(self.pos + 1)
+    if next == '/' {
+      self.pos += 2
+      while self.pos < self.len && self.char_at(self.pos) != '\n' {
+        self.pos += 1
       }
-      if c == '\n' {
-        ignore(self.advance())
-        return Token::new(newline(), "\n")
+      return Token::new(comment(), self.slice_from(start))
+    }
+    if next == '*' {
+      self.pos += 2
+      while self.pos < self.len {
+        if self.char_at(self.pos) == '*' &&
+          self.pos + 1 < self.len &&
+          self.char_at(self.pos + 1) == '/' {
+          self.pos += 2
+          return Token::new(comment(), self.slice_from(start))
+        }
+        self.pos += 1
       }
-      if c == '/' && self.peek_next() == Some('/') {
-        let start = self.pos
-        ignore(self.advance())
-        ignore(self.advance())
-        while (match self.peek() {
-                Some(ch) => ch != '\n'
-                None => false
-              }) {
-          ignore(self.advance())
-        }
-        return Token::new(comment(), self.slice_from(start))
+      return Token::new(comment(), self.slice_from(start))
+    }
+  }
+  if is_alpha(c) {
+    self.pos += 1
+    while self.pos < self.len && is_alnum(self.char_at(self.pos)) {
+      self.pos += 1
+    }
+    let text = self.slice_from(start)
+    return Token::new(keyword_or_identifier(text), text)
+  }
+  if is_digit(c) {
+    self.pos += 1
+    while self.pos < self.len && is_digit(self.char_at(self.pos)) {
+      self.pos += 1
+    }
+    return Token::new(int_token(), self.slice_from(start))
+  }
+  if c == '"' {
+    self.pos += 1
+    while self.pos < self.len {
+      let ch = self.char_at(self.pos)
+      if ch == '"' || ch == '\n' {
+        break
       }
-      if c == '/' && self.peek_next() == Some('*') {
-        let start = self.pos
-        ignore(self.advance())
-        ignore(self.advance())
-        while !self.is_eof() {
-          if self.peek() == Some('*') && self.peek_next() == Some('/') {
-            ignore(self.advance())
-            ignore(self.advance())
-            return Token::new(comment(), self.slice_from(start))
-          }
-          ignore(self.advance())
+      if ch == '\\' {
+        self.pos += 1
+        if self.pos < self.len {
+          self.pos += 1
         }
-        return Token::new(comment(), self.slice_from(start))
-      }
-      if is_alpha(c) {
-        let start = self.pos
-        while (match self.peek() {
-                Some(ch) => is_alnum(ch)
-                None => false
-              }) {
-          ignore(self.advance())
-        }
-        let text = self.slice_from(start)
-        return Token::new(keyword_or_identifier(text), text)
-      }
-      if is_digit(c) {
-        let start = self.pos
-        while (match self.peek() {
-                Some(ch) => is_digit(ch)
-                None => false
-              }) {
-          ignore(self.advance())
-        }
-        return Token::new(int_token(), self.slice_from(start))
-      }
-      if c == '"' {
-        let start = self.pos
-        ignore(self.advance())
-        while (match self.peek() {
-                Some(ch) => ch != '"' && ch != '\n'
-                None => false
-              }) {
-          match self.peek() {
-            Some('\\') => {
-              ignore(self.advance())
-              if self.peek() is Some(_) {
-                ignore(self.advance())
-              }
-            }
-            _ => ignore(self.advance())
-          }
-        }
-        if self.peek() == Some('"') {
-          ignore(self.advance())
-        }
-        return Token::new(string_token(), self.slice_from(start))
-      }
-      if c == '`' {
-        let start = self.pos
-        ignore(self.advance())
-        while (match self.peek() {
-                Some(ch) => ch != '`' && ch != '\n'
-                None => false
-              }) {
-          ignore(self.advance())
-        }
-        if self.peek() == Some('`') {
-          ignore(self.advance())
-        }
-        return Token::new(identifier(), self.slice_from(start))
-      }
-      ignore(self.advance())
-      match c {
-        '=' => Token::new(eq(), "=")
-        '+' => Token::new(plus(), "+")
-        '-' => Token::new(minus(), "-")
-        '*' => Token::new(star(), "*")
-        '/' => Token::new(slash(), "/")
-        '(' => Token::new(lparen(), "(")
-        ')' => Token::new(rparen(), ")")
-        ';' => Token::new(semicolon(), ";")
-        '{' => Token::new(lbrace(), "{")
-        '}' => Token::new(rbrace(), "}")
-        '.' => Token::new(dot(), ".")
-        ':' => Token::new(colon(), ":")
-        '[' => Token::new(lbracket(), "[")
-        ']' => Token::new(rbracket(), "]")
-        ',' => Token::new(comma(), ",")
-        '@' => Token::new(at_sign(), "@")
-        '?' => Token::new(question(), "?")
-        '!' => Token::new(bang(), "!")
-        '<' => Token::new(lt(), "<")
-        '>' => Token::new(gt(), ">")
-        '|' => Token::new(pipe(), "|")
-        '%' => Token::new(percent(), "%")
-        _ => Token::new(error_kind(), c.to_string())
+      } else {
+        self.pos += 1
       }
     }
+    if self.pos < self.len && self.char_at(self.pos) == '"' {
+      self.pos += 1
+    }
+    return Token::new(string_token(), self.slice_from(start))
+  }
+  if c == '`' {
+    self.pos += 1
+    while self.pos < self.len {
+      let ch = self.char_at(self.pos)
+      if ch == '`' || ch == '\n' {
+        break
+      }
+      self.pos += 1
+    }
+    if self.pos < self.len && self.char_at(self.pos) == '`' {
+      self.pos += 1
+    }
+    return Token::new(identifier(), self.slice_from(start))
+  }
+  self.pos += 1
+  match c {
+    '=' => Token::new(eq(), "=")
+    '+' => Token::new(plus(), "+")
+    '-' => Token::new(minus(), "-")
+    '*' => Token::new(star(), "*")
+    '/' => Token::new(slash(), "/")
+    '(' => Token::new(lparen(), "(")
+    ')' => Token::new(rparen(), ")")
+    ';' => Token::new(semicolon(), ";")
+    '{' => Token::new(lbrace(), "{")
+    '}' => Token::new(rbrace(), "}")
+    '.' => Token::new(dot(), ".")
+    ':' => Token::new(colon(), ":")
+    '[' => Token::new(lbracket(), "[")
+    ']' => Token::new(rbracket(), "]")
+    ',' => Token::new(comma(), ",")
+    '@' => Token::new(at_sign(), "@")
+    '?' => Token::new(question(), "?")
+    '!' => Token::new(bang(), "!")
+    '<' => Token::new(lt(), "<")
+    '>' => Token::new(gt(), ">")
+    '|' => Token::new(pipe(), "|")
+    '%' => Token::new(percent(), "%")
+    _ => Token::new(error_kind(), c.to_string())
   }
 }
 
 ///|
 fn Lexer::is_eof(self : Lexer) -> Bool {
-  self.pos >= self.input.length()
+  self.pos >= self.len
 }
 
 ///|

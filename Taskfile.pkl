@@ -117,6 +117,15 @@ local testNative: Task = new {
   tools = commonTools
 }
 
+local benchNative: Task = new {
+  name = "bench"
+  description = "Run MoonBit benchmarks on the native target"
+  cmd = "moon bench --target native --deny-warn"
+  inputs = moonSources
+  tools = commonTools
+  cache = false
+}
+
 local pkspecExec: Task = new {
   name = "pkspec"
   description = "Run pkspec executable contract tests"
@@ -193,6 +202,7 @@ tasks {
   checkNative
   test
   testNative
+  benchNative
   pkspecExec
   spec
   specCheck

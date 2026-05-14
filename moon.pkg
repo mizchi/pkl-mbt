@@ -2,3 +2,7 @@ import {
   "mizchi/cst" @cst,
   "mizchi/ripple" @ripple,
 }
+
+import {
+  "moonbitlang/core/bench",
+} for "test"

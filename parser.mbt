@@ -1,6 +1,7 @@
 ///|
 priv struct Parser {
   tokens : Array[Token]
+  len : Int
   mut pos : Int
   builder : @cst.GreenNodeBuilder
   diagnostics : Array[Diagnostic]
@@ -10,6 +11,7 @@ priv struct Parser {
 fn Parser::new(tokens : Array[Token]) -> Parser {
   Parser::{
     tokens,
+    len: tokens.length(),
     pos: 0,
     builder: @cst.GreenNodeBuilder::new(),
     diagnostics: [],
@@ -18,7 +20,7 @@ fn Parser::new(tokens : Array[Token]) -> Parser {
 
 ///|
 fn Parser::peek(self : Parser) -> Token {
-  if self.pos >= self.tokens.length() {
+  if self.pos >= self.len {
     Token::new(eof(), "")
   } else {
     self.tokens[self.pos]
@@ -62,14 +64,14 @@ fn Parser::peek_non_whitespace_kind(
   start : Int,
 ) -> @cst.SyntaxKind {
   let mut i = start
-  while i < self.tokens.length() &&
+  while i < self.len &&
         (
           self.tokens[i].kind() == whitespace() ||
           self.tokens[i].kind() == comment()
         ) {
     i += 1
   }
-  if i >= self.tokens.length() {
+  if i >= self.len {
     eof()
   } else {
     self.tokens[i].kind()
@@ -79,10 +81,10 @@ fn Parser::peek_non_whitespace_kind(
 ///|
 fn Parser::peek_non_trivia_text(self : Parser, start : Int) -> String {
   let mut i = start
-  while i < self.tokens.length() && is_trivia(self.tokens[i].kind()) {
+  while i < self.len && is_trivia(self.tokens[i].kind()) {
     i += 1
   }
-  if i >= self.tokens.length() {
+  if i >= self.len {
     ""
   } else {
     self.tokens[i].text()
@@ -92,10 +94,10 @@ fn Parser::peek_non_trivia_text(self : Parser, start : Int) -> String {
 ///|
 fn Parser::peek_non_trivia_kind(self : Parser, start : Int) -> @cst.SyntaxKind {
   let mut i = start
-  while i < self.tokens.length() && is_trivia(self.tokens[i].kind()) {
+  while i < self.len && is_trivia(self.tokens[i].kind()) {
     i += 1
   }
-  if i >= self.tokens.length() {
+  if i >= self.len {
     eof()
   } else {
     self.tokens[i].kind()
@@ -104,17 +106,16 @@ fn Parser::peek_non_trivia_kind(self : Parser, start : Int) -> @cst.SyntaxKind {
 
 ///|
 fn Parser::at_property_decl(self : Parser) -> Bool {
-  self.at(identifier()) &&
-  (
-    self.peek_non_whitespace_kind(self.pos + 1) == eq() ||
-    self.peek_non_whitespace_kind(self.pos + 1) == colon() ||
-    self.peek_non_whitespace_kind(self.pos + 1) == lbrace()
-  )
+  if !self.at(identifier()) {
+    return false
+  }
+  let next = self.peek_non_whitespace_kind(self.pos + 1)
+  next == eq() || next == colon() || next == lbrace()
 }
 
 ///|
 fn Parser::at_property_decl_from(self : Parser, start : Int) -> Bool {
-  if start >= self.tokens.length() || self.tokens[start].kind() != identifier() {
+  if start >= self.len || self.tokens[start].kind() != identifier() {
     return false
   }
   let next = self.peek_non_whitespace_kind(start + 1)
@@ -124,10 +125,10 @@ fn Parser::at_property_decl_from(self : Parser, start : Int) -> Bool {
 ///|
 fn Parser::at_module_member_boundary_from(self : Parser, start : Int) -> Bool {
   let mut i = start
-  while i < self.tokens.length() && is_trivia(self.tokens[i].kind()) {
+  while i < self.len && is_trivia(self.tokens[i].kind()) {
     i += 1
   }
-  if i >= self.tokens.length() {
+  if i >= self.len {
     return true
   }
   let kind = self.tokens[i].kind()
@@ -150,7 +151,7 @@ fn Parser::paren_expr_looks_unsupported(self : Parser) -> Bool {
   }
   let mut depth = 0
   let mut i = self.pos
-  while i < self.tokens.length() {
+  while i < self.len {
     let kind = self.tokens[i].kind()
     if kind == lparen() {
       depth += 1
@@ -183,31 +184,39 @@ fn Parser::bump(self : Parser) -> Token {
 
 ///|
 fn Parser::skip_whitespace(self : Parser) -> Unit {
-  while self.at(whitespace()) || self.at(comment()) {
-    ignore(self.bump())
+  while self.pos < self.len {
+    match self.tokens[self.pos].kind().raw() {
+      2 | 4 => ignore(self.bump())
+      _ => return
+    }
   }
 }
 
 ///|
 fn Parser::skip_trivia(self : Parser) -> Unit {
-  while is_trivia(self.peek_kind()) {
-    ignore(self.bump())
+  while self.pos < self.len {
+    match self.tokens[self.pos].kind().raw() {
+      2 | 3 | 4 => ignore(self.bump())
+      _ => return
+    }
   }
 }
 
 ///|
 fn Parser::consume_separators(self : Parser) -> Unit {
-  while ({
-          self.skip_whitespace()
-          is_separator(self.peek_kind())
-        }) {
-    ignore(self.bump())
+  while true {
+    self.skip_whitespace()
+    if self.pos < self.len && is_separator(self.tokens[self.pos].kind()) {
+      ignore(self.bump())
+    } else {
+      return
+    }
   }
 }
 
 ///|
 fn Parser::skip_annotation(self : Parser) -> Unit {
-  if self.at(at_sign()) || self.at_text("@") {
+  if self.at(at_sign()) {
     ignore(self.bump())
     while self.at(identifier()) || self.at(dot()) {
       ignore(self.bump())
@@ -224,9 +233,9 @@ fn Parser::skip_member_header(self : Parser) -> Unit {
   let mut keep_going = true
   while keep_going {
     self.skip_trivia()
-    if self.at(at_sign()) || self.at_text("@") {
+    if self.at(at_sign()) {
       self.skip_annotation()
-    } else if is_modifier_text(self.peek().text()) {
+    } else if self.at(identifier()) && is_modifier_text(self.peek().text()) {
       ignore(self.bump())
     } else {
       keep_going = false
@@ -921,9 +930,11 @@ fn unquote(text : String) -> String {
   if text.length() >= 2 && text[0].to_int().unsafe_to_char() == '"' {
     let end = text.length() - 1
     if text[end].to_int().unsafe_to_char() == '"' {
-      return decode_string_escapes(
-        String::unsafe_substring(text, start=1, end~),
-      )
+      let inner = String::unsafe_substring(text, start=1, end~)
+      if inner.find("\\") is None {
+        return inner
+      }
+      return decode_string_escapes(inner)
     }
   }
   text
