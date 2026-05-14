@@ -1,6 +1,6 @@
 # Test SPEC
 
-19 tests across 2 module(s) — 15 pending, 4 active
+24 tests across 2 module(s) — 20 pending, 4 active
 
 ## `specs/`
 
@@ -9,6 +9,34 @@
 - [ ] **evaluate arithmetic and let bindings** (critical) — verifies: PKL-002
   > The interpreter evaluates integer arithmetic with precedence and resolves top-level let bindings.
   - contributes to: GOAL-PKL-PURE
+  - body: _not yet implemented_
+
+- [ ] **inventory unsupported syntax in tolerant parser output** [draft] — verifies: PKL-016 — tags: next, backlog, parser
+  > The parser reports which accepted source ranges still lower to UnsupportedExpr so parser completion can be driven by an explicit compatibility gap list instead of hidden tolerant recovery.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-015
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **model Pkl class function and typealias declarations** [draft] — verifies: PKL-019 — tags: next, backlog, parser, typechecker
+  > Class, function, and typealias declarations are represented in Program instead of being skipped, and the typechecker can resolve declared class names in property annotations.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-016, PKL-008
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **parse Pkl call lambda and operator expressions** [draft] — verifies: PKL-018 — tags: next, backlog, parser
+  > The parser lowers calls, lambdas, unary operators, comparisons, boolean operators, null-coalescing, and conditional expressions into explicit AST nodes with precedence matching Pkl.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-016
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **parse and evaluate Pkl collection expressions** [draft] — verifies: PKL-017 — tags: next, backlog, parser, evaluator, typechecker
+  > The parser lowers Pkl listing, mapping, and computed object entries into AST nodes, and evaluator/typechecker support the implemented collection subset without using UnsupportedExpr.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-016
+  - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **parse arithmetic expressions** (critical) — verifies: PKL-001
@@ -76,6 +104,13 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **support module extends amends and object amendments** (critical) [draft] — verifies: PKL-020 — tags: next, backlog, evaluator, typechecker
+  > Module `extends`/`amends` clauses and object amendment syntax merge inherited members through AnalysisSession resolution for parsing, evaluation, and typechecking.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-006, PKL-013, PKL-019
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
 - [ ] **support richer Pkl type semantics** — verifies: PKL-008
   > The parser and typechecker accept primitive Pkl-style type annotations and reject mismatched property/member values.
   - contributes to: GOAL-PKL-PURE
@@ -111,3 +146,16 @@
   > All apple/pkl LanguageSnippetTests parser fixtures, excluding the same invalid cases as ParserComparisonTest, parse through the native CLI.
   - body: `cmd` (exit 0 expected)
 
+
+## Outstanding questions
+
+- **PKL-016** — Should unsupported ranges be exposed as diagnostics, CST node metadata, or a separate parser coverage report?
+- **PKL-016** — Which upstream fixtures should become the first zero-UnsupportedExpr acceptance set?
+- **PKL-019** — Should function bodies be represented before function evaluation exists?
+- **PKL-019** — What minimum class model is enough to typecheck object literals against declared properties?
+- **PKL-018** — Should evaluator support be added in the same slice, or should this first be parser-only AST coverage?
+- **PKL-018** — Which operators should remain parse-only until the typechecker has richer Pkl semantics?
+- **PKL-017** — Start with Listing and Mapping literals only, or include object member spread and computed keys in the same slice?
+- **PKL-017** — What public Value and Type shapes should represent ordered listings and keyed mappings?
+- **PKL-020** — Should amends resolution be implemented before class inheritance, or share one merge model?
+- **PKL-020** — Which apple/pkl fixtures should become the first executable amends golden cases?

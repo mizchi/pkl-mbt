@@ -156,6 +156,15 @@ local specCheck: Task = new {
   tools = commonTools
 }
 
+local specNext: Task = new {
+  name = "spec-next"
+  description = "Show pending next-work specs"
+  cmd = "pkspec spec --tag next specs/Spec.pkl specs/Test.pkl"
+  inputs = specSources
+  tools = commonTools
+  cache = false
+}
+
 local ci: Task = new {
   name = "ci"
   description = "Local CI gate for the default target"
@@ -206,6 +215,7 @@ tasks {
   pkspecExec
   spec
   specCheck
+  specNext
   ci
   releaseCheck
   preCommit

@@ -258,6 +258,131 @@ local upstreamParserSuite = new Scenario {
   }
 }
 
+local unsupportedSyntaxInventory = new Scenario {
+  id = "PKL-016"
+  name = "inventory unsupported syntax in tolerant parser output"
+  description =
+    "The parser reports which accepted source ranges still lower to UnsupportedExpr so parser completion can be driven by an explicit compatibility gap list instead of hidden tolerant recovery."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-015" }
+  tags { "next"; "backlog"; "parser" }
+  reviewStatus = "draft"
+  pending = true
+  severity = "major"
+  openQuestions {
+    "Should unsupported ranges be exposed as diagnostics, CST node metadata, or a separate parser coverage report?"
+    "Which upstream fixtures should become the first zero-UnsupportedExpr acceptance set?"
+  }
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Make parser completion resume from unsupported syntax inventory"
+      rationale =
+        "The parser now accepts the upstream corpus, but many constructs are intentionally tolerant. The next parser work needs a measurable unsupported-syntax inventory before expanding AST coverage."
+    }
+  }
+}
+
+local collectionExpressions = new Scenario {
+  id = "PKL-017"
+  name = "parse and evaluate Pkl collection expressions"
+  description =
+    "The parser lowers Pkl listing, mapping, and computed object entries into AST nodes, and evaluator/typechecker support the implemented collection subset without using UnsupportedExpr."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-016" }
+  tags { "next"; "backlog"; "parser"; "evaluator"; "typechecker" }
+  reviewStatus = "draft"
+  pending = true
+  severity = "major"
+  openQuestions {
+    "Start with Listing and Mapping literals only, or include object member spread and computed keys in the same slice?"
+    "What public Value and Type shapes should represent ordered listings and keyed mappings?"
+  }
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Prioritize Pkl collection syntax after parser inventory"
+      rationale =
+        "Collection and object-entry syntax appears throughout real Pkl modules and is the next useful evaluator/typechecker surface after object properties and imports."
+    }
+  }
+}
+
+local callableExpressions = new Scenario {
+  id = "PKL-018"
+  name = "parse Pkl call lambda and operator expressions"
+  description =
+    "The parser lowers calls, lambdas, unary operators, comparisons, boolean operators, null-coalescing, and conditional expressions into explicit AST nodes with precedence matching Pkl."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-016" }
+  tags { "next"; "backlog"; "parser" }
+  reviewStatus = "draft"
+  pending = true
+  severity = "major"
+  openQuestions {
+    "Should evaluator support be added in the same slice, or should this first be parser-only AST coverage?"
+    "Which operators should remain parse-only until the typechecker has richer Pkl semantics?"
+  }
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Split expression AST coverage from declaration work"
+      rationale =
+        "Calls, lambdas, and non-arithmetic operators are a coherent parser precedence problem and can be tested independently from classes and module inheritance."
+    }
+  }
+}
+
+local declarationsAndClassTypes = new Scenario {
+  id = "PKL-019"
+  name = "model Pkl class function and typealias declarations"
+  description =
+    "Class, function, and typealias declarations are represented in Program instead of being skipped, and the typechecker can resolve declared class names in property annotations."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-016"; "PKL-008" }
+  tags { "next"; "backlog"; "parser"; "typechecker" }
+  reviewStatus = "draft"
+  pending = true
+  severity = "major"
+  openQuestions {
+    "Should function bodies be represented before function evaluation exists?"
+    "What minimum class model is enough to typecheck object literals against declared properties?"
+  }
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Track declaration AST work as the typechecker bridge"
+      rationale =
+        "The parser currently skips declarations to keep parse-only compatibility. Typechecker progress needs declarations preserved as structured contracts."
+    }
+  }
+}
+
+local moduleInheritanceAndAmends = new Scenario {
+  id = "PKL-020"
+  name = "support module extends amends and object amendments"
+  description =
+    "Module `extends`/`amends` clauses and object amendment syntax merge inherited members through AnalysisSession resolution for parsing, evaluation, and typechecking."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-006"; "PKL-013"; "PKL-019" }
+  tags { "next"; "backlog"; "evaluator"; "typechecker" }
+  reviewStatus = "draft"
+  pending = true
+  severity = "critical"
+  openQuestions {
+    "Should amends resolution be implemented before class inheritance, or share one merge model?"
+    "Which apple/pkl fixtures should become the first executable amends golden cases?"
+  }
+  decisions {
+    new Decision {
+      date = "2026-05-14"
+      summary = "Make amends and extends the next semantic milestone"
+      rationale =
+        "Real Pkl modules compose through amends and extends. This is the next end-to-end semantic milestone after AST coverage for declarations and object bodies."
+    }
+  }
+}
+
 goals { pureMoonBitCore }
 
 scenarios {
@@ -276,4 +401,9 @@ scenarios {
   pklObjectBodyProperties
   pklLocalAndImportExpressions
   upstreamParserSuite
+  unsupportedSyntaxInventory
+  collectionExpressions
+  callableExpressions
+  declarationsAndClassTypes
+  moduleInheritanceAndAmends
 }
