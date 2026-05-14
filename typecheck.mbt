@@ -547,6 +547,148 @@ fn copy_type_bindings(bindings : Array[TypeBinding]) -> Array[TypeBinding] {
 }
 
 ///|
+fn narrow_positive_is_guard_type(original : Type, guard_type : Type) -> Type? {
+  match original {
+    UnionType(options) => {
+      let narrowed : Array[Type] = []
+      for option in options {
+        if type_accepts(guard_type, option) {
+          push_unique_type(narrowed, option)
+        }
+      }
+      if narrowed.length() == 0 {
+        None
+      } else {
+        Some(make_union_type(narrowed))
+      }
+    }
+    NullableType(inner) =>
+      if type_accepts(guard_type, inner) {
+        Some(inner)
+      } else if guard_type == NullType {
+        Some(NullType)
+      } else {
+        None
+      }
+    _ =>
+      if type_accepts(guard_type, original) {
+        Some(original)
+      } else if type_accepts(original, guard_type) {
+        Some(guard_type)
+      } else {
+        None
+      }
+  }
+}
+
+///|
+fn narrow_negative_is_guard_type(original : Type, guard_type : Type) -> Type? {
+  match original {
+    UnionType(options) => {
+      let narrowed : Array[Type] = []
+      let mut changed = false
+      for option in options {
+        if type_accepts(guard_type, option) {
+          changed = true
+        } else {
+          push_unique_type(narrowed, option)
+        }
+      }
+      if changed && narrowed.length() > 0 {
+        Some(make_union_type(narrowed))
+      } else {
+        None
+      }
+    }
+    NullableType(inner) =>
+      if type_accepts(guard_type, inner) {
+        Some(NullType)
+      } else if guard_type == NullType {
+        Some(inner)
+      } else {
+        None
+      }
+    _ => None
+  }
+}
+
+///|
+fn apply_positive_is_guard_expr(
+  expr : Expr,
+  bindings : Array[Binding],
+  env : Array[TypeBinding],
+  type_env : Array[TypeBinding],
+  source_cache : Array[TypeBinding],
+  target_cache : Array[TypeBinding],
+  stack : Array[String],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> TypecheckResult?,
+) -> Unit {
+  match expr {
+    BinaryExpr(Is, Identifier(name), Identifier(type_name)) =>
+      match type_from_annotation(type_name, type_env) {
+        Some(guard_type) =>
+          match
+            resolve_binding_type(
+              name, bindings, env, type_env, source_cache, stack, diagnostics, resolve_import,
+            ) {
+            Some(original_type) =>
+              match narrow_positive_is_guard_type(original_type, guard_type) {
+                Some(narrowed) => target_cache.push({ name, typ: narrowed })
+                None => ()
+              }
+            None => ()
+          }
+        None => ()
+      }
+    BinaryExpr(And, left, right) => {
+      apply_positive_is_guard_expr(
+        left, bindings, env, type_env, source_cache, target_cache, stack, diagnostics,
+        resolve_import,
+      )
+      apply_positive_is_guard_expr(
+        right, bindings, env, type_env, target_cache, target_cache, stack, diagnostics,
+        resolve_import,
+      )
+    }
+    _ => ()
+  }
+}
+
+///|
+fn apply_negative_is_guard_expr(
+  expr : Expr,
+  bindings : Array[Binding],
+  env : Array[TypeBinding],
+  type_env : Array[TypeBinding],
+  source_cache : Array[TypeBinding],
+  target_cache : Array[TypeBinding],
+  stack : Array[String],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> TypecheckResult?,
+) -> Unit {
+  match expr {
+    BinaryExpr(Is, Identifier(name), Identifier(type_name)) =>
+      match type_from_annotation(type_name, type_env) {
+        Some(guard_type) =>
+          match
+            resolve_binding_type(
+              name, bindings, env, type_env, source_cache, stack, diagnostics, resolve_import,
+            ) {
+            Some(original_type) =>
+              match narrow_negative_is_guard_type(original_type, guard_type) {
+                Some(narrowed) => target_cache.push({ name, typ: narrowed })
+                None => ()
+              }
+            None => ()
+          }
+        None => ()
+      }
+    _ => ()
+  }
+}
+
+///|
 fn all_program_bindings(program : Program) -> Array[Binding] {
   let bindings : Array[Binding] = []
   for decl in program.declarations {
@@ -889,6 +1031,67 @@ fn infer_call_expr(
 }
 
 ///|
+fn infer_boolean_condition_expr(
+  expr : Expr,
+  bindings : Array[Binding],
+  env : Array[TypeBinding],
+  type_env : Array[TypeBinding],
+  cache : Array[TypeBinding],
+  stack : Array[String],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> TypecheckResult?,
+) -> Type {
+  match expr {
+    BinaryExpr(And, left_expr, right_expr) => {
+      let left = infer_boolean_condition_expr(
+        left_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+      )
+      let right_cache = copy_type_bindings(cache)
+      apply_positive_is_guard_expr(
+        left_expr, bindings, env, type_env, cache, right_cache, stack, diagnostics,
+        resolve_import,
+      )
+      let right = infer_boolean_condition_expr(
+        right_expr, bindings, env, type_env, right_cache, stack, diagnostics, resolve_import,
+      )
+      if left == BoolType && right == BoolType {
+        BoolType
+      } else {
+        diagnostics.push(Diagnostic::{
+          message: "operator && expects Boolean operands",
+        })
+        UnknownType
+      }
+    }
+    BinaryExpr(Or, left_expr, right_expr) => {
+      let left = infer_boolean_condition_expr(
+        left_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+      )
+      let right_cache = copy_type_bindings(cache)
+      apply_negative_is_guard_expr(
+        left_expr, bindings, env, type_env, cache, right_cache, stack, diagnostics,
+        resolve_import,
+      )
+      let right = infer_boolean_condition_expr(
+        right_expr, bindings, env, type_env, right_cache, stack, diagnostics, resolve_import,
+      )
+      if left == BoolType && right == BoolType {
+        BoolType
+      } else {
+        diagnostics.push(Diagnostic::{
+          message: "operator || expects Boolean operands",
+        })
+        UnknownType
+      }
+    }
+    _ =>
+      infer_expr_with_bindings(
+        expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+      )
+  }
+}
+
+///|
 fn infer_expr_with_bindings(
   expr : Expr,
   bindings : Array[Binding],
@@ -1177,6 +1380,18 @@ fn infer_expr_with_bindings(
         diagnostics.push(Diagnostic::{ message: "operator |> is parser-only" })
         return UnknownType
       }
+      if op == And || op == Or {
+        return infer_boolean_condition_expr(
+          BinaryExpr(op, left_expr, right_expr),
+          bindings,
+          env,
+          type_env,
+          cache,
+          stack,
+          diagnostics,
+          resolve_import,
+        )
+      }
       let left = infer_expr_with_bindings(
         left_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
       )
@@ -1203,15 +1418,7 @@ fn infer_expr_with_bindings(
             UnknownType
           }
         Equal | NotEqual => BoolType
-        And | Or =>
-          if left == BoolType && right == BoolType {
-            BoolType
-          } else {
-            diagnostics.push(Diagnostic::{
-              message: "operator \{operator_name(op)} expects Boolean operands",
-            })
-            UnknownType
-          }
+        And | Or => panic()
         NullCoalesce =>
           if left == NullType {
             right
@@ -1234,17 +1441,27 @@ fn infer_expr_with_bindings(
       }
     }
     ConditionalExpr(condition_expr, then_expr, else_expr) => {
-      let condition = infer_expr_with_bindings(
+      let condition = infer_boolean_condition_expr(
         condition_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
       )
       if condition != BoolType {
         diagnostics.push(Diagnostic::{ message: "if condition expects Boolean" })
       }
+      let then_cache = copy_type_bindings(cache)
+      let else_cache = copy_type_bindings(cache)
+      apply_positive_is_guard_expr(
+        condition_expr, bindings, env, type_env, cache, then_cache, stack, diagnostics,
+        resolve_import,
+      )
+      apply_negative_is_guard_expr(
+        condition_expr, bindings, env, type_env, cache, else_cache, stack, diagnostics,
+        resolve_import,
+      )
       let then_type = infer_expr_with_bindings(
-        then_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+        then_expr, bindings, env, type_env, then_cache, stack, diagnostics, resolve_import,
       )
       let else_type = infer_expr_with_bindings(
-        else_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+        else_expr, bindings, env, type_env, else_cache, stack, diagnostics, resolve_import,
       )
       common_type([then_type, else_type])
     }

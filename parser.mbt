@@ -747,7 +747,10 @@ fn Parser::parse_type_annotation(self : Parser) -> String? {
   }
   ignore(self.bump())
   self.skip_whitespace()
-  let type_name = self.parse_type_text(stop_at_arrow=true)
+  let type_name = self.parse_type_text(
+    stop_at_arrow=true,
+    stop_at_expression_operator=false,
+  )
   if type_name == "" {
     None
   } else {
@@ -756,7 +759,30 @@ fn Parser::parse_type_annotation(self : Parser) -> String? {
 }
 
 ///|
-fn Parser::parse_type_text(self : Parser, stop_at_arrow~ : Bool) -> String {
+fn Parser::at_type_expression_boundary(self : Parser) -> Bool {
+  self.at(or_or()) ||
+  self.at(and_and()) ||
+  self.at(coalesce()) ||
+  self.at(pipe_forward()) ||
+  self.at(equal_equal()) ||
+  self.at(not_equal()) ||
+  self.at(lte()) ||
+  self.at(gte()) ||
+  self.at(plus()) ||
+  self.at(minus()) ||
+  self.at(star()) ||
+  self.at(slash()) ||
+  self.at(percent()) ||
+  self.at(int_div()) ||
+  self.at(pow())
+}
+
+///|
+fn Parser::parse_type_text(
+  self : Parser,
+  stop_at_arrow~ : Bool,
+  stop_at_expression_operator~ : Bool,
+) -> String {
   let buf = StringBuilder::new()
   let mut parens = 0
   let mut brackets = 0
@@ -768,6 +794,7 @@ fn Parser::parse_type_text(self : Parser, stop_at_arrow~ : Bool) -> String {
         self.at(rbrace()) ||
         self.at(comma()) ||
         (stop_at_arrow && self.at(arrow())) ||
+        (stop_at_expression_operator && self.at_type_expression_boundary()) ||
         is_separator(self.peek_kind()) {
         break
       }
@@ -928,7 +955,7 @@ fn Parser::parse_typealias_decl(self : Parser) -> TypeAliasDecl? {
     }) {
     ignore(self.bump())
     self.skip_whitespace()
-    self.parse_type_text(stop_at_arrow=false)
+    self.parse_type_text(stop_at_arrow=false, stop_at_expression_operator=false)
   } else {
     ""
   }
@@ -1169,7 +1196,10 @@ fn Parser::parse_type_operand_expr(self : Parser) -> Expr {
   self.skip_trivia()
   if self.at(identifier()) {
     self.builder.start_node(name_ref())
-    let type_name = self.parse_type_text(stop_at_arrow=false)
+    let type_name = self.parse_type_text(
+      stop_at_arrow=false,
+      stop_at_expression_operator=true,
+    )
     self.builder.finish_node()
     Identifier(type_name)
   } else {

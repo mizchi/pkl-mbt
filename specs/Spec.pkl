@@ -555,8 +555,8 @@ local isGuardTypeNarrowing = new Scenario {
     "The typechecker narrows union-typed identifiers inside `if (x is T)` branches so callable bodies and property expressions can use the guarded branch type."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-027"; "PKL-028" }
-  tags { "typechecker"; "next" }
-  reviewStatus = "draft"
+  tags { "typechecker" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -564,6 +564,46 @@ local isGuardTypeNarrowing = new Scenario {
       summary = "Track control-flow narrowing separately"
       rationale =
         "`is` operand validation is now implemented, but using that predicate to refine identifier types requires branch-local environments. Keeping narrowing as the next spec avoids mixing parser operand work with control-flow analysis."
+    }
+  }
+}
+
+local compoundGuardTypeNarrowing = new Scenario {
+  id = "PKL-030"
+  name = "narrow union types through compound Pkl boolean guards"
+  description =
+    "The typechecker carries `is` guard narrowing through compound Boolean conditions such as `x is Int && x > 0`, so guarded subexpressions and then branches see the narrowed type."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-029" }
+  tags { "parser"; "typechecker" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Keep compound guard flow as the next slice"
+      rationale =
+        "Direct `if (x is T)` narrowing is implemented. Conditions joined with `&&` need short-circuit-aware narrowing for the right side and the then branch, which is a separate control-flow step."
+    }
+  }
+}
+
+local nullGuardTypeNarrowing = new Scenario {
+  id = "PKL-031"
+  name = "narrow nullable types through Pkl null guards"
+  description =
+    "The typechecker narrows nullable identifiers through `x != null` and `x == null` guards so non-null branches can use the inner type without explicit coalescing."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-024"; "PKL-030" }
+  tags { "typechecker"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Continue guard narrowing with null checks"
+      rationale =
+        "The control-flow machinery now handles `is` guards and compound Boolean conditions. Nullable values are the next common branch-local refinement because `x != null` should expose the inner type in the guarded branch."
     }
   }
 }
@@ -600,4 +640,6 @@ scenarios {
   unionTypechecking
   richTypeOperandTypechecking
   isGuardTypeNarrowing
+  compoundGuardTypeNarrowing
+  nullGuardTypeNarrowing
 }

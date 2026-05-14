@@ -689,6 +689,69 @@ test "typecheck Pkl rich is and as type operands" {
 }
 
 ///|
+test "typecheck Pkl is guards narrow union types" {
+  assert_true(
+    typecheck_source(
+      "function plusOne(x: String | Int): Int = if (x is Int) x + 1 else 0\nvalue = plusOne(1)",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+  assert_true(
+    typecheck_source(
+      "function plusOne(x: String | Int): Int = if (x is String) 0 else x + 1\nvalue = plusOne(1)",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+  assert_true(
+    typecheck_source(
+      "local input: String | Int = 1\nvalue: Int = if (input is Int) input + 1 else 0",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+
+  guard typecheck_source(
+      "function bad(x: String | Boolean): Int = if (x is String) 0 else x + 1\nvalue = bad(true)",
+    )
+    is TypeError(diagnostics) else {
+    panic()
+  }
+  inspect(diagnostics[0].message, content="operator + expects Int operands")
+}
+
+///|
+test "typecheck Pkl compound is guards narrow union types" {
+  let parsed = parse_source("ok = x is Int && x > 0")
+  guard parsed.program.bindings[0].value
+    is BinaryExpr(
+      And,
+      BinaryExpr(Is, Identifier("x"), Identifier(type_name)),
+      _
+    ) else {
+    panic()
+  }
+  inspect(type_name, content="Int")
+
+  assert_true(
+    typecheck_source(
+      "function plusPositive(x: String | Int): Int = if (x is Int && x > 0) x + 1 else 0\nvalue = plusPositive(1)",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+  assert_true(
+    typecheck_source(
+      "function addInts(x: String | Int, y: String | Int): Int = if (x is Int && y is Int) x + y else 0\nvalue = addInts(1, 2)",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+  assert_true(
+    typecheck_source(
+      "local input: String | Int = 1\nok = input is Int && input > 0",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "ok", typ: BoolType }])),
+  )
+}
+
+///|
 test "evaluate and typecheck Pkl object amendments" {
   let source = "base = new { name = \"hawk\"; age = 2 }\nbird = (base) { age = 3; wing = \"wide\" }"
   assert_true(
