@@ -22,6 +22,20 @@ The current slice is intentionally small and executable:
 - parse-only compatibility with the upstream `LanguageSnippetTests` parser corpus
 - pkfire task graph for local CI
 
+## Current Completion Estimate
+
+As of the `PKL-043` spec slice, this project has 43 implemented pkspec scenarios. The next tracked slice is `PKL-044`, which models callable runtime values.
+
+These are engineering estimates, not formal coverage numbers:
+
+| Area | Estimate | Notes |
+| --- | ---: | --- |
+| Parser | 60-70% | The upstream parser snippet corpus is accepted in parse-only mode, but some constructs are still tolerant parse output or reduced to unsupported expression placeholders instead of full semantic AST coverage. |
+| Interpreter | 30-40% | Arithmetic, objects, imports, module amends/extends, collections, class defaults/inheritance, method calls, and direct function/lambda calls work. Callable values, broad stdlib behavior, generators, renderers, constraints, and many external functions are still incomplete. |
+| Typechecker | 40-50% | Primitive, nullable, generic collection, union, narrowing, call, typed object, class inheritance, imported class, and class method body checks exist. Full Pkl constraints, type parameters, stdlib types, and deeper module/class semantics are still incomplete. |
+
+Overall, this is roughly 40%+ complete as a pure MoonBit Pkl core, or closer to the 30% range if measured as a replacement for Apple Pkl compatibility.
+
 ## Commands
 
 ```bash
@@ -63,4 +77,4 @@ git submodule update --init --recursive
 
 ## Scope
 
-This is not a full Pkl implementation yet. The next compatibility work is broader Pkl type/stdlib coverage and class/object semantics.
+This is not a full Pkl implementation yet. The next compatibility work is `PKL-044` callable runtime values, followed by broader Pkl type/stdlib coverage and class/object semantics.
