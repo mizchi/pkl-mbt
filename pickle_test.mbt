@@ -265,16 +265,18 @@ test "typecheck Pkl collection subscript access" {
 
 ///|
 test "parser reports unsupported syntax inventory" {
-  let parsed = parse_source("value = max(1, 2)\nother = 1")
+  let parsed = parse_source("value = (x, y)\nother = 1")
   inspect(parsed.diagnostics.length(), content="0")
   inspect(parsed.unsupported_syntax.length(), content="1")
   let item = parsed.unsupported_syntax[0]
   inspect(item.start, content="8")
-  inspect(item.end, content="17")
-  inspect(item.text, content="max(1, 2)")
+  inspect(item.end, content="14")
+  inspect(item.text, content="(x, y)")
   inspect(item.kind, content="unsupported_expr")
 
-  let supported = parse_source("let xs = new Listing { 1; 2 }\nxs[0]")
+  let supported = parse_source(
+    "let xs = new Listing { 1; 2 }\nxs[0]\nmax(1, 2)",
+  )
   inspect(supported.unsupported_syntax.length(), content="0")
 }
 
@@ -325,4 +327,145 @@ test "typecheck resolves declared class and typealias annotations" {
     diagnostics[0].message,
     content="type annotation Bird missing member name",
   )
+}
+
+///|
+test "parse Pkl calls lambdas operators and conditionals" {
+  let parsed = parse_source(
+    "local f = (x, y) -> x + y\nvalue = f(1, 2)\nlogic = true || false && !false\nchoice = null ?? if (1 + 2 > 2) \"yes\" else \"no\"",
+  )
+  inspect(parsed.diagnostics.length(), content="0")
+  inspect(parsed.unsupported_syntax.length(), content="0")
+
+  guard parsed.program.bindings[0].value is LambdaExpr(parameters, lambda_body) else {
+    panic()
+  }
+  inspect(parameters.length(), content="2")
+  inspect(parameters[0], content="x")
+  inspect(parameters[1], content="y")
+  assert_true(lambda_body == BinaryExpr(Add, Identifier("x"), Identifier("y")))
+
+  assert_true(
+    parsed.program.bindings[1].value ==
+    CallExpr(Identifier("f"), [IntLiteral(1), IntLiteral(2)]),
+  )
+
+  assert_true(
+    parsed.program.bindings[2].value ==
+    BinaryExpr(
+      Or,
+      BoolLiteral(true),
+      BinaryExpr(And, BoolLiteral(false), UnaryExpr(Not, BoolLiteral(false))),
+    ),
+  )
+
+  assert_true(
+    parsed.program.bindings[3].value ==
+    BinaryExpr(
+      NullCoalesce,
+      NullLiteral,
+      ConditionalExpr(
+        BinaryExpr(
+          GreaterThan,
+          BinaryExpr(Add, IntLiteral(1), IntLiteral(2)),
+          IntLiteral(2),
+        ),
+        StringLiteral("yes"),
+        StringLiteral("no"),
+      ),
+    ),
+  )
+}
+
+///|
+test "evaluate Pkl boolean comparison coalescing and conditional expressions" {
+  assert_true(
+    eval_source("if (1 + 2 > 2 && !false) \"yes\" else \"no\"") ==
+    EvalOk(StringValue("yes")),
+  )
+  assert_true(eval_source("null ?? 4") == EvalOk(IntValue(4)))
+  assert_true(eval_source("false || true && false") == EvalOk(BoolValue(false)))
+}
+
+///|
+test "typecheck Pkl boolean comparison coalescing and conditional expressions" {
+  assert_true(
+    typecheck_source("if (1 + 2 > 2 && !false) \"yes\" else \"no\"") ==
+    TypeOk(StringType),
+  )
+  assert_true(typecheck_source("null ?? 4") == TypeOk(IntType))
+  guard typecheck_source("if (1) \"yes\" else \"no\"") is TypeError(diagnostics) else {
+    panic()
+  }
+  inspect(diagnostics[0].message, content="if condition expects Boolean")
+}
+
+///|
+test "evaluate and typecheck Pkl object amendments" {
+  let source = "base = new { name = \"hawk\"; age = 2 }\nbird = (base) { age = 3; wing = \"wide\" }"
+  assert_true(
+    eval_source(source) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "base",
+          value: ObjectValue([
+            ValueMember::{ name: "name", value: StringValue("hawk") },
+            ValueMember::{ name: "age", value: IntValue(2) },
+          ]),
+        },
+        ValueMember::{
+          name: "bird",
+          value: ObjectValue([
+            ValueMember::{ name: "name", value: StringValue("hawk") },
+            ValueMember::{ name: "age", value: IntValue(3) },
+            ValueMember::{ name: "wing", value: StringValue("wide") },
+          ]),
+        },
+      ]),
+    ),
+  )
+  guard typecheck_source(source) is TypeOk(ObjectType(fields)) else { panic() }
+  guard fields[1].typ is ObjectType(bird_fields) else { panic() }
+  inspect(bird_fields[0].name, content="name")
+  assert_true(bird_fields[0].typ == StringType)
+  inspect(bird_fields[1].name, content="age")
+  assert_true(bird_fields[1].typ == IntType)
+  inspect(bird_fields[2].name, content="wing")
+  assert_true(bird_fields[2].typ == StringType)
+}
+
+///|
+test "analysis session resolves module amends and extends" {
+  let session = AnalysisSession::new()
+  session.set_source("base.pkl", "name = \"hawk\"\nage = 2")
+  session.set_source("amended.pkl", "amends \"base.pkl\"\nage = 3")
+  session.set_source("extended.pkl", "extends \"base.pkl\"\nwing = \"wide\"")
+
+  assert_true(
+    session.eval_path("amended.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "name", value: StringValue("hawk") },
+        ValueMember::{ name: "age", value: IntValue(3) },
+      ]),
+    ),
+  )
+  assert_true(
+    session.eval_path("extended.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "name", value: StringValue("hawk") },
+        ValueMember::{ name: "age", value: IntValue(2) },
+        ValueMember::{ name: "wing", value: StringValue("wide") },
+      ]),
+    ),
+  )
+  guard session.typecheck_path("extended.pkl") is TypeOk(ObjectType(fields)) else {
+    panic()
+  }
+  inspect(fields.length(), content="3")
+  assert_true(fields[0].typ == StringType)
+  assert_true(fields[1].typ == IntType)
+  assert_true(fields[2].typ == StringType)
 }

@@ -67,6 +67,26 @@ fn lookup_entry(entries : Array[ValueEntry], key : Value) -> Value? {
 }
 
 ///|
+fn merge_value_members(
+  base : Array[ValueMember],
+  overrides : Array[ValueMember],
+) -> Array[ValueMember] {
+  let merged : Array[ValueMember] = []
+  for value_member in base {
+    match lookup_member(overrides, value_member.name) {
+      Some(value) => merged.push({ name: value_member.name, value })
+      None => merged.push(value_member)
+    }
+  }
+  for value_member in overrides {
+    if lookup_member(base, value_member.name) is None {
+      merged.push(value_member)
+    }
+  }
+  merged
+}
+
+///|
 fn find_binding(bindings : Array[Binding], name : String) -> Binding? {
   let mut found : Binding? = None
   for binding in bindings {
@@ -95,6 +115,20 @@ fn push_binding_stack(stack : Array[String], name : String) -> Array[String] {
   }
   next.push(name)
   next
+}
+
+///|
+fn int_pow(base : Int, exponent : Int) -> Int? {
+  if exponent < 0 {
+    return None
+  }
+  let mut result = 1
+  let mut i = 0
+  while i < exponent {
+    result = result * base
+    i += 1
+  }
+  Some(result)
 }
 
 ///|
@@ -169,25 +203,14 @@ fn eval_expr_with_bindings(
           None
         }
       }
-    ObjectLiteral(members) => {
-      let values : Array[ValueMember] = []
-      for field in members {
-        match
-          eval_expr_with_bindings(
-            field.value,
-            bindings,
-            env,
-            cache,
-            stack,
-            diagnostics,
-            resolve_import,
-          ) {
-          Some(value) => values.push({ name: field.name, value })
-          None => ()
-        }
-      }
-      Some(ObjectValue(values))
-    }
+    ObjectLiteral(members) =>
+      Some(
+        ObjectValue(
+          eval_object_members(
+            members, bindings, env, cache, stack, diagnostics, resolve_import,
+          ),
+        ),
+      )
     ListingLiteral(elements) => {
       let values : Array[Value] = []
       for element in elements {
@@ -290,6 +313,30 @@ fn eval_expr_with_bindings(
         _ => None
       }
     }
+    AmendExpr(base_expr, members) =>
+      match
+        eval_expr_with_bindings(
+          base_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+        ) {
+        Some(ObjectValue(base_members)) =>
+          Some(
+            ObjectValue(
+              merge_value_members(
+                base_members,
+                eval_object_members(
+                  members, bindings, env, cache, stack, diagnostics, resolve_import,
+                ),
+              ),
+            ),
+          )
+        Some(_) => {
+          diagnostics.push(Diagnostic::{
+            message: "object amendment expects Object",
+          })
+          None
+        }
+        None => None
+      }
     Identifier(name) =>
       match
         resolve_binding_value(
@@ -301,7 +348,121 @@ fn eval_expr_with_bindings(
           None
         }
       }
+    CallExpr(_, _) => {
+      diagnostics.push(Diagnostic::{
+        message: "call expressions are parser-only",
+      })
+      None
+    }
+    LambdaExpr(_, _) => {
+      diagnostics.push(Diagnostic::{
+        message: "lambda expressions are parser-only",
+      })
+      None
+    }
+    UnaryExpr(op, inner_expr) => {
+      let inner = eval_expr_with_bindings(
+        inner_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+      )
+      match (op, inner) {
+        (Negate, Some(IntValue(value))) => Some(IntValue(0 - value))
+        (Not, Some(BoolValue(value))) => Some(BoolValue(!value))
+        (Negate, Some(_)) => {
+          diagnostics.push(Diagnostic::{
+            message: "operator - expects Int operand",
+          })
+          None
+        }
+        (Not, Some(_)) => {
+          diagnostics.push(Diagnostic::{
+            message: "operator ! expects Boolean operand",
+          })
+          None
+        }
+        (_, None) => None
+      }
+    }
     BinaryExpr(op, left_expr, right_expr) => {
+      match op {
+        And => {
+          let left = eval_expr_with_bindings(
+            left_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+          )
+          match left {
+            Some(BoolValue(false)) => return Some(BoolValue(false))
+            Some(BoolValue(true)) => ()
+            Some(_) => {
+              diagnostics.push(Diagnostic::{
+                message: "operator && expects Boolean operands",
+              })
+              return None
+            }
+            None => return None
+          }
+          match
+            eval_expr_with_bindings(
+              right_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+            ) {
+            Some(BoolValue(value)) => return Some(BoolValue(value))
+            Some(_) => {
+              diagnostics.push(Diagnostic::{
+                message: "operator && expects Boolean operands",
+              })
+              return None
+            }
+            None => return None
+          }
+        }
+        Or => {
+          let left = eval_expr_with_bindings(
+            left_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+          )
+          match left {
+            Some(BoolValue(true)) => return Some(BoolValue(true))
+            Some(BoolValue(false)) => ()
+            Some(_) => {
+              diagnostics.push(Diagnostic::{
+                message: "operator || expects Boolean operands",
+              })
+              return None
+            }
+            None => return None
+          }
+          match
+            eval_expr_with_bindings(
+              right_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+            ) {
+            Some(BoolValue(value)) => return Some(BoolValue(value))
+            Some(_) => {
+              diagnostics.push(Diagnostic::{
+                message: "operator || expects Boolean operands",
+              })
+              return None
+            }
+            None => return None
+          }
+        }
+        NullCoalesce => {
+          let left = eval_expr_with_bindings(
+            left_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+          )
+          match left {
+            Some(NullValue) =>
+              return eval_expr_with_bindings(
+                right_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+              )
+            Some(value) => return Some(value)
+            None => return None
+          }
+        }
+        Is | As | Pipe => {
+          diagnostics.push(Diagnostic::{
+            message: "operator \{operator_name(op)} is parser-only",
+          })
+          return None
+        }
+        _ => ()
+      }
       let left = eval_expr_with_bindings(
         left_expr, bindings, env, cache, stack, diagnostics, resolve_import,
       )
@@ -321,16 +482,83 @@ fn eval_expr_with_bindings(
               } else {
                 Some(IntValue(a / b))
               }
+            IntDivide =>
+              if b == 0 {
+                diagnostics.push(Diagnostic::{ message: "division by zero" })
+                None
+              } else {
+                Some(IntValue(a / b))
+              }
+            Modulo =>
+              if b == 0 {
+                diagnostics.push(Diagnostic::{ message: "division by zero" })
+                None
+              } else {
+                Some(IntValue(a % b))
+              }
+            Power =>
+              match int_pow(a, b) {
+                Some(value) => Some(IntValue(value))
+                None => {
+                  diagnostics.push(Diagnostic::{
+                    message: "operator ** expects non-negative exponent",
+                  })
+                  None
+                }
+              }
+            LessThan => Some(BoolValue(a < b))
+            LessOrEqual => Some(BoolValue(a <= b))
+            GreaterThan => Some(BoolValue(a > b))
+            GreaterOrEqual => Some(BoolValue(a >= b))
+            Equal => Some(BoolValue(a == b))
+            NotEqual => Some(BoolValue(a != b))
+            And | Or | NullCoalesce | Is | As | Pipe => panic()
           }
+        (Some(a), Some(b)) if op == Equal => Some(BoolValue(a == b))
+        (Some(a), Some(b)) if op == NotEqual => Some(BoolValue(a != b))
         (Some(_), Some(_)) => {
-          diagnostics.push(Diagnostic::{
-            message: "operator \{operator_name(op)} expects Int operands",
-          })
+          let message = match op {
+            Add
+            | Subtract
+            | Multiply
+            | Divide
+            | IntDivide
+            | Modulo
+            | Power
+            | LessThan
+            | LessOrEqual
+            | GreaterThan
+            | GreaterOrEqual =>
+              "operator \{operator_name(op)} expects Int operands"
+            _ => "operator \{operator_name(op)} expects compatible operands"
+          }
+          diagnostics.push(Diagnostic::{ message, })
           None
         }
         _ => None
       }
     }
+    ConditionalExpr(condition_expr, then_expr, else_expr) =>
+      match
+        eval_expr_with_bindings(
+          condition_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+        ) {
+        Some(BoolValue(true)) =>
+          eval_expr_with_bindings(
+            then_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+          )
+        Some(BoolValue(false)) =>
+          eval_expr_with_bindings(
+            else_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+          )
+        Some(_) => {
+          diagnostics.push(Diagnostic::{
+            message: "if condition expects Boolean",
+          })
+          None
+        }
+        None => None
+      }
     ErrorExpr(message) => {
       diagnostics.push(Diagnostic::{ message, })
       None
@@ -340,6 +568,35 @@ fn eval_expr_with_bindings(
       None
     }
   }
+}
+
+///|
+fn eval_object_members(
+  members : Array[ObjectMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Array[ValueMember] {
+  let values : Array[ValueMember] = []
+  for field in members {
+    match
+      eval_expr_with_bindings(
+        field.value,
+        bindings,
+        env,
+        cache,
+        stack,
+        diagnostics,
+        resolve_import,
+      ) {
+      Some(value) => values.push({ name: field.name, value })
+      None => ()
+    }
+  }
+  values
 }
 
 ///|
@@ -360,6 +617,35 @@ fn eval_imports(
         diagnostics.push(Diagnostic::{
           message: "unresolved import \{decl.uri}",
         })
+    }
+  }
+}
+
+///|
+fn eval_module_relation(
+  relation : ModuleRelation,
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Array[ValueMember] {
+  match resolve_import(relation.uri) {
+    Some(EvalOk(ObjectValue(members))) => members
+    Some(EvalOk(_)) => {
+      diagnostics.push(Diagnostic::{
+        message: "module \{relation_kind_name(relation.kind)} expects Object",
+      })
+      []
+    }
+    Some(EvalError(errors)) => {
+      for error in errors {
+        diagnostics.push(error)
+      }
+      []
+    }
+    None => {
+      diagnostics.push(Diagnostic::{
+        message: "unresolved import \{relation.uri}",
+      })
+      []
     }
   }
 }
@@ -403,6 +689,15 @@ fn eval_program(
         diagnostics,
         resolve_import,
       )
+    None if program.module_relation is Some(relation) =>
+      Some(
+        ObjectValue(
+          merge_value_members(
+            eval_module_relation(relation, diagnostics, resolve_import),
+            members,
+          ),
+        ),
+      )
     None if members.length() > 0 => Some(ObjectValue(members))
     None => {
       diagnostics.push(Diagnostic::{ message: "missing expression body" })
@@ -418,6 +713,29 @@ fn operator_name(op : BinaryOp) -> String {
     Subtract => "-"
     Multiply => "*"
     Divide => "/"
+    IntDivide => "~/"
+    Modulo => "%"
+    Power => "**"
+    Equal => "=="
+    NotEqual => "!="
+    LessThan => "<"
+    LessOrEqual => "<="
+    GreaterThan => ">"
+    GreaterOrEqual => ">="
+    And => "&&"
+    Or => "||"
+    NullCoalesce => "??"
+    Is => "is"
+    As => "as"
+    Pipe => "|>"
+  }
+}
+
+///|
+fn relation_kind_name(kind : ModuleRelationKind) -> String {
+  match kind {
+    ModuleAmends => "amends"
+    ModuleExtends => "extends"
   }
 }
 

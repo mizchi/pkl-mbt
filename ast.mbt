@@ -17,6 +17,27 @@ pub(all) enum BinaryOp {
   Subtract
   Multiply
   Divide
+  IntDivide
+  Modulo
+  Power
+  Equal
+  NotEqual
+  LessThan
+  LessOrEqual
+  GreaterThan
+  GreaterOrEqual
+  And
+  Or
+  NullCoalesce
+  Is
+  As
+  Pipe
+} derive(Eq, Debug)
+
+///|
+pub(all) enum UnaryOp {
+  Negate
+  Not
 } derive(Eq, Debug)
 
 ///|
@@ -32,7 +53,12 @@ pub(all) enum Expr {
   MappingLiteral(Array[MappingEntry])
   MemberAccess(Expr, String)
   SubscriptAccess(Expr, Expr)
+  AmendExpr(Expr, Array[ObjectMember])
+  CallExpr(Expr, Array[Expr])
+  LambdaExpr(Array[String], Expr)
+  UnaryExpr(UnaryOp, Expr)
   BinaryExpr(BinaryOp, Expr, Expr)
+  ConditionalExpr(Expr, Expr, Expr)
   UnsupportedExpr
   ErrorExpr(String)
 } derive(Eq, Debug)
@@ -54,6 +80,18 @@ pub(all) struct MappingEntry {
 pub(all) struct ImportDecl {
   uri : String
   import_name : String
+} derive(Eq, Debug)
+
+///|
+pub(all) enum ModuleRelationKind {
+  ModuleAmends
+  ModuleExtends
+} derive(Eq, Debug)
+
+///|
+pub(all) struct ModuleRelation {
+  kind : ModuleRelationKind
+  uri : String
 } derive(Eq, Debug)
 
 ///|
@@ -100,6 +138,7 @@ pub(all) struct TypeAliasDecl {
 ///|
 pub(all) struct Program {
   module_name : String?
+  module_relation : ModuleRelation?
   imports : Array[ImportDecl]
   declarations : Array[Declaration]
   bindings : Array[Binding]

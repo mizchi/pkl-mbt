@@ -10,6 +10,12 @@ priv struct Parser {
 }
 
 ///|
+priv struct ParsedModuleDecl {
+  module_name : String?
+  module_relation : ModuleRelation?
+}
+
+///|
 fn Parser::new(source : String) -> Parser {
   let tokens = tokenize(source)
   Parser::{
@@ -163,11 +169,36 @@ fn Parser::paren_expr_looks_unsupported(self : Parser) -> Bool {
     } else if kind == rparen() {
       depth -= 1
       if depth == 0 {
-        let next = self.peek_non_whitespace_kind(i + 1)
-        return next == minus()
+        return false
       }
     } else if depth == 1 && (kind == comma() || kind == colon()) {
       return true
+    }
+    i += 1
+  }
+  false
+}
+
+///|
+fn Parser::function_literal_at_current(self : Parser) -> Bool {
+  if !self.at(lparen()) {
+    return false
+  }
+  let first = self.peek_non_trivia_kind(self.pos + 1)
+  if first != rparen() && first != identifier() {
+    return false
+  }
+  let mut depth = 0
+  let mut i = self.pos
+  while i < self.len {
+    let kind = self.tokens[i].kind()
+    if kind == lparen() {
+      depth += 1
+    } else if kind == rparen() {
+      depth -= 1
+      if depth == 0 {
+        return self.peek_non_trivia_kind(i + 1) == arrow()
+      }
     }
     i += 1
   }
@@ -364,6 +395,53 @@ fn Parser::skip_unknown_member(self : Parser) -> Unit {
 }
 
 ///|
+fn Parser::skip_call_argument_tail(self : Parser) -> Unit {
+  let start = self.current_offset()
+  let mut parens = 0
+  let mut braces = 0
+  let mut brackets = 0
+  let mut consumed = false
+  while !self.at(eof()) {
+    if parens == 0 && braces == 0 && brackets == 0 {
+      if self.at(comma()) || self.at(rparen()) {
+        break
+      }
+    }
+    if self.at(lparen()) {
+      parens += 1
+    } else if self.at(rparen()) {
+      if parens == 0 {
+        break
+      }
+      parens -= 1
+    } else if self.at(lbrace()) {
+      braces += 1
+    } else if self.at(rbrace()) {
+      if braces == 0 {
+        break
+      }
+      braces -= 1
+    } else if self.at(lbracket()) {
+      brackets += 1
+    } else if self.at(rbracket()) {
+      if brackets == 0 {
+        break
+      }
+      brackets -= 1
+    }
+    consumed = true
+    ignore(self.bump())
+  }
+  if consumed {
+    self.record_unsupported_syntax(
+      start,
+      self.current_offset(),
+      kind_name(unsupported_expr()),
+    )
+  }
+}
+
+///|
 fn Parser::expect(
   self : Parser,
   kind : @cst.SyntaxKind,
@@ -394,6 +472,7 @@ fn Parser::expect_text(self : Parser, text : String, expected : String) -> Unit 
 fn Parser::parse(self : Parser) -> ParseResult {
   self.builder.start_node(module_node())
   let mut module_name : String? = None
+  let mut module_relation : ModuleRelation? = None
   let imports : Array[ImportDecl] = []
   let declarations : Array[Declaration] = []
   let bindings : Array[Binding] = []
@@ -413,7 +492,16 @@ fn Parser::parse(self : Parser) -> ParseResult {
       self.at_text("amends") ||
       self.at_text("extends") {
       match self.parse_module_decl() {
-        Some(name) => module_name = Some(name)
+        Some(decl) => {
+          match decl.module_name {
+            Some(name) => module_name = Some(name)
+            None => ()
+          }
+          match decl.module_relation {
+            Some(relation) => module_relation = Some(relation)
+            None => ()
+          }
+        }
         None => ()
       }
     } else if self.at(let_kw()) {
@@ -471,14 +559,21 @@ fn Parser::parse(self : Parser) -> ParseResult {
   let green = self.builder.finish()
   {
     root: @cst.SyntaxNode::new_root(green),
-    program: { module_name, imports, declarations, bindings, body },
+    program: {
+      module_name,
+      module_relation,
+      imports,
+      declarations,
+      bindings,
+      body,
+    },
     diagnostics: self.diagnostics,
     unsupported_syntax: self.unsupported_syntax,
   }
 }
 
 ///|
-fn Parser::parse_module_decl(self : Parser) -> String? {
+fn Parser::parse_module_decl(self : Parser) -> ParsedModuleDecl? {
   self.builder.start_node(module_decl())
   let buf = StringBuilder::new()
   if self.at(module_kw()) {
@@ -501,23 +596,32 @@ fn Parser::parse_module_decl(self : Parser) -> String? {
       }
     }
   }
+  let mut module_relation : ModuleRelation? = None
   self.skip_whitespace()
   if self.at_text("extends") || self.at_text("amends") {
+    let kind = if self.at_text("amends") { ModuleAmends } else { ModuleExtends }
     ignore(self.bump())
-    if self.at(string_token()) {
-      ignore(self.bump())
+    self.skip_whitespace()
+    let uri = if self.at(string_token()) {
+      unquote(self.bump().text())
     } else if self.at(lparen()) {
       self.skip_balanced_group(lparen(), rparen())
+      ""
     } else {
       self.skip_unknown_member()
+      ""
+    }
+    if uri != "" {
+      module_relation = Some({ kind, uri })
     }
   }
   self.builder.finish_node()
   let text = buf.to_string()
-  if text == "" {
+  let parsed_name = if text == "" { None } else { Some(text) }
+  if parsed_name is None && module_relation is None {
     None
   } else {
-    Some(text)
+    Some({ module_name: parsed_name, module_relation })
   }
 }
 
@@ -892,7 +996,146 @@ fn Parser::parse_property_decl(self : Parser) -> Binding? {
 
 ///|
 fn Parser::parse_expr(self : Parser) -> Expr {
-  self.parse_add_expr()
+  self.parse_null_coalesce_expr()
+}
+
+///|
+fn Parser::parse_binary_loop(
+  self : Parser,
+  parse_operand : () -> Expr,
+  operators : () -> BinaryOp?,
+) -> Expr {
+  let checkpoint = self.builder.checkpoint()
+  let mut left = parse_operand()
+  let mut maybe_op = operators()
+  while maybe_op is Some(op) {
+    self.builder.start_node_at(checkpoint, binary_expr())
+    ignore(self.bump())
+    let right = parse_operand()
+    self.builder.finish_node()
+    left = BinaryExpr(op, left, right)
+    maybe_op = operators()
+  }
+  left
+}
+
+///|
+fn Parser::parse_null_coalesce_expr(self : Parser) -> Expr {
+  let checkpoint = self.builder.checkpoint()
+  let left = self.parse_pipe_expr()
+  self.skip_whitespace()
+  if self.at(coalesce()) {
+    self.builder.start_node_at(checkpoint, binary_expr())
+    ignore(self.bump())
+    let right = self.parse_null_coalesce_expr()
+    self.builder.finish_node()
+    BinaryExpr(NullCoalesce, left, right)
+  } else {
+    left
+  }
+}
+
+///|
+fn Parser::parse_pipe_expr(self : Parser) -> Expr {
+  self.parse_binary_loop(fn() { self.parse_or_expr() }, fn() {
+    self.skip_whitespace()
+    if self.at(pipe_forward()) {
+      Some(Pipe)
+    } else {
+      None
+    }
+  })
+}
+
+///|
+fn Parser::parse_or_expr(self : Parser) -> Expr {
+  self.parse_binary_loop(fn() { self.parse_and_expr() }, fn() {
+    self.skip_whitespace()
+    if self.at(or_or()) {
+      Some(Or)
+    } else {
+      None
+    }
+  })
+}
+
+///|
+fn Parser::parse_and_expr(self : Parser) -> Expr {
+  self.parse_binary_loop(fn() { self.parse_equality_expr() }, fn() {
+    self.skip_whitespace()
+    if self.at(and_and()) {
+      Some(And)
+    } else {
+      None
+    }
+  })
+}
+
+///|
+fn Parser::parse_equality_expr(self : Parser) -> Expr {
+  self.parse_binary_loop(fn() { self.parse_comparison_expr() }, fn() {
+    self.skip_whitespace()
+    if self.at(equal_equal()) {
+      Some(Equal)
+    } else if self.at(not_equal()) {
+      Some(NotEqual)
+    } else {
+      None
+    }
+  })
+}
+
+///|
+fn Parser::parse_comparison_expr(self : Parser) -> Expr {
+  let checkpoint = self.builder.checkpoint()
+  let mut left = self.parse_add_expr()
+  let mut keep_going = true
+  while keep_going {
+    self.skip_whitespace()
+    let op : BinaryOp? = if self.at(lt()) {
+      Some(LessThan)
+    } else if self.at(lte()) {
+      Some(LessOrEqual)
+    } else if self.at(gt()) {
+      Some(GreaterThan)
+    } else if self.at(gte()) {
+      Some(GreaterOrEqual)
+    } else if self.at(is_kw()) {
+      Some(Is)
+    } else if self.at(as_kw()) {
+      Some(As)
+    } else {
+      None
+    }
+    match op {
+      Some(actual_op) => {
+        self.builder.start_node_at(checkpoint, binary_expr())
+        ignore(self.bump())
+        let right = match actual_op {
+          Is | As => self.parse_type_operand_expr()
+          _ => self.parse_add_expr()
+        }
+        self.builder.finish_node()
+        left = BinaryExpr(actual_op, left, right)
+      }
+      None => keep_going = false
+    }
+  }
+  left
+}
+
+///|
+fn Parser::parse_type_operand_expr(self : Parser) -> Expr {
+  self.skip_trivia()
+  if self.at(identifier()) {
+    self.builder.start_node(name_ref())
+    let tok = self.bump()
+    self.skip_type_tail()
+    self.builder.finish_node()
+    Identifier(tok.text())
+  } else {
+    self.parse_add_expr()
+  }
 }
 
 ///|
@@ -916,19 +1159,61 @@ fn Parser::parse_add_expr(self : Parser) -> Expr {
 ///|
 fn Parser::parse_mul_expr(self : Parser) -> Expr {
   let checkpoint = self.builder.checkpoint()
-  let mut left = self.parse_postfix_expr()
+  let mut left = self.parse_power_expr()
   while ({
           self.skip_whitespace()
-          self.at(star()) || self.at(slash())
+          self.at(star()) ||
+          self.at(slash()) ||
+          self.at(percent()) ||
+          self.at(int_div())
         }) {
     self.builder.start_node_at(checkpoint, binary_expr())
-    let op = if self.at(star()) { BinaryOp::Multiply } else { BinaryOp::Divide }
+    let op = if self.at(star()) {
+      BinaryOp::Multiply
+    } else if self.at(slash()) {
+      BinaryOp::Divide
+    } else if self.at(percent()) {
+      BinaryOp::Modulo
+    } else {
+      BinaryOp::IntDivide
+    }
     ignore(self.bump())
-    let right = self.parse_postfix_expr()
+    let right = self.parse_power_expr()
     self.builder.finish_node()
     left = BinaryExpr(op, left, right)
   }
   left
+}
+
+///|
+fn Parser::parse_power_expr(self : Parser) -> Expr {
+  let checkpoint = self.builder.checkpoint()
+  let left = self.parse_unary_expr()
+  self.skip_whitespace()
+  if self.at(pow()) {
+    self.builder.start_node_at(checkpoint, binary_expr())
+    ignore(self.bump())
+    let right = self.parse_power_expr()
+    self.builder.finish_node()
+    BinaryExpr(Power, left, right)
+  } else {
+    left
+  }
+}
+
+///|
+fn Parser::parse_unary_expr(self : Parser) -> Expr {
+  self.skip_trivia()
+  if self.at(minus()) || self.at(bang()) {
+    self.builder.start_node(unary_expr())
+    let op = if self.at(minus()) { Negate } else { Not }
+    ignore(self.bump())
+    let expr = self.parse_unary_expr()
+    self.builder.finish_node()
+    UnaryExpr(op, expr)
+  } else {
+    self.parse_postfix_expr()
+  }
 }
 
 ///|
@@ -938,7 +1223,7 @@ fn Parser::parse_postfix_expr(self : Parser) -> Expr {
   let mut keep_going = true
   while keep_going {
     self.skip_whitespace()
-    if self.at(dot()) {
+    if self.at(dot()) || self.at(qdot()) {
       let unsupported_start = self.current_offset()
       self.builder.start_node_at(checkpoint, member_access())
       ignore(self.bump())
@@ -962,14 +1247,32 @@ fn Parser::parse_postfix_expr(self : Parser) -> Expr {
         MemberAccess(expr, field_name)
       }
     } else if self.at(lparen()) {
-      let unsupported_start = self.current_offset()
-      self.skip_balanced_group(lparen(), rparen())
-      self.record_unsupported_syntax(
-        unsupported_start,
-        self.current_offset(),
-        kind_name(unsupported_expr()),
-      )
-      expr = UnsupportedExpr
+      self.builder.start_node_at(checkpoint, call_expr())
+      ignore(self.bump())
+      let arguments : Array[Expr] = []
+      self.skip_whitespace()
+      while !self.at(eof()) && !self.at(rparen()) {
+        arguments.push(self.parse_expr())
+        self.skip_whitespace()
+        if !self.at(comma()) && !self.at(rparen()) {
+          self.skip_call_argument_tail()
+          self.skip_whitespace()
+        }
+        if self.at(comma()) {
+          ignore(self.bump())
+          self.skip_whitespace()
+        } else {
+          break
+        }
+      }
+      self.skip_whitespace()
+      if self.at(rparen()) {
+        ignore(self.bump())
+      } else {
+        self.builder.token(error_kind(), "")
+      }
+      self.builder.finish_node()
+      expr = CallExpr(expr, arguments)
     } else if self.at(lbracket()) {
       self.builder.start_node_at(checkpoint, subscript_access())
       ignore(self.bump())
@@ -977,7 +1280,12 @@ fn Parser::parse_postfix_expr(self : Parser) -> Expr {
       ignore(self.expect(rbracket(), "]"))
       self.builder.finish_node()
       expr = SubscriptAccess(expr, key)
-    } else if self.at(question()) || self.at(bang()) {
+    } else if self.at(lbrace()) {
+      self.builder.start_node_at(checkpoint, amend_expr())
+      let members = self.parse_object_body_members()
+      self.builder.finish_node()
+      expr = AmendExpr(expr, members)
+    } else if self.at(question()) || self.at(non_null()) {
       let unsupported_start = self.current_offset()
       ignore(self.bump())
       self.record_unsupported_syntax(
@@ -1028,9 +1336,6 @@ fn Parser::parse_primary_expr(self : Parser) -> Expr {
       StringLiteral(unquote(tok.text()))
     }
     kind if kind == identifier() => {
-      if self.peek_non_whitespace_kind(self.pos + 1) == lparen() {
-        return self.parse_unsupported_expr()
-      }
       self.builder.start_node(name_ref())
       let tok = self.bump()
       self.builder.finish_node()
@@ -1038,7 +1343,11 @@ fn Parser::parse_primary_expr(self : Parser) -> Expr {
     }
     kind if kind == import_kw() => self.parse_import_expr()
     kind if kind == new_kw() => self.parse_object_expr()
+    kind if kind == if_kw() => self.parse_if_expr()
     kind if kind == lparen() => {
+      if self.function_literal_at_current() {
+        return self.parse_lambda_expr()
+      }
       if self.paren_expr_looks_unsupported() {
         return self.parse_unsupported_expr()
       }
@@ -1051,6 +1360,47 @@ fn Parser::parse_primary_expr(self : Parser) -> Expr {
     }
     _ => self.parse_unsupported_expr()
   }
+}
+
+///|
+fn Parser::parse_lambda_expr(self : Parser) -> Expr {
+  self.builder.start_node(lambda_expr())
+  ignore(self.expect(lparen(), "("))
+  let parameters : Array[String] = []
+  self.skip_whitespace()
+  while !self.at(eof()) && !self.at(rparen()) {
+    if self.at(identifier()) {
+      parameters.push(self.bump().text())
+      self.skip_type_tail()
+    } else {
+      ignore(self.bump())
+    }
+    self.skip_whitespace()
+    if self.at(comma()) {
+      ignore(self.bump())
+      self.skip_whitespace()
+    }
+  }
+  ignore(self.expect(rparen(), ")"))
+  ignore(self.expect(arrow(), "->"))
+  let body = self.parse_expr()
+  self.builder.finish_node()
+  LambdaExpr(parameters, body)
+}
+
+///|
+fn Parser::parse_if_expr(self : Parser) -> Expr {
+  self.builder.start_node(conditional_expr())
+  ignore(self.expect(if_kw(), "if"))
+  ignore(self.expect(lparen(), "("))
+  let condition = self.parse_expr()
+  ignore(self.expect(rparen(), ")"))
+  let then_expr = self.parse_expr()
+  self.skip_trivia()
+  ignore(self.expect(else_kw(), "else"))
+  let else_expr = self.parse_expr()
+  self.builder.finish_node()
+  ConditionalExpr(condition, then_expr, else_expr)
 }
 
 ///|
@@ -1233,6 +1583,11 @@ fn Parser::parse_mapping_entry(self : Parser) -> MappingEntry? {
 
 ///|
 fn Parser::parse_object_body(self : Parser) -> Expr {
+  ObjectLiteral(self.parse_object_body_members())
+}
+
+///|
+fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
   ignore(self.expect(lbrace(), "{"))
   let members : Array[ObjectMember] = []
   self.consume_separators()
@@ -1249,7 +1604,7 @@ fn Parser::parse_object_body(self : Parser) -> Expr {
     self.consume_separators()
   }
   ignore(self.expect(rbrace(), "}"))
-  ObjectLiteral(members)
+  members
 }
 
 ///|

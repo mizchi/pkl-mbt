@@ -25,11 +25,11 @@
   - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **parse Pkl call lambda and operator expressions** [draft] — verifies: PKL-018 — tags: next, backlog, parser
+- [ ] **parse Pkl call lambda and operator expressions** — verifies: PKL-018 — tags: parser
   > The parser lowers calls, lambdas, unary operators, comparisons, boolean operators, null-coalescing, and conditional expressions into explicit AST nodes with precedence matching Pkl.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-016
-  - decisions: 1 entry(ies)
+  - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **parse and evaluate Pkl collection expressions** — verifies: PKL-017 — tags: parser, evaluator, typechecker
@@ -104,11 +104,11 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **support module extends amends and object amendments** (critical) [draft] — verifies: PKL-020 — tags: next, backlog, evaluator, typechecker
+- [ ] **support module extends amends and object amendments** (critical) — verifies: PKL-020 — tags: parser, evaluator, typechecker
   > Module `extends`/`amends` clauses and object amendment syntax merge inherited members through AnalysisSession resolution for parsing, evaluation, and typechecking.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-006, PKL-013, PKL-019
-  - decisions: 1 entry(ies)
+  - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **support richer Pkl type semantics** — verifies: PKL-008
@@ -134,7 +134,7 @@
   > The native CLI evaluates a Pkl file and prints module object properties.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-019 — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
@@ -146,10 +146,3 @@
   > All apple/pkl LanguageSnippetTests parser fixtures, excluding the same invalid cases as ParserComparisonTest, parse through the native CLI.
   - body: `cmd` (exit 0 expected)
 
-
-## Outstanding questions
-
-- **PKL-018** — Should evaluator support be added in the same slice, or should this first be parser-only AST coverage?
-- **PKL-018** — Which operators should remain parse-only until the typechecker has richer Pkl semantics?
-- **PKL-020** — Should amends resolution be implemented before class inheritance, or share one merge model?
-- **PKL-020** — Which apple/pkl fixtures should become the first executable amends golden cases?

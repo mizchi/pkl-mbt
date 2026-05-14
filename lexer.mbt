@@ -73,6 +73,9 @@ fn keyword_or_identifier(text : String) -> @cst.SyntaxKind {
     "import" => import_kw()
     "as" => as_kw()
     "local" => local_kw()
+    "if" => if_kw()
+    "else" => else_kw()
+    "is" => is_kw()
     _ => identifier()
   }
 }
@@ -167,6 +170,64 @@ fn Lexer::next_token(self : Lexer) -> Token {
       self.pos += 1
     }
     return Token::new(identifier(), self.slice_from(start))
+  }
+  if self.pos + 1 < self.len {
+    let next = self.char_at(self.pos + 1)
+    match c {
+      '=' if next == '=' => {
+        self.pos += 2
+        return Token::new(equal_equal(), "==")
+      }
+      '!' if next == '=' => {
+        self.pos += 2
+        return Token::new(not_equal(), "!=")
+      }
+      '!' if next == '!' => {
+        self.pos += 2
+        return Token::new(non_null(), "!!")
+      }
+      '<' if next == '=' => {
+        self.pos += 2
+        return Token::new(lte(), "<=")
+      }
+      '>' if next == '=' => {
+        self.pos += 2
+        return Token::new(gte(), ">=")
+      }
+      '&' if next == '&' => {
+        self.pos += 2
+        return Token::new(and_and(), "&&")
+      }
+      '|' if next == '|' => {
+        self.pos += 2
+        return Token::new(or_or(), "||")
+      }
+      '|' if next == '>' => {
+        self.pos += 2
+        return Token::new(pipe_forward(), "|>")
+      }
+      '?' if next == '?' => {
+        self.pos += 2
+        return Token::new(coalesce(), "??")
+      }
+      '?' if next == '.' => {
+        self.pos += 2
+        return Token::new(qdot(), "?.")
+      }
+      '-' if next == '>' => {
+        self.pos += 2
+        return Token::new(arrow(), "->")
+      }
+      '*' if next == '*' => {
+        self.pos += 2
+        return Token::new(pow(), "**")
+      }
+      '~' if next == '/' => {
+        self.pos += 2
+        return Token::new(int_div(), "~/")
+      }
+      _ => ()
+    }
   }
   self.pos += 1
   match c {

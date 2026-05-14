@@ -73,9 +73,28 @@ fn load_expr_imports(
       load_expr_imports(session, from, target, stack)
       load_expr_imports(session, from, key, stack)
     }
+    AmendExpr(base, members) => {
+      load_expr_imports(session, from, base, stack)
+      for object_member in members {
+        load_expr_imports(session, from, object_member.value, stack)
+      }
+    }
     BinaryExpr(_, left, right) => {
       load_expr_imports(session, from, left, stack)
       load_expr_imports(session, from, right, stack)
+    }
+    CallExpr(callee, arguments) => {
+      load_expr_imports(session, from, callee, stack)
+      for argument in arguments {
+        load_expr_imports(session, from, argument, stack)
+      }
+    }
+    LambdaExpr(_, body) => load_expr_imports(session, from, body, stack)
+    UnaryExpr(_, inner) => load_expr_imports(session, from, inner, stack)
+    ConditionalExpr(condition, then_expr, else_expr) => {
+      load_expr_imports(session, from, condition, stack)
+      load_expr_imports(session, from, then_expr, stack)
+      load_expr_imports(session, from, else_expr, stack)
     }
     _ => ()
   }
@@ -107,6 +126,15 @@ fn load_path(
       resolve_import_path(path, decl.uri),
       push_stack(stack, path),
     )
+  }
+  match parsed.program.module_relation {
+    Some(relation) =>
+      load_path(
+        session,
+        resolve_import_path(path, relation.uri),
+        push_stack(stack, path),
+      )
+    None => ()
   }
   for binding in parsed.program.bindings {
     load_expr_imports(session, path, binding.value, stack)

@@ -84,6 +84,11 @@ pub fn local_kw() -> @cst.SyntaxKind {
 }
 
 ///|
+pub fn if_kw() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(29)
+}
+
+///|
 pub fn eq() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(30)
 }
@@ -106,6 +111,16 @@ pub fn star() -> @cst.SyntaxKind {
 ///|
 pub fn slash() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(34)
+}
+
+///|
+pub fn else_kw() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(35)
+}
+
+///|
+pub fn is_kw() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(36)
 }
 
 ///|
@@ -191,6 +206,71 @@ pub fn pipe() -> @cst.SyntaxKind {
 ///|
 pub fn percent() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(56)
+}
+
+///|
+pub fn equal_equal() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(57)
+}
+
+///|
+pub fn not_equal() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(58)
+}
+
+///|
+pub fn lte() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(59)
+}
+
+///|
+pub fn gte() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(60)
+}
+
+///|
+pub fn and_and() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(61)
+}
+
+///|
+pub fn or_or() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(62)
+}
+
+///|
+pub fn coalesce() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(63)
+}
+
+///|
+pub fn arrow() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(64)
+}
+
+///|
+pub fn qdot() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(65)
+}
+
+///|
+pub fn non_null() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(66)
+}
+
+///|
+pub fn pipe_forward() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(67)
+}
+
+///|
+pub fn int_div() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(68)
+}
+
+///|
+pub fn pow() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(69)
 }
 
 ///|
@@ -299,6 +379,31 @@ pub fn typealias_decl() -> @cst.SyntaxKind {
 }
 
 ///|
+pub fn call_expr() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(121)
+}
+
+///|
+pub fn lambda_expr() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(122)
+}
+
+///|
+pub fn unary_expr() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(123)
+}
+
+///|
+pub fn conditional_expr() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(124)
+}
+
+///|
+pub fn amend_expr() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(125)
+}
+
+///|
 pub fn is_trivia(kind : @cst.SyntaxKind) -> Bool {
   match kind.raw() {
     2 | 3 | 4 => true
@@ -334,11 +439,14 @@ pub fn kind_name(kind : @cst.SyntaxKind) -> String {
     26 => "import"
     27 => "as"
     28 => "local"
+    29 => "if"
     30 => "eq"
     31 => "plus"
     32 => "minus"
     33 => "star"
     34 => "slash"
+    35 => "else"
+    36 => "is"
     40 => "lparen"
     41 => "rparen"
     42 => "semicolon"
@@ -356,6 +464,19 @@ pub fn kind_name(kind : @cst.SyntaxKind) -> String {
     54 => "gt"
     55 => "pipe"
     56 => "percent"
+    57 => "equal_equal"
+    58 => "not_equal"
+    59 => "lte"
+    60 => "gte"
+    61 => "and_and"
+    62 => "or_or"
+    63 => "coalesce"
+    64 => "arrow"
+    65 => "qdot"
+    66 => "non_null"
+    67 => "pipe_forward"
+    68 => "int_div"
+    69 => "pow"
     100 => "module"
     101 => "module_decl"
     102 => "import_decl"
@@ -377,6 +498,11 @@ pub fn kind_name(kind : @cst.SyntaxKind) -> String {
     118 => "class_decl"
     119 => "function_decl"
     120 => "typealias_decl"
+    121 => "call_expr"
+    122 => "lambda_expr"
+    123 => "unary_expr"
+    124 => "conditional_expr"
+    125 => "amend_expr"
     _ => "unknown"
   }
 }

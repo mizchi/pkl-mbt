@@ -58,6 +58,26 @@ fn lookup_member_type(members : Array[TypeMember], name : String) -> Type? {
 }
 
 ///|
+fn merge_type_members(
+  base : Array[TypeMember],
+  overrides : Array[TypeMember],
+) -> Array[TypeMember] {
+  let merged : Array[TypeMember] = []
+  for type_member in base {
+    match lookup_member_type(overrides, type_member.name) {
+      Some(typ) => merged.push({ name: type_member.name, typ })
+      None => merged.push(type_member)
+    }
+  }
+  for type_member in overrides {
+    if lookup_member_type(base, type_member.name) is None {
+      merged.push(type_member)
+    }
+  }
+  merged
+}
+
+///|
 fn find_type_binding(bindings : Array[Binding], name : String) -> Binding? {
   let mut found : Binding? = None
   for binding in bindings {
@@ -395,31 +415,12 @@ fn infer_expr_with_bindings(
           UnknownType
         }
       }
-    ObjectLiteral(members) => {
-      let fields : Array[TypeMember] = []
-      for field in members {
-        let inferred = infer_expr_with_bindings(
-          field.value,
-          bindings,
-          env,
-          type_env,
-          cache,
-          stack,
-          diagnostics,
-          resolve_import,
-        )
-        fields.push({
-          name: field.name,
-          typ: apply_type_annotation(
-            field.type_name,
-            inferred,
-            type_env,
-            diagnostics,
-          ),
-        })
-      }
-      ObjectType(fields)
-    }
+    ObjectLiteral(members) =>
+      ObjectType(
+        infer_object_members(
+          members, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+        ),
+      )
     ListingLiteral(elements) => {
       let item_types : Array[Type] = []
       for element in elements {
@@ -538,6 +539,37 @@ fn infer_expr_with_bindings(
         }
       }
     }
+    AmendExpr(base_expr, members) =>
+      match
+        infer_expr_with_bindings(
+          base_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+        ) {
+        ObjectType(base_members) =>
+          ObjectType(
+            merge_type_members(
+              base_members,
+              infer_object_members(
+                members, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+              ),
+            ),
+          )
+        ClassType(_, base_members) =>
+          ObjectType(
+            merge_type_members(
+              base_members,
+              infer_object_members(
+                members, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+              ),
+            ),
+          )
+        UnknownType => UnknownType
+        _ => {
+          diagnostics.push(Diagnostic::{
+            message: "object amendment expects Object",
+          })
+          UnknownType
+        }
+      }
     Identifier(name) =>
       match
         resolve_binding_type(
@@ -549,19 +581,142 @@ fn infer_expr_with_bindings(
           UnknownType
         }
       }
+    CallExpr(_, _) => {
+      diagnostics.push(Diagnostic::{
+        message: "call expressions are parser-only",
+      })
+      UnknownType
+    }
+    LambdaExpr(_, _) => {
+      diagnostics.push(Diagnostic::{
+        message: "lambda expressions are parser-only",
+      })
+      UnknownType
+    }
+    UnaryExpr(op, inner_expr) => {
+      let inner = infer_expr_with_bindings(
+        inner_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+      )
+      match op {
+        Negate =>
+          if inner == IntType {
+            IntType
+          } else {
+            diagnostics.push(Diagnostic::{
+              message: "operator - expects Int operand",
+            })
+            UnknownType
+          }
+        Not =>
+          if inner == BoolType {
+            BoolType
+          } else {
+            diagnostics.push(Diagnostic::{
+              message: "operator ! expects Boolean operand",
+            })
+            UnknownType
+          }
+      }
+    }
     BinaryExpr(op, left_expr, right_expr) => {
+      if op == Is {
+        ignore(
+          infer_expr_with_bindings(
+            left_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+          ),
+        )
+        return BoolType
+      }
+      if op == As {
+        ignore(
+          infer_expr_with_bindings(
+            left_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+          ),
+        )
+        match right_expr {
+          Identifier(name) =>
+            match type_from_annotation(name, type_env) {
+              Some(typ) => return typ
+              None => {
+                diagnostics.push(Diagnostic::{
+                  message: "unknown type annotation \{name}",
+                })
+                return UnknownType
+              }
+            }
+          _ => return UnknownType
+        }
+      }
+      if op == Pipe {
+        diagnostics.push(Diagnostic::{ message: "operator |> is parser-only" })
+        return UnknownType
+      }
       let left = infer_expr_with_bindings(
         left_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
       )
       let right = infer_expr_with_bindings(
         right_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
       )
-      if left == IntType && right == IntType {
-        IntType
+      match op {
+        Add | Subtract | Multiply | Divide | IntDivide | Modulo | Power =>
+          if left == IntType && right == IntType {
+            IntType
+          } else {
+            diagnostics.push(Diagnostic::{
+              message: "operator \{operator_name(op)} expects Int operands",
+            })
+            UnknownType
+          }
+        LessThan | LessOrEqual | GreaterThan | GreaterOrEqual =>
+          if left == IntType && right == IntType {
+            BoolType
+          } else {
+            diagnostics.push(Diagnostic::{
+              message: "operator \{operator_name(op)} expects Int operands",
+            })
+            UnknownType
+          }
+        Equal | NotEqual => BoolType
+        And | Or =>
+          if left == BoolType && right == BoolType {
+            BoolType
+          } else {
+            diagnostics.push(Diagnostic::{
+              message: "operator \{operator_name(op)} expects Boolean operands",
+            })
+            UnknownType
+          }
+        NullCoalesce =>
+          if left == NullType {
+            right
+          } else if right == NullType || left == right {
+            left
+          } else {
+            UnknownType
+          }
+        Is | As | Pipe => panic()
+      }
+    }
+    ConditionalExpr(condition_expr, then_expr, else_expr) => {
+      let condition = infer_expr_with_bindings(
+        condition_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+      )
+      if condition != BoolType {
+        diagnostics.push(Diagnostic::{ message: "if condition expects Boolean" })
+      }
+      let then_type = infer_expr_with_bindings(
+        then_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+      )
+      let else_type = infer_expr_with_bindings(
+        else_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+      )
+      if then_type == else_type {
+        then_type
+      } else if then_type == NullType {
+        else_type
+      } else if else_type == NullType {
+        then_type
       } else {
-        diagnostics.push(Diagnostic::{
-          message: "operator \{operator_name(op)} expects Int operands",
-        })
         UnknownType
       }
     }
@@ -574,6 +729,42 @@ fn infer_expr_with_bindings(
       UnknownType
     }
   }
+}
+
+///|
+fn infer_object_members(
+  members : Array[ObjectMember],
+  bindings : Array[Binding],
+  env : Array[TypeBinding],
+  type_env : Array[TypeBinding],
+  cache : Array[TypeBinding],
+  stack : Array[String],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> TypecheckResult?,
+) -> Array[TypeMember] {
+  let fields : Array[TypeMember] = []
+  for field in members {
+    let inferred = infer_expr_with_bindings(
+      field.value,
+      bindings,
+      env,
+      type_env,
+      cache,
+      stack,
+      diagnostics,
+      resolve_import,
+    )
+    fields.push({
+      name: field.name,
+      typ: apply_type_annotation(
+        field.type_name,
+        inferred,
+        type_env,
+        diagnostics,
+      ),
+    })
+  }
+  fields
 }
 
 ///|
@@ -594,6 +785,44 @@ fn infer_imports(
         diagnostics.push(Diagnostic::{
           message: "unresolved import \{decl.uri}",
         })
+    }
+  }
+}
+
+///|
+fn relation_kind_name_for_typecheck(kind : ModuleRelationKind) -> String {
+  match kind {
+    ModuleAmends => "amends"
+    ModuleExtends => "extends"
+  }
+}
+
+///|
+fn infer_module_relation(
+  relation : ModuleRelation,
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> TypecheckResult?,
+) -> Array[TypeMember] {
+  match resolve_import(relation.uri) {
+    Some(TypeOk(ObjectType(members))) => members
+    Some(TypeOk(ClassType(_, members))) => members
+    Some(TypeOk(_)) => {
+      diagnostics.push(Diagnostic::{
+        message: "module \{relation_kind_name_for_typecheck(relation.kind)} expects Object",
+      })
+      []
+    }
+    Some(TypeError(errors)) => {
+      for error in errors {
+        diagnostics.push(error)
+      }
+      []
+    }
+    None => {
+      diagnostics.push(Diagnostic::{
+        message: "unresolved import \{relation.uri}",
+      })
+      []
     }
   }
 }
@@ -639,6 +868,13 @@ fn infer_program(
         [],
         diagnostics,
         resolve_import,
+      )
+    None if program.module_relation is Some(relation) =>
+      ObjectType(
+        merge_type_members(
+          infer_module_relation(relation, diagnostics, resolve_import),
+          fields,
+        ),
       )
     None if fields.length() > 0 => ObjectType(fields)
     None => {

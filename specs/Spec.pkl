@@ -311,20 +311,21 @@ local callableExpressions = new Scenario {
     "The parser lowers calls, lambdas, unary operators, comparisons, boolean operators, null-coalescing, and conditional expressions into explicit AST nodes with precedence matching Pkl."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-016" }
-  tags { "next"; "backlog"; "parser" }
-  reviewStatus = "draft"
-  pending = true
+  tags { "parser" }
+  reviewStatus = "approved"
   severity = "major"
-  openQuestions {
-    "Should evaluator support be added in the same slice, or should this first be parser-only AST coverage?"
-    "Which operators should remain parse-only until the typechecker has richer Pkl semantics?"
-  }
   decisions {
     new Decision {
       date = "2026-05-14"
       summary = "Split expression AST coverage from declaration work"
       rationale =
         "Calls, lambdas, and non-arithmetic operators are a coherent parser precedence problem and can be tested independently from classes and module inheritance."
+    }
+    new Decision {
+      date = "2026-05-14"
+      summary = "Keep calls and lambdas parser-only while enabling simple expression semantics"
+      rationale =
+        "Call and function-value evaluation need a closure model and function declaration environment. This slice only makes them structured AST nodes; boolean, comparison, coalescing, unary, and conditional expressions are small enough to typecheck and evaluate directly."
     }
   }
 }
@@ -362,20 +363,21 @@ local moduleInheritanceAndAmends = new Scenario {
     "Module `extends`/`amends` clauses and object amendment syntax merge inherited members through AnalysisSession resolution for parsing, evaluation, and typechecking."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-006"; "PKL-013"; "PKL-019" }
-  tags { "next"; "backlog"; "evaluator"; "typechecker" }
-  reviewStatus = "draft"
-  pending = true
+  tags { "parser"; "evaluator"; "typechecker" }
+  reviewStatus = "approved"
   severity = "critical"
-  openQuestions {
-    "Should amends resolution be implemented before class inheritance, or share one merge model?"
-    "Which apple/pkl fixtures should become the first executable amends golden cases?"
-  }
   decisions {
     new Decision {
       date = "2026-05-14"
       summary = "Make amends and extends the next semantic milestone"
       rationale =
         "Real Pkl modules compose through amends and extends. This is the next end-to-end semantic milestone after AST coverage for declarations and object bodies."
+    }
+    new Decision {
+      date = "2026-05-14"
+      summary = "Share one property merge model for modules and object amendments"
+      rationale =
+        "Module amends/extends and `(base) { ... }` both start with inherited members, replace matching names, and append new members. Class inheritance remains separate from this slice because it also needs constructor and method semantics."
     }
   }
 }
