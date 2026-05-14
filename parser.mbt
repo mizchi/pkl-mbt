@@ -1581,7 +1581,8 @@ fn Parser::parse_object_expr(self : Parser) -> Expr {
   let value = match type_name {
     "Listing" => self.parse_listing_body()
     "Mapping" => self.parse_mapping_body()
-    _ => self.parse_object_body()
+    "" => self.parse_object_body()
+    _ => TypedObjectLiteral(type_name, self.parse_object_body_members())
   }
   self.builder.finish_node()
   value

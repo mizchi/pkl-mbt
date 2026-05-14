@@ -49,6 +49,7 @@ pub(all) enum Expr {
   Identifier(String)
   ImportExpr(String)
   ObjectLiteral(Array[ObjectMember])
+  TypedObjectLiteral(String, Array[ObjectMember])
   ListingLiteral(Array[Expr])
   MappingLiteral(Array[MappingEntry])
   MemberAccess(Expr, String)

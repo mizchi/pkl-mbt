@@ -416,6 +416,55 @@ test "typecheck allows Pkl class defaults to satisfy missing members" {
 }
 
 ///|
+test "parse and typecheck Pkl typed object expressions" {
+  let parsed = parse_source(
+    "class Bird { name: String }\nbird = new Bird { name = \"hawk\" }",
+  )
+  inspect(parsed.diagnostics.length(), content="0")
+  guard parsed.program.bindings[0].value
+    is TypedObjectLiteral(type_name, members) else {
+    panic()
+  }
+  inspect(type_name, content="Bird")
+  inspect(members[0].name, content="name")
+
+  guard typecheck_source(
+      "class Bird { name: String }\nbird = new Bird { name = \"hawk\" }\nlabel = bird.name",
+    )
+    is TypeOk(ObjectType(fields)) else {
+    panic()
+  }
+  inspect(render_type(fields[0].typ), content="Bird")
+  assert_true(fields[1].typ == StringType)
+
+  guard typecheck_source("class Bird { name = \"hawk\" }\nbird = new Bird {}")
+    is TypeOk(ObjectType(default_fields)) else {
+    panic()
+  }
+  inspect(render_type(default_fields[0].typ), content="Bird")
+
+  guard typecheck_source("class Bird { name: String }\nbird = new Bird {}")
+    is TypeError(missing_diagnostics) else {
+    panic()
+  }
+  inspect(
+    missing_diagnostics[0].message,
+    content="type annotation Bird missing member name",
+  )
+
+  guard typecheck_source(
+      "class Bird { name: String }\nbird = new Bird { name = 1 }",
+    )
+    is TypeError(type_diagnostics) else {
+    panic()
+  }
+  inspect(
+    type_diagnostics[0].message,
+    content="type annotation Bird member name expects String, got Int",
+  )
+}
+
+///|
 test "parse Pkl calls lambdas operators and conditionals" {
   let parsed = parse_source(
     "local f = (x, y) -> x + y\nvalue = f(1, 2)\nlogic = true || false && !false\nchoice = null ?? if (1 + 2 > 2) \"yes\" else \"no\"",

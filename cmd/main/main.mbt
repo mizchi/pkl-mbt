@@ -59,6 +59,10 @@ fn load_expr_imports(
       for field in members {
         load_expr_imports(session, from, field.value, stack)
       }
+    TypedObjectLiteral(_, members) =>
+      for field in members {
+        load_expr_imports(session, from, field.value, stack)
+      }
     ListingLiteral(elements) =>
       for element in elements {
         load_expr_imports(session, from, element, stack)

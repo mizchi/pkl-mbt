@@ -211,6 +211,14 @@ fn eval_expr_with_bindings(
           ),
         ),
       )
+    TypedObjectLiteral(_, members) =>
+      Some(
+        ObjectValue(
+          eval_object_members(
+            members, bindings, env, cache, stack, diagnostics, resolve_import,
+          ),
+        ),
+      )
     ListingLiteral(elements) => {
       let values : Array[Value] = []
       for element in elements {

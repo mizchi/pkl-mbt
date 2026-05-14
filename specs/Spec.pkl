@@ -695,8 +695,8 @@ local typedObjectExpressionTypechecking = new Scenario {
     "Object literals that spell an explicit class name, such as `new Bird { ... }`, preserve that type in the AST and are checked against the class contract even without a separate property annotation."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-017"; "PKL-019"; "PKL-035" }
-  tags { "parser"; "typechecker"; "next" }
-  reviewStatus = "draft"
+  tags { "parser"; "typechecker" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -704,6 +704,26 @@ local typedObjectExpressionTypechecking = new Scenario {
       summary = "Move class checking from annotations into object expressions"
       rationale =
         "The parser currently accepts `new Type { ... }` syntax but lowers non-collection names to plain object literals. Preserving the explicit type name will let class defaults and member contracts apply at the expression boundary."
+    }
+  }
+}
+
+local typedObjectDefaultEvaluation = new Scenario {
+  id = "PKL-037"
+  name = "evaluate Pkl typed object class defaults"
+  description =
+    "Typed object expressions such as `new Bird { ... }` materialize class property defaults during evaluation while preserving explicitly supplied object members as overrides."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-036"; "PKL-035" }
+  tags { "evaluator"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Make typed object evaluation match class default contracts"
+      rationale =
+        "Typed object expressions can now be checked against class contracts, but the evaluator still treats them as plain object literals. Materializing class defaults closes the gap between accepted `new Class {}` code and its runtime object value."
     }
   }
 }
@@ -747,4 +767,5 @@ scenarios {
   classDefaultPropertyTypechecking
   classDefaultMemberCompletion
   typedObjectExpressionTypechecking
+  typedObjectDefaultEvaluation
 }

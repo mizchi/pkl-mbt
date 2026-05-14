@@ -1351,6 +1351,14 @@ fn infer_expr_with_bindings(
           members, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
         ),
       )
+    TypedObjectLiteral(type_name, members) => {
+      let inferred = ObjectType(
+        infer_object_members(
+          members, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+        ),
+      )
+      apply_type_annotation(Some(type_name), inferred, type_env, diagnostics)
+    }
     ListingLiteral(elements) => {
       let item_types : Array[Type] = []
       for element in elements {
