@@ -1,4 +1,4 @@
-# pickle-mbt
+# pkl-mbt
 
 Pure MoonBit experiments for Apple's [Pkl](https://pkl-lang.org/) language.
 

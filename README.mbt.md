@@ -1,4 +1,4 @@
-# mizchi/pickle
+# mizchi/pkl
 
 Pure MoonBit core for Apple's Pkl language.
 

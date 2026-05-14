@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/pickle"
+package "mizchi/pkl"
 
 import {
   "mizchi/cst",
