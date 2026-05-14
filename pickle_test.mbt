@@ -344,6 +344,27 @@ test "parse and typecheck Pkl class method declarations" {
 }
 
 ///|
+test "evaluate Pkl class method invocations" {
+  let source = "class BaseCounter { base = 40\nfunction add(n: Int): Int = base + n }\nclass Counter extends BaseCounter {}\ncounter = new Counter {}\nvalue = counter.add(2)"
+  guard typecheck_source(source) is TypeOk(ObjectType(fields)) else { panic() }
+  assert_true(fields[1].typ == IntType)
+  assert_true(
+    eval_source(source) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "counter",
+          value: ObjectValue([
+            ValueMember::{ name: "base", value: IntValue(40) },
+          ]),
+        },
+        ValueMember::{ name: "value", value: IntValue(42) },
+      ]),
+    ),
+  )
+}
+
+///|
 test "typecheck resolves declared class and typealias annotations" {
   guard typecheck_source(
       "class Bird { name: String }\ntypealias Label = String\nbird: Bird = new { name = \"hawk\" }\nlabel: Label = \"raptor\"",

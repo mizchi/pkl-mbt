@@ -795,8 +795,8 @@ local classMethodInvocationEvaluation = new Scenario {
     "Typed object method calls dispatch to class method bodies with receiver and argument bindings, while method declarations remain separate from object value members."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-040"; "PKL-022"; "PKL-037" }
-  tags { "evaluator"; "typechecker"; "next" }
-  reviewStatus = "draft"
+  tags { "evaluator"; "typechecker" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -804,6 +804,26 @@ local classMethodInvocationEvaluation = new Scenario {
       summary = "Defer runtime method dispatch until method signatures are modeled"
       rationale =
         "Class method declarations are now available to the parser and typechecker. Executing method bodies needs receiver-aware bindings and call dispatch in the interpreter, which is a separate runtime slice."
+    }
+  }
+}
+
+local callableEvaluation = new Scenario {
+  id = "PKL-042"
+  name = "evaluate Pkl function declarations lambdas and calls"
+  description =
+    "The evaluator can call top-level function declarations and lambda values with argument bindings, aligning runtime behavior with the callable AST and typechecker support."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-022"; "PKL-023"; "PKL-041" }
+  tags { "evaluator"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Move from method-only dispatch to general callable evaluation"
+      rationale =
+        "Method invocation now evaluates function bodies with scoped argument bindings. The same closure model should be generalized to top-level function declarations and lambda values without coupling it to class receiver lookup."
     }
   }
 }
@@ -852,4 +872,5 @@ scenarios {
   classInheritanceQualifiedTypes
   classMethodDeclarations
   classMethodInvocationEvaluation
+  callableEvaluation
 }

@@ -38,6 +38,7 @@ priv struct ClassBinding {
   name : String
   parent_name : String?
   properties : Array[ClassProperty]
+  methods : Array[FunctionDecl]
 }
 
 ///|
@@ -45,6 +46,7 @@ pub(all) struct ClassExport {
   name : String
   parent_name : String?
   properties : Array[ClassProperty]
+  methods : Array[FunctionDecl]
 } derive(Eq, Debug)
 
 ///|
@@ -81,6 +83,59 @@ fn lookup_class_binding(
     }
   }
   found
+}
+
+///|
+fn lookup_function_decl(
+  declarations : Array[FunctionDecl],
+  name : String,
+) -> FunctionDecl? {
+  let mut found : FunctionDecl? = None
+  for declaration in declarations {
+    if declaration.name == name {
+      found = Some(declaration)
+    }
+  }
+  found
+}
+
+///|
+fn lookup_class_method_with_stack(
+  class_env : Array[ClassBinding],
+  type_name : String,
+  method_name : String,
+  stack : Array[String],
+) -> FunctionDecl? {
+  if stack_contains_binding(stack, type_name) {
+    return None
+  }
+  match lookup_class_binding(class_env, type_name) {
+    Some(class_binding) =>
+      match lookup_function_decl(class_binding.methods, method_name) {
+        Some(function_decl) => Some(function_decl)
+        None =>
+          match class_binding.parent_name {
+            Some(parent_name) =>
+              lookup_class_method_with_stack(
+                class_env,
+                parent_name,
+                method_name,
+                push_binding_stack(stack, type_name),
+              )
+            None => None
+          }
+      }
+    None => None
+  }
+}
+
+///|
+fn lookup_class_method(
+  class_env : Array[ClassBinding],
+  type_name : String,
+  method_name : String,
+) -> FunctionDecl? {
+  lookup_class_method_with_stack(class_env, type_name, method_name, [])
 }
 
 ///|
@@ -146,6 +201,43 @@ fn push_binding_stack(stack : Array[String], name : String) -> Array[String] {
 }
 
 ///|
+fn typed_object_class_name_for_expr(
+  expr : Expr,
+  bindings : Array[Binding],
+  stack : Array[String],
+) -> String? {
+  match expr {
+    TypedObjectLiteral(type_name, _) => Some(type_name)
+    AmendExpr(base, _) | NonNullExpr(base) =>
+      typed_object_class_name_for_expr(base, bindings, stack)
+    Identifier(name) =>
+      if stack_contains_binding(stack, name) {
+        None
+      } else {
+        match find_binding(bindings, name) {
+          Some(binding) =>
+            typed_object_class_name_for_expr(
+              binding.value,
+              bindings,
+              push_binding_stack(stack, name),
+            )
+          None => None
+        }
+      }
+    _ => None
+  }
+}
+
+///|
+fn copy_value_bindings(bindings : Array[ValueBinding]) -> Array[ValueBinding] {
+  let copied : Array[ValueBinding] = []
+  for binding in bindings {
+    copied.push(binding)
+  }
+  copied
+}
+
+///|
 fn int_pow(base : Int, exponent : Int) -> Int? {
   if exponent < 0 {
     return None
@@ -201,6 +293,119 @@ fn resolve_binding_value(
           }
         None => lookup_value(env, name)
       }
+  }
+}
+
+///|
+fn push_receiver_method_bindings(
+  method_cache : Array[ValueBinding],
+  receiver_members : Array[ValueMember],
+) -> Unit {
+  for value_member in receiver_members {
+    method_cache.push({ name: value_member.name, value: value_member.value })
+  }
+  method_cache.push({ name: "this", value: ObjectValue(receiver_members) })
+}
+
+///|
+fn eval_class_method_call(
+  target_expr : Expr,
+  method_name : String,
+  arguments : Array[Expr],
+  null_safe : Bool,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match
+    eval_expr_with_bindings(
+      target_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+    ) {
+    Some(NullValue) =>
+      if null_safe {
+        Some(NullValue)
+      } else {
+        diagnostics.push(Diagnostic::{ message: "method call expects Object" })
+        None
+      }
+    Some(ObjectValue(receiver_members)) =>
+      match typed_object_class_name_for_expr(target_expr, bindings, []) {
+        Some(type_name) =>
+          match lookup_class_method(class_env, type_name, method_name) {
+            Some(function_decl) => {
+              if function_decl.parameters.length() != arguments.length() {
+                diagnostics.push(Diagnostic::{
+                  message: "method \{method_name} expects \{function_decl.parameters.length()} arguments, got \{arguments.length()}",
+                })
+                return None
+              }
+              let argument_values : Array[Value] = []
+              let mut arguments_ok = true
+              for argument in arguments {
+                match
+                  eval_expr_with_bindings(
+                    argument, bindings, env, class_env, cache, stack, diagnostics,
+                    resolve_import,
+                  ) {
+                  Some(value) => argument_values.push(value)
+                  None => arguments_ok = false
+                }
+              }
+              if !arguments_ok {
+                return None
+              }
+              match function_decl.body {
+                Some(body) => {
+                  let method_cache = copy_value_bindings(cache)
+                  push_receiver_method_bindings(method_cache, receiver_members)
+                  for i = 0; i < function_decl.parameters.length(); i = i + 1 {
+                    method_cache.push({
+                      name: function_decl.parameters[i].name,
+                      value: argument_values[i],
+                    })
+                  }
+                  eval_expr_with_bindings(
+                    body,
+                    bindings,
+                    env,
+                    class_env,
+                    method_cache,
+                    [],
+                    diagnostics,
+                    resolve_import,
+                  )
+                }
+                None => {
+                  diagnostics.push(Diagnostic::{
+                    message: "method \{method_name} has no body",
+                  })
+                  None
+                }
+              }
+            }
+            None => {
+              diagnostics.push(Diagnostic::{
+                message: "unknown member \{method_name}",
+              })
+              None
+            }
+          }
+        None => {
+          diagnostics.push(Diagnostic::{
+            message: "call expressions are parser-only",
+          })
+          None
+        }
+      }
+    Some(_) => {
+      diagnostics.push(Diagnostic::{ message: "method call expects Object" })
+      None
+    }
+    None => None
   }
 }
 
@@ -418,22 +623,18 @@ fn eval_expr_with_bindings(
           None
         }
       }
-    CallExpr(callee, _) =>
+    CallExpr(callee, arguments) =>
       match callee {
-        SafeMemberAccess(target_expr, _) =>
-          match
-            eval_expr_with_bindings(
-              target_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
-            ) {
-            Some(NullValue) => Some(NullValue)
-            Some(_) => {
-              diagnostics.push(Diagnostic::{
-                message: "call expressions are parser-only",
-              })
-              None
-            }
-            None => None
-          }
+        MemberAccess(target_expr, method_name) =>
+          eval_class_method_call(
+            target_expr, method_name, arguments, false, bindings, env, class_env,
+            cache, stack, diagnostics, resolve_import,
+          )
+        SafeMemberAccess(target_expr, method_name) =>
+          eval_class_method_call(
+            target_expr, method_name, arguments, true, bindings, env, class_env,
+            cache, stack, diagnostics, resolve_import,
+          )
         _ => {
           diagnostics.push(Diagnostic::{
             message: "call expressions are parser-only",
@@ -760,6 +961,7 @@ fn collect_class_bindings(
           name: class_decl.name,
           parent_name: class_decl.parent_name,
           properties: class_decl.properties,
+          methods: class_decl.methods,
         })
       FunctionDeclaration(_) | TypeAliasDeclaration(_) => ()
     }
@@ -798,6 +1000,7 @@ fn add_imported_class_bindings(
             name: "\{decl.import_name}.\{class_export.name}",
             parent_name,
             properties: class_export.properties,
+            methods: class_export.methods,
           })
         }
       None => ()
@@ -815,6 +1018,7 @@ fn class_exports_from_parse_result(parsed : ParseResult) -> Array[ClassExport] {
           name: class_decl.name,
           parent_name: class_decl.parent_name,
           properties: class_decl.properties,
+          methods: class_decl.methods,
         })
       FunctionDeclaration(_) | TypeAliasDeclaration(_) => ()
     }

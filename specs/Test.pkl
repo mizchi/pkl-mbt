@@ -44,6 +44,7 @@ local moonUnit = new Test {
     "PKL-038"
     "PKL-039"
     "PKL-040"
+    "PKL-041"
   }
   cmd = "moon test --target js"
   timeoutSec = 120
