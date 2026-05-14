@@ -20,7 +20,10 @@ pub(all) enum Expr {
   Identifier(String)
   ImportExpr(String)
   ObjectLiteral(Array[ObjectMember])
+  ListingLiteral(Array[Expr])
+  MappingLiteral(Array[MappingEntry])
   MemberAccess(Expr, String)
+  SubscriptAccess(Expr, Expr)
   BinaryExpr(BinaryOp, Expr, Expr)
   UnsupportedExpr
   ErrorExpr(String)
@@ -30,6 +33,12 @@ pub(all) enum Expr {
 pub(all) struct ObjectMember {
   name : String
   type_name : String?
+  value : Expr
+} derive(Eq, Debug)
+
+///|
+pub(all) struct MappingEntry {
+  key : Expr
   value : Expr
 } derive(Eq, Debug)
 

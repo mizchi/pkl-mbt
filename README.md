@@ -10,6 +10,7 @@ The current slice is intentionally small and executable:
 - initial Pkl module/object syntax with object member lookup
 - source-backed import clause resolution through `AnalysisSession`
 - `local` module bindings and `import("...")` expressions
+- explicit `new Listing { ... }` / `new Mapping { [key] = value }` collection values with subscript access
 - selected standard library module resolution, currently `pkl:math.maxInt32`
 - object body property shorthand such as `x { y { z = 1 } }`
 - primitive Pkl-style type annotations such as `name: String = "hawk"`

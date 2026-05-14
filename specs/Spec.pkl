@@ -287,23 +287,18 @@ local collectionExpressions = new Scenario {
   id = "PKL-017"
   name = "parse and evaluate Pkl collection expressions"
   description =
-    "The parser lowers Pkl listing, mapping, and computed object entries into AST nodes, and evaluator/typechecker support the implemented collection subset without using UnsupportedExpr."
+    "The parser lowers explicit `new Listing` elements and `new Mapping` entries into AST nodes, and evaluator/typechecker support collection values plus subscript access without using UnsupportedExpr."
   contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-016" }
-  tags { "next"; "backlog"; "parser"; "evaluator"; "typechecker" }
-  reviewStatus = "draft"
-  pending = true
+  dependsOn { "PKL-013"; "PKL-014" }
+  tags { "parser"; "evaluator"; "typechecker" }
+  reviewStatus = "approved"
   severity = "major"
-  openQuestions {
-    "Start with Listing and Mapping literals only, or include object member spread and computed keys in the same slice?"
-    "What public Value and Type shapes should represent ordered listings and keyed mappings?"
-  }
   decisions {
     new Decision {
       date = "2026-05-14"
-      summary = "Prioritize Pkl collection syntax after parser inventory"
+      summary = "Start collection semantics with explicit Listing and Mapping values"
       rationale =
-        "Collection and object-entry syntax appears throughout real Pkl modules and is the next useful evaluator/typechecker surface after object properties and imports."
+        "Explicit `new Listing` elements, `new Mapping` entries, and subscript access are a small interpreter slice that establishes public Value/Type shapes before broader object amendments and collection generators."
     }
   }
 }

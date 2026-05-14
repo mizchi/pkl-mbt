@@ -32,10 +32,10 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **parse and evaluate Pkl collection expressions** [draft] — verifies: PKL-017 — tags: next, backlog, parser, evaluator, typechecker
-  > The parser lowers Pkl listing, mapping, and computed object entries into AST nodes, and evaluator/typechecker support the implemented collection subset without using UnsupportedExpr.
+- [ ] **parse and evaluate Pkl collection expressions** — verifies: PKL-017 — tags: parser, evaluator, typechecker
+  > The parser lowers explicit `new Listing` elements and `new Mapping` entries into AST nodes, and evaluator/typechecker support collection values plus subscript access without using UnsupportedExpr.
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-016
+  - depends on: PKL-013, PKL-014
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
@@ -134,7 +134,7 @@
   > The native CLI evaluates a Pkl file and prints module object properties.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014 — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-017 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
@@ -155,7 +155,5 @@
 - **PKL-019** — What minimum class model is enough to typecheck object literals against declared properties?
 - **PKL-018** — Should evaluator support be added in the same slice, or should this first be parser-only AST coverage?
 - **PKL-018** — Which operators should remain parse-only until the typechecker has richer Pkl semantics?
-- **PKL-017** — Start with Listing and Mapping literals only, or include object member spread and computed keys in the same slice?
-- **PKL-017** — What public Value and Type shapes should represent ordered listings and keyed mappings?
 - **PKL-020** — Should amends resolution be implemented before class inheritance, or share one merge model?
 - **PKL-020** — Which apple/pkl fixtures should become the first executable amends golden cases?

@@ -219,3 +219,46 @@ test "analysis session resolves import expressions" {
     ),
   )
 }
+
+///|
+test "evaluate Pkl Listing literal and index access" {
+  assert_true(
+    eval_source("let xs = new Listing { 1; 2; 3 }\nxs[1]") ==
+    EvalOk(IntValue(2)),
+  )
+  assert_true(
+    eval_source("numbers = new Listing { 1; 2 }") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "numbers",
+          value: ListingValue([IntValue(1), IntValue(2)]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "evaluate Pkl Mapping entries and key access" {
+  assert_true(
+    eval_source(
+      "let habitats = new Mapping { [\"hawk\"] = \"forest\"; [\"owl\"] = \"night\" }\nhabitats[\"owl\"]",
+    ) ==
+    EvalOk(StringValue("night")),
+  )
+}
+
+///|
+test "typecheck Pkl collection subscript access" {
+  assert_true(
+    typecheck_source("let xs = new Listing { 1; 2; 3 }\nxs[0]") ==
+    TypeOk(IntType),
+  )
+  assert_true(
+    typecheck_source(
+      "let habitats = new Mapping { [\"hawk\"] = \"forest\" }\nhabitats[\"hawk\"]",
+    ) ==
+    TypeOk(StringType),
+  )
+}

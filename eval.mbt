@@ -5,11 +5,19 @@ pub(all) enum Value {
   StringValue(String)
   NullValue
   ObjectValue(Array[ValueMember])
+  ListingValue(Array[Value])
+  MappingValue(Array[ValueEntry])
 } derive(Eq, Debug)
 
 ///|
 pub(all) struct ValueMember {
   name : String
+  value : Value
+} derive(Eq, Debug)
+
+///|
+pub(all) struct ValueEntry {
+  key : Value
   value : Value
 } derive(Eq, Debug)
 
@@ -42,6 +50,17 @@ fn lookup_member(members : Array[ValueMember], name : String) -> Value? {
   for field in members {
     if field.name == name {
       found = Some(field.value)
+    }
+  }
+  found
+}
+
+///|
+fn lookup_entry(entries : Array[ValueEntry], key : Value) -> Value? {
+  let mut found : Value? = None
+  for entry in entries {
+    if entry.key == key {
+      found = Some(entry.value)
     }
   }
   found
@@ -169,6 +188,47 @@ fn eval_expr_with_bindings(
       }
       Some(ObjectValue(values))
     }
+    ListingLiteral(elements) => {
+      let values : Array[Value] = []
+      for element in elements {
+        match
+          eval_expr_with_bindings(
+            element, bindings, env, cache, stack, diagnostics, resolve_import,
+          ) {
+          Some(value) => values.push(value)
+          None => ()
+        }
+      }
+      Some(ListingValue(values))
+    }
+    MappingLiteral(entries) => {
+      let values : Array[ValueEntry] = []
+      for entry in entries {
+        let key = eval_expr_with_bindings(
+          entry.key,
+          bindings,
+          env,
+          cache,
+          stack,
+          diagnostics,
+          resolve_import,
+        )
+        let value = eval_expr_with_bindings(
+          entry.value,
+          bindings,
+          env,
+          cache,
+          stack,
+          diagnostics,
+          resolve_import,
+        )
+        match (key, value) {
+          (Some(k), Some(v)) => values.push({ key: k, value: v })
+          _ => ()
+        }
+      }
+      Some(MappingValue(values))
+    }
     MemberAccess(target_expr, member_name) =>
       match
         eval_expr_with_bindings(
@@ -192,6 +252,44 @@ fn eval_expr_with_bindings(
         }
         None => None
       }
+    SubscriptAccess(target_expr, key_expr) => {
+      let target = eval_expr_with_bindings(
+        target_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+      )
+      let key = eval_expr_with_bindings(
+        key_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+      )
+      match (target, key) {
+        (Some(ListingValue(elements)), Some(IntValue(index))) =>
+          if index >= 0 && index < elements.length() {
+            Some(elements[index])
+          } else {
+            diagnostics.push(Diagnostic::{
+              message: "listing index out of bounds \{index}",
+            })
+            None
+          }
+        (Some(ListingValue(_)), Some(_)) => {
+          diagnostics.push(Diagnostic::{ message: "listing index expects Int" })
+          None
+        }
+        (Some(MappingValue(entries)), Some(key_value)) =>
+          match lookup_entry(entries, key_value) {
+            Some(value) => Some(value)
+            None => {
+              diagnostics.push(Diagnostic::{ message: "unknown mapping key" })
+              None
+            }
+          }
+        (Some(_), Some(_)) => {
+          diagnostics.push(Diagnostic::{
+            message: "subscript access expects Listing or Mapping",
+          })
+          None
+        }
+        _ => None
+      }
+    }
     Identifier(name) =>
       match
         resolve_binding_value(
@@ -337,6 +435,8 @@ pub fn render_value(value : Value) -> String {
     StringValue(s) => "\"\{escape_string(s)}\""
     NullValue => "null"
     ObjectValue(members) => render_object_members(members)
+    ListingValue(elements) => render_listing_elements(elements)
+    MappingValue(entries) => render_mapping_entries(entries)
   }
 }
 
@@ -367,6 +467,38 @@ fn render_object_members(members : Array[ValueMember]) -> String {
     buf.write_string(" = ")
     buf.write_string(render_value(field.value))
   }
+  buf.to_string()
+}
+
+///|
+fn render_listing_elements(elements : Array[Value]) -> String {
+  let buf = StringBuilder::new()
+  buf.write_string("new Listing {")
+  for element in elements {
+    buf.write_string("\n  ")
+    buf.write_string(render_value(element))
+  }
+  if elements.length() > 0 {
+    buf.write_string("\n")
+  }
+  buf.write_string("}")
+  buf.to_string()
+}
+
+///|
+fn render_mapping_entries(entries : Array[ValueEntry]) -> String {
+  let buf = StringBuilder::new()
+  buf.write_string("new Mapping {")
+  for entry in entries {
+    buf.write_string("\n  [")
+    buf.write_string(render_value(entry.key))
+    buf.write_string("] = ")
+    buf.write_string(render_value(entry.value))
+  }
+  if entries.length() > 0 {
+    buf.write_string("\n")
+  }
+  buf.write_string("}")
   buf.to_string()
 }
 

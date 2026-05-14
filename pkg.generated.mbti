@@ -59,6 +59,8 @@ pub fn let_decl() -> @cst.SyntaxKind
 
 pub fn let_kw() -> @cst.SyntaxKind
 
+pub fn listing_expr() -> @cst.SyntaxKind
+
 pub fn literal_expr() -> @cst.SyntaxKind
 
 pub fn local_kw() -> @cst.SyntaxKind
@@ -66,6 +68,10 @@ pub fn local_kw() -> @cst.SyntaxKind
 pub fn lparen() -> @cst.SyntaxKind
 
 pub fn lt() -> @cst.SyntaxKind
+
+pub fn mapping_entry() -> @cst.SyntaxKind
+
+pub fn mapping_expr() -> @cst.SyntaxKind
 
 pub fn member_access() -> @cst.SyntaxKind
 
@@ -121,6 +127,8 @@ pub fn star() -> @cst.SyntaxKind
 
 pub fn string_token() -> @cst.SyntaxKind
 
+pub fn subscript_access() -> @cst.SyntaxKind
+
 pub fn true_kw() -> @cst.SyntaxKind
 
 pub fn typecheck_source(String) -> TypecheckResult
@@ -171,7 +179,10 @@ pub(all) enum Expr {
   Identifier(String)
   ImportExpr(String)
   ObjectLiteral(Array[ObjectMember])
+  ListingLiteral(Array[Expr])
+  MappingLiteral(Array[MappingEntry])
   MemberAccess(Expr, String)
+  SubscriptAccess(Expr, Expr)
   BinaryExpr(BinaryOp, Expr, Expr)
   UnsupportedExpr
   ErrorExpr(String)
@@ -180,6 +191,11 @@ pub(all) enum Expr {
 pub(all) struct ImportDecl {
   uri : String
   import_name : String
+} derive(Eq, @debug.Debug)
+
+pub(all) struct MappingEntry {
+  key : Expr
+  value : Expr
 } derive(Eq, @debug.Debug)
 
 pub(all) struct ObjectMember {
@@ -207,7 +223,14 @@ pub(all) enum Type {
   StringType
   NullType
   ObjectType(Array[TypeMember])
+  ListingType(Array[Type])
+  MappingType(Array[TypeEntry])
   UnknownType
+} derive(Eq, @debug.Debug)
+
+pub(all) struct TypeEntry {
+  key : Type
+  value : Type
 } derive(Eq, @debug.Debug)
 
 pub(all) struct TypeMember {
@@ -226,6 +249,13 @@ pub(all) enum Value {
   StringValue(String)
   NullValue
   ObjectValue(Array[ValueMember])
+  ListingValue(Array[Value])
+  MappingValue(Array[ValueEntry])
+} derive(Eq, @debug.Debug)
+
+pub(all) struct ValueEntry {
+  key : Value
+  value : Value
 } derive(Eq, @debug.Debug)
 
 pub(all) struct ValueMember {

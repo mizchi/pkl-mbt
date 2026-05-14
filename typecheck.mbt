@@ -5,6 +5,8 @@ pub(all) enum Type {
   StringType
   NullType
   ObjectType(Array[TypeMember])
+  ListingType(Array[Type])
+  MappingType(Array[TypeEntry])
   UnknownType
 } derive(Eq, Debug)
 
@@ -12,6 +14,12 @@ pub(all) enum Type {
 pub(all) struct TypeMember {
   name : String
   typ : Type
+} derive(Eq, Debug)
+
+///|
+pub(all) struct TypeEntry {
+  key : Type
+  value : Type
 } derive(Eq, Debug)
 
 ///|
@@ -87,6 +95,8 @@ pub fn render_type(typ : Type) -> String {
     StringType => "String"
     NullType => "Null"
     ObjectType(_) => "Object"
+    ListingType(_) => "Listing"
+    MappingType(_) => "Mapping"
     UnknownType => "Unknown"
   }
 }
@@ -100,6 +110,8 @@ fn type_from_annotation(name : String) -> Type? {
     "Bool" => Some(BoolType)
     "Null" => Some(NullType)
     "Object" => Some(ObjectType([]))
+    "Listing" => Some(ListingType([]))
+    "Mapping" => Some(MappingType([]))
     _ => None
   }
 }
@@ -116,7 +128,9 @@ fn apply_type_annotation(
       match type_from_annotation(name) {
         Some(expected) =>
           if expected == inferred ||
-            (expected is ObjectType(_) && inferred is ObjectType(_)) {
+            (expected is ObjectType(_) && inferred is ObjectType(_)) ||
+            (expected is ListingType(_) && inferred is ListingType(_)) ||
+            (expected is MappingType(_) && inferred is MappingType(_)) {
             expected
           } else {
             diagnostics.push(Diagnostic::{
@@ -132,6 +146,31 @@ fn apply_type_annotation(
         }
       }
   }
+}
+
+///|
+fn common_type(types : Array[Type]) -> Type {
+  if types.length() == 0 {
+    return UnknownType
+  }
+  let first = types[0]
+  for typ in types {
+    if typ != first {
+      return UnknownType
+    }
+  }
+  first
+}
+
+///|
+fn lookup_mapping_value_type(entries : Array[TypeEntry], key : Type) -> Type? {
+  let mut found : Type? = None
+  for entry in entries {
+    if entry.key == key {
+      found = Some(entry.value)
+    }
+  }
+  found
 }
 
 ///|
@@ -225,6 +264,42 @@ fn infer_expr_with_bindings(
       }
       ObjectType(fields)
     }
+    ListingLiteral(elements) => {
+      let item_types : Array[Type] = []
+      for element in elements {
+        item_types.push(
+          infer_expr_with_bindings(
+            element, bindings, env, cache, stack, diagnostics, resolve_import,
+          ),
+        )
+      }
+      ListingType(item_types)
+    }
+    MappingLiteral(entries) => {
+      let entry_types : Array[TypeEntry] = []
+      for entry in entries {
+        let key = infer_expr_with_bindings(
+          entry.key,
+          bindings,
+          env,
+          cache,
+          stack,
+          diagnostics,
+          resolve_import,
+        )
+        let value = infer_expr_with_bindings(
+          entry.value,
+          bindings,
+          env,
+          cache,
+          stack,
+          diagnostics,
+          resolve_import,
+        )
+        entry_types.push({ key, value })
+      }
+      MappingType(entry_types)
+    }
     MemberAccess(target_expr, member_name) =>
       match
         infer_expr_with_bindings(
@@ -248,6 +323,53 @@ fn infer_expr_with_bindings(
           UnknownType
         }
       }
+    SubscriptAccess(target_expr, key_expr) => {
+      let target = infer_expr_with_bindings(
+        target_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+      )
+      let key = infer_expr_with_bindings(
+        key_expr, bindings, env, cache, stack, diagnostics, resolve_import,
+      )
+      match target {
+        ListingType(items) =>
+          if key == IntType {
+            match key_expr {
+              IntLiteral(index) =>
+                if index >= 0 && index < items.length() {
+                  items[index]
+                } else {
+                  diagnostics.push(Diagnostic::{
+                    message: "listing index out of bounds \{index}",
+                  })
+                  UnknownType
+                }
+              _ => common_type(items)
+            }
+          } else {
+            diagnostics.push(Diagnostic::{
+              message: "listing index expects Int",
+            })
+            UnknownType
+          }
+        MappingType(entries) =>
+          match lookup_mapping_value_type(entries, key) {
+            Some(value) => value
+            None => {
+              diagnostics.push(Diagnostic::{
+                message: "unknown mapping key type",
+              })
+              UnknownType
+            }
+          }
+        UnknownType => UnknownType
+        _ => {
+          diagnostics.push(Diagnostic::{
+            message: "subscript access expects Listing or Mapping",
+          })
+          UnknownType
+        }
+      }
+    }
     Identifier(name) =>
       match
         resolve_binding_type(

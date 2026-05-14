@@ -264,6 +264,26 @@ pub fn unsupported_expr() -> @cst.SyntaxKind {
 }
 
 ///|
+pub fn listing_expr() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(114)
+}
+
+///|
+pub fn mapping_expr() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(115)
+}
+
+///|
+pub fn mapping_entry() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(116)
+}
+
+///|
+pub fn subscript_access() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(117)
+}
+
+///|
 pub fn is_trivia(kind : @cst.SyntaxKind) -> Bool {
   match kind.raw() {
     2 | 3 | 4 => true
@@ -335,6 +355,10 @@ pub fn kind_name(kind : @cst.SyntaxKind) -> String {
     111 => "member_access"
     112 => "import_expr"
     113 => "unsupported_expr"
+    114 => "listing_expr"
+    115 => "mapping_expr"
+    116 => "mapping_entry"
+    117 => "subscript_access"
     _ => "unknown"
   }
 }

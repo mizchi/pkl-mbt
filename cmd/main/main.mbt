@@ -59,7 +59,20 @@ fn load_expr_imports(
       for field in members {
         load_expr_imports(session, from, field.value, stack)
       }
+    ListingLiteral(elements) =>
+      for element in elements {
+        load_expr_imports(session, from, element, stack)
+      }
+    MappingLiteral(entries) =>
+      for entry in entries {
+        load_expr_imports(session, from, entry.key, stack)
+        load_expr_imports(session, from, entry.value, stack)
+      }
     MemberAccess(target, _) => load_expr_imports(session, from, target, stack)
+    SubscriptAccess(target, key) => {
+      load_expr_imports(session, from, target, stack)
+      load_expr_imports(session, from, key, stack)
+    }
     BinaryExpr(_, left, right) => {
       load_expr_imports(session, from, left, stack)
       load_expr_imports(session, from, right, stack)

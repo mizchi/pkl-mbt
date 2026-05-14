@@ -688,8 +688,12 @@ fn Parser::parse_postfix_expr(self : Parser) -> Expr {
       self.skip_balanced_group(lparen(), rparen())
       expr = UnsupportedExpr
     } else if self.at(lbracket()) {
-      self.skip_balanced_group(lbracket(), rbracket())
-      expr = UnsupportedExpr
+      self.builder.start_node_at(checkpoint, subscript_access())
+      ignore(self.bump())
+      let key = self.parse_expr()
+      ignore(self.expect(rbracket(), "]"))
+      self.builder.finish_node()
+      expr = SubscriptAccess(expr, key)
     } else if self.at(question()) || self.at(bang()) {
       ignore(self.bump())
       expr = UnsupportedExpr
@@ -845,6 +849,7 @@ fn Parser::parse_object_expr(self : Parser) -> Expr {
   self.builder.start_node(object_expr())
   ignore(self.expect(new_kw(), "new"))
   self.skip_whitespace()
+  let type_name = if self.at(identifier()) { self.bump().text() } else { "" }
   while !self.at(eof()) && !self.at(lbrace()) {
     if is_separator(self.peek_kind()) || self.at(rbrace()) {
       break
@@ -852,9 +857,83 @@ fn Parser::parse_object_expr(self : Parser) -> Expr {
     ignore(self.bump())
     self.skip_whitespace()
   }
-  let value = self.parse_object_body()
+  let value = match type_name {
+    "Listing" => self.parse_listing_body()
+    "Mapping" => self.parse_mapping_body()
+    _ => self.parse_object_body()
+  }
   self.builder.finish_node()
   value
+}
+
+///|
+fn Parser::parse_listing_body(self : Parser) -> Expr {
+  self.builder.start_node(listing_expr())
+  ignore(self.expect(lbrace(), "{"))
+  let elements : Array[Expr] = []
+  self.consume_separators()
+  while !self.at(eof()) && !self.at(rbrace()) {
+    self.skip_member_header()
+    if self.at(local_kw()) ||
+      self.at(lbracket()) ||
+      self.at_property_decl() ||
+      is_decl_text(self.peek().text()) {
+      self.skip_unknown_member()
+    } else {
+      elements.push(self.parse_expr())
+    }
+    self.consume_separators()
+  }
+  ignore(self.expect(rbrace(), "}"))
+  self.builder.finish_node()
+  ListingLiteral(elements)
+}
+
+///|
+fn Parser::parse_mapping_body(self : Parser) -> Expr {
+  self.builder.start_node(mapping_expr())
+  ignore(self.expect(lbrace(), "{"))
+  let entries : Array[MappingEntry] = []
+  self.consume_separators()
+  while !self.at(eof()) && !self.at(rbrace()) {
+    self.skip_member_header()
+    if self.at(lbracket()) {
+      match self.parse_mapping_entry() {
+        Some(entry) => entries.push(entry)
+        None => ()
+      }
+    } else {
+      self.skip_unknown_member()
+    }
+    self.consume_separators()
+  }
+  ignore(self.expect(rbrace(), "}"))
+  self.builder.finish_node()
+  MappingLiteral(entries)
+}
+
+///|
+fn Parser::parse_mapping_entry(self : Parser) -> MappingEntry? {
+  self.builder.start_node(mapping_entry())
+  ignore(self.expect(lbracket(), "["))
+  let key = self.parse_expr()
+  ignore(self.expect(rbracket(), "]"))
+  let value = if ({
+      self.skip_whitespace()
+      self.at(eq())
+    }) {
+    ignore(self.bump())
+    self.parse_expr()
+  } else if ({
+      self.skip_whitespace()
+      self.at(lbrace())
+    }) {
+    self.parse_object_body()
+  } else {
+    UnsupportedExpr
+  }
+  self.builder.finish_node()
+  Some({ key, value })
 }
 
 ///|
