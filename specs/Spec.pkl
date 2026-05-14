@@ -735,8 +735,8 @@ local classInheritanceDefaults = new Scenario {
     "Class declarations with inheritance merge base class property contracts and defaults so typed object expressions can omit inherited default-backed members and override inherited properties."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-037"; "PKL-036"; "PKL-019" }
-  tags { "parser"; "typechecker"; "evaluator"; "next" }
-  reviewStatus = "draft"
+  tags { "parser"; "typechecker"; "evaluator" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -744,6 +744,26 @@ local classInheritanceDefaults = new Scenario {
       summary = "Extend typed object semantics through class inheritance"
       rationale =
         "Typed object expressions now have class contracts and class default values. The next class-model step is to preserve inheritance clauses and reuse the same contract/default merge behavior across base and derived classes."
+    }
+  }
+}
+
+local classInheritanceQualifiedTypes = new Scenario {
+  id = "PKL-039"
+  name = "support Pkl qualified class inheritance types"
+  description =
+    "Class inheritance and typed object expressions preserve qualified class names such as `library.Person` so imported class contracts can be resolved through the analysis session."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-038"; "PKL-006"; "PKL-036" }
+  tags { "parser"; "typechecker"; "imports"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Track cross-module class contract resolution after local inheritance"
+      rationale =
+        "Local class inheritance establishes contract/default merging. Pkl code also refers to imported class names with qualified paths, which requires preserving full type references and making imported declaration contracts available to the analysis session."
     }
   }
 }
@@ -789,4 +809,5 @@ scenarios {
   typedObjectExpressionTypechecking
   typedObjectDefaultEvaluation
   classInheritanceDefaults
+  classInheritanceQualifiedTypes
 }

@@ -872,11 +872,24 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
     Some(tok) => tok.text()
     None => ""
   }
+  let mut parent_name : String? = None
   while !self.at(eof()) && !self.at(lbrace()) {
     if is_separator(self.peek_kind()) || self.at(rbrace()) {
       break
     }
-    ignore(self.bump())
+    if self.at_text("extends") {
+      ignore(self.bump())
+      self.skip_whitespace()
+      let parsed_parent = self.parse_type_text(
+        stop_at_arrow=false,
+        stop_at_expression_operator=false,
+      )
+      if parsed_parent != "" {
+        parent_name = Some(parsed_parent)
+      }
+    } else {
+      ignore(self.bump())
+    }
   }
   let properties : Array[ClassProperty] = []
   if self.at(lbrace()) {
@@ -902,7 +915,7 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
   if name == "" {
     None
   } else {
-    Some({ name, properties })
+    Some({ name, parent_name, properties })
   }
 }
 

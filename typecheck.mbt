@@ -949,6 +949,39 @@ fn class_properties_to_members(
 }
 
 ///|
+fn class_decl_to_members(
+  class_decl : ClassDecl,
+  type_env : Array[TypeBinding],
+  diagnostics : Array[Diagnostic],
+) -> Array[TypeMember] {
+  let own_members = class_properties_to_members(
+    class_decl.properties,
+    type_env,
+    diagnostics,
+  )
+  match class_decl.parent_name {
+    Some(parent_name) =>
+      match lookup_type(type_env, parent_name) {
+        Some(ClassType(_, base_members)) =>
+          merge_type_members(base_members, own_members)
+        Some(_) => {
+          diagnostics.push(Diagnostic::{
+            message: "class \{class_decl.name} extends non-class \{parent_name}",
+          })
+          own_members
+        }
+        None => {
+          diagnostics.push(Diagnostic::{
+            message: "unknown type annotation \{parent_name}",
+          })
+          own_members
+        }
+      }
+    None => own_members
+  }
+}
+
+///|
 fn collect_declared_types(
   declarations : Array[Declaration],
   diagnostics : Array[Diagnostic],
@@ -976,11 +1009,7 @@ fn collect_declared_types(
           name: class_decl.name,
           typ: ClassType(
             class_decl.name,
-            class_properties_to_members(
-              class_decl.properties,
-              type_env,
-              diagnostics,
-            ),
+            class_decl_to_members(class_decl, type_env, diagnostics),
           ),
         })
       TypeAliasDeclaration(type_alias) =>

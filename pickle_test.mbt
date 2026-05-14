@@ -507,6 +507,58 @@ test "evaluate Pkl typed object class defaults" {
 }
 
 ///|
+test "support Pkl class inheritance defaults" {
+  let parsed = parse_source(
+    "class Animal { name = \"animal\" }\nclass Bird extends Animal { wing = \"wide\" }",
+  )
+  inspect(parsed.diagnostics.length(), content="0")
+  guard parsed.program.declarations[1] is ClassDeclaration(class_decl) else {
+    panic()
+  }
+  inspect(class_decl.name, content="Bird")
+  assert_true(class_decl.parent_name == Some("Animal"))
+
+  guard typecheck_source(
+      "class Animal { name = \"animal\"; age: Int }\nclass Bird extends Animal { wing = \"wide\" }\nbird = new Bird { age = 2 }\nname = bird.name\nwing = bird.wing",
+    )
+    is TypeOk(ObjectType(fields)) else {
+    panic()
+  }
+  inspect(render_type(fields[0].typ), content="Bird")
+  assert_true(fields[1].typ == StringType)
+  assert_true(fields[2].typ == StringType)
+
+  guard typecheck_source(
+      "class Animal { age: Int }\nclass Bird extends Animal {}\nbird = new Bird {}",
+    )
+    is TypeError(missing_diagnostics) else {
+    panic()
+  }
+  inspect(
+    missing_diagnostics[0].message,
+    content="type annotation Bird missing member age",
+  )
+
+  assert_true(
+    eval_source(
+      "class Animal { name = \"animal\"; age = 1 }\nclass Bird extends Animal { name = \"bird\"; wing = \"wide\" }\nbird = new Bird {}",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "bird",
+          value: ObjectValue([
+            ValueMember::{ name: "name", value: StringValue("bird") },
+            ValueMember::{ name: "age", value: IntValue(1) },
+            ValueMember::{ name: "wing", value: StringValue("wide") },
+          ]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
 test "parse Pkl calls lambdas operators and conditionals" {
   let parsed = parse_source(
     "local f = (x, y) -> x + y\nvalue = f(1, 2)\nlogic = true || false && !false\nchoice = null ?? if (1 + 2 > 2) \"yes\" else \"no\"",

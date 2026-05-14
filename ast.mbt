@@ -115,6 +115,7 @@ pub(all) enum Declaration {
 ///|
 pub(all) struct ClassDecl {
   name : String
+  parent_name : String?
   properties : Array[ClassProperty]
 } derive(Eq, Debug)
 

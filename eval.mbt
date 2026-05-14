@@ -36,6 +36,7 @@ priv struct ValueBinding {
 ///|
 priv struct ClassBinding {
   name : String
+  parent_name : String?
   properties : Array[ClassProperty]
 }
 
@@ -62,14 +63,14 @@ fn lookup_member(members : Array[ValueMember], name : String) -> Value? {
 }
 
 ///|
-fn lookup_class_properties(
+fn lookup_class_binding(
   env : Array[ClassBinding],
   name : String,
-) -> Array[ClassProperty]? {
-  let mut found : Array[ClassProperty]? = None
+) -> ClassBinding? {
+  let mut found : ClassBinding? = None
   for binding in env {
     if binding.name == name {
-      found = Some(binding.properties)
+      found = Some(binding)
     }
   }
   found
@@ -705,9 +706,20 @@ fn eval_class_default_members(
   resolve_import : (String) -> EvalResult?,
 ) -> Array[ValueMember] {
   let defaults : Array[ObjectMember] = []
-  match lookup_class_properties(class_env, type_name) {
-    Some(properties) =>
-      for property in properties {
+  let base_values : Array[ValueMember] = []
+  match lookup_class_binding(class_env, type_name) {
+    Some(class_binding) => {
+      match class_binding.parent_name {
+        Some(parent_name) =>
+          for
+            value_member in eval_class_default_members(
+              parent_name, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+            ) {
+            base_values.push(value_member)
+          }
+        None => ()
+      }
+      for property in class_binding.properties {
         match property.value {
           Some(value) =>
             defaults.push({
@@ -718,10 +730,14 @@ fn eval_class_default_members(
           None => ()
         }
       }
+    }
     None => ()
   }
-  eval_object_members(
-    defaults, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+  merge_value_members(
+    base_values,
+    eval_object_members(
+      defaults, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+    ),
   )
 }
 
@@ -735,6 +751,7 @@ fn collect_class_bindings(
       ClassDeclaration(class_decl) =>
         classes.push({
           name: class_decl.name,
+          parent_name: class_decl.parent_name,
           properties: class_decl.properties,
         })
       FunctionDeclaration(_) | TypeAliasDeclaration(_) => ()
