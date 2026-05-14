@@ -655,8 +655,8 @@ local classDefaultPropertyTypechecking = new Scenario {
     "Class declarations use property default expressions as member type contracts when no explicit annotation is present, so assignments to declared class types still reject incompatible object members."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-019"; "PKL-022" }
-  tags { "typechecker"; "next" }
-  reviewStatus = "draft"
+  tags { "typechecker" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -664,6 +664,26 @@ local classDefaultPropertyTypechecking = new Scenario {
       summary = "Use class defaults as contract sources"
       rationale =
         "Class property AST already retains default expressions, but the typechecker currently treats unannotated class properties as Unknown. Inferring default expression types will make class contracts stricter without adding constructor semantics."
+    }
+  }
+}
+
+local classDefaultMemberCompletion = new Scenario {
+  id = "PKL-035"
+  name = "allow Pkl class property defaults to satisfy missing members"
+  description =
+    "Assignments to declared class types accept object literals that omit class properties with defaults, while still requiring properties without annotations or defaults."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-034" }
+  tags { "typechecker"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Track default-backed member completion separately"
+      rationale =
+        "Class default expressions now provide member contract types. The next class-semantics step is to distinguish required members from default-backed members so object literals can omit values that the class supplies."
     }
   }
 }
@@ -705,4 +725,5 @@ scenarios {
   nullablePostfixTypechecking
   nullSafeInvocationTypechecking
   classDefaultPropertyTypechecking
+  classDefaultMemberCompletion
 }

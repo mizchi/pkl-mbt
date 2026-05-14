@@ -1,17 +1,24 @@
 # Test SPEC
 
-38 tests across 2 module(s) — 34 pending, 4 active
+39 tests across 2 module(s) — 35 pending, 4 active
 
 ## `specs/`
 
 ### `Spec.pkl`
+
+- [ ] **allow Pkl class property defaults to satisfy missing members** [draft] — verifies: PKL-035 — tags: typechecker, next
+  > Assignments to declared class types accept object literals that omit class properties with defaults, while still requiring properties without annotations or defaults.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-034
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
 
 - [ ] **evaluate arithmetic and let bindings** (critical) — verifies: PKL-002
   > The interpreter evaluates integer arithmetic with precedence and resolves top-level let bindings.
   - contributes to: GOAL-PKL-PURE
   - body: _not yet implemented_
 
-- [ ] **infer Pkl class property default types** [draft] — verifies: PKL-034 — tags: typechecker, next
+- [ ] **infer Pkl class property default types** — verifies: PKL-034 — tags: typechecker
   > Class declarations use property default expressions as member type contracts when no explicit annotation is present, so assignments to declared class types still reject incompatible object members.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-019, PKL-022
@@ -232,7 +239,7 @@
   > The native CLI evaluates a Pkl file and prints module object properties.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033 — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 

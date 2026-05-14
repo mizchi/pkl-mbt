@@ -342,6 +342,39 @@ test "typecheck resolves declared class and typealias annotations" {
 }
 
 ///|
+test "typecheck infers Pkl class property default types" {
+  guard typecheck_source(
+      "class Bird { name = \"hawk\"; age = 2 }\nbird: Bird = new { name = \"owl\"; age = 3 }",
+    )
+    is TypeOk(ObjectType(fields)) else {
+    panic()
+  }
+  inspect(render_type(fields[0].typ), content="Bird")
+
+  guard typecheck_source(
+      "class Bird { name = \"hawk\"; age = 2 }\nbird: Bird = new { name = 1; age = 3 }",
+    )
+    is TypeError(name_diagnostics) else {
+    panic()
+  }
+  inspect(
+    name_diagnostics[0].message,
+    content="type annotation Bird member name expects String, got Int",
+  )
+
+  guard typecheck_source(
+      "class Box { f = (x: Int): Int -> x + 1 }\nbox: Box = new { f = (x: String): String -> x }",
+    )
+    is TypeError(function_diagnostics) else {
+    panic()
+  }
+  inspect(
+    function_diagnostics[0].message,
+    content="type annotation Box member f expects Function, got Function",
+  )
+}
+
+///|
 test "parse Pkl calls lambdas operators and conditionals" {
   let parsed = parse_source(
     "local f = (x, y) -> x + y\nvalue = f(1, 2)\nlogic = true || false && !false\nchoice = null ?? if (1 + 2 > 2) \"yes\" else \"no\"",

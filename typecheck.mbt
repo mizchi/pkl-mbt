@@ -425,7 +425,21 @@ fn type_accepts(expected : Type, inferred : Type) -> Bool {
       }
       ok
     }
-    (FunctionType(_, _), FunctionType(_, _)) => true
+    (
+      FunctionType(expected_parameters, expected_return),
+      FunctionType(actual_parameters, actual_return),
+    ) => {
+      if expected_parameters.length() != actual_parameters.length() {
+        return false
+      }
+      let mut ok = type_accepts(expected_return, actual_return)
+      for i = 0; i < expected_parameters.length(); i = i + 1 {
+        if !type_accepts(expected_parameters[i], actual_parameters[i]) {
+          ok = false
+        }
+      }
+      ok
+    }
     _ => false
   }
 }
@@ -879,7 +893,21 @@ fn class_properties_to_members(
             UnknownType
           }
         }
-      None => UnknownType
+      None =>
+        match property.value {
+          Some(value) =>
+            infer_expr_with_bindings(
+              value,
+              [],
+              [],
+              type_env,
+              [],
+              [],
+              diagnostics,
+              fn(_) { None },
+            )
+          None => UnknownType
+        }
     }
     members.push({ name: property.name, typ })
   }
