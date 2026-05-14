@@ -594,6 +594,101 @@ test "typecheck Pkl rich typealias annotations" {
 }
 
 ///|
+test "typecheck Pkl union type annotations" {
+  let parsed = parse_source(
+    "value: String | Int = \"hawk\"\nitems: Listing<String | Int> = new Listing { \"hawk\"; 1 }",
+  )
+  assert_true(parsed.program.bindings[0].type_name == Some("String|Int"))
+  assert_true(
+    parsed.program.bindings[1].type_name == Some("Listing<String|Int>"),
+  )
+
+  assert_true(
+    typecheck_source("name: String | Int = \"hawk\"\nage: String | Int = 1") ==
+    TypeOk(
+      ObjectType([
+        TypeMember::{ name: "name", typ: UnionType([StringType, IntType]) },
+        TypeMember::{ name: "age", typ: UnionType([StringType, IntType]) },
+      ]),
+    ),
+  )
+  assert_true(
+    typecheck_source(
+      "items: Listing<String | Int> = new Listing { \"hawk\"; 1 }",
+    ) ==
+    TypeOk(
+      ObjectType([
+        TypeMember::{
+          name: "items",
+          typ: ListingType([UnionType([StringType, IntType])]),
+        },
+      ]),
+    ),
+  )
+  assert_true(
+    typecheck_source(
+      "function identity(x: String | Int): String | Int = x\nvalue = identity(1)",
+    ) ==
+    TypeOk(
+      ObjectType([
+        TypeMember::{ name: "value", typ: UnionType([StringType, IntType]) },
+      ]),
+    ),
+  )
+  assert_true(
+    typecheck_source("value = if (true) \"hawk\" else 1") ==
+    TypeOk(
+      ObjectType([
+        TypeMember::{ name: "value", typ: UnionType([StringType, IntType]) },
+      ]),
+    ),
+  )
+
+  guard typecheck_source("value: String | Int = true") is TypeError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="type annotation String|Int does not accept Boolean",
+  )
+}
+
+///|
+test "typecheck Pkl rich is and as type operands" {
+  let parsed = parse_source(
+    "value = 1 as String | Int\nok = value is Listing<String | Int>",
+  )
+  guard parsed.program.bindings[0].value
+    is BinaryExpr(As, _, Identifier(cast_type)) else {
+    panic()
+  }
+  inspect(cast_type, content="String|Int")
+  guard parsed.program.bindings[1].value
+    is BinaryExpr(Is, _, Identifier(test_type)) else {
+    panic()
+  }
+  inspect(test_type, content="Listing<String|Int>")
+
+  assert_true(
+    typecheck_source("value = 1 as String | Int") ==
+    TypeOk(
+      ObjectType([
+        TypeMember::{ name: "value", typ: UnionType([StringType, IntType]) },
+      ]),
+    ),
+  )
+  assert_true(
+    typecheck_source("ok = new Listing { 1 } is Listing<String | Int>") ==
+    TypeOk(ObjectType([TypeMember::{ name: "ok", typ: BoolType }])),
+  )
+
+  guard typecheck_source("ok = 1 is Missing") is TypeError(diagnostics) else {
+    panic()
+  }
+  inspect(diagnostics[0].message, content="unknown type annotation Missing")
+}
+
+///|
 test "evaluate and typecheck Pkl object amendments" {
   let source = "base = new { name = \"hawk\"; age = 2 }\nbird = (base) { age = 3; wing = \"wide\" }"
   assert_true(

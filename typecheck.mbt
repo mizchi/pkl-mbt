@@ -9,6 +9,7 @@ pub(all) enum Type {
   ListingType(Array[Type])
   MappingType(Array[TypeEntry])
   FunctionType(Array[Type], Type)
+  UnionType(Array[Type])
   NullableType(Type)
   UnknownType
 } derive(Eq, Debug)
@@ -122,6 +123,19 @@ pub fn render_type(typ : Type) -> String {
     ListingType(_) => "Listing"
     MappingType(_) => "Mapping"
     FunctionType(_, _) => "Function"
+    UnionType(types) => {
+      let buf = StringBuilder::new()
+      let mut first = true
+      for typ in types {
+        if first {
+          first = false
+        } else {
+          buf.write_string("|")
+        }
+        buf.write_string(render_type(typ))
+      }
+      buf.to_string()
+    }
     NullableType(inner) => "\{render_type(inner)}?"
     UnknownType => "Unknown"
   }
@@ -178,6 +192,75 @@ fn split_top_level_generic_arguments(text : String) -> Array[String] {
 }
 
 ///|
+fn split_top_level_union_choices(text : String) -> Array[String] {
+  let parts : Array[String] = []
+  let buf = StringBuilder::new()
+  let mut parens = 0
+  let mut brackets = 0
+  let mut angles = 0
+  for char in text {
+    if char == '|' && parens == 0 && brackets == 0 && angles == 0 {
+      parts.push(buf.to_string())
+      buf.reset()
+    } else {
+      if char == '(' {
+        parens += 1
+      } else if char == ')' && parens > 0 {
+        parens -= 1
+      } else if char == '[' {
+        brackets += 1
+      } else if char == ']' && brackets > 0 {
+        brackets -= 1
+      } else if char == '<' {
+        angles += 1
+      } else if char == '>' && angles > 0 {
+        angles -= 1
+      }
+      buf.write_string(char.to_string())
+    }
+  }
+  let last = buf.to_string()
+  if last != "" || parts.length() > 0 {
+    parts.push(last)
+  }
+  parts
+}
+
+///|
+fn push_unique_type(types : Array[Type], typ : Type) -> Unit {
+  let mut found = false
+  for existing in types {
+    if existing == typ {
+      found = true
+    }
+  }
+  if !found {
+    types.push(typ)
+  }
+}
+
+///|
+fn make_union_type(types : Array[Type]) -> Type {
+  let flattened : Array[Type] = []
+  for typ in types {
+    match typ {
+      UnionType(inner_types) =>
+        for inner in inner_types {
+          push_unique_type(flattened, inner)
+        }
+      _ => push_unique_type(flattened, typ)
+    }
+  }
+  if flattened.length() == 0 {
+    UnknownType
+  } else if flattened.length() == 1 {
+    flattened[0]
+  } else {
+    UnionType(flattened)
+  }
+}
+
+///|
 fn generic_argument_text(name : String, prefix : String) -> String? {
   let start = prefix.length() + 1
   if name.has_prefix(prefix + "<") &&
@@ -191,6 +274,20 @@ fn generic_argument_text(name : String, prefix : String) -> String? {
 
 ///|
 fn type_from_annotation(name : String, type_env : Array[TypeBinding]) -> Type? {
+  let union_choices = split_top_level_union_choices(name)
+  if union_choices.length() > 1 {
+    let types : Array[Type] = []
+    for choice in union_choices {
+      if choice == "" {
+        return None
+      }
+      match type_from_annotation(choice, type_env) {
+        Some(typ) => types.push(typ)
+        None => return None
+      }
+    }
+    return Some(make_union_type(types))
+  }
   if name.has_suffix("?") {
     let inner_name = String::unsafe_substring(
       name,
@@ -243,6 +340,33 @@ fn type_accepts(expected : Type, inferred : Type) -> Bool {
     (UnknownType, _) => true
     (ObjectType(_), ObjectType(_)) => true
     (ObjectType(_), ClassType(_, _)) => true
+    (UnionType(expected_options), UnionType(actual_options)) => {
+      let mut ok = true
+      for actual in actual_options {
+        if !type_accepts(UnionType(expected_options), actual) {
+          ok = false
+        }
+      }
+      ok
+    }
+    (UnionType(expected_options), actual) => {
+      let mut ok = false
+      for expected_option in expected_options {
+        if type_accepts(expected_option, actual) {
+          ok = true
+        }
+      }
+      ok
+    }
+    (expected, UnionType(actual_options)) => {
+      let mut ok = true
+      for actual in actual_options {
+        if !type_accepts(expected, actual) {
+          ok = false
+        }
+      }
+      ok
+    }
     (NullableType(_), NullType) => true
     (NullableType(expected_inner), NullableType(actual_inner)) =>
       type_accepts(expected_inner, actual_inner)
@@ -371,7 +495,7 @@ fn common_type(types : Array[Type]) -> Type {
   let first = types[0]
   for typ in types {
     if typ != first {
-      return UnknownType
+      return make_union_type(types)
     }
   }
   first
@@ -1015,7 +1139,19 @@ fn infer_expr_with_bindings(
             left_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
           ),
         )
-        return BoolType
+        match right_expr {
+          Identifier(name) =>
+            match type_from_annotation(name, type_env) {
+              Some(_) => return BoolType
+              None => {
+                diagnostics.push(Diagnostic::{
+                  message: "unknown type annotation \{name}",
+                })
+                return UnknownType
+              }
+            }
+          _ => return BoolType
+        }
       }
       if op == As {
         ignore(
@@ -1110,15 +1246,7 @@ fn infer_expr_with_bindings(
       let else_type = infer_expr_with_bindings(
         else_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
       )
-      if then_type == else_type {
-        then_type
-      } else if then_type == NullType {
-        else_type
-      } else if else_type == NullType {
-        then_type
-      } else {
-        UnknownType
-      }
+      common_type([then_type, else_type])
     }
     ErrorExpr(message) => {
       diagnostics.push(Diagnostic::{ message, })

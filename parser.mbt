@@ -838,48 +838,6 @@ fn Parser::parse_import_decl(self : Parser) -> ImportDecl? {
 }
 
 ///|
-fn Parser::skip_type_tail(self : Parser) -> Unit {
-  let mut parens = 0
-  let mut brackets = 0
-  let mut angles = 0
-  while !self.at(eof()) {
-    if parens == 0 && brackets == 0 && angles == 0 {
-      if self.at(eq()) ||
-        self.at(lbrace()) ||
-        self.at(rbrace()) ||
-        self.at(comma()) ||
-        self.at(rparen()) ||
-        is_separator(self.peek_kind()) {
-        break
-      }
-    }
-    if self.at(lparen()) {
-      parens += 1
-    } else if self.at(rparen()) {
-      if parens == 0 {
-        break
-      }
-      parens -= 1
-    } else if self.at(lbracket()) {
-      brackets += 1
-    } else if self.at(rbracket()) {
-      if brackets == 0 {
-        break
-      }
-      brackets -= 1
-    } else if parens == 0 && brackets == 0 && self.at(lt()) {
-      angles += 1
-    } else if parens == 0 && brackets == 0 && self.at(gt()) {
-      if angles == 0 {
-        break
-      }
-      angles -= 1
-    }
-    ignore(self.bump())
-  }
-}
-
-///|
 fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
   self.builder.start_node(class_decl())
   self.expect_text("class", "class")
@@ -1211,10 +1169,9 @@ fn Parser::parse_type_operand_expr(self : Parser) -> Expr {
   self.skip_trivia()
   if self.at(identifier()) {
     self.builder.start_node(name_ref())
-    let tok = self.bump()
-    self.skip_type_tail()
+    let type_name = self.parse_type_text(stop_at_arrow=false)
     self.builder.finish_node()
-    Identifier(tok.text())
+    Identifier(type_name)
   } else {
     self.parse_add_expr()
   }

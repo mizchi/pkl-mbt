@@ -1,6 +1,6 @@
 # Test SPEC
 
-30 tests across 2 module(s) — 26 pending, 4 active
+33 tests across 2 module(s) — 29 pending, 4 active
 
 ## `specs/`
 
@@ -23,6 +23,13 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-016, PKL-008
   - decisions: 2 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **narrow union types through Pkl is guards** [draft] — verifies: PKL-029 — tags: typechecker, next
+  > The typechecker narrows union-typed identifiers inside `if (x is T)` branches so callable bodies and property expressions can use the guarded branch type.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-027, PKL-028
+  - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **parse Pkl call lambda and operator expressions** — verifies: PKL-018 — tags: parser
@@ -152,11 +159,25 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **typecheck Pkl union type annotations** — verifies: PKL-027 — tags: parser, typechecker
+  > The parser preserves union annotation text such as `String | Int`, and the typechecker accepts values that match any union branch, including nested collection and callable annotations.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-023, PKL-025, PKL-026
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
 - [ ] **typecheck incrementally through ripple dependency graph** (critical) — verifies: PKL-021 — tags: typechecker, incremental, ripple
   > AnalysisSession registers source, parse, and typecheck query nodes with ripple so unrelated source edits do not re-run typechecking, and unchanged dependency type results are backdated.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-004, PKL-006, PKL-020
   - decisions: 2 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **typecheck rich Pkl is and as type operands** — verifies: PKL-028 — tags: parser, typechecker
+  > `is` and `as` expressions preserve nullable, generic, and union type operand text, and the typechecker validates the referenced type before returning the Boolean or cast result type.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-018, PKL-027
+  - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **typecheck source through ripple** — verifies: PKL-004
@@ -176,7 +197,7 @@
   > The native CLI evaluates a Pkl file and prints module object properties.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026 — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
