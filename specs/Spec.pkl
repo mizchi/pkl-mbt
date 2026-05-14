@@ -875,8 +875,8 @@ local constrainedTypeAnnotations = new Scenario {
     "Type annotations with constraint calls such as `Int(isBetween(0, 10))` retain their base type contract so stdlib-like signatures can be parsed and checked before full constraint evaluation exists."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-023"; "PKL-028"; "PKL-044" }
-  tags { "parser"; "typechecker"; "next" }
-  reviewStatus = "draft"
+  tags { "parser"; "typechecker" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -884,6 +884,26 @@ local constrainedTypeAnnotations = new Scenario {
       summary = "Handle constraint annotations as base-type contracts first"
       rationale =
         "The upstream stdlib uses annotations like `Int(this.isBetween(...))`. Evaluating the constraint expressions is separate work, but recognizing the base type removes a common blocker for stdlib and method signatures."
+    }
+  }
+}
+
+local constrainedAnnotationEvaluation = new Scenario {
+  id = "PKL-046"
+  name = "evaluate Pkl constrained type annotation predicates"
+  description =
+    "Constrained annotations evaluate supported predicate expressions against the annotated value so contracts such as `Int(isBetween(0, 10))` can reject out-of-range values."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-045"; "PKL-041"; "PKL-044" }
+  tags { "typechecker"; "evaluator"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Move from base-type recognition to constraint checking"
+      rationale =
+        "Constraint annotation text now preserves the base type contract. The next step is evaluating supported predicates with receiver bindings instead of accepting every value that matches only the base type."
     }
   }
 }
@@ -936,4 +956,5 @@ scenarios {
   classMethodBodyTypechecking
   callableRuntimeValues
   constrainedTypeAnnotations
+  constrainedAnnotationEvaluation
 }

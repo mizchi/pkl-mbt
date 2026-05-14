@@ -837,6 +837,32 @@ test "typecheck Pkl callable parameter and return annotations" {
 }
 
 ///|
+test "typecheck Pkl constrained type annotations" {
+  let parsed = parse_source("value: Int(isBetween(0, 10)) = 3")
+  assert_true(
+    parsed.program.bindings[0].type_name == Some("Int(isBetween(0,10))"),
+  )
+  assert_true(
+    typecheck_source("value: Int(isBetween(0, 10)) = 3") ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+  assert_true(
+    typecheck_source(
+      "function id(n: Int(this.isBetween(0, 10))): Int(this.isBetween(0, 10)) = n\nvalue = id(3)",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+  guard typecheck_source("value: Int(isBetween(0, 10)) = \"hawk\"")
+    is TypeError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="type annotation Int(isBetween(0,10)) does not accept String",
+  )
+}
+
+///|
 test "typecheck Pkl nullable annotations" {
   let parsed = parse_source("name: String? = null")
   assert_true(parsed.program.bindings[0].type_name == Some("String?"))

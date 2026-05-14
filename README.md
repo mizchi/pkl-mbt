@@ -24,7 +24,7 @@ The current slice is intentionally small and executable:
 
 ## Current Completion Estimate
 
-As of the `PKL-044` spec slice, this project has 44 implemented pkspec scenarios. The next tracked slice is `PKL-045`, which typechecks constrained type annotations.
+As of the `PKL-045` spec slice, this project has 45 implemented pkspec scenarios. The next tracked slice is `PKL-046`, which evaluates constrained type annotation predicates.
 
 These are engineering estimates, not formal coverage numbers:
 
@@ -32,7 +32,7 @@ These are engineering estimates, not formal coverage numbers:
 | --- | ---: | --- |
 | Parser | 60-70% | The upstream parser snippet corpus is accepted in parse-only mode, but some constructs are still tolerant parse output or reduced to unsupported expression placeholders instead of full semantic AST coverage. |
 | Interpreter | 35-45% | Arithmetic, objects, imports, module amends/extends, collections, class defaults/inheritance, method calls, direct function/lambda calls, and callable runtime values work. Broad stdlib behavior, generators, renderers, constraints, and many external functions are still incomplete. |
-| Typechecker | 40-50% | Primitive, nullable, generic collection, union, narrowing, call, typed object, class inheritance, imported class, and class method body checks exist. Full Pkl constraints, type parameters, stdlib types, and deeper module/class semantics are still incomplete. |
+| Typechecker | 40-50% | Primitive, nullable, generic collection, union, narrowing, call, typed object, class inheritance, imported class, constrained annotation base types, and class method body checks exist. Full Pkl constraint predicate evaluation, type parameters, stdlib types, and deeper module/class semantics are still incomplete. |
 
 Overall, this is roughly 40%+ complete as a pure MoonBit Pkl core, or closer to the 30% range if measured as a replacement for Apple Pkl compatibility.
 
@@ -77,4 +77,4 @@ git submodule update --init --recursive
 
 ## Scope
 
-This is not a full Pkl implementation yet. The next compatibility work is `PKL-045` constrained type annotations, followed by broader Pkl type/stdlib coverage and class/object semantics.
+This is not a full Pkl implementation yet. The next compatibility work is `PKL-046` constrained type annotation predicate evaluation, followed by broader Pkl type/stdlib coverage and class/object semantics.

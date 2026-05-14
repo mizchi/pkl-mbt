@@ -305,6 +305,73 @@ fn generic_argument_text(name : String, prefix : String) -> String? {
 }
 
 ///|
+fn constrained_type_base_text(name : String) -> String? {
+  let mut parens = 0
+  let mut brackets = 0
+  let mut angles = 0
+  for i = 0; i < name.length(); i = i + 1 {
+    let char = name[i].to_int().unsafe_to_char()
+    if char == '(' && parens == 0 && brackets == 0 && angles == 0 {
+      if i == 0 {
+        return None
+      }
+      return if constrained_type_suffix_is_balanced(name, i) {
+        Some(String::unsafe_substring(name, start=0, end=i))
+      } else {
+        None
+      }
+    }
+    if char == '(' {
+      parens += 1
+    } else if char == ')' && parens > 0 {
+      parens -= 1
+    } else if char == '[' {
+      brackets += 1
+    } else if char == ']' && brackets > 0 {
+      brackets -= 1
+    } else if char == '<' && parens == 0 && brackets == 0 {
+      angles += 1
+    } else if char == '>' && parens == 0 && brackets == 0 && angles > 0 {
+      angles -= 1
+    }
+  }
+  None
+}
+
+///|
+fn constrained_type_suffix_is_balanced(name : String, start : Int) -> Bool {
+  let mut parens = 0
+  let mut brackets = 0
+  let mut angles = 0
+  for i = start; i < name.length(); i = i + 1 {
+    let char = name[i].to_int().unsafe_to_char()
+    if char == '(' {
+      parens += 1
+    } else if char == ')' {
+      parens -= 1
+      if parens < 0 {
+        return false
+      }
+    } else if char == '[' {
+      brackets += 1
+    } else if char == ']' {
+      brackets -= 1
+      if brackets < 0 {
+        return false
+      }
+    } else if char == '<' && parens == 0 && brackets == 0 {
+      angles += 1
+    } else if char == '>' && parens == 0 && brackets == 0 {
+      angles -= 1
+      if angles < 0 {
+        return false
+      }
+    }
+  }
+  parens == 0 && brackets == 0 && angles == 0
+}
+
+///|
 fn type_from_annotation(name : String, type_env : Array[TypeBinding]) -> Type? {
   let union_choices = split_top_level_union_choices(name)
   if union_choices.length() > 1 {
@@ -330,6 +397,14 @@ fn type_from_annotation(name : String, type_env : Array[TypeBinding]) -> Type? {
       Some(inner) => return Some(NullableType(inner))
       None => return None
     }
+  }
+  match constrained_type_base_text(name) {
+    Some(base_name) =>
+      match type_from_annotation(base_name, type_env) {
+        Some(typ) => return Some(typ)
+        None => return None
+      }
+    None => ()
   }
   match generic_argument_text(name, "Listing") {
     Some(inner_text) =>
