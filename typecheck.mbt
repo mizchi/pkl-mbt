@@ -9,6 +9,7 @@ pub(all) enum Type {
   ListingType(Array[Type])
   MappingType(Array[TypeEntry])
   FunctionType(Array[Type], Type)
+  ConstrainedType(String, Type)
   UnionType(Array[Type])
   NullableType(Type)
   DefaultedType(Type)
@@ -71,6 +72,7 @@ fn lookup_member_type(members : Array[TypeMember], name : String) -> Type? {
 fn member_contract_type(typ : Type) -> Type {
   match typ {
     DefaultedType(inner) => inner
+    ConstrainedType(_, inner) => inner
     _ => typ
   }
 }
@@ -154,6 +156,7 @@ pub fn render_type(typ : Type) -> String {
     ListingType(_) => "Listing"
     MappingType(_) => "Mapping"
     FunctionType(_, _) => "Function"
+    ConstrainedType(_, inner) => render_type(inner)
     UnionType(types) => {
       let buf = StringBuilder::new()
       let mut first = true
@@ -445,6 +448,10 @@ fn type_accepts(expected : Type, inferred : Type) -> Bool {
   }
   match (expected, inferred) {
     (UnknownType, _) => true
+    (ConstrainedType(_, expected_inner), actual) =>
+      type_accepts(expected_inner, actual)
+    (expected, ConstrainedType(_, actual_inner)) =>
+      type_accepts(expected, actual_inner)
     (ObjectType(_), ObjectType(_)) => true
     (ObjectType(_), ClassType(_, _)) => true
     (UnionType(expected_options), UnionType(actual_options)) => {
@@ -660,7 +667,14 @@ fn function_parameter_types(
     match parameter.type_name {
       Some(type_name) =>
         match type_from_annotation(type_name, type_env) {
-          Some(typ) => types.push(typ)
+          Some(typ) =>
+            if pkl_constrained_type_annotation_has_supported_constraint(
+                type_name,
+              ) {
+              types.push(ConstrainedType(type_name, typ))
+            } else {
+              types.push(typ)
+            }
           None => {
             diagnostics.push(Diagnostic::{
               message: "unknown type annotation \{type_name}",
@@ -1650,6 +1664,16 @@ fn infer_lambda_application(
 }
 
 ///|
+fn constrained_type_annotation_name(typ : Type) -> String? {
+  match typ {
+    ConstrainedType(type_name, _) => Some(type_name)
+    DefaultedType(inner) => constrained_type_annotation_name(inner)
+    NullableType(inner) => constrained_type_annotation_name(inner)
+    _ => None
+  }
+}
+
+///|
 fn infer_function_type_call(
   parameter_types : Array[Type],
   return_type : Type,
@@ -1678,6 +1702,23 @@ fn infer_function_type_call(
         message: "function argument \{i + 1} expects \{render_type(expected)}, got \{render_type(argument_types[i])}",
       })
       return UnknownType
+    }
+    match constrained_type_annotation_name(expected) {
+      Some(type_name) =>
+        match
+          pkl_constrained_type_annotation_expr_rejection_message(
+            Some(type_name),
+            arguments[i],
+          ) {
+          Some(message) => {
+            diagnostics.push(Diagnostic::{
+              message: "function argument \{i + 1} \{message}",
+            })
+            return UnknownType
+          }
+          None => ()
+        }
+      None => ()
     }
   }
   return_type

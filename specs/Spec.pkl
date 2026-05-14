@@ -932,11 +932,11 @@ local constrainedCallableSignatureMetadata = new Scenario {
   id = "PKL-048"
   name = "preserve Pkl constrained callable signature metadata"
   description =
-    "Callable values retain constrained parameter annotations through aliases and higher-order arguments so the typechecker can reject invalid calls after functions are stored or passed around."
+    "Callable values retain constrained parameter annotations through aliases and stored callable values so the typechecker can reject invalid calls after functions are assigned to other names."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-047"; "PKL-044"; "PKL-028" }
-  tags { "typechecker"; "next" }
-  reviewStatus = "draft"
+  tags { "typechecker" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -944,6 +944,26 @@ local constrainedCallableSignatureMetadata = new Scenario {
       summary = "Track callable constraints beyond direct AST calls"
       rationale =
         "Direct function and lambda calls now check constrained parameter annotations, and runtime callable values keep the original parameters. The typechecker still erases constraint text into plain function types when callables flow through aliases or higher-order parameters."
+    }
+  }
+}
+
+local constrainedHigherOrderCallableMetadata = new Scenario {
+  id = "PKL-049"
+  name = "propagate Pkl constrained callable metadata through higher-order calls"
+  description =
+    "The typechecker preserves constrained callable metadata when functions are passed as higher-order arguments, so downstream calls through parameters can still reject invalid constrained arguments when enough static information is available."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-048"; "PKL-047"; "PKL-044" }
+  tags { "typechecker"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Keep higher-order callable constraints separate"
+      rationale =
+        "Callable aliases now keep constrained parameter metadata in function types. Propagating those contracts through higher-order parameters needs richer flow-sensitive call information than simple aliases."
     }
   }
 }
@@ -999,4 +1019,5 @@ scenarios {
   constrainedAnnotationEvaluation
   constrainedParameterEvaluation
   constrainedCallableSignatureMetadata
+  constrainedHigherOrderCallableMetadata
 }

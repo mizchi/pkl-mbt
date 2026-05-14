@@ -357,6 +357,7 @@ pub(all) enum Type {
   ListingType(Array[Type])
   MappingType(Array[TypeEntry])
   FunctionType(Array[Type], Type)
+  ConstrainedType(String, Type)
   UnionType(Array[Type])
   NullableType(Type)
   DefaultedType(Type)

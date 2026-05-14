@@ -217,6 +217,13 @@ fn pkl_constrained_int_range(type_name : String) -> ConstraintIntRange? {
 }
 
 ///|
+fn pkl_constrained_type_annotation_has_supported_constraint(
+  type_name : String,
+) -> Bool {
+  pkl_constrained_int_range(type_name) is Some(_)
+}
+
+///|
 fn pkl_constrained_int_rejection_message(
   type_name : String?,
   value : Int,
