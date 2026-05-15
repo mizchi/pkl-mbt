@@ -1503,6 +1503,32 @@ local durationAndDataSizeLiterals = new Scenario {
   }
 }
 
+local cliFormat = new Scenario {
+  id = "PKL-099"
+  name = "cli format subcommand"
+  description =
+    "`moon run cmd/main -- format <file>` parses and evaluates the source through the existing `AnalysisSession`, then re-emits the resolved module via the PCF renderer. Whitespace and indentation collapse to the renderer's canonical form (`name = \"hawk\"`, two-space indent inside blocks, separator after `=`). Parse failures and evaluation failures short-circuit with the diagnostic surface used by the other CLI subcommands. The first cut deliberately operates on the evaluated module value rather than the CST, so default values from class declarations and amend chains land in the output; a trivia-preserving idempotent formatter (`render_cst_with_comments`) is a follow-up that reuses the existing CST infrastructure."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-070" }
+  tags { "cli"; "renderer"; "format" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Format via the evaluated module + PCF renderer instead of CST round-trip"
+      rationale =
+        "The PCF renderer already produces byte-for-byte canonical output (matched against Apple Pkl gold on 25 fixtures). Routing `format` through it requires zero new code on the emit side. The trade-off is that comments and original layout are dropped — that's a known limitation, made explicit in the spec description, and the CST infrastructure already exists to upgrade later."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Fail the command on parse / evaluation errors"
+      rationale =
+        "A formatter that silently emits the original text on failure would hide bugs and break editor save-on-format flows. Failing loudly with the diagnostic surface mirrors what `pkl format` does upstream and lets editors surface the underlying issue."
+    }
+  }
+}
+
 local genericFunctionTypeParameters = new Scenario {
   id = "PKL-090"
   name = "generic function type parameters"
@@ -2480,5 +2506,6 @@ scenarios {
   floatNumericsAndConstraints
   genericClassDeclarations
   genericFunctionTypeParameters
+  cliFormat
   ...roadmap.entries
 }

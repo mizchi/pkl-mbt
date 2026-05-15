@@ -193,6 +193,23 @@ local cliGenerics = new Test {
   timeoutSec = 120
 }
 
+local cliFormat = new Test {
+  name = "cli format subcommand"
+  description =
+    "The native CLI `format` subcommand re-emits the source through the PCF renderer, normalizing whitespace and indentation. Today the formatter operates on the evaluated module value; trivia-preserving idempotent reformatting is a follow-up."
+  tags { "moonbit"; "cli"; "format"; "contract" }
+  specRef { "PKL-099" }
+  cmd = "moon run cmd/main --target native -- format fixtures/cli_format.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "name = \"hawk\""
+    "age = 2"
+    "nested {"
+    "child = 1"
+  }
+  timeoutSec = 120
+}
+
 local cliFloat = new Test {
   name = "cli float numerics and constraints"
   description =
@@ -328,6 +345,7 @@ tests {
   cliEvalYaml
   cliEvalProperties
   cliFloat
+  cliFormat
   cliGenerics
   cliTrace
   cliReflectStub

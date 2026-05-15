@@ -21,18 +21,6 @@ import "../pkspec/Spec.pkl"
 
 // ── CLI surface ─────────────────────────────────────────────────────────────
 
-local cliFormat: Spec.Scenario = new {
-  id = "PKL-099"
-  name = "cli format subcommand"
-  description =
-    "`moon run cmd/main -- format <file>` re-emits the source through the PCF renderer, preserving the program structure and normalizing whitespace / indentation. The first-cut output relies on the existing renderer surface (no CST trivia preservation); a follow-up may add trivia-preserving idempotent reformatting."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-070" }
-  tags { "cli"; "renderer"; "format"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 local pklTestAppleCompat: Spec.Scenario = new {
   id = "PKL-100"
   name = "pkl test Apple-compatible runner"
@@ -442,7 +430,6 @@ local lspServer: Spec.Scenario = new {
 }
 
 entries: Listing<Spec.Scenario> = new {
-  cliFormat
   pklTestAppleCompat
   pklRepl
   pklAnalyzeLint

@@ -1,0 +1,5 @@
+name = "hawk"
+age = 2
+nested {
+  child = 1
+}

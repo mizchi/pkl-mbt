@@ -1,8 +1,9 @@
 ///|
 fn usage() -> Unit {
-  println("usage: pkl <parse|check|eval|test> <file.pkl>")
+  println("usage: pkl <parse|check|eval|test|format> <file.pkl>")
   println("       pkl eval [-f|--format pcf|json|yaml|properties] <file.pkl>")
   println("       pkl test <file.pkl>")
+  println("       pkl format <file.pkl>")
   println("       pkl parse-many <file.pkl>...")
 }
 
@@ -327,6 +328,31 @@ fn main {
             @sys.exit(1)
           }
         }
+        EvalError(diagnostics) => {
+          print_diagnostics(diagnostics)
+          @sys.exit(1)
+        }
+      }
+    }
+    "format" => {
+      // PKL-099: parse the source, evaluate it through the existing
+      // `AnalysisSession`, and re-emit the resolved module via the PCF
+      // renderer. This is the first-cut formatter: input that fails to
+      // evaluate (constraint reject, type error, etc.) fails the
+      // command; structural and whitespace differences in the input
+      // collapse to the renderer's canonical form. A trivia-preserving
+      // formatter that round-trips comments and original layout is a
+      // follow-up — the CST already carries the data, so the upgrade
+      // path is purely on the emit side.
+      let parsed = @pkl.parse_source(source)
+      if parsed.diagnostics.length() > 0 {
+        print_diagnostics(parsed.diagnostics)
+        @sys.exit(1)
+      }
+      let session = @pkl.AnalysisSession::new()
+      load_path(session, path, [])
+      match session.eval_path(path) {
+        EvalOk(value) => println(@pkl.render_value(value))
         EvalError(diagnostics) => {
           print_diagnostics(diagnostics)
           @sys.exit(1)

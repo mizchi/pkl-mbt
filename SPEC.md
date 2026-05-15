@@ -1,6 +1,6 @@
 # Test SPEC
 
-113 tests across 2 module(s) — 98 pending, 15 active
+148 tests across 2 module(s) — 132 pending, 16 active
 
 ## `specs/`
 
@@ -34,11 +34,35 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **Float Power and split float div semantics** (minor) [draft] — verifies: PKL-111 — tags: evaluator, typechecker, float
+  > Decide and implement the operator surface for `**` / `~/` / `%` on Float operands: either widen all three (matching JVM Pkl), or surface them as `math.pow` / `math.floorDiv` / `math.remainder` stdlib calls. Today they diagnose with `not defined for Float operands`.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-092
+  - body: _not yet implemented_
+
+- [ ] **Float magnitude Duration / DataSize literals** (minor) [draft] — verifies: PKL-121 — tags: parser, evaluator, duration, datasize, float
+  > `1.5.s`, `2.5.gib` and other Float-magnitude unit literals parse and evaluate to Duration / DataSize values whose magnitude is Double. Today only Int magnitudes are recognized.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-082, PKL-092
+  - body: _not yet implemented_
+
 - [ ] **Float numerics and constraint predicates** (minor) — verifies: PKL-092 — tags: evaluator, typechecker, renderer, constraint, float
   > Float numeric values flow through the entire stack. The lexer recognizes `<digits>.<digits>` as a Float token (Duration / DataSize `Int.<unit>` shorthand stays Int because `.identifier` is not promoted), the parser produces a new `FloatLiteral(Double)` Expr, and the evaluator carries the new `FloatValue(Double)` variant. Arithmetic widens automatically: `Int + Float` and `Float + Float` produce Float, comparisons (`<`, `<=`, `>`, `>=`, `==`, `!=`) admit any Int / Float mix, and `Int / Int` widens to Float to match Apple Pkl's `5 / 2 == 2.5` semantics. `IntDivide` / `Modulo` / `Power` keep their Int-only contract since their semantics are integer-domain. The typechecker gains a sibling `FloatType` and the `Number` annotation expands to `UnionType([IntType, FloatType])` so existing narrowing logic (union members, is-guards) keeps working. All four renderers (PCF / JSON / YAML / Properties) project Floats via a `render_float_text` helper that appends `.0` when the Double's shortest-round-trip form would otherwise look like an Int. The constraint cascade extends `pkl_constrained_int_predicates` to accept `Int(...)` / `Float(...)` / `Number(...)` as the host annotation, and a new `pkl_constraint_predicate_accepts_float` evaluator runs the existing Int-threshold predicates against Double values (widening thresholds to Double). `Float(isPositive)`, `Float(isBetween(0, 10))`, `Number(isPositive)`, and the negated / custom variants therefore fire on Float values; the rejection message format matches the Int side (`type annotation <name> constraint <p> rejects <v>`).
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-078
   - decisions: 4 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **Float-threshold constraint predicates** (minor) [draft] — verifies: PKL-112 — tags: constraint, float
+  > Lift the constraint predicate threshold encoding from Int to Double so `Float(isBetween(0.5, 1.5))` parses and runs without losing precision. Today the constraint parser only accepts Int literals as thresholds.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-092
+  - body: _not yet implemented_
+
+- [ ] **LSP server foundation** [draft] — verifies: PKL-132 — tags: lsp, editor
+  > A Language Server Protocol server (stdio or socket transport) that surfaces hover, go-to-definition, find-references, completion, diagnostics, semantic tokens, and rename. The existing CST + typechecker + ripple-backed AnalysisSession provide the analysis substrate.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-107
   - body: _not yet implemented_
 
 - [ ] **Listing and Mapping element constraint propagation** — verifies: PKL-093 — tags: evaluator, typechecker, constraint, collection
@@ -55,6 +79,12 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **Set / Pair / Map / IntSeq Value variants** [draft] — verifies: PKL-119 — tags: evaluator, stdlib, renderer
+  > Introduce dedicated Value variants for `Set` / `Pair` / `Map` / `IntSeq` instead of folding into `ListingValue` / `MappingValue`. The renderer round-trip for these stdlib types becomes accurate (`Set(1, 2, 3)`, `Pair(a, b)`), and equality / iteration matches upstream semantics.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-075
+  - body: _not yet implemented_
+
 - [ ] **String constraint predicates** — verifies: PKL-091 — tags: evaluator, typechecker, constraint, string
   > `String(...)` annotations recognise three predicate shapes — length comparisons (`length > 0`, `length >= 1`, etc., plus `<` / `<=` / `==` / `!=`), `length.NAME(...)` method calls that reuse the Int predicate grammar (`length.isBetween(1, 64)`, `length.isPositive`, `length.isGreaterThan(N)`, `length.isLessThan(N)`), and full-input regex matches (`matches(Regex("<pattern>"))`). Negation via the `!` prefix wraps any of these. Predicates run as part of the same constrained-type-annotation rejection cascade as the Int predicates: `pkl_constrained_type_annotation_has_supported_constraint` returns true when a String constraint is present, the runtime value-rejection path dispatches on String values, and the typecheck literal-expression path dispatches on String literals. Diagnostics keep the constraint name verbatim (`length > 0`, `length.isBetween`, `matches`, `!matches`, etc.) so the rejection message reads back to the original source shape.
   - contributes to: GOAL-PKL-PURE
@@ -62,11 +92,48 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **String unicode and codepoint methods** (minor) [draft] — verifies: PKL-122 — tags: stdlib, string, unicode
+  > `String.codePoints`, `String.normalize`, `String.toRunes`, surrogate-pair aware `length`, and case-folding methods. Today `length` and indexing operate on UTF-16 code units.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-077
+  - body: _not yet implemented_
+
+- [ ] **YAML block scalars** (minor) [draft] — verifies: PKL-125 — tags: renderer, yaml
+  > `|`, `|-`, `|+`, `>`, `>-`, `>+` block scalar projection for multiline / control-character strings. Today the YAML renderer double-quotes such strings, which is spec-compliant but less human-readable than upstream.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-073
+  - body: _not yet implemented_
+
 - [ ] **allow Pkl class property defaults to satisfy missing members** — verifies: PKL-035 — tags: typechecker
   > Assignments to declared class types accept object literals that omit class properties with defaults, while still requiring properties without annotations or defaults.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-034
   - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **call-site generic inference** [draft] — verifies: PKL-110 — tags: typechecker, generics, inference, next
+  > Replace the PKL-089 / PKL-090 `UnknownType` placeholder with a `TypeVariable` propagation rule: at a call site like `identity(42)`, bind `T = Int` and propagate the binding through the parameter / return / body types so `b.value` on `new Box { value = 5 }` resolves to `Int`. Introduces a substitution table threaded through `infer_expr_with_bindings`.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-089, PKL-090
+  - body: _not yet implemented_
+
+- [ ] **cli format subcommand** — verifies: PKL-099 — tags: cli, renderer, format
+  > `moon run cmd/main -- format <file>` parses and evaluates the source through the existing `AnalysisSession`, then re-emits the resolved module via the PCF renderer. Whitespace and indentation collapse to the renderer's canonical form (`name = "hawk"`, two-space indent inside blocks, separator after `=`). Parse failures and evaluation failures short-circuit with the diagnostic surface used by the other CLI subcommands. The first cut deliberately operates on the evaluated module value rather than the CST, so default values from class declarations and amend chains land in the output; a trivia-preserving idempotent formatter (`render_cst_with_comments`) is a follow-up that reuses the existing CST infrastructure.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-070
+  - decisions: 2 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **cli sandbox flags** [draft] — verifies: PKL-106 — tags: cli, sandbox
+  > `--allowed-modules <pattern>` / `--module-path <dir>` / `-p NAME=VALUE` populate the sandbox allow-list and the `prop:` resolver, lifting `read("prop:NAME")` into the allow-list alongside `env:`.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-098
+  - body: _not yet implemented_
+
+- [ ] **cross-module typecheck round-trip completeness** [draft] — verifies: PKL-118 — tags: typechecker, imports
+  > Imported modules' class definitions, type aliases, function signatures, and constraint annotations participate in the importing module's typecheck the same way local declarations do. Today some sites lose precision when crossing the import boundary.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-006
   - body: _not yet implemented_
 
 - [ ] **diff JSON evaluation output against apple/pkl gold files** — verifies: PKL-097 — tags: compatibility, upstream, renderer
@@ -88,6 +155,18 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-049, PKL-041, PKL-046
   - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **equality typecheck operand match** (minor) [draft] — verifies: PKL-113 — tags: typechecker, equality
+  > `a == b` and `a != b` reject when the operand types are statically distinct (e.g. `5 == "hi"`). Today the typechecker returns BoolType unconditionally.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-004
+  - body: _not yet implemented_
+
+- [ ] **error message text upstream alignment** [draft] — verifies: PKL-108 — tags: diagnostics, compatibility
+  > Rephrase constraint / type rejection / read-failure messages to match Apple Pkl's exact wording so upstream error-fixture diffs become byte-exact. Today's diagnostics are functional but use project-local phrasing.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-107
   - body: _not yet implemented_
 
 - [ ] **evaluate Pkl callable return annotations** — verifies: PKL-063 — tags: evaluator, callable
@@ -284,6 +363,12 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **generic type aliases** [draft] — verifies: PKL-115 — tags: parser, typechecker, typealias, generics
+  > `typealias Box<T> = ...` parses and binds T in the target. The current parser does not recognize the `<T>` after the alias name; the typechecker has no substitution logic for alias arguments.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-110
+  - body: _not yet implemented_
+
 - [ ] **hidden and local object members** — verifies: PKL-087 — tags: evaluator, renderer, object
   > Object-body members declared with the `hidden` modifier or the `local` keyword are kept inside the evaluated `ObjectValue` (so `lookup_member` still resolves bare-name reads against them) but are skipped by every renderer (PCF / JSON / YAML / Properties). Module-level `hidden` bindings get the same render-side filter; module-level `local` already routed through `parse_local_decl`, which marks the binding `exported: false` so the renderer never sees it in the first place. The render filter is a single `visible_members` projection applied at the entry of each renderer's member loop, keyed off a reserved `@hidden$` name prefix that the lexer rejects as an identifier character so it cannot collide with user-declared properties.
   - contributes to: GOAL-PKL-PURE
@@ -298,11 +383,23 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **inheritance dispatch hardening** [draft] — verifies: PKL-117 — tags: evaluator, typechecker, inheritance
+  > Super method calls (`super.method()`), abstract method enforcement, and override-direction type compatibility. Existing class inheritance handles property defaults but not the full method-dispatch surface.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-040
+  - body: _not yet implemented_
+
 - [ ] **inventory unsupported syntax in tolerant parser output** — verifies: PKL-016 — tags: parser
   > ParseResult exposes an unsupported_syntax coverage report with source ranges, text, and syntax kind for accepted code that still lowers to UnsupportedExpr.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-015
   - decisions: 2 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **is-guard narrowing extension** (minor) [draft] — verifies: PKL-114 — tags: typechecker, narrowing
+  > `is`-guard typecheck narrows for Float / Number / generic-type contexts. Today narrowing covers Int / Bool / String / Null only.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-092
   - body: _not yet implemented_
 
 - [ ] **minimal pkl:reflect support** (minor) — verifies: PKL-080 — tags: stdlib, pkl-reflect
@@ -361,6 +458,24 @@
   - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **nullable read parser form** (minor) [draft] — verifies: PKL-103 — tags: parser, evaluator, read, nullable
+  > Parser support for the `?`-suffixed call form `read?(uri)`. The evaluator returns `null` instead of a diagnostic when the resource is missing or the scheme is rejected, mirroring Apple Pkl's null-safe read.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-098
+  - body: _not yet implemented_
+
+- [ ] **output renderer driver path** [draft] — verifies: PKL-104 — tags: renderer, output, driver
+  > Recognize module-level `output { renderer = new JsonRenderer { ... } }` declarations and dispatch the chosen renderer (with optional converters) instead of relying on the `-f` CLI flag. Requires class-name tagging on `ObjectValue` so the renderer class can be read at runtime.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-097
+  - body: _not yet implemented_
+
+- [ ] **package and https URI imports** [draft] — verifies: PKL-129 — tags: parser, imports, sandbox
+  > `import "package://pkg.pkl-lang.org/..."` and `import "https://example.com/foo.pkl"` resolve through a sandbox-aware fetcher with checksum verification. Today only `pkl:`, file-relative, and absolute paths are recognized.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-006
+  - body: _not yet implemented_
+
 - [ ] **parse Pkl call lambda and operator expressions** — verifies: PKL-018 — tags: parser
   > The parser lowers calls, lambdas, unary operators, comparisons, boolean operators, null-coalescing, and conditional expressions into explicit AST nodes with precedence matching Pkl.
   - contributes to: GOAL-PKL-PURE
@@ -392,6 +507,66 @@
   > The native parser accepts every syntactically valid fixture selected by apple/pkl's ParserComparisonTest LanguageSnippetTests input corpus.
   - contributes to: GOAL-PKL-PURE
   - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **parser surface expansion** [draft] — verifies: PKL-128 — tags: parser
+  > String interpolation `\(expr)`, scientific notation Float (`1e10` / `2.5e-3`), triple-quoted heredoc strings, annotation classes (`@Deprecated`, `@Since`), and constraint predicate composition (`Int(isPositive & isLessThan(10))`). Each is a parser-side extension; downstream stages are mostly ready.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-001
+  - body: _not yet implemented_
+
+- [ ] **pkl analyze lint subcommand** (minor) [draft] — verifies: PKL-102 — tags: cli, lint
+  > `moon run cmd/main -- analyze <file>` reports lint findings: unused local bindings, unused imports, unused class properties, shadowed identifiers. Diagnostics carry source position once PKL-107 lands.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-009
+  - body: _not yet implemented_
+
+- [ ] **pkl repl interactive evaluator** (minor) [draft] — verifies: PKL-101 — tags: cli, repl
+  > `moon run cmd/main -- repl` opens an interactive read-eval-print loop: each line parses as either a binding (`x = 5`) or an expression and prints the rendered result. Reuses the `AnalysisSession` so each entry incrementally extends the module.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-009
+  - body: _not yet implemented_
+
+- [ ] **pkl test Apple-compatible runner** [draft] — verifies: PKL-100 — tags: cli, pkl-test, next
+  > `moon run cmd/main -- test` extends beyond the minimal facts-walker to match Apple Pkl's runner: `examples { ["label"] { value } }` blocks with expected-vs-actual diff against a `<file>-expected.pcf` golden, `--overwrite` mode to regenerate goldens, ignored / pending markers, multi-file test discovery, and an exit code matching upstream (0 on pass, non-zero on fail).
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-095
+  - body: _not yet implemented_
+
+- [ ] **pkl-codegen bridge** [draft] — verifies: PKL-131 — tags: cli, codegen
+  > Lower a typechecked Pkl module to a target language schema (Java / Kotlin / Swift / Go). The bridge consumes the existing typechecker state via `pkl:reflect`'s minimal stub once expanded.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-080, PKL-110
+  - body: _not yet implemented_
+
+- [ ] **pkl:json / pkl:yaml / pkl:xml / pkl:protobuf stdlib modules** [draft] — verifies: PKL-124 — tags: stdlib, renderer
+  > Stdlib classes for the renderer surface (`JsonRenderer`, `YamlRenderer`, `XmlRenderer`, `ProtobufRenderer`) that the `output { renderer }` driver path looks up. Today the CLI dispatches renderers via the `-f` flag and the stdlib classes do not exist.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-104
+  - body: _not yet implemented_
+
+- [ ] **pkl:math Float operations** (minor) [draft] — verifies: PKL-120 — tags: stdlib, pkl-math, float
+  > Expose Float-side helpers on `pkl:math`: `sqrt`, `pow`, `log`, `exp`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`, `atan`, `atan2`. Float numerics already exist (PKL-092), so the additions are stdlib wiring.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-092
+  - body: _not yet implemented_
+
+- [ ] **pkl:platform and pkl:semver stdlib modules** (minor) [draft] — verifies: PKL-123 — tags: stdlib, platform, semver
+  > `pkl:platform` exposes the host OS / arch fields (`current.operatingSystem`, `current.architecture`). `pkl:semver` provides `Version`, `parse(s)`, comparison helpers. Both are read-only stubs from the evaluator's perspective.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-080
+  - body: _not yet implemented_
+
+- [ ] **pkldoc documentation generation** (minor) [draft] — verifies: PKL-130 — tags: cli, pkldoc
+  > `moon run cmd/main -- doc <module>` renders the module's class / typealias / function declarations as Markdown / HTML, using the doc-comment text already captured by the parser.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-080
+  - body: _not yet implemented_
+
+- [ ] **plist / xml / protobuf renderers** [draft] — verifies: PKL-126 — tags: renderer, plist, xml, protobuf
+  > Three additional output formats matching Apple Pkl's renderer surface. plist follows the Apple plist DTD (Foundation property list, XML-1.0 form). XML emits Pkl objects as element trees. protobuf serializes against an externally provided `.proto` schema.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-070
   - body: _not yet implemented_
 
 - [ ] **preserve Pkl constrained callable signature metadata** — verifies: PKL-048 — tags: typechecker
@@ -466,6 +641,24 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-072
   - decisions: 3 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **renderer converter machinery** [draft] — verifies: PKL-127 — tags: renderer, converter
+  > JSON / YAML / Properties renderers honor `converters { ["path"] = (value) -> ...; ["Class"] = (value) -> ... }`. Path lookups beat class lookups; the converter return value replaces the source value in the rendered output.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-104
+  - body: _not yet implemented_
+
+- [ ] **renderer converters** [draft] — verifies: PKL-105 — tags: renderer, converter
+  > JSON / YAML / Properties renderers honor `converters { ["path"] = (value) -> ...; ["Class"] = (value) -> ... }`. Converters apply path-first then type-first; the value the converter returns is rendered in place.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-104
+  - body: _not yet implemented_
+
+- [ ] **source position in diagnostics** [draft] — verifies: PKL-107 — tags: diagnostics, position
+  > Every `Diagnostic` carries `start` / `end` / `line` / `column` so error messages point at the offending token. The parser already carries the CST positions; the typechecker / evaluator need the relevant Expr node to thread the position into the diagnostic.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-004
   - body: _not yet implemented_
 
 - [ ] **support Pkl class inheritance defaults** — verifies: PKL-038 — tags: parser, typechecker, evaluator
@@ -563,6 +756,12 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-009
   - decisions: 3 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **type parameter bounds** (minor) [draft] — verifies: PKL-116 — tags: parser, typechecker, generics, bounds
+  > `class Box<T : Number>` constrains T to a supertype. Parser accepts the `: <type>` suffix; typechecker checks the bound at call sites once PKL-110 inference exists.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-089, PKL-110
   - body: _not yet implemented_
 
 - [ ] **typecheck Pkl callable parameter and return annotations** (critical) — verifies: PKL-023 — tags: parser, typechecker
@@ -668,6 +867,12 @@
   - contributes to: GOAL-PKL-PURE
   - body: _not yet implemented_
 
+- [ ] **upstream fixture sweep expansion** [draft] — verifies: PKL-109 — tags: compatibility, upstream
+  > Walk additional upstream `LanguageSnippetTests/input/*` subtrees (`api/`, `errors/`, `generators/`, `lambdas/`, `listings/`, `mappings/`, `methods/`, `objects/`, `packages/`, `projects/`) and promote every fixture that gold-matches byte-for-byte to the curated list. Tracks rolling coverage of the ~800-fixture upstream suite.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-096
+  - body: _not yet implemented_
+
 - [ ] **use upstream apple/pkl fixtures as compatibility checks** — verifies: PKL-011
   > The contract suite references Apple's Pkl repository as a git submodule and runs selected upstream LanguageSnippetTests fixtures through the pure MoonBit CLI.
   - contributes to: GOAL-PKL-PURE
@@ -702,6 +907,10 @@
 
 - [x] **cli float numerics and constraints** — verifies: PKL-092 — tags: moonbit, cli, float, constraint, contract
   > The native CLI evaluates a Float-heavy fixture, exercising Float literals, mixed Int / Float arithmetic, `Int / Int` widening to Float, and `Float(isPositive)` / `Float(isBetween(...))` / `Number(isPositive)` constraint predicates.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli format subcommand** — verifies: PKL-099 — tags: moonbit, cli, format, contract
+  > The native CLI `format` subcommand re-emits the source through the PCF renderer, normalizing whitespace and indentation. Today the formatter operates on the evaluated module value; trivia-preserving idempotent reformatting is a follow-up.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli generic class and function declarations** — verifies: PKL-089, PKL-090 — tags: moonbit, cli, generics, contract
