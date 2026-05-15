@@ -309,6 +309,27 @@ local cliTypeParameterBounds = new Test {
   timeoutSec = 120
 }
 
+local cliAnyType = new Test {
+  name = "cli any top type"
+  description =
+    "The native CLI evaluates a fixture that exercises `Any`-typed bindings (Int / String / Bool), a nullable `Any?` defaulted to null, and a `Mapping<String, Any>` carrying heterogeneous value types. Every binding typechecks (via the new `AnyType` short-circuit in `type_accepts`) and the evaluator emits the same PCF as the concrete annotations would."
+  tags { "moonbit"; "cli"; "typechecker"; "any"; "pkf-pkspec"; "contract" }
+  specRef { "PKL-133" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_any_type.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "intHolder = 5"
+    "stringHolder = \"hello\""
+    "boolHolder = true"
+    "nullable = null"
+    "heterogeneousMap {"
+    "[\"n\"] = 1"
+    "[\"s\"] = \"x\""
+    "[\"b\"] = true"
+  }
+  timeoutSec = 120
+}
+
 local cliGenericInference = new Test {
   name = "cli generic call-site inference"
   description =
@@ -510,6 +531,7 @@ tests {
   cliIsOperator
   cliGenericTypealias
   cliTypeParameterBounds
+  cliAnyType
   cliFormat
   cliTestExamplesPass
   cliTestExamplesFail

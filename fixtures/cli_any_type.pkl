@@ -1,0 +1,14 @@
+// PKL-133: `Any` is Pkl's top type — every value flows through it.
+intHolder: Any = 5
+
+stringHolder: Any = "hello"
+
+boolHolder: Any = true
+
+nullable: Any? = null
+
+heterogeneousMap: Mapping<String, Any> = new Mapping {
+  ["n"] = 1
+  ["s"] = "x"
+  ["b"] = true
+}

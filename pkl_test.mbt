@@ -2125,6 +2125,46 @@ test "PKL-116: function without bound still accepts any type" {
 }
 
 ///|
+test "PKL-133: Any annotation accepts any value" {
+  guard typecheck_source("x: Any = 5\ny: Any = \"hello\"\nz: Any = true")
+    is TypeOk(_) else {
+    panic()
+  }
+}
+
+///|
+test "PKL-133: Any annotation renders as Any" {
+  guard typecheck_source("x: Any = 5") is TypeOk(ObjectType(members)) else {
+    panic()
+  }
+  inspect(render_type(members[0].typ), content="Any")
+}
+
+///|
+test "PKL-133: nullable Any accepts null and concrete values" {
+  guard typecheck_source("a: Any? = null\nb: Any? = 42") is TypeOk(_) else {
+    panic()
+  }
+}
+
+///|
+test "PKL-133: Mapping with Any value type accepts heterogeneous map" {
+  guard typecheck_source(
+      "m: Mapping<String, Any> = new Mapping { [\"n\"] = 1; [\"s\"] = \"x\" }",
+    )
+    is TypeOk(_) else {
+    panic()
+  }
+}
+
+///|
+test "PKL-133: == accepts Any against any operand" {
+  guard typecheck_source("x: Any = 5\nres = x == 5") is TypeOk(_) else {
+    panic()
+  }
+}
+
+///|
 test "Number constraint predicate accepts both Int and Float" {
   assert_true(
     eval_source("a: Number(isPositive) = 3\nb: Number(isPositive) = 0.5") ==

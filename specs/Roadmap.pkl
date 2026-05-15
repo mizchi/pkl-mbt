@@ -353,18 +353,6 @@ local lspServer: Spec.Scenario = new {
 // Promote PKL-133 first (smallest, no dependencies); the rest stack on
 // top of it in numerical order.
 
-local pklAnyType: Spec.Scenario = new {
-  id = "PKL-133"
-  name = "Any top type"
-  description =
-    "`Any` is Pkl's top type — every value flows through it (`Mapping<String, Any>`, `bodyJson: Any?` in pkspec's HTTP spec, generic captures in stdlib signatures). Today `type_from_annotation(\"Any\")` returns `None`, so any annotation that mentions `Any` surfaces `unknown type annotation Any` and stops the typecheck. Add `AnyType` to the Type enum (or alias it to `UnknownType` with a dedicated name so renders read as `Any` instead of `Unknown`) and short-circuit `type_accepts(AnyType, _) => true` and `type_accepts(_, AnyType) => true`. Stdlib lookups (`builtin_type_from_annotation`) recognise the literal `Any` text."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-004" }
-  tags { "typechecker"; "pkf-pkspec"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 local listingMappingStdlibCore: Spec.Scenario = new {
   id = "PKL-134"
   name = "Listing / Mapping stdlib core methods"
@@ -372,7 +360,7 @@ local listingMappingStdlibCore: Spec.Scenario = new {
     "Implement the core read-only methods on `Listing`, `Mapping`, and `List` that pkf / pkspec rely on for shape inspection: `.toList()`, `.toMap()`, `.keys`, `.values`, `.length`, `.isEmpty`. These are the gateway methods — once `xs.toList()` resolves, the chained functional methods in PKL-135 light up. Today the evaluator surfaces `unknown member toList`. Wire each method into `eval_member_access` against the matching `ListingValue` / `MappingValue` variant; the typechecker side recognises the method on `ListingType` / `MappingType` and returns the correct result type."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-075" }
-  tags { "stdlib"; "evaluator"; "typechecker"; "pkf-pkspec" }
+  tags { "stdlib"; "evaluator"; "typechecker"; "pkf-pkspec"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -414,7 +402,6 @@ local amendsBaseMerge: Spec.Scenario = new {
 }
 
 entries: Listing<Spec.Scenario> = new {
-  pklAnyType
   listingMappingStdlibCore
   listingMappingFunctional
   whenConditionalProperty

@@ -1708,6 +1708,44 @@ local typeParameterBounds = new Scenario {
   }
 }
 
+local pklAnyType = new Scenario {
+  id = "PKL-133"
+  name = "Any top type"
+  description =
+    "`Any` is Pkl's top type — every value flows through it. The Type enum gains a dedicated `AnyType` variant (distinct from `UnknownType`, which signals parser / inference fallback). `builtin_type_from_annotation(\"Any\")` returns `AnyType`. `type_accepts` short-circuits to `true` whenever either side is `AnyType`, mirroring the relation `Any` plays in Pkl's type lattice: a concrete value flows into `Any`, and a value of `Any` flows back into any concrete annotation that expects it. `equality_compatible` accepts the same pattern so `x: Any = 5; res = x == 5` typechecks without a matching-types diagnostic. `render_type` emits `Any` so error messages preserve the user-facing name; collapsing into `UnknownType` would hide the difference from `Unknown`. The change is parser-transparent — no new tokens, no new AST nodes — and lights up `Any?`, `Mapping<String, Any>`, and `bodyJson: Any?` annotations across pkspec's schema without touching the evaluator at all."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-004" }
+  tags { "typechecker"; "pkf-pkspec" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Introduce a dedicated `AnyType` variant instead of aliasing to `UnknownType`"
+      rationale =
+        "`UnknownType` was already accept-any in `type_accepts`, so reusing it would have lit up the existing tests. But the two carry distinct semantics: `UnknownType` is `we couldn't determine the type` (parse / inference failure); `AnyType` is `the user wrote Any explicitly`. Renderer output and future error messages should distinguish them (`expected Int, got Unknown` reads as a bug; `expected Int, got Any` reads as a typed-Any flow that needs a cast). Keeping the variants separate preserves the diagnostic surface."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Symmetric `(_, AnyType)` accept-any to mirror Pkl's top-type semantics"
+      rationale =
+        "Apple Pkl's `Any` accepts any value (variance: covariant) and a value typed as `Any` can be assigned to any annotation (variance: contravariant under the user-facing model, even though the typechecker doesn't track variance). Both arms of `type_accepts` short-circuit to keep the relation symmetric. `as` (PKL-128) will eventually require a downcast, but until then accepting unconditional flow on both sides reflects what works in upstream when the user writes `Any` explicitly."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Wire `Any` into `equality_compatible` alongside `type_accepts`"
+      rationale =
+        "Without it, `x: Any = 5; res = x == 5` would surface as `operator == expects operands of matching types` once PKL-113 landed. The equality relation already had wildcards for `UnknownType` and `TypeVariable`; adding `AnyType` to the same list keeps the symmetric matching contract consistent. The alternative (treating `Any` differently across `type_accepts` vs `equality_compatible`) would make `x == y` and `x = y` diverge in surprising ways."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Evaluator stays untouched"
+      rationale =
+        "`AnyType` is a typechecker-side concept; at runtime every value is already self-describing (`IntValue`, `StringValue`, `ObjectValue`, etc.). The fixture exercises `Any = 5`, `Any = \"hello\"`, `Any = true`, and `Mapping<String, Any> = new Mapping { ... }` and the rendered output is identical to what the concrete annotations produce — same path through `eval_property_binding`, same renderer."
+    }
+  }
+}
+
 local equalityTypecheckOperandMatch = new Scenario {
   id = "PKL-113"
   name = "equality typecheck operand match"
@@ -2831,5 +2869,6 @@ scenarios {
   isOperatorRuntime
   genericTypealiasInstantiation
   typeParameterBounds
+  pklAnyType
   ...roadmap.entries
 }

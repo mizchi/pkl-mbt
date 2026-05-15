@@ -1,15 +1,16 @@
 # Test SPEC
 
-162 tests across 2 module(s) — 137 pending, 25 active
+163 tests across 2 module(s) — 137 pending, 26 active
 
 ## `specs/`
 
 ### `Spec.pkl`
 
-- [ ] **Any top type** [draft] — verifies: PKL-133 — tags: typechecker, pkf-pkspec, next
-  > `Any` is Pkl's top type — every value flows through it (`Mapping<String, Any>`, `bodyJson: Any?` in pkspec's HTTP spec, generic captures in stdlib signatures). Today `type_from_annotation("Any")` returns `None`, so any annotation that mentions `Any` surfaces `unknown type annotation Any` and stops the typecheck. Add `AnyType` to the Type enum (or alias it to `UnknownType` with a dedicated name so renders read as `Any` instead of `Unknown`) and short-circuit `type_accepts(AnyType, _) => true` and `type_accepts(_, AnyType) => true`. Stdlib lookups (`builtin_type_from_annotation`) recognise the literal `Any` text.
+- [ ] **Any top type** — verifies: PKL-133 — tags: typechecker, pkf-pkspec
+  > `Any` is Pkl's top type — every value flows through it. The Type enum gains a dedicated `AnyType` variant (distinct from `UnknownType`, which signals parser / inference fallback). `builtin_type_from_annotation("Any")` returns `AnyType`. `type_accepts` short-circuits to `true` whenever either side is `AnyType`, mirroring the relation `Any` plays in Pkl's type lattice: a concrete value flows into `Any`, and a value of `Any` flows back into any concrete annotation that expects it. `equality_compatible` accepts the same pattern so `x: Any = 5; res = x == 5` typechecks without a matching-types diagnostic. `render_type` emits `Any` so error messages preserve the user-facing name; collapsing into `UnknownType` would hide the difference from `Unknown`. The change is parser-transparent — no new tokens, no new AST nodes — and lights up `Any?`, `Mapping<String, Any>`, and `bodyJson: Any?` annotations across pkspec's schema without touching the evaluator at all.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-004
+  - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **Bytes literal and Bytes methods** (minor) — verifies: PKL-083 — tags: evaluator, renderer, bytes, stdlib
@@ -79,7 +80,7 @@
   - depends on: PKL-134
   - body: _not yet implemented_
 
-- [ ] **Listing / Mapping stdlib core methods** [draft] — verifies: PKL-134 — tags: stdlib, evaluator, typechecker, pkf-pkspec
+- [ ] **Listing / Mapping stdlib core methods** [draft] — verifies: PKL-134 — tags: stdlib, evaluator, typechecker, pkf-pkspec, next
   > Implement the core read-only methods on `Listing`, `Mapping`, and `List` that pkf / pkspec rely on for shape inspection: `.toList()`, `.toMap()`, `.keys`, `.values`, `.length`, `.isEmpty`. These are the gateway methods — once `xs.toList()` resolves, the chained functional methods in PKL-135 light up. Today the evaluator surfaces `unknown member toList`. Wire each method into `eval_member_access` against the matching `ListingValue` / `MappingValue` variant; the typechecker side recognises the method on `ListingType` / `MappingType` and returns the correct result type.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-075
@@ -918,6 +919,10 @@
   - body: _not yet implemented_
 
 ### `Test.pkl`
+
+- [x] **cli any top type** — verifies: PKL-133 — tags: moonbit, cli, typechecker, any, pkf-pkspec, contract
+  > The native CLI evaluates a fixture that exercises `Any`-typed bindings (Int / String / Bool), a nullable `Any?` defaulted to null, and a `Mapping<String, Any>` carrying heterogeneous value types. Every binding typechecks (via the new `AnyType` short-circuit in `type_accepts`) and the evaluator emits the same PCF as the concrete annotations would.
+  - body: `cmd` (exit 0 expected)
 
 - [x] **cli equality type match** — verifies: PKL-113 — tags: moonbit, cli, typechecker, equality, contract
   > The native CLI evaluates a fixture that exercises `==` and `!=` against compatible operand types — Int vs Int, Int vs Float (Apple Pkl admits this), Float vs Float, Bool vs Bool, and a nullable binding against `null`. The evaluation produces the expected booleans without raising a typecheck diagnostic, demonstrating that PKL-113 leaves valid programs untouched.

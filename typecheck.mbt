@@ -22,6 +22,12 @@ pub(all) enum Type {
   // call site / class literal can match `TypeVariable("T")` to a concrete
   // argument type and rewrite the surrounding signature in place.
   TypeVariable(String)
+  // PKL-133: Pkl's top type. Every value flows through `Any`. Distinct
+  // from `UnknownType` (parser / inference fallback) so render output
+  // surfaces as `Any` exactly, and so the typechecker can later
+  // distinguish "user wrote Any explicitly" from "we lost track of the
+  // type". Accept-any on both sides of `type_accepts`.
+  AnyType
   UnknownType
 } derive(Eq, Debug)
 
@@ -196,6 +202,7 @@ pub fn render_type(typ : Type) -> String {
     NullableType(inner) => "\{render_type(inner)}?"
     DefaultedType(inner) => render_type(inner)
     TypeVariable(name) => name
+    AnyType => "Any"
     UnknownType => "Unknown"
   }
 }
@@ -216,6 +223,9 @@ fn builtin_type_from_annotation(name : String) -> Type? {
     "Object" => Some(ObjectType([]))
     "Listing" => Some(ListingType([]))
     "Mapping" => Some(MappingType([]))
+    // PKL-133: top type. Maps to its own `AnyType` variant so render
+    // output stays as `Any` instead of collapsing to `Unknown`.
+    "Any" => Some(AnyType)
     _ => None
   }
 }
@@ -1020,6 +1030,11 @@ fn type_accepts(expected : Type, inferred : Type) -> Bool {
     // exists (e.g. the body refers to T directly) it stays free.
     (TypeVariable(_), _) => true
     (_, TypeVariable(_)) => true
+    // PKL-133: `Any` is Pkl's top type — every value flows through it.
+    // The relation is symmetric so the same value can flow into and out
+    // of `Any` (e.g. `x: Any = 5` and `n: Int = x as Int` once `as` lands).
+    (AnyType, _) => true
+    (_, AnyType) => true
     (ConstrainedType(_, expected_inner), actual) =>
       type_accepts(expected_inner, actual)
     (expected, ConstrainedType(_, actual_inner)) =>
@@ -1147,6 +1162,8 @@ fn equality_compatible(left : Type, right : Type) -> Bool {
   match (l, r) {
     (UnknownType, _) | (_, UnknownType) => true
     (TypeVariable(_), _) | (_, TypeVariable(_)) => true
+    // PKL-133: `Any` participates in equality on either side.
+    (AnyType, _) | (_, AnyType) => true
     (NullType, NullableType(_)) | (NullableType(_), NullType) => true
     (NullableType(inner), other) | (other, NullableType(inner)) =>
       equality_compatible(inner, other)

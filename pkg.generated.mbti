@@ -389,6 +389,7 @@ pub(all) enum Type {
   NullableType(Type)
   DefaultedType(Type)
   TypeVariable(String)
+  AnyType
   UnknownType
 } derive(Eq, @debug.Debug)
 
