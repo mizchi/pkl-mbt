@@ -133,18 +133,6 @@ local upstreamFixtureSweepExpansion: Spec.Scenario = new {
 
 // ── typechecker rounding ────────────────────────────────────────────────────
 
-local guardNarrowingExtension: Spec.Scenario = new {
-  id = "PKL-114"
-  name = "is-guard narrowing extension"
-  description =
-    "`is`-guard typecheck narrows for Float / Number / generic-type contexts. Today narrowing covers Int / Bool / String / Null only."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-092" }
-  tags { "typechecker"; "narrowing"; "next" }
-  reviewStatus = "draft"
-  severity = "minor"
-}
-
 local genericTypeAliases: Spec.Scenario = new {
   id = "PKL-115"
   name = "generic type aliases"
@@ -152,7 +140,7 @@ local genericTypeAliases: Spec.Scenario = new {
     "`typealias Box<T> = ...` parses and binds T in the target. The current parser does not recognize the `<T>` after the alias name; the typechecker has no substitution logic for alias arguments."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-110" }
-  tags { "parser"; "typechecker"; "typealias"; "generics" }
+  tags { "parser"; "typechecker"; "typealias"; "generics"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -379,7 +367,6 @@ entries: Listing<Spec.Scenario> = new {
   diagnosticSourcePosition
   errorMessageUpstreamAlign
   upstreamFixtureSweepExpansion
-  guardNarrowingExtension
   genericTypeAliases
   typeParameterBounds
   inheritanceDispatchHardening

@@ -3933,7 +3933,32 @@ fn eval_expr_with_bindings(
             None => return None
           }
         }
-        Is | As | Pipe => {
+        Is =>
+          // PKL-114: evaluate `<value> is <TypeName>` at runtime. The
+          // parser stores the right operand as `Identifier(type_name)`
+          // carrying the verbatim type annotation text (e.g. "Int",
+          // "Number", "Float?", "String | Int"). Anything more exotic
+          // on the right falls through to the parser-only diagnostic
+          // below.
+          match right_expr {
+            Identifier(type_name) =>
+              match
+                eval_expr_with_bindings(
+                  left_expr, bindings, env, class_env, cache, stack, declarations,
+                  diagnostics, resolve_import,
+                ) {
+                Some(value) =>
+                  return Some(BoolValue(value_is_type(value, type_name)))
+                None => return None
+              }
+            _ => {
+              diagnostics.push(Diagnostic::{
+                message: "operator is right operand must be a type name",
+              })
+              return None
+            }
+          }
+        As | Pipe => {
           diagnostics.push(Diagnostic::{
             message: "operator \{operator_name(op)} is parser-only",
           })
@@ -4820,6 +4845,111 @@ fn double_trunc(x : Double) -> Double {
     x.to_int64().to_double()
   } else {
     -(-x).to_int64().to_double()
+  }
+}
+
+///|
+// PKL-114: classify a Value against a type annotation text. Used by
+// the `is` operator at runtime. Supports the same surface the
+// typechecker's `type_from_annotation` accepts: union (`String | Int`),
+// nullable (`Float?`), constrained (`Int(isPositive)`), and generic
+// (`Listing<Int>` / `Mapping<String, Int>`). User-defined class names
+// fall through to `false` for now — that gap matches PKL-114's
+// "extension" scope and leaves class-instance dispatch for a later
+// slice once the evaluator carries class tags on ObjectValue.
+fn value_is_type(value : Value, type_name : String) -> Bool {
+  let trimmed = pkl_constraint_trim(type_name)
+  if trimmed == "" {
+    return false
+  }
+  let union_choices = split_top_level_union_choices(trimmed)
+  if union_choices.length() > 1 {
+    for choice in union_choices {
+      if value_is_type(value, choice) {
+        return true
+      }
+    }
+    return false
+  }
+  if trimmed.has_suffix("?") {
+    if value is NullValue {
+      return true
+    }
+    let inner = String::unsafe_substring(
+      trimmed,
+      start=0,
+      end=trimmed.length() - 1,
+    )
+    return value_is_type(value, inner)
+  }
+  match pkl_constrained_type_base_name(trimmed) {
+    Some(base) => return value_is_type(value, base)
+    None => ()
+  }
+  match generic_argument_text(trimmed, "Listing") {
+    Some(_) =>
+      return match value {
+        ListingValue(_) => true
+        _ => false
+      }
+    None => ()
+  }
+  match generic_argument_text(trimmed, "Mapping") {
+    Some(_) =>
+      return match value {
+        MappingValue(_) => true
+        _ => false
+      }
+    None => ()
+  }
+  match trimmed {
+    "Int" =>
+      match value {
+        IntValue(_) => true
+        _ => false
+      }
+    "Float" =>
+      match value {
+        FloatValue(_) => true
+        _ => false
+      }
+    "Number" =>
+      match value {
+        IntValue(_) | FloatValue(_) => true
+        _ => false
+      }
+    "String" =>
+      match value {
+        StringValue(_) => true
+        _ => false
+      }
+    "Boolean" | "Bool" =>
+      match value {
+        BoolValue(_) => true
+        _ => false
+      }
+    "Null" =>
+      match value {
+        NullValue => true
+        _ => false
+      }
+    "Listing" =>
+      match value {
+        ListingValue(_) => true
+        _ => false
+      }
+    "Mapping" =>
+      match value {
+        MappingValue(_) => true
+        _ => false
+      }
+    "Object" =>
+      match value {
+        ObjectValue(_) => true
+        _ => false
+      }
+    "Any" => true
+    _ => false
   }
 }
 

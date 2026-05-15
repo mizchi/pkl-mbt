@@ -247,6 +247,26 @@ local cliEqualityTypeMatch = new Test {
   timeoutSec = 120
 }
 
+local cliIsOperator = new Test {
+  name = "cli is operator runtime"
+  description =
+    "The native CLI evaluates a fixture that exercises the `is` operator at runtime: `5 is Int`, `1.5 is Float`, `Number` checks against both Int and Float values, a negative check (`\"x\" is Int = false`), and an `if (x is Int) ...` branch inside a function. No `parser-only` diagnostic is raised — the evaluator routes through `value_is_type` and produces concrete Bool values."
+  tags { "moonbit"; "cli"; "evaluator"; "is-operator"; "contract" }
+  specRef { "PKL-114" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_is_operator.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "intCheck = true"
+    "floatCheck = true"
+    "numberInt = true"
+    "numberFloat = true"
+    "stringNotInt = false"
+    "classified = \"int\""
+    "classifiedFloat = \"float\""
+  }
+  timeoutSec = 120
+}
+
 local cliGenericInference = new Test {
   name = "cli generic call-site inference"
   description =
@@ -445,6 +465,7 @@ tests {
   cliFloatPower
   cliFloatThresholdConstraints
   cliEqualityTypeMatch
+  cliIsOperator
   cliFormat
   cliTestExamplesPass
   cliTestExamplesFail

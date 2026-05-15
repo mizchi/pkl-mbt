@@ -1,0 +1,16 @@
+// PKL-114: runtime `is` operator
+intCheck = 5 is Int
+
+floatCheck = 1.5 is Float
+
+numberInt = 5 is Number
+
+numberFloat = 1.5 is Number
+
+stringNotInt = "x" is Int
+
+function classify(x: Number): String = if (x is Int) "int" else "float"
+
+classified = classify(5)
+
+classifiedFloat = classify(2.5)

@@ -1,6 +1,6 @@
 # Test SPEC
 
-154 tests across 2 module(s) — 132 pending, 22 active
+155 tests across 2 module(s) — 132 pending, 23 active
 
 ## `specs/`
 
@@ -367,7 +367,7 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **generic type aliases** [draft] — verifies: PKL-115 — tags: parser, typechecker, typealias, generics
+- [ ] **generic type aliases** [draft] — verifies: PKL-115 — tags: parser, typechecker, typealias, generics, next
   > `typealias Box<T> = ...` parses and binds T in the target. The current parser does not recognize the `<T>` after the alias name; the typechecker has no substitution logic for alias arguments.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-110
@@ -400,10 +400,11 @@
   - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **is-guard narrowing extension** (minor) [draft] — verifies: PKL-114 — tags: typechecker, narrowing, next
-  > `is`-guard typecheck narrows for Float / Number / generic-type contexts. Today narrowing covers Int / Bool / String / Null only.
+- [ ] **is operator runtime evaluation** (minor) — verifies: PKL-114 — tags: evaluator, is-operator, narrowing
+  > The `is` operator evaluates at runtime: `5 is Int` returns `true`, `1.5 is Float` returns `true`, `5 is Number` and `1.5 is Number` both return `true`, `"x" is Int` returns `false`, and `if (x is Int) ...` actually branches on the runtime type of `x` instead of failing with `operator is is parser-only`. The new `value_is_type(value, type_name)` helper in `eval.mbt` mirrors the surface that the typechecker's `type_from_annotation` accepts: union (`String | Int`), nullable (`Float?`), constrained (`Int(isPositive)` strips the predicate and falls back on the base type), and generic (`Listing<Int>` / `Mapping<String, Int>` route to `ListingValue` / `MappingValue` without inspecting elements). User-defined class names fall through to `false` for now — class-instance dispatch needs class tags on `ObjectValue`, which is out of scope for this slice. The typechecker's is-guard narrowing was already generic enough for `Float / Number / TypeVariable` paths via the existing `UnionType` / `NullableType` recursion (PKL-092 widened `Number` to `UnionType([IntType, FloatType])` and PKL-110 made `TypeVariable(_)` accept-any in `type_accepts`), so the scope reduces to the evaluator side.
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-092
+  - depends on: PKL-092, PKL-110
+  - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **minimal pkl:reflect support** (minor) — verifies: PKL-080 — tags: stdlib, pkl-reflect
@@ -936,6 +937,10 @@
 
 - [x] **cli generic class and function declarations** — verifies: PKL-089, PKL-090 — tags: moonbit, cli, generics, contract
   > The native CLI evaluates a fixture that declares `class Box<T>`, `class Pair<A, B>`, `function identity<T>(x: T): T`, and `function pair_first<A, B>(a: A, b: B): A`, then instantiates and calls each. Type parameters are tolerated as UnknownType in the typechecker and accept-any in the evaluator's runtime annotation validators.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli is operator runtime** — verifies: PKL-114 — tags: moonbit, cli, evaluator, is-operator, contract
+  > The native CLI evaluates a fixture that exercises the `is` operator at runtime: `5 is Int`, `1.5 is Float`, `Number` checks against both Int and Float values, a negative check (`"x" is Int = false`), and an `if (x is Int) ...` branch inside a function. No `parser-only` diagnostic is raised — the evaluator routes through `value_is_type` and produces concrete Bool values.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli reflect minimal stub** — verifies: PKL-080 — tags: moonbit, cli, pkl-reflect, stdlib, contract

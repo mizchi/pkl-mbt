@@ -1936,6 +1936,90 @@ test "PKL-113: == accepts null against nullable binding" {
 }
 
 ///|
+test "PKL-114: is Int evaluates to true for Int value" {
+  assert_true(
+    eval_source("res = 5 is Int") ==
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: BoolValue(true) }])),
+  )
+}
+
+///|
+test "PKL-114: is Float evaluates to true for Float value" {
+  assert_true(
+    eval_source("res = 1.5 is Float") ==
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: BoolValue(true) }])),
+  )
+}
+
+///|
+test "PKL-114: is Int evaluates to false for String value" {
+  assert_true(
+    eval_source("res = \"x\" is Int") ==
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: BoolValue(false) }])),
+  )
+}
+
+///|
+test "PKL-114: is Number evaluates to true for Int and Float values" {
+  assert_true(
+    eval_source("a = 5 is Number\nb = 1.5 is Number\nc = \"x\" is Number") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "a", value: BoolValue(true) },
+        ValueMember::{ name: "b", value: BoolValue(true) },
+        ValueMember::{ name: "c", value: BoolValue(false) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "PKL-114: is guard branches on runtime type" {
+  assert_true(
+    eval_source(
+      "function f(x: Number): Int = if (x is Int) x + 1 else 0\nres = f(5)",
+    ) ==
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: IntValue(6) }])),
+  )
+  assert_true(
+    eval_source(
+      "function f(x: Number): Int = if (x is Int) x + 1 else 0\nres = f(2.5)",
+    ) ==
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: IntValue(0) }])),
+  )
+}
+
+///|
+test "PKL-114: Float? narrows on is Float guard (typecheck)" {
+  assert_true(
+    typecheck_source(
+      "function bump(x: Float?): Float = if (x is Float) x + 0.5 else 0.0\nvalue = bump(1.5)",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: FloatType }])),
+  )
+}
+
+///|
+test "PKL-114: Number narrows on is Int positive guard (typecheck)" {
+  assert_true(
+    typecheck_source(
+      "function plusOne(x: Number): Int = if (x is Int) x + 1 else 0\nvalue = plusOne(3)",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+}
+
+///|
+test "PKL-114: Number narrows on is Float positive guard (typecheck)" {
+  assert_true(
+    typecheck_source(
+      "function plusHalf(x: Number): Float = if (x is Float) x + 0.5 else 0.0\nvalue = plusHalf(3.0)",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: FloatType }])),
+  )
+}
+
+///|
 test "Number constraint predicate accepts both Int and Float" {
   assert_true(
     eval_source("a: Number(isPositive) = 3\nb: Number(isPositive) = 0.5") ==

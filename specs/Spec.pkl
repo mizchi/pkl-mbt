@@ -1567,7 +1567,8 @@ local floatThresholdConstraints = new Scenario {
     }
     new Decision {
       date = "2026-05-15"
-      summary = "Truncate Double thresholds back to Int when they flow into `length.isBetween` style predicates"
+      summary =
+        "Truncate Double thresholds back to Int when they flow into `length.isBetween` style predicates"
       rationale =
         "The numeric predicate parser is shared between the `Float(isBetween(...))` host and the `String(length.isBetween(...))` host. The String host's downstream variant `StringLengthIsBetween` still takes Int because `length` is Int. Truncation via `Double::to_int` matches Apple Pkl's `length.isBetween(2.5, 3.5)` reading (round toward zero, identical to writing `length.isBetween(2, 3)`); the alternative (rejecting Float thresholds for length) would require a separate Int-only parser variant and a third error message."
     }
@@ -1576,6 +1577,46 @@ local floatThresholdConstraints = new Scenario {
       summary = "Hand-roll the Double text parser instead of leaning on `@strconv.parse_double`"
       rationale =
         "The constraint-text parser sits next to `pkl_parse_constraint_int_text` and follows the same hand-rolled walk style. Pulling in `moonbitlang/core/strconv` for the Double form would add a dependency for one helper, and the surface here is small (`-?<digits>(\\.<digits>)?`) — exponent notation is parser-level (PKL-128) and not reached from constraint text. The hand-rolled walk also returns `None` on trailing garbage, which lets the predicate parser fall through cleanly instead of catching a strconv exception."
+    }
+  }
+}
+
+local isOperatorRuntime = new Scenario {
+  id = "PKL-114"
+  name = "is operator runtime evaluation"
+  description =
+    "The `is` operator evaluates at runtime: `5 is Int` returns `true`, `1.5 is Float` returns `true`, `5 is Number` and `1.5 is Number` both return `true`, `\"x\" is Int` returns `false`, and `if (x is Int) ...` actually branches on the runtime type of `x` instead of failing with `operator is is parser-only`. The new `value_is_type(value, type_name)` helper in `eval.mbt` mirrors the surface that the typechecker's `type_from_annotation` accepts: union (`String | Int`), nullable (`Float?`), constrained (`Int(isPositive)` strips the predicate and falls back on the base type), and generic (`Listing<Int>` / `Mapping<String, Int>` route to `ListingValue` / `MappingValue` without inspecting elements). User-defined class names fall through to `false` for now — class-instance dispatch needs class tags on `ObjectValue`, which is out of scope for this slice. The typechecker's is-guard narrowing was already generic enough for `Float / Number / TypeVariable` paths via the existing `UnionType` / `NullableType` recursion (PKL-092 widened `Number` to `UnionType([IntType, FloatType])` and PKL-110 made `TypeVariable(_)` accept-any in `type_accepts`), so the scope reduces to the evaluator side."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-092"; "PKL-110" }
+  tags { "evaluator"; "is-operator"; "narrowing" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary =
+        "Drop the parser-only stub and add a value-classification helper on the evaluator side"
+      rationale =
+        "The `Is | As | Pipe => parser-only` branch was a stub from the earliest evaluator that signalled 'parsed but not interpretable'. With the typechecker's `Number = UnionType([IntType, FloatType])` and `TypeVariable(_)` accept-any in place, the typecheck side already routes is-guards through the structural narrowing pass for every type the surface admits. The missing piece was the evaluator's runtime classification — `value_is_type` covers the same shape and lets `if (x is Int) ...` finally branch instead of erroring."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary =
+        "Reuse `pkl_constraint_trim` / `split_top_level_union_choices` / `generic_argument_text` / `pkl_constrained_type_base_name` instead of forking a new parser"
+      rationale =
+        "The type-annotation text the parser stores in the `is` right operand has the same grammar the typechecker already parses for `Listing<T>` / `Mapping<K, V>` / `Float?` / `Int(isPositive)`. Reusing the existing helpers keeps the classification rules in lock-step — when the parser surface grows (e.g. PKL-128 scientific notation, triple-quoted strings) only one set of helpers needs to update."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Leave user-defined class names returning `false` from `value_is_type` for now"
+      rationale =
+        "Class-instance dispatch needs `ObjectValue` to carry a class tag (the typechecker has `ClassType(name, _)` but the evaluator's `ObjectValue([members])` does not). Tagging is a separate slice (the design touches `new <ClassName> { ... }` instantiation, amends, and renderer round-trips). Returning `false` for unknown class names is the conservative choice — `if (x is Box) ...` always takes the else branch, preserving sound runtime behaviour."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Leave `As` and `Pipe` on the parser-only stub"
+      rationale =
+        "`As` (type coercion) and `Pipe` (`|>` operator) are independent slices in the roadmap (PKL-128 parser surface expansion covers `|>`). PKL-114's scope is the `is` operator; mixing `as` runtime evaluation in would muddle the slice boundary. The error message stays the same for those two, so authoring still gets a clear `parser-only` hint when they reach for them."
     }
   }
 }
@@ -1605,7 +1646,8 @@ local equalityTypecheckOperandMatch = new Scenario {
     }
     new Decision {
       date = "2026-05-15"
-      summary = "Accept any `ObjectType` / `ListingType` / `MappingType` pair instead of requiring per-element match"
+      summary =
+        "Accept any `ObjectType` / `ListingType` / `MappingType` pair instead of requiring per-element match"
       rationale =
         "Per-element structural equality is the runtime concern (`Object.equals` walks the members at runtime). At the typecheck layer rejecting `{ a = 1 } == { b = 2 }` would surface as a noisy error in valid programs (`map` / `filter` outputs comparing against literals, fixture-style equality checks). The compatibility relation therefore accepts any same-kind structural pair — false positives at this layer mean runtime evaluates to `false`, which matches Apple Pkl's behaviour."
     }
@@ -2699,5 +2741,6 @@ scenarios {
   floatPowerAndDivisionSemantics
   floatThresholdConstraints
   equalityTypecheckOperandMatch
+  isOperatorRuntime
   ...roadmap.entries
 }
