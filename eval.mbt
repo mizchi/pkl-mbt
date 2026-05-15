@@ -69,9 +69,13 @@ fn lookup_value(env : Array[ValueBinding], name : String) -> Value? {
 
 ///|
 fn lookup_member(members : Array[ValueMember], name : String) -> Value? {
+  // Hidden / local members carry the `hidden_member_prefix` marker in their
+  // stored name so renderers can skip them. A lookup for the bare name
+  // resolves either form so the caller sees the same data the writer wrote.
+  let prefixed = hidden_member_name(name)
   let mut found : Value? = None
   for field in members {
-    if field.name == name {
+    if field.name == name || field.name == prefixed {
       found = Some(field.value)
     }
   }
@@ -3491,13 +3495,18 @@ fn render_pcf_block_body(
     ObjectValue([]) | ListingValue([]) | MappingValue([]) =>
       buf.write_string("{}")
     ObjectValue(members) => {
+      let visible = visible_members(members)
+      if visible.length() == 0 {
+        buf.write_string("{}")
+        return
+      }
       buf.write_string("{\n")
-      for i = 0; i < members.length(); i = i + 1 {
+      for i = 0; i < visible.length(); i = i + 1 {
         if i > 0 {
           buf.write_char('\n')
         }
         write_pcf_indent(buf, indent + 2)
-        render_pcf_object_member(members[i], indent + 2, buf)
+        render_pcf_object_member(visible[i], indent + 2, buf)
       }
       buf.write_char('\n')
       write_pcf_indent(buf, indent)
@@ -3568,12 +3577,28 @@ fn render_pcf_mapping_entry(
 }
 
 ///|
+fn visible_members(members : Array[ValueMember]) -> Array[ValueMember] {
+  // Hidden / local members carry the `hidden_member_prefix` marker; every
+  // renderer projects through this filter so the prefix never reaches the
+  // output. `lookup_member` still resolves bare-name reads against the
+  // prefixed entry, so omitting members here doesn't break runtime access.
+  let result : Array[ValueMember] = []
+  for field in members {
+    if !is_hidden_member_name(field.name) {
+      result.push(field)
+    }
+  }
+  result
+}
+
+///|
 fn render_pcf_module(members : Array[ValueMember], buf : StringBuilder) -> Unit {
-  for i = 0; i < members.length(); i = i + 1 {
+  let visible = visible_members(members)
+  for i = 0; i < visible.length(); i = i + 1 {
     if i > 0 {
       buf.write_char('\n')
     }
-    render_pcf_object_member(members[i], 0, buf)
+    render_pcf_object_member(visible[i], 0, buf)
   }
 }
 
@@ -3682,19 +3707,20 @@ fn render_json_object_from_members(
   indent : Int,
   buf : StringBuilder,
 ) -> Unit {
-  if members.length() == 0 {
+  let visible = visible_members(members)
+  if visible.length() == 0 {
     buf.write_string("{}")
     return
   }
   buf.write_string("{\n")
-  for i = 0; i < members.length(); i = i + 1 {
+  for i = 0; i < visible.length(); i = i + 1 {
     if i > 0 {
       buf.write_string(",\n")
     }
     write_json_indent(buf, indent + 2)
-    render_json_string(members[i].name, buf)
+    render_json_string(visible[i].name, buf)
     buf.write_string(": ")
-    render_json_value(members[i].value, indent + 2, buf)
+    render_json_value(visible[i].value, indent + 2, buf)
   }
   buf.write_char('\n')
   write_json_indent(buf, indent)
@@ -3773,12 +3799,14 @@ pub fn render_value_as_yaml(value : Value) -> String {
 ///|
 fn render_yaml_root(value : Value, buf : StringBuilder) -> Unit {
   match value {
-    ObjectValue(members) =>
-      if members.length() == 0 {
+    ObjectValue(members) => {
+      let visible = visible_members(members)
+      if visible.length() == 0 {
         buf.write_string("{}\n")
       } else {
-        render_yaml_mapping_members(members, 0, buf)
+        render_yaml_mapping_members(visible, 0, buf)
       }
+    }
     MappingValue(entries) =>
       if entries.length() == 0 {
         buf.write_string("{}\n")
@@ -3804,11 +3832,12 @@ fn render_yaml_mapping_members(
   indent : Int,
   buf : StringBuilder,
 ) -> Unit {
-  for i = 0; i < members.length(); i = i + 1 {
+  let visible = visible_members(members)
+  for i = 0; i < visible.length(); i = i + 1 {
     write_yaml_indent(buf, indent)
-    render_yaml_key(members[i].name, buf)
+    render_yaml_key(visible[i].name, buf)
     buf.write_char(':')
-    render_yaml_block_value(members[i].value, indent, buf)
+    render_yaml_block_value(visible[i].value, indent, buf)
   }
 }
 
@@ -3833,13 +3862,15 @@ fn render_yaml_block_value(
   buf : StringBuilder,
 ) -> Unit {
   match value {
-    ObjectValue(members) =>
-      if members.length() == 0 {
+    ObjectValue(members) => {
+      let visible = visible_members(members)
+      if visible.length() == 0 {
         buf.write_string(" {}\n")
       } else {
         buf.write_char('\n')
-        render_yaml_mapping_members(members, indent + 2, buf)
+        render_yaml_mapping_members(visible, indent + 2, buf)
       }
+    }
     MappingValue(entries) =>
       if entries.length() == 0 {
         buf.write_string(" {}\n")
@@ -3884,21 +3915,23 @@ fn render_yaml_seq_item(
   // The first sub-member or sub-element shares the `- ` line; the rest are
   // continued at `indent` (two spaces past the `- `).
   match value {
-    ObjectValue(members) =>
-      if members.length() == 0 {
+    ObjectValue(members) => {
+      let visible = visible_members(members)
+      if visible.length() == 0 {
         buf.write_string(" {}\n")
       } else {
         buf.write_char(' ')
-        render_yaml_key(members[0].name, buf)
+        render_yaml_key(visible[0].name, buf)
         buf.write_char(':')
-        render_yaml_block_value(members[0].value, indent, buf)
-        for i = 1; i < members.length(); i = i + 1 {
+        render_yaml_block_value(visible[0].value, indent, buf)
+        for i = 1; i < visible.length(); i = i + 1 {
           write_yaml_indent(buf, indent)
-          render_yaml_key(members[i].name, buf)
+          render_yaml_key(visible[i].name, buf)
           buf.write_char(':')
-          render_yaml_block_value(members[i].value, indent, buf)
+          render_yaml_block_value(visible[i].value, indent, buf)
         }
       }
+    }
     MappingValue(entries) =>
       if entries.length() == 0 {
         buf.write_string(" {}\n")
@@ -4221,7 +4254,7 @@ fn render_properties_members(
   prefix : String,
   buf : StringBuilder,
 ) -> Unit {
-  for field in members {
+  for field in visible_members(members) {
     render_properties_leaf(prefix, field.name, field.value, buf)
   }
 }
@@ -4292,14 +4325,15 @@ fn write_compact_json_value(value : Value, buf : StringBuilder) -> Unit {
     NullValue => buf.write_string("null")
     StringValue(s) => render_json_string(s, buf)
     ObjectValue(members) => {
+      let visible = visible_members(members)
       buf.write_char('{')
-      for i = 0; i < members.length(); i = i + 1 {
+      for i = 0; i < visible.length(); i = i + 1 {
         if i > 0 {
           buf.write_char(',')
         }
-        render_json_string(members[i].name, buf)
+        render_json_string(visible[i].name, buf)
         buf.write_char(':')
-        write_compact_json_value(members[i].value, buf)
+        write_compact_json_value(visible[i].value, buf)
       }
       buf.write_char('}')
     }

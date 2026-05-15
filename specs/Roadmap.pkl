@@ -26,7 +26,7 @@ local typeAliasedCallableArgumentEvaluation: Spec.Scenario = new {
     "Function, lambda, and class method calls resolve typealiased parameter annotations through the alias chain at runtime so built-in and user-defined constrained predicates fire when the constraint is declared via a typealias such as typealias Small = Int(isBetween(0, 10))."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-066"; "PKL-068" }
-  tags { "evaluator"; "callable"; "typealias" }
+  tags { "evaluator"; "callable"; "typealias"; "next" }
   reviewStatus = "draft"
   severity = "major"
   decisions {
@@ -131,17 +131,6 @@ local readTraceThrow: Spec.Scenario = new {
 
 
 
-local hiddenAndLocalMembers: Spec.Scenario = new {
-  id = "PKL-087"
-  name = "hidden and local object members"
-  description =
-    "Members declared `hidden ` or `local ` are visible inside expressions but absent from rendered output. The interpreter and every renderer respects this distinction."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-070" }
-  tags { "evaluator"; "renderer"; "object"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
 
 // ── type system expansion ───────────────────────────────────────────────────
 
@@ -262,7 +251,6 @@ entries: Listing<Spec.Scenario> = new {
   durationAndDataSize
   bytesLiterals
   readTraceThrow
-  hiddenAndLocalMembers
   genericClassDeclarations
   genericFunctionTypeParameters
   stringConstraintPredicates

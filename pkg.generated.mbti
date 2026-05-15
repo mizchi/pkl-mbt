@@ -59,6 +59,10 @@ pub fn gt() -> @cst.SyntaxKind
 
 pub fn gte() -> @cst.SyntaxKind
 
+pub fn hidden_member_name(String) -> String
+
+pub let hidden_member_prefix : String
+
 pub fn identifier() -> @cst.SyntaxKind
 
 pub fn if_kw() -> @cst.SyntaxKind
@@ -74,6 +78,8 @@ pub fn in_kw() -> @cst.SyntaxKind
 pub fn int_div() -> @cst.SyntaxKind
 
 pub fn int_token() -> @cst.SyntaxKind
+
+pub fn is_hidden_member_name(String) -> Bool
 
 pub fn is_kw() -> @cst.SyntaxKind
 

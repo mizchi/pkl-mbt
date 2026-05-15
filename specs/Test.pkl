@@ -84,6 +84,7 @@ local moonUnit = new Test {
     "PKL-079"
     "PKL-085"
     "PKL-086"
+    "PKL-087"
     "PKL-088"
   }
   cmd = "moon test --target js"

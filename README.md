@@ -50,6 +50,7 @@ The current slice is intentionally small and executable:
 - null-coalescing operator `a ?? b` (right-associative, short-circuit) and `let (name = value) body` expression form (single scoped binding desugared at parse time into a single-parameter lambda application)
 - object-body `when (cond) { ... } else { ... }` conditionals that splice the picked branch's members into the surrounding object (the `else` branch is optional)
 - object-body `for (var in source) { ... }` and `for (var1, var2 in source) { ... }` generators that iterate Listings and Mappings; per-iteration members merge with last-write-wins semantics, and `for` composes with `when` inside the body
+- `hidden` and `local` object-member modifiers (and module-level `hidden`) that keep the member resolvable via `lookup_member` but skip it in every renderer (PCF / JSON / YAML / Properties)
 - native CLI commands: `parse`, `check`, and `eval`
 - common string escape decoding/rendering for `\n`, `\t`, `\r`, `\"`, and `\\`
 - ripple-backed `AnalysisSession` for source-driven typechecking
@@ -60,7 +61,7 @@ The current slice is intentionally small and executable:
 
 ## Current Completion Estimate
 
-As of the `PKL-085` spec slice, this project has 81 implemented pkspec scenarios and a 16-entry roadmap of draft slices in `specs/Roadmap.pkl`. The next tracked slice is `PKL-087`, which makes `hidden` / `local` members invisible to renderers while still reachable inside expressions. `PKL-080` (minimal `pkl:reflect`) stays in the roadmap as a deeper follow-up since its API surface requires the full Class / Property / Type object graph. The constraint round-off task `PKL-069` is also kept in the roadmap as a draft.
+As of the `PKL-087` spec slice, this project has 82 implemented pkspec scenarios and a 15-entry roadmap of draft slices in `specs/Roadmap.pkl`. The next tracked slice is `PKL-069`, which threads typealiased parameter annotations through the runtime argument-rejection helper so constraints declared via a typealias fire at call sites. `PKL-080` (minimal `pkl:reflect`) stays in the roadmap as a deeper follow-up since its API surface requires the full Class / Property / Type object graph.
 
 These are engineering estimates, not formal coverage numbers:
 
@@ -114,4 +115,4 @@ git submodule update --init --recursive
 
 ## Scope
 
-This is not a full Pkl implementation yet. With the four-renderer surface (PCF / JSON / YAML / Properties), the core `pkl:base` Listing / Mapping / String / Int builtins, the Int-side `pkl:math` constants and helpers, the `??` / `let (...)` expression forms, and the object-body `when` / `for` generators in place, the next compatibility work pivots to `PKL-087` `hidden` / `local` member visibility; the full draft roadmap lives in `specs/Roadmap.pkl`.
+This is not a full Pkl implementation yet. With the four-renderer surface (PCF / JSON / YAML / Properties), the core `pkl:base` Listing / Mapping / String / Int builtins, the Int-side `pkl:math` constants and helpers, the `??` / `let (...)` expression forms, the object-body `when` / `for` generators, and `hidden` / `local` member filtering in place, the next compatibility work pivots to `PKL-069` typealiased argument resolution; the full draft roadmap lives in `specs/Roadmap.pkl`.

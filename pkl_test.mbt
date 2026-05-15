@@ -1912,6 +1912,95 @@ test "object body for-generator composes with when-conditionals" {
 }
 
 ///|
+test "hidden object members are kept out of the PCF render" {
+  // `hidden` modifier on an object member retains the member in the
+  // evaluated object (so other code can still read it) but the PCF
+  // renderer skips it.
+  let source = "result {\n  visible = 1\n  hidden invisible = 2\n}"
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  inspect(
+    render_value(value),
+    content=(
+      #|result {
+      #|  visible = 1
+      #|}
+    ),
+  )
+}
+
+///|
+test "local object members are kept out of the PCF render" {
+  // `local` modifier on an object member receives the same render-side
+  // treatment as `hidden` here — both omit the member from rendered output.
+  let source = "result {\n  visible = 1\n  local helper = 99\n}"
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  inspect(
+    render_value(value),
+    content=(
+      #|result {
+      #|  visible = 1
+      #|}
+    ),
+  )
+}
+
+///|
+test "JSON renderer skips hidden and local members" {
+  let source = "result {\n  visible = 1\n  hidden invisible = 2\n  local helper = 3\n}"
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  inspect(
+    render_value_as_json(value),
+    content=(
+      #|{
+      #|  "result": {
+      #|    "visible": 1
+      #|  }
+      #|}
+    ),
+  )
+}
+
+///|
+test "YAML renderer skips hidden and local members" {
+  let source = "result {\n  visible = 1\n  hidden invisible = 2\n  local helper = 3\n}"
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  inspect(
+    render_value_as_yaml(value),
+    content=(
+      #|result:
+      #|  visible: 1
+      #|
+    ),
+  )
+}
+
+///|
+test "Properties renderer skips hidden and local members" {
+  let source = "result {\n  visible = 1\n  hidden invisible = 2\n  local helper = 3\n}"
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  inspect(
+    render_value_as_properties(value),
+    content=(
+      #|result.visible = 1
+      #|
+    ),
+  )
+}
+
+///|
+test "module-level visible properties survive the hidden filter" {
+  let source = "name = \"hawk\"\nhidden internal = \"secret\"\nlocal helper = 99\nage = 2"
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  inspect(
+    render_value(value),
+    content=(
+      #|name = "hawk"
+      #|age = 2
+    ),
+  )
+}
+
+///|
 test "render Pkl module bindings as Java Properties" {
   let value : Value = ObjectValue([
     ValueMember::{ name: "name", value: StringValue("pigeon") },

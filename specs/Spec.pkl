@@ -1464,6 +1464,44 @@ local jsonRenderer = new Scenario {
   }
 }
 
+local hiddenAndLocalMembers = new Scenario {
+  id = "PKL-087"
+  name = "hidden and local object members"
+  description =
+    "Object-body members declared with the `hidden` modifier or the `local` keyword are kept inside the evaluated `ObjectValue` (so `lookup_member` still resolves bare-name reads against them) but are skipped by every renderer (PCF / JSON / YAML / Properties). Module-level `hidden` bindings get the same render-side filter; module-level `local` already routed through `parse_local_decl`, which marks the binding `exported: false` so the renderer never sees it in the first place. The render filter is a single `visible_members` projection applied at the entry of each renderer's member loop, keyed off a reserved `@hidden$` name prefix that the lexer rejects as an identifier character so it cannot collide with user-declared properties."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-070"; "PKL-071"; "PKL-072"; "PKL-073"; "PKL-074" }
+  tags { "evaluator"; "renderer"; "object" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Mark hidden members via a name-prefix marker instead of widening ValueMember"
+      rationale =
+        "Adding a `hidden : Bool` field to `ValueMember` would force updating ~334 struct-literal constructions in the test suite (the source uses shorthand field-name punning that MoonBit cannot extend with a default). A reserved name prefix (`@hidden$`) achieves the same goal — distinguishing renderable from non-renderable members — without touching the struct shape, and the lexer's rejection of `@` / `$` in identifiers guarantees the prefix cannot collide with anything in user source."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Resolve bare-name reads against either the bare or prefixed form in `lookup_member`"
+      rationale =
+        "Apple Pkl's `hidden` keeps the member reachable from outside the object (renderers drop it; member access still resolves it). The bare-name lookup must therefore match the prefixed entry transparently. Extending `lookup_member` to try both forms keeps the visibility contract intact without forcing every caller to know about the prefix."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Split visibility-consumption between module-level and object-body parsers"
+      rationale =
+        "Module-level `local` is a binding-declaration keyword that routes through `parse_local_decl` and produces `exported: false` bindings. Reusing the object-body visibility consumer at module level would swallow that keyword before `parse_local_decl` could see it, breaking 16 existing tests. The split — `consume_member_visibility_modifiers` for object bodies (handles both `hidden` text and `local` keyword) and `consume_module_visibility_modifiers` for module level (handles only `hidden` text) — keeps the keyword's existing role intact."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Treat `local` and `hidden` identically on the render side"
+      rationale =
+        "Apple Pkl's `hidden` keeps the member reachable via member access; `local` is supposed to be scoped to the declaring body and unreachable from outside. Our evaluator currently lacks sibling-visibility for object-body members (the existing tests of sibling references show `unbound identifier`), so the stricter `local` scoping isn't observable yet. Producing identical render-filtering for both modifiers ships the renderer contract now and leaves the stricter scoping for a follow-up slice that bundles sibling visibility."
+    }
+  }
+}
+
 local objectBodyForGenerators = new Scenario {
   id = "PKL-085"
   name = "evaluate object body for-generators"
@@ -1866,5 +1904,6 @@ scenarios {
   nullCoalescingAndLet
   objectBodyWhenConditionals
   objectBodyForGenerators
+  hiddenAndLocalMembers
   ...roadmap.entries
 }
