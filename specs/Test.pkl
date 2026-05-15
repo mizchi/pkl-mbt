@@ -200,23 +200,25 @@ local cliTestFail = new Test {
 local upstreamSmoke = new Test {
   name = "upstream apple pkl fixture smoke"
   description =
-    "Selected fixtures from the apple/pkl submodule parse and evaluate through the native CLI."
+    "Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output."
   tags { "moonbit"; "upstream"; "compatibility"; "contract" }
-  specRef { "PKL-011"; "PKL-012"; "PKL-013"; "PKL-014"; "PKL-060" }
+  specRef { "PKL-011"; "PKL-012"; "PKL-013"; "PKL-014"; "PKL-060"; "PKL-096" }
   cmd = "./scripts/upstream-smoke.sh"
   workdir = ".."
   expectStdoutContains {
     "upstream parse ok: basic/import1.pkl"
-    "upstream eval ok: basic/parens.pkl"
-    "upstream eval ok: basic/import1.pkl"
-    "upstream eval ok: basic/import2.pkl"
-    "upstream eval ok: basic/import3.pkl"
-    "upstream eval ok: modules/filename with spaces.pkl"
-    "upstream eval ok: modules/filename with spaces 2.pkl"
-    "upstream eval ok: modules/objects.pkl"
+    "upstream eval ok: basic/parens (gold match)"
+    "upstream eval ok: basic/import1 (gold match)"
+    "upstream eval ok: basic/baseModule (gold match)"
+    "upstream eval ok: basic/comments (gold match)"
+    "upstream eval ok: basic/indexExpressions (gold match)"
+    "upstream eval ok: classes/class1 (gold match)"
+    "upstream eval ok: modules/amendModule1 (gold match)"
+    "upstream eval ok: types/nothingWithUnions (gold match)"
     "upstream eval ok: classes/constraints8.pkl"
+    "upstream-smoke: 25 gold-match fixtures passed"
   }
-  timeoutSec = 180
+  timeoutSec = 240
 }
 
 local upstreamParserSuite = new Test {

@@ -61,13 +61,13 @@ The current slice is intentionally small and executable:
 - common string escape decoding/rendering for `\n`, `\t`, `\r`, `\"`, and `\\`
 - ripple-backed `AnalysisSession` for source-driven typechecking
 - pkspec contracts for the implemented behavior
-- selected compatibility smoke checks against the `apple/pkl` submodule
+- byte-for-byte gold-match against the upstream `apple/pkl` smoke suite for 25 hand-curated fixtures across `basic` / `classes` / `modules` / `objects` / `types`, gated by `scripts/upstream-smoke.sh`
 - parse-only compatibility with the upstream `LanguageSnippetTests` parser corpus
 - pkfire task graph for local CI
 
 ## Current Completion Estimate
 
-As of the `PKL-083` spec slice, this project has 90 implemented pkspec scenarios and a 7-entry roadmap of draft slices in `specs/Roadmap.pkl`. The next tracked slice is `PKL-096`, which expands `scripts/upstream-smoke.sh` from the current ~10 hand-picked fixtures to a broader sweep over `LanguageSnippetTests/input/basic`, gating new failures via the script. `PKL-080` (minimal `pkl:reflect`) stays in the roadmap as a deeper follow-up since its API surface requires the full Class / Property / Type object graph.
+As of the `PKL-096` spec slice, this project has 91 implemented pkspec scenarios and a 6-entry roadmap of draft slices in `specs/Roadmap.pkl`. The next tracked slice is `PKL-097`, which extends the gold-diff coverage from PCF to the JSON renderer so `eval -f json` output is also pinned against `LanguageSnippetTests/output/<dir>/<name>.json`. `PKL-080` (minimal `pkl:reflect`) stays in the roadmap as a deeper follow-up since its API surface requires the full Class / Property / Type object graph.
 
 These are engineering estimates, not formal coverage numbers:
 
@@ -121,4 +121,4 @@ git submodule update --init --recursive
 
 ## Scope
 
-This is not a full Pkl implementation yet. With the four-renderer surface (PCF / JSON / YAML / Properties), the core `pkl:base` Listing / Mapping / String / Int builtins, the Int-side `pkl:math` constants and helpers, the `??` / `let (...)` expression forms, the object-body `when` / `for` generators, `hidden` / `local` member filtering, typealiased argument resolution, the Int-magnitude `Duration` / `DataSize` literals, the `Regex` literal + method surface, the String constraint predicate cascade, collection element constraint propagation, the CLI `--format` long-form dispatch, the CLI `test` subcommand for `facts`, and the `Bytes` literal + base64 / UTF-8 surface closed out, the next compatibility work pivots to `PKL-096` (broader upstream fixture sweep); the full draft roadmap lives in `specs/Roadmap.pkl`.
+This is not a full Pkl implementation yet. With the four-renderer surface (PCF / JSON / YAML / Properties), the core `pkl:base` Listing / Mapping / String / Int builtins, the Int-side `pkl:math` constants and helpers, the `??` / `let (...)` expression forms, the object-body `when` / `for` generators, `hidden` / `local` member filtering, typealiased argument resolution, the Int-magnitude `Duration` / `DataSize` literals, the `Regex` literal + method surface, the String constraint predicate cascade, collection element constraint propagation, the CLI `--format` long-form dispatch, the CLI `test` subcommand for `facts`, the `Bytes` literal + base64 / UTF-8 surface, and the broader upstream fixture sweep (25 byte-for-byte gold matches) closed out, the next compatibility work pivots to `PKL-097` (gold-diff for JSON output too); the full draft roadmap lives in `specs/Roadmap.pkl`.

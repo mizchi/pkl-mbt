@@ -7,6 +7,54 @@ cd "$ROOT"
 UPSTREAM="third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input"
 GOLD="third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/output"
 
+# PKL-096: list of upstream fixtures whose `pkl eval` output already
+# matches the gold `.pcf` byte-for-byte. Promote here only after a
+# manual diff run; new failures must be either fixed or explicitly
+# tracked outside this list (the script gates regressions).
+GOLD_FIXTURES=(
+  "basic/baseModule"
+  "basic/comments"
+  "basic/constModifier3"
+  "basic/fixedProperty1"
+  "basic/fixedProperty3"
+  "basic/import1"
+  "basic/import2"
+  "basic/import3"
+  "basic/imported"
+  "basic/indexExpressions"
+  "basic/parens"
+  "basic/semicolon"
+  "classes/class1"
+  "classes/constraintsLambdaThis"
+  "classes/functions2"
+  "modules/amendModule1"
+  "modules/amendModule2"
+  "modules/amendModule3"
+  "modules/filename with spaces"
+  "modules/filename with spaces 2"
+  "modules/library"
+  "modules/objects"
+  "modules/supercalls1"
+  "objects/implicitReceiver3"
+  "types/nothingWithUnions"
+)
+
+# Files whose `pkl parse` should succeed even when we cannot evaluate
+# them (e.g. they exercise stdlib gaps or runtime semantics outside
+# the implemented slice). Keeping a parse-only check pins the parser
+# surface.
+PARSE_ONLY=(
+  "basic/parens.pkl"
+  "basic/import1.pkl"
+  "basic/import2.pkl"
+  "basic/import3.pkl"
+  "basic/imported.pkl"
+  "modules/filename with spaces.pkl"
+  "modules/filename with spaces 2.pkl"
+  "modules/objects.pkl"
+  "classes/constraints8.pkl"
+)
+
 parse_ok() {
   local label="$1"
   local file="$2"
@@ -48,48 +96,18 @@ eval_contains() {
   printf 'upstream eval ok: %s\n' "$label"
 }
 
-parse_ok "basic/parens.pkl" "$UPSTREAM/basic/parens.pkl"
-parse_ok "basic/import1.pkl" "$UPSTREAM/basic/import1.pkl"
-parse_ok "basic/import2.pkl" "$UPSTREAM/basic/import2.pkl"
-parse_ok "basic/import3.pkl" "$UPSTREAM/basic/import3.pkl"
-parse_ok "basic/imported.pkl" "$UPSTREAM/basic/imported.pkl"
-parse_ok \
-  "modules/filename with spaces.pkl" \
-  "$UPSTREAM/modules/filename with spaces.pkl"
-parse_ok \
-  "modules/filename with spaces 2.pkl" \
-  "$UPSTREAM/modules/filename with spaces 2.pkl"
-parse_ok "modules/objects.pkl" "$UPSTREAM/modules/objects.pkl"
-parse_ok "classes/constraints8.pkl" "$UPSTREAM/classes/constraints8.pkl"
+# Parse-only sanity for files that exercise the parser even when
+# evaluation depends on unimplemented features.
+for entry in "${PARSE_ONLY[@]}"; do
+  parse_ok "$entry" "$UPSTREAM/$entry"
+done
 
-eval_matches_gold \
-  "basic/parens.pkl" \
-  "$UPSTREAM/basic/parens.pkl" \
-  "$GOLD/basic/parens.pcf"
-eval_matches_gold \
-  "basic/import1.pkl" \
-  "$UPSTREAM/basic/import1.pkl" \
-  "$GOLD/basic/import1.pcf"
-eval_matches_gold \
-  "basic/import2.pkl" \
-  "$UPSTREAM/basic/import2.pkl" \
-  "$GOLD/basic/import2.pcf"
-eval_matches_gold \
-  "basic/import3.pkl" \
-  "$UPSTREAM/basic/import3.pkl" \
-  "$GOLD/basic/import3.pcf"
-eval_matches_gold \
-  "modules/filename with spaces.pkl" \
-  "$UPSTREAM/modules/filename with spaces.pkl" \
-  "$GOLD/modules/filename with spaces.pcf"
-eval_matches_gold \
-  "modules/filename with spaces 2.pkl" \
-  "$UPSTREAM/modules/filename with spaces 2.pkl" \
-  "$GOLD/modules/filename with spaces 2.pcf"
-eval_matches_gold \
-  "modules/objects.pkl" \
-  "$UPSTREAM/modules/objects.pkl" \
-  "$GOLD/modules/objects.pcf"
+# Gold-match each fixture in the curated list.
+ok_count=0
+for label in "${GOLD_FIXTURES[@]}"; do
+  eval_matches_gold "$label" "$UPSTREAM/$label.pkl" "$GOLD/$label.pcf"
+  ok_count=$((ok_count + 1))
+done
 
 # classes/constraints8 carries our project-specific error diagnostic wording
 # rather than Apple Pkl's "Type constraint ... violated. Value: ..." text,
@@ -99,3 +117,5 @@ eval_contains \
   "classes/constraints8.pkl" \
   "$UPSTREAM/classes/constraints8.pkl" \
   "res2 = \"type annotation X member a constraint isGreaterThan rejects 5\""
+
+printf 'upstream-smoke: %d gold-match fixtures passed\n' "$ok_count"

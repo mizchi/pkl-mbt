@@ -109,18 +109,6 @@ local floatConstraintPredicates: Spec.Scenario = new {
 
 // ── CLI surface and upstream compatibility ──────────────────────────────────
 
-local upstreamFixtureEvaluation: Spec.Scenario = new {
-  id = "PKL-096"
-  name = "evaluate broader upstream Pkl fixtures"
-  description =
-    "Expand `scripts/upstream-smoke.sh` from the current ~10 fixtures to the bulk of `LanguageSnippetTests/input/basic`, accepting only those that exercise implemented language features and gating new failures via the script."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-075"; "PKL-077"; "PKL-085" }
-  tags { "compatibility"; "upstream"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 local upstreamGoldOutputDiff: Spec.Scenario = new {
   id = "PKL-097"
   name = "diff evaluation output against apple/pkl gold files"
@@ -128,7 +116,7 @@ local upstreamGoldOutputDiff: Spec.Scenario = new {
     "For each upstream fixture that evaluates, byte-diff the PCF / JSON output against the `expected` gold files in `LanguageSnippetTests/output`. Mismatches fail the smoke script."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-071"; "PKL-072"; "PKL-096" }
-  tags { "compatibility"; "upstream"; "renderer" }
+  tags { "compatibility"; "upstream"; "renderer"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -139,6 +127,5 @@ entries: Listing<Spec.Scenario> = new {
   genericClassDeclarations
   genericFunctionTypeParameters
   floatConstraintPredicates
-  upstreamFixtureEvaluation
   upstreamGoldOutputDiff
 }

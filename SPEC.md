@@ -68,7 +68,7 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **diff evaluation output against apple/pkl gold files** [draft] — verifies: PKL-097 — tags: compatibility, upstream, renderer
+- [ ] **diff evaluation output against apple/pkl gold files** [draft] — verifies: PKL-097 — tags: compatibility, upstream, renderer, next
   > For each upstream fixture that evaluates, byte-diff the PCF / JSON output against the `expected` gold files in `LanguageSnippetTests/output`. Mismatches fail the smoke script.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-071, PKL-072, PKL-096
@@ -163,10 +163,11 @@
   - contributes to: GOAL-PKL-PURE
   - body: _not yet implemented_
 
-- [ ] **evaluate broader upstream Pkl fixtures** [draft] — verifies: PKL-096 — tags: compatibility, upstream, next
-  > Expand `scripts/upstream-smoke.sh` from the current ~10 fixtures to the bulk of `LanguageSnippetTests/input/basic`, accepting only those that exercise implemented language features and gating new failures via the script.
+- [ ] **evaluate broader upstream Pkl fixtures with gold byte-diff** — verifies: PKL-096 — tags: compatibility, upstream, renderer
+  > `scripts/upstream-smoke.sh` carries an explicit list of `LanguageSnippetTests/input/<dir>/<name>.pkl` fixtures whose `pkl eval` output already matches the upstream gold `.pcf` file byte-for-byte. The script iterates the list, runs the fixture through the native CLI, diffs against `LanguageSnippetTests/output/<dir>/<name>.pcf`, and prints `upstream eval ok: <label> (gold match)` on success or a unified diff plus non-zero exit on any mismatch. The `parse_ok` and `eval_contains` paths from the original script remain so parser-only fixtures and the project-specific diagnostic-text fixture (`classes/constraints8.pkl`) keep their checks. The list lifts coverage from 7 hand-coded fixtures to 25 (`basic` 12, `classes` 3, `modules` 8, `objects` 1, `types` 1) and the trailing `upstream-smoke: <N> gold-match fixtures passed` summary lets the pkspec contract assert the total count instead of every individual line.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-075, PKL-077, PKL-085
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **evaluate constrained Pkl callable return annotations** — verifies: PKL-065 — tags: evaluator, callable, typechecker
@@ -700,8 +701,8 @@
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
-- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060 — tags: moonbit, upstream, compatibility, contract
-  > Selected fixtures from the apple/pkl submodule parse and evaluate through the native CLI.
+- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096 — tags: moonbit, upstream, compatibility, contract
+  > Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output.
   - body: `cmd` (exit 0 expected)
 
 - [x] **upstream apple pkl parser suite** — verifies: PKL-015 — tags: moonbit, upstream, parser, compatibility, contract

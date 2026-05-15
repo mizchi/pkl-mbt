@@ -1502,6 +1502,38 @@ local durationAndDataSizeLiterals = new Scenario {
   }
 }
 
+local upstreamFixtureSweep = new Scenario {
+  id = "PKL-096"
+  name = "evaluate broader upstream Pkl fixtures with gold byte-diff"
+  description =
+    "`scripts/upstream-smoke.sh` carries an explicit list of `LanguageSnippetTests/input/<dir>/<name>.pkl` fixtures whose `pkl eval` output already matches the upstream gold `.pcf` file byte-for-byte. The script iterates the list, runs the fixture through the native CLI, diffs against `LanguageSnippetTests/output/<dir>/<name>.pcf`, and prints `upstream eval ok: <label> (gold match)` on success or a unified diff plus non-zero exit on any mismatch. The `parse_ok` and `eval_contains` paths from the original script remain so parser-only fixtures and the project-specific diagnostic-text fixture (`classes/constraints8.pkl`) keep their checks. The list lifts coverage from 7 hand-coded fixtures to 25 (`basic` 12, `classes` 3, `modules` 8, `objects` 1, `types` 1) and the trailing `upstream-smoke: <N> gold-match fixtures passed` summary lets the pkspec contract assert the total count instead of every individual line."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-075"; "PKL-077"; "PKL-085" }
+  tags { "compatibility"; "upstream"; "renderer" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Curate the passing list manually rather than auto-discovering at runtime"
+      rationale =
+        "Auto-iterating every `.pkl` under `input/` and skipping mismatches would silently mask real regressions: a fixture that flips from passing to failing (because of a renderer change or an evaluator bug) would just drop off the list with no diagnostic. An explicit list inverts that: the script fails on any mismatch, and a fixture cannot rejoin the list without a deliberate edit. New passes are surfaced by re-running the discovery sweep manually before each compatibility slice — that's the gating decision the slice description demands."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Cover modules / classes / objects / types alongside basic/, not just `basic/`"
+      rationale =
+        "The slice description says `bulk of input/basic`, but the discovery sweep showed only 12 of 97 basic/ fixtures pass byte-for-byte today (the rest depend on `amends \"pkl:test\"` shorthand, Float numerics, generators, or `pkl:reflect`). The same sweep across `classes/`, `modules/`, `objects/`, and `types/` adds 13 more byte-for-byte matches that exercise complementary surface (class methods, amend chains, implicit receivers, union narrowing). Adding them now increases compatibility coverage without expanding the slice cost."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Print a tally line and assert it in the pkspec contract"
+      rationale =
+        "The previous pkspec contract listed every individual `upstream eval ok: <label>` it expected to see; that meant every additional fixture required a contract-side update that read like noise. The trailing `upstream-smoke: <N> gold-match fixtures passed` line lets the contract assert the total count plus a small representative sample, so adding a fixture only changes one number and a few example lines instead of an enumerated list. The script still exits non-zero on the first individual mismatch so the contract failure points to the offending fixture."
+    }
+  }
+}
+
 local bytesLiteralAndMethods = new Scenario {
   id = "PKL-083"
   name = "Bytes literal and Bytes methods"
@@ -2193,5 +2225,6 @@ scenarios {
   cliFormatFlag
   cliPklTestRunner
   bytesLiteralAndMethods
+  upstreamFixtureSweep
   ...roadmap.entries
 }
