@@ -1163,7 +1163,11 @@ fn is_listing_method_name(name : String) -> Bool {
     | "take"
     | "drop"
     | "join"
-    | "reverse" => true
+    | "reverse"
+    // PKL-134: read-only conversion methods used by pkf / pkspec's
+    // shape inspection chains (`tests.toList().map(...)`).
+    | "toList"
+    | "toMap" => true
     _ => false
   }
 }
@@ -1179,7 +1183,12 @@ fn is_mapping_property_name(name : String) -> Bool {
 ///|
 fn is_mapping_method_name(name : String) -> Bool {
   match name {
-    "containsKey" | "getOrNull" | "fold" => true
+    "containsKey"
+    | "getOrNull"
+    | "fold"
+    // PKL-134: identity conversion methods used by pkf / pkspec.
+    | "toMap"
+    | "toList" => true
     _ => false
   }
 }
@@ -1988,6 +1997,30 @@ fn eval_listing_method(
       }
       Some(acc)
     }
+    // PKL-134: identity conversion. Apple Pkl distinguishes Listing
+    // (CST-typed builder) from List (immutable indexed collection), but
+    // pkl-mbt collapses both into `ListingValue`, so toList is the
+    // identity at the runtime layer. toMap on a Listing is the empty
+    // map — matches Apple Pkl's behaviour when the Listing is not a
+    // Listing-of-Pair (Pair lands with PKL-119).
+    "toList" => {
+      if arg_values.length() != 0 {
+        diagnostics.push(Diagnostic::{
+          message: "Listing.toList expects 0 arguments, got \{arg_values.length()}",
+        })
+        return None
+      }
+      Some(ListingValue(elements))
+    }
+    "toMap" => {
+      if arg_values.length() != 0 {
+        diagnostics.push(Diagnostic::{
+          message: "Listing.toMap expects 0 arguments, got \{arg_values.length()}",
+        })
+        return None
+      }
+      Some(MappingValue([]))
+    }
     _ => None
   }
 }
@@ -2104,6 +2137,31 @@ fn eval_mapping_method(
         }
       }
       Some(acc)
+    }
+    // PKL-134: identity conversion. toMap on a Mapping is self;
+    // toList projects the entries' values (matching Apple Pkl's
+    // `Map.values.toList()` shape closely enough for shape-only chains).
+    "toMap" => {
+      if arg_values.length() != 0 {
+        diagnostics.push(Diagnostic::{
+          message: "Mapping.toMap expects 0 arguments, got \{arg_values.length()}",
+        })
+        return None
+      }
+      Some(MappingValue(entries))
+    }
+    "toList" => {
+      if arg_values.length() != 0 {
+        diagnostics.push(Diagnostic::{
+          message: "Mapping.toList expects 0 arguments, got \{arg_values.length()}",
+        })
+        return None
+      }
+      let values : Array[Value] = []
+      for entry in entries {
+        values.push(entry.value)
+      }
+      Some(ListingValue(values))
     }
     _ => None
   }

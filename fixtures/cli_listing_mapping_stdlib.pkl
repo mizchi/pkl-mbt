@@ -1,0 +1,21 @@
+// PKL-134: Listing / Mapping stdlib core methods
+xs = new Listing { 1; 2; 3 }
+
+ys: List<Int> = xs.toList()
+
+listLen = xs.length
+
+listEmpty = xs.isEmpty
+
+m = new Mapping {
+  ["a"] = 1
+  ["b"] = 2
+}
+
+m2 = m.toMap()
+
+mapLen = m.length
+
+mapKeys = m.keys
+
+mapValues = m.values

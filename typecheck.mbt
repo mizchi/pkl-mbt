@@ -223,6 +223,11 @@ fn builtin_type_from_annotation(name : String) -> Type? {
     "Object" => Some(ObjectType([]))
     "Listing" => Some(ListingType([]))
     "Mapping" => Some(MappingType([]))
+    // PKL-134: `List<T>` is Pkl's immutable indexed collection; pkl-mbt
+    // collapses Listing / List into the same runtime value so the
+    // typechecker treats them as the same shape. Once the value
+    // variants split (PKL-119) this alias becomes a distinct variant.
+    "List" => Some(ListingType([]))
     // PKL-133: top type. Maps to its own `AnyType` variant so render
     // output stays as `Any` instead of collapsing to `Unknown`.
     "Any" => Some(AnyType)
@@ -449,6 +454,15 @@ fn type_from_annotation(name : String, type_env : Array[TypeBinding]) -> Type? {
     None => ()
   }
   match generic_argument_text(name, "Listing") {
+    Some(inner_text) =>
+      match type_from_annotation(inner_text, type_env) {
+        Some(inner) => return Some(ListingType([inner]))
+        None => return None
+      }
+    None => ()
+  }
+  // PKL-134: `List<T>` aliases `Listing<T>` until the value variants split.
+  match generic_argument_text(name, "List") {
     Some(inner_text) =>
       match type_from_annotation(inner_text, type_env) {
         Some(inner) => return Some(ListingType([inner]))

@@ -1746,6 +1746,45 @@ local pklAnyType = new Scenario {
   }
 }
 
+local listingMappingStdlibCore = new Scenario {
+  id = "PKL-134"
+  name = "Listing and Mapping stdlib core methods"
+  description =
+    "The read-only conversion / shape methods on `Listing` and `Mapping` resolve as expected. `Listing.toList()` returns the same elements (pkl-mbt collapses Listing / List into one Value variant); `Listing.toMap()` returns the empty Mapping (Pair-based projections are deferred to PKL-119). `Mapping.toMap()` is the identity, `Mapping.toList()` projects the values. `length`, `isEmpty`, `keys`, `values` were already wired by earlier slices and stay green. Type annotation `List<T>` resolves to `ListingType([T])` via a new alias in `builtin_type_from_annotation` and `generic_argument_text(..., \"List\")` — the typechecker treats Listing / List as the same shape until PKL-119 introduces dedicated value variants. The method dispatch routes through `is_listing_method_name` / `is_mapping_method_name` + the existing `eval_listing_method` / `eval_mapping_method`, so the call-site grammar (`xs.toList()`) follows the same path as `xs.contains(v)`."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-075" }
+  tags { "stdlib"; "evaluator"; "typechecker"; "pkf-pkspec" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Collapse `Listing.toList()` and `Mapping.toMap()` into runtime identity"
+      rationale =
+        "Apple Pkl distinguishes the builder type `Listing` from the immutable indexed `List`, and the keyed-builder `Mapping` from the immutable `Map`. pkl-mbt has a single `ListingValue` and `MappingValue` variant for now (PKL-119 is the deferred slice that splits Set / Pair / Map / IntSeq into dedicated variants). Until that split happens, `toList` / `toMap` are runtime identities — they return the same Value with the same elements. The cost is that downstream methods that rely on a distinct List shape (e.g. `take`, `drop`) operate on a `Listing` and a `List` identically, which matches pkf / pkspec's use sites today (shape inspection chains) and surfaces no observable difference."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Add `List<T>` as an alias for `Listing<T>` in `type_from_annotation`"
+      rationale =
+        "Without this, pkspec's `local testNames: List<String> = tests.toList().map((t) -> t.name)` triggers `unknown type annotation List<String>`. The simplest fix is a dedicated lookup arm for `List` (both the bare name and the generic form) that produces the same `ListingType`. When PKL-119 introduces a `ListValue` variant, the alias can be replaced with a distinct binding — the call site stays the same."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "`Mapping.toList()` projects values rather than Pairs"
+      rationale =
+        "Apple Pkl's `Mapping.toList()` produces a `List<Pair<K, V>>`. pkl-mbt doesn't have `PairValue` yet (PKL-119 again), so the projection has to pick something representable. Values-only projection is what most pkspec chains end up doing (`m.values.toList()` is the idiomatic form), and emitting Pairs would either require a synthetic `ObjectValue` wrapper that downstream methods can't pattern-match, or block the slice entirely. Once Pair lands, the projection becomes a List<Pair>. Documented here so the future change is bounded."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary =
+        "Defer functional methods (`map` / `filter` / `flatMap` / `count` / `every` / `distinct`) to PKL-135"
+      rationale =
+        "The roadmap entry splits `Listing.toList()` (this slice) from the higher-order functional layer (PKL-135). The split keeps each slice tight: PKL-134 is purely dispatch + identity; PKL-135 introduces lambda-binding evaluation per element, which is a different mechanic. Several functional methods (`map`, `filter`, `fold`, `contains`, `take`, `drop`, `join`, `reverse`) are already wired — they were drive-by additions during PKL-075 — so PKL-135's scope narrows to the methods that remain unimplemented (`every`, `count`, `distinct` on Mapping, `flatMap`, `find`, `none`)."
+    }
+  }
+}
+
 local equalityTypecheckOperandMatch = new Scenario {
   id = "PKL-113"
   name = "equality typecheck operand match"
@@ -2870,5 +2909,6 @@ scenarios {
   genericTypealiasInstantiation
   typeParameterBounds
   pklAnyType
+  listingMappingStdlibCore
   ...roadmap.entries
 }

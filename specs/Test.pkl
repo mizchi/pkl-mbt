@@ -330,6 +330,30 @@ local cliAnyType = new Test {
   timeoutSec = 120
 }
 
+local cliListingMappingStdlib = new Test {
+  name = "cli listing mapping stdlib"
+  description =
+    "The native CLI evaluates a fixture that exercises Listing.toList / length / isEmpty, Mapping.toMap / length / keys / values, and the `List<T>` type annotation. Each method returns the expected value and the rendered PCF matches the equivalent literal."
+  tags { "moonbit"; "cli"; "stdlib"; "pkf-pkspec"; "contract" }
+  specRef { "PKL-134" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_listing_mapping_stdlib.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "xs {"
+    "ys {"
+    "listLen = 3"
+    "listEmpty = false"
+    "m {"
+    "m2 {"
+    "mapLen = 2"
+    "mapKeys {"
+    "\"a\""
+    "\"b\""
+    "mapValues {"
+  }
+  timeoutSec = 120
+}
+
 local cliGenericInference = new Test {
   name = "cli generic call-site inference"
   description =
@@ -532,6 +556,7 @@ tests {
   cliGenericTypealias
   cliTypeParameterBounds
   cliAnyType
+  cliListingMappingStdlib
   cliFormat
   cliTestExamplesPass
   cliTestExamplesFail

@@ -1,6 +1,6 @@
 # Test SPEC
 
-163 tests across 2 module(s) — 137 pending, 26 active
+164 tests across 2 module(s) — 137 pending, 27 active
 
 ## `specs/`
 
@@ -74,16 +74,10 @@
   - depends on: PKL-107
   - body: _not yet implemented_
 
-- [ ] **Listing / Mapping / List functional methods** [draft] — verifies: PKL-135 — tags: stdlib, evaluator, typechecker, pkf-pkspec
+- [ ] **Listing / Mapping / List functional methods** [draft] — verifies: PKL-135 — tags: stdlib, evaluator, typechecker, pkf-pkspec, next
   > `map((x) -> ...)`, `filter((x) -> ...)`, `flatMap((x) -> ...)`, `count((x) -> ...)`, `every((x) -> ...)`, `distinct`, `join(separator)`, `find((x) -> ...)`, plus the negative forms (`none((x) -> ...)`, `noneMatch`). pkspec uses these inside `Spec.pkl#tagSteps`, the `duplicateNames` check, and the rendered `Mapping` projections. Each method takes a lambda and produces a derived value; the evaluator routes through `apply_lambda(lambda, [arg])` already wired for PKL-110 generic inference.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-134
-  - body: _not yet implemented_
-
-- [ ] **Listing / Mapping stdlib core methods** [draft] — verifies: PKL-134 — tags: stdlib, evaluator, typechecker, pkf-pkspec, next
-  > Implement the core read-only methods on `Listing`, `Mapping`, and `List` that pkf / pkspec rely on for shape inspection: `.toList()`, `.toMap()`, `.keys`, `.values`, `.length`, `.isEmpty`. These are the gateway methods — once `xs.toList()` resolves, the chained functional methods in PKL-135 light up. Today the evaluator surfaces `unknown member toList`. Wire each method into `eval_member_access` against the matching `ListingValue` / `MappingValue` variant; the typechecker side recognises the method on `ListingType` / `MappingType` and returns the correct result type.
-  - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-075
   - body: _not yet implemented_
 
 - [ ] **Listing and Mapping element constraint propagation** — verifies: PKL-093 — tags: evaluator, typechecker, constraint, collection
@@ -91,6 +85,13 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-091, PKL-075
   - decisions: 3 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **Listing and Mapping stdlib core methods** — verifies: PKL-134 — tags: stdlib, evaluator, typechecker, pkf-pkspec
+  > The read-only conversion / shape methods on `Listing` and `Mapping` resolve as expected. `Listing.toList()` returns the same elements (pkl-mbt collapses Listing / List into one Value variant); `Listing.toMap()` returns the empty Mapping (Pair-based projections are deferred to PKL-119). `Mapping.toMap()` is the identity, `Mapping.toList()` projects the values. `length`, `isEmpty`, `keys`, `values` were already wired by earlier slices and stay green. Type annotation `List<T>` resolves to `ListingType([T])` via a new alias in `builtin_type_from_annotation` and `generic_argument_text(..., "List")` — the typechecker treats Listing / List as the same shape until PKL-119 introduces dedicated value variants. The method dispatch routes through `is_listing_method_name` / `is_mapping_method_name` + the existing `eval_listing_method` / `eval_mapping_method`, so the call-site grammar (`xs.toList()`) follows the same path as `xs.contains(v)`.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-075
+  - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **Regex literal and Regex methods** — verifies: PKL-081 — tags: evaluator, renderer, regex, stdlib
@@ -982,6 +983,10 @@
 
 - [x] **cli is operator runtime** — verifies: PKL-114 — tags: moonbit, cli, evaluator, is-operator, contract
   > The native CLI evaluates a fixture that exercises the `is` operator at runtime: `5 is Int`, `1.5 is Float`, `Number` checks against both Int and Float values, a negative check (`"x" is Int = false`), and an `if (x is Int) ...` branch inside a function. No `parser-only` diagnostic is raised — the evaluator routes through `value_is_type` and produces concrete Bool values.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli listing mapping stdlib** — verifies: PKL-134 — tags: moonbit, cli, stdlib, pkf-pkspec, contract
+  > The native CLI evaluates a fixture that exercises Listing.toList / length / isEmpty, Mapping.toMap / length / keys / values, and the `List<T>` type annotation. Each method returns the expected value and the rendered PCF matches the equivalent literal.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli reflect minimal stub** — verifies: PKL-080 — tags: moonbit, cli, pkl-reflect, stdlib, contract

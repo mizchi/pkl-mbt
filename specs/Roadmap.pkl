@@ -353,18 +353,6 @@ local lspServer: Spec.Scenario = new {
 // Promote PKL-133 first (smallest, no dependencies); the rest stack on
 // top of it in numerical order.
 
-local listingMappingStdlibCore: Spec.Scenario = new {
-  id = "PKL-134"
-  name = "Listing / Mapping stdlib core methods"
-  description =
-    "Implement the core read-only methods on `Listing`, `Mapping`, and `List` that pkf / pkspec rely on for shape inspection: `.toList()`, `.toMap()`, `.keys`, `.values`, `.length`, `.isEmpty`. These are the gateway methods — once `xs.toList()` resolves, the chained functional methods in PKL-135 light up. Today the evaluator surfaces `unknown member toList`. Wire each method into `eval_member_access` against the matching `ListingValue` / `MappingValue` variant; the typechecker side recognises the method on `ListingType` / `MappingType` and returns the correct result type."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-075" }
-  tags { "stdlib"; "evaluator"; "typechecker"; "pkf-pkspec"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 local listingMappingFunctional: Spec.Scenario = new {
   id = "PKL-135"
   name = "Listing / Mapping / List functional methods"
@@ -372,7 +360,7 @@ local listingMappingFunctional: Spec.Scenario = new {
     "`map((x) -> ...)`, `filter((x) -> ...)`, `flatMap((x) -> ...)`, `count((x) -> ...)`, `every((x) -> ...)`, `distinct`, `join(separator)`, `find((x) -> ...)`, plus the negative forms (`none((x) -> ...)`, `noneMatch`). pkspec uses these inside `Spec.pkl#tagSteps`, the `duplicateNames` check, and the rendered `Mapping` projections. Each method takes a lambda and produces a derived value; the evaluator routes through `apply_lambda(lambda, [arg])` already wired for PKL-110 generic inference."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-134" }
-  tags { "stdlib"; "evaluator"; "typechecker"; "pkf-pkspec" }
+  tags { "stdlib"; "evaluator"; "typechecker"; "pkf-pkspec"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -402,7 +390,6 @@ local amendsBaseMerge: Spec.Scenario = new {
 }
 
 entries: Listing<Spec.Scenario> = new {
-  listingMappingStdlibCore
   listingMappingFunctional
   whenConditionalProperty
   amendsBaseMerge

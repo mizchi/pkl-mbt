@@ -2165,6 +2165,65 @@ test "PKL-133: == accepts Any against any operand" {
 }
 
 ///|
+test "PKL-134: Listing.toList() returns same elements" {
+  assert_true(
+    eval_source("xs = new Listing { 1; 2; 3 }\nys = xs.toList()") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+        },
+        ValueMember::{
+          name: "ys",
+          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "PKL-134: Mapping.toMap() returns same entries" {
+  guard eval_source(
+      "m = new Mapping { [\"a\"] = 1; [\"b\"] = 2 }\nm2 = m.toMap()",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  inspect(members.length(), content="2")
+}
+
+///|
+test "PKL-134: List<T> type annotation resolves" {
+  guard typecheck_source("xs: List<Int> = new Listing { 1; 2; 3 }") is TypeOk(_) else {
+    panic()
+  }
+}
+
+///|
+test "PKL-134: Listing.length and isEmpty stay green" {
+  guard eval_source(
+      "xs = new Listing { 1; 2; 3 }\nn = xs.length\ne = xs.isEmpty",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  assert_true(members.length() == 3)
+}
+
+///|
+test "PKL-134: Mapping.keys and values stay green" {
+  guard eval_source(
+      "m = new Mapping { [\"a\"] = 1; [\"b\"] = 2 }\nks = m.keys\nvs = m.values",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  assert_true(members.length() == 3)
+}
+
+///|
 test "Number constraint predicate accepts both Int and Float" {
   assert_true(
     eval_source("a: Number(isPositive) = 3\nb: Number(isPositive) = 0.5") ==
