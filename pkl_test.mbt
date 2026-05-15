@@ -2001,6 +2001,61 @@ test "module-level visible properties survive the hidden filter" {
 }
 
 ///|
+test "typealiased function argument annotation enforces the alias constraint" {
+  // `typealias Small = Int(isBetween(0, 10))` should fire on the
+  // argument side just like the inline `Int(isBetween(0, 10))` form does.
+  // An argument outside the range must reject with the constraint
+  // message, not silently pass.
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "typealias Small = Int(isBetween(0, 10))\nincrement = (x: Small) -> x + 1\nbad = increment(11)",
+  )
+  guard session.eval_path("main.pkl") is EvalError(diagnostics) else { panic() }
+  assert_true(
+    diagnostics.length() > 0 &&
+    diagnostics[0].message.contains("isBetween rejects 11"),
+  )
+}
+
+///|
+test "typealiased function argument annotation accepts in-range value" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "typealias Small = Int(isBetween(0, 10))\nincrement = (x: Small) -> x + 1\ngood = increment(5)",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "increment",
+          value: FunctionValue(
+            [{ name: "x", type_name: Some("Small") }],
+            BinaryExpr(Add, Identifier("x"), IntLiteral(1)),
+            None,
+            [],
+          ),
+        },
+        ValueMember::{ name: "good", value: IntValue(6) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "typealiased class method argument annotation enforces the alias constraint" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "typealias Small = Int(isBetween(0, 10))\nclass Box { function bump(x: Small) = x + 1 }\nb = new Box {}\nbad = b.bump(20)",
+  )
+  guard session.eval_path("main.pkl") is EvalError(diagnostics) else { panic() }
+  assert_true(
+    diagnostics.length() > 0 &&
+    diagnostics[0].message.contains("isBetween rejects 20"),
+  )
+}
+
+///|
 test "render Pkl module bindings as Java Properties" {
   let value : Value = ObjectValue([
     ValueMember::{ name: "name", value: StringValue("pigeon") },

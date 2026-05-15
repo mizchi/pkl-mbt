@@ -1464,6 +1464,32 @@ local jsonRenderer = new Scenario {
   }
 }
 
+local typeAliasedCallableArgumentEvaluation = new Scenario {
+  id = "PKL-069"
+  name = "evaluate typealiased Pkl callable argument annotations"
+  description =
+    "Function, lambda, and class method calls resolve typealiased parameter annotations through the alias chain at runtime, so a parameter declared `x: Small` with `typealias Small = Int(isBetween(0, 10))` triggers the same predicate cascade as `x: Int(isBetween(0, 10))`. Built-in and user-defined constrained predicates fire alike, and the diagnostic preserves the original alias name (`Small`) while running the resolved constraint against the argument value."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-066"; "PKL-068" }
+  tags { "evaluator"; "callable"; "typealias" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Mirror the return-side alias resolution on the argument side"
+      rationale =
+        "`eval_callable_return_rejection_message` already resolves a return-type alias via `eval_resolved_type_alias` before running the predicate cascade. The argument side was bypassing alias resolution entirely — it called the non-`_from_source` predicate variants on the raw type name, which silently ignored anything that wasn't an inline constrained type. Switching the argument path to the same `_from_source` predicate variants closes the bypass and reuses the existing typealias chain walker."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Reuse the typealias bindings collected from the program's declarations"
+      rationale =
+        "`eval_type_alias_bindings(declarations)` is the same input used by the return-side path. Computing it inside the argument-rejection helper keeps the call sites unchanged: every dispatcher (lambda application, function call, class method call) already passes `declarations`, so no new threading is needed."
+    }
+  }
+}
+
 local hiddenAndLocalMembers = new Scenario {
   id = "PKL-087"
   name = "hidden and local object members"
@@ -1905,5 +1931,6 @@ scenarios {
   objectBodyWhenConditionals
   objectBodyForGenerators
   hiddenAndLocalMembers
+  typeAliasedCallableArgumentEvaluation
   ...roadmap.entries
 }

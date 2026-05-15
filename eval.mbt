@@ -846,13 +846,27 @@ fn eval_callable_argument_rejection_message(
   value : Value,
   declarations : Array[Declaration],
 ) -> String? {
-  match
-    pkl_constrained_type_annotation_value_rejection_message(type_name, value) {
-    Some(message) => Some(message)
-    None =>
-      pkl_user_defined_constrained_type_annotation_value_rejection_message(
-        type_name, value, declarations,
-      )
+  // Mirror the return-side alias resolution: a parameter declared
+  // `x: Small` with `typealias Small = Int(isBetween(0, 10))` must trigger
+  // the same predicate cascade as `x: Int(isBetween(0, 10))`. The
+  // `_from_source` predicate variants keep the original alias name in the
+  // diagnostic while running the resolved constraint against the value.
+  match type_name {
+    Some(source) => {
+      let aliases = eval_type_alias_bindings(declarations)
+      let resolved = eval_resolved_type_alias(source, aliases)
+      match
+        pkl_constrained_type_annotation_value_rejection_message_from_source(
+          source, resolved, value,
+        ) {
+        Some(message) => Some(message)
+        None =>
+          pkl_user_defined_constrained_type_annotation_value_rejection_message_from_source(
+            source, resolved, value, declarations,
+          )
+      }
+    }
+    None => None
   }
 }
 

@@ -24,7 +24,7 @@
   - depends on: PKL-058
   - body: _not yet implemented_
 
-- [ ] **Duration and DataSize literals and arithmetic** (minor) [draft] — verifies: PKL-082 — tags: stdlib, duration, datasize
+- [ ] **Duration and DataSize literals and arithmetic** (minor) [draft] — verifies: PKL-082 — tags: stdlib, duration, datasize, next
   > Numeric literals with `.h` / `.min` / `.s` / `.ms` / `.us` / `.ns` produce `Duration`; `.kb` / `.mb` / `.gb` / `.kib` / `.mib` / `.gib` produce `DataSize`. Both support addition, subtraction, comparison, and conversion to a normalized base unit.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-009
@@ -198,11 +198,11 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **evaluate typealiased Pkl callable argument annotations** [draft] — verifies: PKL-069 — tags: evaluator, callable, typealias, next
-  > Function, lambda, and class method calls resolve typealiased parameter annotations through the alias chain at runtime so built-in and user-defined constrained predicates fire when the constraint is declared via a typealias such as typealias Small = Int(isBetween(0, 10)).
+- [ ] **evaluate typealiased Pkl callable argument annotations** — verifies: PKL-069 — tags: evaluator, callable, typealias
+  > Function, lambda, and class method calls resolve typealiased parameter annotations through the alias chain at runtime, so a parameter declared `x: Small` with `typealias Small = Int(isBetween(0, 10))` triggers the same predicate cascade as `x: Int(isBetween(0, 10))`. Built-in and user-defined constrained predicates fire alike, and the diagnostic preserves the original alias name (`Small`) while running the resolved constraint against the argument value.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-066, PKL-068
-  - decisions: 1 entry(ies)
+  - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **evaluate typealiased Pkl callable return annotations** — verifies: PKL-068 — tags: evaluator, callable, typealias
@@ -674,7 +674,7 @@
   > The native CLI emits a YAML document when invoked with `-f yaml`.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-085, PKL-086, PKL-087, PKL-088 — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-085, PKL-086, PKL-087, PKL-088 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
