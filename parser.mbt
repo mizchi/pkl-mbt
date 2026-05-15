@@ -1779,11 +1779,21 @@ fn Parser::parse_object_expr(self : Parser) -> Expr {
     stop_at_arrow=false,
     stop_at_expression_operator=false,
   )
-  let value = match type_name {
-    "Listing" => self.parse_listing_body()
-    "Mapping" => self.parse_mapping_body()
-    "" => self.parse_object_body()
-    _ => TypedObjectLiteral(type_name, self.parse_object_body_members())
+  // PKL-136 drive-by: `new Listing<T> { ... }` previously fell into the
+  // TypedObjectLiteral arm because `parse_type_text` returns the full
+  // generic form (`Listing<String>`). Normalise the prefix so the body
+  // parses as a listing / mapping body either way.
+  let value = if type_name == "Listing" ||
+    type_name.has_prefix("Listing<") ||
+    type_name == "List" ||
+    type_name.has_prefix("List<") {
+    self.parse_listing_body()
+  } else if type_name == "Mapping" || type_name.has_prefix("Mapping<") {
+    self.parse_mapping_body()
+  } else if type_name == "" {
+    self.parse_object_body()
+  } else {
+    TypedObjectLiteral(type_name, self.parse_object_body_members())
   }
   self.builder.finish_node()
   value
@@ -1797,7 +1807,12 @@ fn Parser::parse_listing_body(self : Parser) -> Expr {
   self.consume_separators()
   while !self.at(eof()) && !self.at(rbrace()) {
     self.skip_member_header()
-    if self.at(local_kw()) ||
+    if self.at(when_kw()) {
+      // PKL-136: `when (cond) { ... } [else { ... }]` inside a Listing body.
+      // The branches re-parse as Listing bodies so the wrapped Expr stays
+      // ListingLiteral on both sides; the spread happens at eval time.
+      elements.push(self.parse_listing_when())
+    } else if self.at(local_kw()) ||
       self.at(lbracket()) ||
       self.at_property_decl() ||
       is_decl_text(self.peek().text()) {
@@ -1813,6 +1828,31 @@ fn Parser::parse_listing_body(self : Parser) -> Expr {
 }
 
 ///|
+/// PKL-136: parse a `when (cond) { ... } [else { ... }]` block whose
+/// branches are listing bodies. Returns `WhenSpread(ConditionalExpr(cond,
+/// then_listing, else_listing))` so the listing evaluator can spread the
+/// selected branch's elements into the parent listing.
+fn Parser::parse_listing_when(self : Parser) -> Expr {
+  ignore(self.expect(when_kw(), "when"))
+  self.skip_whitespace()
+  ignore(self.expect(lparen(), "("))
+  let condition = self.parse_expr()
+  self.skip_whitespace()
+  ignore(self.expect(rparen(), ")"))
+  self.skip_whitespace()
+  let then_branch = self.parse_listing_body()
+  self.consume_separators()
+  let else_branch : Expr = if self.at(else_kw()) {
+    ignore(self.bump())
+    self.skip_whitespace()
+    self.parse_listing_body()
+  } else {
+    ListingLiteral([])
+  }
+  WhenSpread(ConditionalExpr(condition, then_branch, else_branch))
+}
+
+///|
 fn Parser::parse_mapping_body(self : Parser) -> Expr {
   self.builder.start_node(mapping_expr())
   ignore(self.expect(lbrace(), "{"))
@@ -1820,7 +1860,14 @@ fn Parser::parse_mapping_body(self : Parser) -> Expr {
   self.consume_separators()
   while !self.at(eof()) && !self.at(rbrace()) {
     self.skip_member_header()
-    if self.at(lbracket()) {
+    if self.at(when_kw()) {
+      // PKL-136: `when (cond) { ["k"] = v; ... } [else { ... }]` inside a
+      // Mapping body. The wrapper is a synthetic MappingEntry whose key is
+      // `WhenSpread(ConditionalExpr(cond, then_mapping, else_mapping))`;
+      // `value` is `NullLiteral` (never consulted — the evaluator spreads
+      // the selected branch's entries before reading any value).
+      entries.push({ key: self.parse_mapping_when(), value: NullLiteral })
+    } else if self.at(lbracket()) {
       match self.parse_mapping_entry() {
         Some(entry) => entries.push(entry)
         None => ()
@@ -1833,6 +1880,30 @@ fn Parser::parse_mapping_body(self : Parser) -> Expr {
   ignore(self.expect(rbrace(), "}"))
   self.builder.finish_node()
   MappingLiteral(entries)
+}
+
+///|
+/// PKL-136: parse a `when (cond) { ... } [else { ... }]` block whose
+/// branches are Mapping bodies. Returns `WhenSpread(ConditionalExpr(cond,
+/// then_mapping, else_mapping))`.
+fn Parser::parse_mapping_when(self : Parser) -> Expr {
+  ignore(self.expect(when_kw(), "when"))
+  self.skip_whitespace()
+  ignore(self.expect(lparen(), "("))
+  let condition = self.parse_expr()
+  self.skip_whitespace()
+  ignore(self.expect(rparen(), ")"))
+  self.skip_whitespace()
+  let then_branch = self.parse_mapping_body()
+  self.consume_separators()
+  let else_branch : Expr = if self.at(else_kw()) {
+    ignore(self.bump())
+    self.skip_whitespace()
+    self.parse_mapping_body()
+  } else {
+    MappingLiteral([])
+  }
+  WhenSpread(ConditionalExpr(condition, then_branch, else_branch))
 }
 
 ///|

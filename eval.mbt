@@ -3594,13 +3594,35 @@ fn eval_expr_with_bindings(
     ListingLiteral(elements) => {
       let values : Array[Value] = []
       for element in elements {
-        match
-          eval_expr_with_bindings(
-            element, bindings, env, class_env, cache, stack, declarations, diagnostics,
-            resolve_import,
-          ) {
-          Some(value) => values.push(value)
-          None => ()
+        // PKL-136: a `WhenSpread(inner)` element wraps a ConditionalExpr
+        // whose branches are ListingLiterals. Evaluate the wrapper and
+        // spread the resulting ListingValue's elements into the parent.
+        match element {
+          WhenSpread(inner) =>
+            match
+              eval_expr_with_bindings(
+                inner, bindings, env, class_env, cache, stack, declarations, diagnostics,
+                resolve_import,
+              ) {
+              Some(ListingValue(inner_elements)) =>
+                for v in inner_elements {
+                  values.push(v)
+                }
+              Some(_) =>
+                diagnostics.push(Diagnostic::{
+                  message: "when block inside Listing must produce a Listing",
+                })
+              None => ()
+            }
+          _ =>
+            match
+              eval_expr_with_bindings(
+                element, bindings, env, class_env, cache, stack, declarations, diagnostics,
+                resolve_import,
+              ) {
+              Some(value) => values.push(value)
+              None => ()
+            }
         }
       }
       Some(ListingValue(values))
@@ -3608,31 +3630,54 @@ fn eval_expr_with_bindings(
     MappingLiteral(entries) => {
       let values : Array[ValueEntry] = []
       for entry in entries {
-        let key = eval_expr_with_bindings(
-          entry.key,
-          bindings,
-          env,
-          class_env,
-          cache,
-          stack,
-          declarations,
-          diagnostics,
-          resolve_import,
-        )
-        let value = eval_expr_with_bindings(
-          entry.value,
-          bindings,
-          env,
-          class_env,
-          cache,
-          stack,
-          declarations,
-          diagnostics,
-          resolve_import,
-        )
-        match (key, value) {
-          (Some(k), Some(v)) => values.push({ key: k, value: v })
-          _ => ()
+        // PKL-136: a synthetic MappingEntry with `key = WhenSpread(inner)`
+        // is the Mapping-body when block. Evaluate the wrapper and spread
+        // the resulting MappingValue's entries.
+        match entry.key {
+          WhenSpread(inner) =>
+            match
+              eval_expr_with_bindings(
+                inner, bindings, env, class_env, cache, stack, declarations, diagnostics,
+                resolve_import,
+              ) {
+              Some(MappingValue(inner_entries)) =>
+                for e in inner_entries {
+                  values.push(e)
+                }
+              Some(_) =>
+                diagnostics.push(Diagnostic::{
+                  message: "when block inside Mapping must produce a Mapping",
+                })
+              None => ()
+            }
+          _ => {
+            let key = eval_expr_with_bindings(
+              entry.key,
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            )
+            let value = eval_expr_with_bindings(
+              entry.value,
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            )
+            match (key, value) {
+              (Some(k), Some(v)) => values.push({ key: k, value: v })
+              _ => ()
+            }
+          }
         }
       }
       Some(MappingValue(values))
@@ -4660,6 +4705,15 @@ fn eval_expr_with_bindings(
       diagnostics.push(Diagnostic::{ message: "unsupported expression" })
       None
     }
+    // PKL-136: a stray `WhenSpread` outside a Listing/Mapping body
+    // simply evaluates its inner — the listing/mapping arms above pluck
+    // it out before reaching here. Keep the arm explicit so future eval
+    // changes don't silently drop the wrapper.
+    WhenSpread(inner) =>
+      eval_expr_with_bindings(
+        inner, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      )
   }
 }
 

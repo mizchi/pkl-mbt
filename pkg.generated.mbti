@@ -313,6 +313,7 @@ pub(all) enum Expr {
   BinaryExpr(BinaryOp, Expr, Expr)
   ConditionalExpr(Expr, Expr, Expr)
   ForGenerator(String, String?, Expr, Array[ObjectMember])
+  WhenSpread(Expr)
   UnsupportedExpr
   ErrorExpr(String)
 } derive(Eq, @debug.Debug)

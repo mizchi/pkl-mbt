@@ -3535,6 +3535,14 @@ fn infer_expr_with_bindings(
       diagnostics.push(Diagnostic::{ message: "unsupported expression" })
       UnknownType
     }
+    // PKL-136: a `WhenSpread` outside a Listing/Mapping body simply
+    // forwards to the inner Expr's type. The Listing/Mapping literal
+    // arms handle the spread itself (they collect inner element / entry
+    // types from the wrapped ConditionalExpr).
+    WhenSpread(inner) =>
+      infer_expr_with_bindings(
+        inner, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+      )
   }
 }
 

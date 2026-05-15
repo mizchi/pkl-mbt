@@ -1785,6 +1785,38 @@ local listingMappingStdlibCore = new Scenario {
   }
 }
 
+local whenConditionalProperty = new Scenario {
+  id = "PKL-136"
+  name = "when conditional property in Listing / Mapping bodies"
+  description =
+    "Apple Pkl's `when (cond) { ... } [else { ... }]` form is recognised inside Listing and Mapping bodies as well as object bodies. The parser wraps each block in a new `WhenSpread(ConditionalExpr(cond, then_body, else_body))` Expr variant whose branches reuse `ListingLiteral` / `MappingLiteral` (matching the surrounding context). The evaluator's `ListingLiteral` and `MappingLiteral` arms recognise `WhenSpread` during element / entry iteration and spread the selected branch's contents into the parent collection instead of attaching it as a nested value. Object body `when` was already wired in an earlier slice via the synthetic `@when` ObjectMember; the new variant is additive. A drive-by parser fix in `parse_object_expr` recognises `new Listing<T> { ... }` / `new List<T> { ... }` / `new Mapping<K, V> { ... }` as listing / mapping bodies — previously the generic-tagged forms fell into the `TypedObjectLiteral` arm and silently parsed the body as object members, dropping everything inside."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-001"; "PKL-002" }
+  tags { "parser"; "evaluator"; "pkf-pkspec" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Introduce a single `WhenSpread(Expr)` variant rather than per-collection wrappers"
+      rationale =
+        "An alternative is per-collection sum types (`enum ListingBodyItem { Element; When }`, `enum MappingBodyItem { Entry; When }`), which models the body more precisely but requires churning every push-site of `Array[Expr]` / `Array[MappingEntry]`. The `WhenSpread(Expr)` wrapper rides on the existing `Array[Expr]` / `Array[MappingEntry]` shapes by letting the wrapped Expr be a `ConditionalExpr` whose branches are `ListingLiteral` / `MappingLiteral`. The evaluator pattern-matches `WhenSpread` during iteration, evaluates the inner conditional, then unpacks the resulting `ListingValue` / `MappingValue` and spreads. Two arms in eval + two in the parser, no shape refactoring."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Reuse `ConditionalExpr` inside `WhenSpread` rather than a dedicated when-AST node"
+      rationale =
+        "`when (cond) { then } else { else }` is operationally a `ConditionalExpr` whose branches happen to be collection literals. The evaluator already handles `ConditionalExpr` — we just need the outer marker (`WhenSpread`) to tell the listing / mapping iteration arm to spread the result. Defining a separate `WhenExpr(Expr, Expr, Expr)` node would duplicate the conditional evaluation path. The mismatch with the object-body `@when` machinery (which uses a synthetic ObjectMember name as the marker) is intentional: object members already have a `String` discriminator (the name), so the marker fits there; listing elements / mapping keys don't, so the marker has to be an Expr variant."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Fix `new Listing<T> { ... }` parsing in this slice"
+      rationale =
+        "pkspec's `specRef = new Listing<String> { when (s.id != null) { s.id } }` uses the typed listing form. Without the parser fix the body silently parses as object members and the `when` block never reaches the listing evaluator. The fix is mechanical (`type_name.has_prefix(\"Listing<\")` → `parse_listing_body`) and unblocking it inside PKL-136 keeps the slice useful end-to-end; if pulled out to a separate ticket the slice ships a feature that doesn't actually work on the pkspec call sites that motivated it."
+    }
+  }
+}
+
 local listingMappingFunctional = new Scenario {
   id = "PKL-135"
   name = "Listing and Mapping functional methods"
@@ -2943,5 +2975,6 @@ scenarios {
   pklAnyType
   listingMappingStdlibCore
   listingMappingFunctional
+  whenConditionalProperty
   ...roadmap.entries
 }

@@ -1,6 +1,6 @@
 # Test SPEC
 
-165 tests across 2 module(s) — 137 pending, 28 active
+166 tests across 2 module(s) — 137 pending, 29 active
 
 ## `specs/`
 
@@ -134,7 +134,7 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **amends base module property merge** [draft] — verifies: PKL-137 — tags: evaluator, amends, pkf-pkspec
+- [ ] **amends base module property merge** [draft] — verifies: PKL-137 — tags: evaluator, amends, pkf-pkspec, next
   > When a module declares `amends "...base.pkl"`, the child module inherits the base module's properties (including `tests`, `defaults`, `output`, `renderedScenarios`, etc.). pkspec's `Spec.pkl amends Test.pkl`, and project `specs/Spec.pkl amends pkspec/Spec.pkl`. Today the evaluator parses `amends` but does not merge the base's evaluated bindings into the child; the child sees `unknown type annotation Test` and never resolves the base's `tests: Listing<Test>` field. Reuse the existing import path to evaluate the base, then merge the child's overrides into the base's property map, mirroring Apple Pkl's child-wins semantics.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-006
@@ -914,10 +914,11 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **when conditional property** [draft] — verifies: PKL-136 — tags: parser, evaluator, pkf-pkspec, next
-  > Apple Pkl's `when (cond) { property = value }` inside a Listing / Mapping / object body conditionally emits the inner properties. pkspec uses it in `scenarioToTest` to populate `specRef` only when the scenario carries an id: `specRef = new Listing<String> { when (s.id != null) { s.id } }`. Today the parser does not recognise the `when` form, so the surrounding listing silently misses the conditional entries; the evaluator gets nothing to fire on. Adds parser support (CST node) plus an `evaluate_when_clause` step in the object / listing / mapping evaluator that gates the inner properties on the condition's boolean result.
+- [ ] **when conditional property in Listing / Mapping bodies** — verifies: PKL-136 — tags: parser, evaluator, pkf-pkspec
+  > Apple Pkl's `when (cond) { ... } [else { ... }]` form is recognised inside Listing and Mapping bodies as well as object bodies. The parser wraps each block in a new `WhenSpread(ConditionalExpr(cond, then_body, else_body))` Expr variant whose branches reuse `ListingLiteral` / `MappingLiteral` (matching the surrounding context). The evaluator's `ListingLiteral` and `MappingLiteral` arms recognise `WhenSpread` during element / entry iteration and spread the selected branch's contents into the parent collection instead of attaching it as a nested value. Object body `when` was already wired in an earlier slice via the synthetic `@when` ObjectMember; the new variant is additive. A drive-by parser fix in `parse_object_expr` recognises `new Listing<T> { ... }` / `new List<T> { ... }` / `new Mapping<K, V> { ... }` as listing / mapping bodies — previously the generic-tagged forms fell into the `TypedObjectLiteral` arm and silently parsed the body as object members, dropping everything inside.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-001, PKL-002
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 ### `Test.pkl`
@@ -1020,6 +1021,10 @@
 
 - [x] **cli type parameter bounds** — verifies: PKL-116 — tags: moonbit, cli, generics, bounds, contract
   > The native CLI evaluates a fixture that exercises `<T : Number>` on a generic function and a generic class: `clamp(5)` returns `5`, `clamp(2.5)` returns `2.5`, and `new Container { value = 42 }` / `{ value = 3.14 }` produce the expected ObjectValue. The fixture intentionally only uses arguments that satisfy the bound; bound rejection is covered by the unit tests.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli when conditional property** — verifies: PKL-136 — tags: moonbit, cli, parser, evaluator, pkf-pkspec, contract
+  > The native CLI evaluates a fixture that uses `when (cond) { ... } [else { ... }]` inside Listing, Mapping, and object bodies, plus `new Listing<T> { ... }` literals. Each conditional emits its inner body when the condition is true, skips it when false, falls back to the else branch when present, and produces the empty collection when no condition fires.
   - body: `cmd` (exit 0 expected)
 
 - [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-080, PKL-081, PKL-082, PKL-083, PKL-084, PKL-085, PKL-086, PKL-087, PKL-088, PKL-089, PKL-090, PKL-091, PKL-092, PKL-093, PKL-098 — tags: moonbit, unit, contract

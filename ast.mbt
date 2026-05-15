@@ -64,6 +64,13 @@ pub(all) enum Expr {
   BinaryExpr(BinaryOp, Expr, Expr)
   ConditionalExpr(Expr, Expr, Expr)
   ForGenerator(String, String?, Expr, Array[ObjectMember])
+  // PKL-136: synthetic wrapper emitted by the parser when a `when (cond)` block
+  // appears inside a Listing or Mapping body. The wrapped expression is a
+  // `ConditionalExpr` whose branches are `ListingLiteral` (for Listing bodies)
+  // or `MappingLiteral` (for Mapping bodies). The listing / mapping evaluator
+  // recognises this variant and spreads the resulting collection's contents
+  // into the parent body instead of attaching it as a single element / entry.
+  WhenSpread(Expr)
   UnsupportedExpr
   ErrorExpr(String)
 } derive(Eq, Debug)

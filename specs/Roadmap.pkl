@@ -353,18 +353,6 @@ local lspServer: Spec.Scenario = new {
 // Promote PKL-133 first (smallest, no dependencies); the rest stack on
 // top of it in numerical order.
 
-local whenConditionalProperty: Spec.Scenario = new {
-  id = "PKL-136"
-  name = "when conditional property"
-  description =
-    "Apple Pkl's `when (cond) { property = value }` inside a Listing / Mapping / object body conditionally emits the inner properties. pkspec uses it in `scenarioToTest` to populate `specRef` only when the scenario carries an id: `specRef = new Listing<String> { when (s.id != null) { s.id } }`. Today the parser does not recognise the `when` form, so the surrounding listing silently misses the conditional entries; the evaluator gets nothing to fire on. Adds parser support (CST node) plus an `evaluate_when_clause` step in the object / listing / mapping evaluator that gates the inner properties on the condition's boolean result."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-001"; "PKL-002" }
-  tags { "parser"; "evaluator"; "pkf-pkspec"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 local amendsBaseMerge: Spec.Scenario = new {
   id = "PKL-137"
   name = "amends base module property merge"
@@ -372,13 +360,12 @@ local amendsBaseMerge: Spec.Scenario = new {
     "When a module declares `amends \"...base.pkl\"`, the child module inherits the base module's properties (including `tests`, `defaults`, `output`, `renderedScenarios`, etc.). pkspec's `Spec.pkl amends Test.pkl`, and project `specs/Spec.pkl amends pkspec/Spec.pkl`. Today the evaluator parses `amends` but does not merge the base's evaluated bindings into the child; the child sees `unknown type annotation Test` and never resolves the base's `tests: Listing<Test>` field. Reuse the existing import path to evaluate the base, then merge the child's overrides into the base's property map, mirroring Apple Pkl's child-wins semantics."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-006" }
-  tags { "evaluator"; "amends"; "pkf-pkspec" }
+  tags { "evaluator"; "amends"; "pkf-pkspec"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
 
 entries: Listing<Spec.Scenario> = new {
-  whenConditionalProperty
   amendsBaseMerge
   pklRepl
   pklAnalyzeLint

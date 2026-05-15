@@ -1,0 +1,34 @@
+// PKL-136: when conditional property inside Listing / Mapping / object bodies
+xs = new Listing {
+  1
+  when (true) {
+    2
+    3
+  }
+  4
+}
+
+ys = new Listing<Int> {
+  1
+  when (false) { 99 } else { 2 }
+  3
+}
+
+m = new Mapping {
+  ["base"] = 1
+  when (true) {
+    ["extra"] = 2
+  }
+  when (false) {
+    ["skipped"] = 99
+  }
+}
+
+obj = new {
+  base = 1
+  when (true) {
+    extra = 2
+  }
+}
+
+empty = new Listing { when (false) { 1; 2 } }

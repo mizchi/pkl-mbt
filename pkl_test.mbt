@@ -2347,6 +2347,58 @@ test "PKL-135: Mapping.count counts matching entries" {
 }
 
 ///|
+test "PKL-136: when inside Listing emits body when condition is true" {
+  guard eval_source("xs = new Listing { 1; when (true) { 2; 3 }; 4 }")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is ListingValue(xs) else { panic() }
+  inspect(xs.length(), content="4")
+}
+
+///|
+test "PKL-136: when inside Listing skips body when condition is false" {
+  guard eval_source("xs = new Listing { 1; when (false) { 2; 3 }; 4 }")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is ListingValue(xs) else { panic() }
+  inspect(xs.length(), content="2")
+}
+
+///|
+test "PKL-136: when else branch fires on false condition" {
+  guard eval_source("xs = new Listing { when (false) { 1 } else { 2; 3 } }")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is ListingValue(xs) else { panic() }
+  inspect(xs.length(), content="2")
+}
+
+///|
+test "PKL-136: when inside Mapping spreads entries" {
+  guard eval_source(
+      "m = new Mapping { [\"a\"] = 1; when (true) { [\"b\"] = 2 } }",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is MappingValue(entries) else { panic() }
+  inspect(entries.length(), content="2")
+}
+
+///|
+test "PKL-136: new Listing<T> parses body as listing" {
+  guard eval_source("xs = new Listing<Int> { 1; 2; 3 }")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is ListingValue(xs) else { panic() }
+  inspect(xs.length(), content="3")
+}
+
+///|
 test "Number constraint predicate accepts both Int and Float" {
   assert_true(
     eval_source("a: Number(isPositive) = 3\nb: Number(isPositive) = 0.5") ==

@@ -354,6 +354,27 @@ local cliListingMappingStdlib = new Test {
   timeoutSec = 120
 }
 
+local cliWhenConditional = new Test {
+  name = "cli when conditional property"
+  description =
+    "The native CLI evaluates a fixture that uses `when (cond) { ... } [else { ... }]` inside Listing, Mapping, and object bodies, plus `new Listing<T> { ... }` literals. Each conditional emits its inner body when the condition is true, skips it when false, falls back to the else branch when present, and produces the empty collection when no condition fires."
+  tags { "moonbit"; "cli"; "parser"; "evaluator"; "pkf-pkspec"; "contract" }
+  specRef { "PKL-136" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_when_conditional.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "xs {"
+    "ys {"
+    "m {"
+    "obj {"
+    "empty {}"
+    "[\"base\"] = 1"
+    "[\"extra\"] = 2"
+    "extra = 2"
+  }
+  timeoutSec = 120
+}
+
 local cliListingMappingFunctional = new Test {
   name = "cli listing mapping functional"
   description =
@@ -583,6 +604,7 @@ tests {
   cliAnyType
   cliListingMappingStdlib
   cliListingMappingFunctional
+  cliWhenConditional
   cliFormat
   cliTestExamplesPass
   cliTestExamplesFail
