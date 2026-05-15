@@ -1327,8 +1327,8 @@ local constrainedCallableReturnBodyTypechecking = new Scenario {
     "Function, lambda, and class method declarations whose body is a literal that violates the declared constrained return annotation are rejected by the typechecker, mirroring the existing constrained binding behavior for built-in and user-defined numeric predicates."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-065"; "PKL-066" }
-  tags { "typechecker"; "callable"; "next" }
-  reviewStatus = "draft"
+  tags { "typechecker"; "callable" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -1336,6 +1336,32 @@ local constrainedCallableReturnBodyTypechecking = new Scenario {
       summary = "Lift literal-body return checks into the typechecker"
       rationale =
         "Constrained value bindings already use push_constrained_type_annotation_expr_diagnostic and the user-defined variant to flag literal violations at typecheck time. Callable return bodies currently only run the runtime check, leaving a static-analysis gap when the body is a known literal."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Walk declarations once at typecheck entry"
+      rationale =
+        "Function and class method bodies are visited from different paths in the inference flow, so a dedicated post-typecheck walker that visits all declarations once keeps the rule centralized and avoids threading declarations through every infer_call path."
+    }
+  }
+}
+
+local typeAliasedCallableReturnEvaluation = new Scenario {
+  id = "PKL-068"
+  name = "evaluate typealiased Pkl callable return annotations"
+  description =
+    "Function, lambda, and class method return annotations whose declared type name is a typealias resolve through the alias chain at runtime, accepting alias targets such as Int when the alias is declared as typealias Small = Int."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-065"; "PKL-039" }
+  tags { "evaluator"; "callable"; "typealias"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Resolve callable return aliases before runtime base-type validation"
+      rationale =
+        "eval_value_accepts_type_annotation rejects typealiased return annotations because it only matches the literal alias name against the value type. Value bindings already resolve aliases through the type alias environment, and the same resolution should happen for callable returns so user code can name the return through a typealias."
     }
   }
 }
@@ -1410,4 +1436,5 @@ scenarios {
   constrainedCallableReturnAnnotationEvaluation
   userDefinedConstrainedCallableArgumentEvaluation
   constrainedCallableReturnBodyTypechecking
+  typeAliasedCallableReturnEvaluation
 }

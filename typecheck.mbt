@@ -614,6 +614,74 @@ fn typecheck_class_property_constraint_expr_rejection_message(
 }
 
 ///|
+fn push_constrained_callable_return_body_diagnostic(
+  label : String,
+  return_type_name : String?,
+  body : Expr,
+  type_env : Array[TypeBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+) -> Unit {
+  match
+    constrained_type_annotation_expr_rejection_message(
+      return_type_name, body, type_env,
+    ) {
+    Some(message) =>
+      diagnostics.push(Diagnostic::{ message: "\{label} return \{message}" })
+    None =>
+      match
+        pkl_user_defined_constrained_type_annotation_expr_rejection_message(
+          return_type_name, body, declarations,
+        ) {
+        Some(message) =>
+          diagnostics.push(Diagnostic::{ message: "\{label} return \{message}" })
+        None => ()
+      }
+  }
+}
+
+///|
+fn push_constrained_callable_return_body_diagnostics(
+  declarations : Array[Declaration],
+  type_env : Array[TypeBinding],
+  diagnostics : Array[Diagnostic],
+) -> Unit {
+  for declaration in declarations {
+    match declaration {
+      FunctionDeclaration(function_decl) =>
+        match function_decl.body {
+          Some(body) =>
+            push_constrained_callable_return_body_diagnostic(
+              "function \{function_decl.name}",
+              function_decl.return_type_name,
+              body,
+              type_env,
+              declarations,
+              diagnostics,
+            )
+          None => ()
+        }
+      ClassDeclaration(class_decl) =>
+        for class_method in class_decl.methods {
+          match class_method.body {
+            Some(body) =>
+              push_constrained_callable_return_body_diagnostic(
+                "method \{class_decl.name}.\{class_method.name}",
+                class_method.return_type_name,
+                body,
+                type_env,
+                declarations,
+                diagnostics,
+              )
+            None => ()
+          }
+        }
+      TypeAliasDeclaration(_) => ()
+    }
+  }
+}
+
+///|
 fn push_constrained_class_property_expr_diagnostics(
   expr : Expr,
   declarations : Array[Declaration],
@@ -2912,6 +2980,11 @@ fn infer_program(
   )
   push_constrained_class_property_default_diagnostics(
     program.declarations,
+    diagnostics,
+  )
+  push_constrained_callable_return_body_diagnostics(
+    program.declarations,
+    type_env,
     diagnostics,
   )
   let cache : Array[TypeBinding] = []

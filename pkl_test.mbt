@@ -1153,6 +1153,66 @@ test "typecheck Pkl callable parameter and return annotations" {
 }
 
 ///|
+test "typecheck rejects constrained Pkl callable return bodies" {
+  assert_true(
+    typecheck_source(
+      "function good(): Int(isBetween(0, 10)) = 1\nvalue = good()",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+  guard typecheck_source(
+      "function bad(): Int(isBetween(0, 10)) = 11\nvalue = bad()",
+    )
+    is TypeError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="function bad return type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+  )
+  guard typecheck_source(
+      "class Counter { function bad(): Int(isBetween(0, 10)) = 11 }\ncounter = new Counter {}",
+    )
+    is TypeError(method_diagnostics) else {
+    panic()
+  }
+  inspect(
+    method_diagnostics[0].message,
+    content="method Counter.bad return type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+  )
+}
+
+///|
+test "typecheck rejects user-defined constrained Pkl callable return bodies" {
+  assert_true(
+    typecheck_source(
+      "const function above(n) = (x) -> x > n\nfunction good(): Int(above(5)) = 6\nvalue = good()",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+  guard typecheck_source(
+      "const function above(n) = (x) -> x > n\nfunction bad(): Int(above(5)) = 1\nvalue = bad()",
+    )
+    is TypeError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="function bad return type annotation Int(above(5)) constraint above rejects 1",
+  )
+  guard typecheck_source(
+      "const function above(n) = (x) -> x > n\nclass Counter { function bad(): Int(above(5)) = 1 }\ncounter = new Counter {}",
+    )
+    is TypeError(method_diagnostics) else {
+    panic()
+  }
+  inspect(
+    method_diagnostics[0].message,
+    content="method Counter.bad return type annotation Int(above(5)) constraint above rejects 1",
+  )
+}
+
+///|
 test "enforce Pkl constrained function parameter annotations" {
   assert_true(
     typecheck_source(
