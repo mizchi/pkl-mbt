@@ -1015,8 +1015,8 @@ local constrainedTypealiasObjectMembers = new Scenario {
     "Object member annotations that use constrained type aliases preserve alias metadata during evaluation, so nested object values reject invalid constrained members."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-051"; "PKL-046"; "PKL-017" }
-  tags { "evaluator"; "typechecker"; "next" }
-  reviewStatus = "draft"
+  tags { "evaluator"; "typechecker" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -1024,6 +1024,26 @@ local constrainedTypealiasObjectMembers = new Scenario {
       summary = "Move alias metadata into nested object evaluation"
       rationale =
         "Constrained type aliases now work for top-level values and callable parameter typechecking. Evaluating nested object member annotations needs alias metadata to flow through object evaluation instead of only the top-level binding loop."
+    }
+  }
+}
+
+local numericConstraintPredicates = new Scenario {
+  id = "PKL-053"
+  name = "support additional Pkl numeric constraint predicates"
+  description =
+    "Constrained integer annotations support common numeric predicate calls beyond `isBetween`, such as greater-than and less-than checks, in both typechecking and evaluation paths."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-052"; "PKL-046"; "PKL-051" }
+  tags { "typechecker"; "evaluator"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Broaden constraint predicate coverage after metadata flow"
+      rationale =
+        "Constraint metadata now survives values, callable boundaries, methods, aliases, and nested object members for `isBetween`. The next compatibility step is expanding the supported numeric predicate set used by real Pkl schemas."
     }
   }
 }
@@ -1083,4 +1103,5 @@ scenarios {
   constrainedMethodParameterEvaluation
   constrainedTypealiasMetadata
   constrainedTypealiasObjectMembers
+  numericConstraintPredicates
 }

@@ -300,6 +300,60 @@ fn eval_constrained_type_annotation_value_is_valid(
 }
 
 ///|
+fn eval_object_member_alias_constraints_are_valid(
+  members : Array[ObjectMember],
+  values : Array[ValueMember],
+  aliases : Array[EvalTypeAliasBinding],
+  diagnostics : Array[Diagnostic],
+) -> Bool {
+  let mut ok = true
+  for object_member in members {
+    match lookup_member(values, object_member.name) {
+      Some(value) => {
+        if !eval_constrained_type_annotation_value_is_valid(
+            object_member.type_name,
+            value,
+            aliases,
+            diagnostics,
+          ) {
+          ok = false
+        }
+        if !eval_expr_alias_constraints_are_valid(
+            object_member.value,
+            value,
+            aliases,
+            diagnostics,
+          ) {
+          ok = false
+        }
+      }
+      None => ()
+    }
+  }
+  ok
+}
+
+///|
+fn eval_expr_alias_constraints_are_valid(
+  expr : Expr,
+  value : Value,
+  aliases : Array[EvalTypeAliasBinding],
+  diagnostics : Array[Diagnostic],
+) -> Bool {
+  match (expr, value) {
+    (ObjectLiteral(members), ObjectValue(values)) =>
+      eval_object_member_alias_constraints_are_valid(
+        members, values, aliases, diagnostics,
+      )
+    (TypedObjectLiteral(_, members), ObjectValue(values)) =>
+      eval_object_member_alias_constraints_are_valid(
+        members, values, aliases, diagnostics,
+      )
+    _ => true
+  }
+}
+
+///|
 fn stack_contains_binding(stack : Array[String], name : String) -> Bool {
   for item in stack {
     if item == name {
@@ -1389,6 +1443,12 @@ fn eval_program(
         Some(value) =>
           if eval_constrained_type_annotation_value_is_valid(
               binding.type_name,
+              value,
+              type_aliases,
+              diagnostics,
+            ) &&
+            eval_expr_alias_constraints_are_valid(
+              binding.value,
               value,
               type_aliases,
               diagnostics,

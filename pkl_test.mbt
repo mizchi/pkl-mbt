@@ -1038,6 +1038,36 @@ test "preserve Pkl constrained typealias metadata" {
 }
 
 ///|
+test "evaluate Pkl constrained typealias object member annotations" {
+  assert_true(
+    typecheck_source(
+      "typealias Small = Int(isBetween(0, 10))\nvalue = new { n: Small = 3 }",
+    )
+    is TypeOk(_),
+  )
+  guard typecheck_source(
+      "typealias Small = Int(isBetween(0, 10))\nvalue = new { n: Small = 11 }",
+    )
+    is TypeError(type_diagnostics) else {
+    panic()
+  }
+  inspect(
+    type_diagnostics[0].message,
+    content="type annotation Small constraint isBetween rejects 11",
+  )
+  guard eval_source(
+      "typealias Small = Int(isBetween(0, 10))\nvalue = new { n: Small = 11 }",
+    )
+    is EvalError(eval_diagnostics) else {
+    panic()
+  }
+  inspect(
+    eval_diagnostics[0].message,
+    content="type annotation Small constraint isBetween rejects 11",
+  )
+}
+
+///|
 test "evaluate and typecheck Pkl constrained type annotation predicates" {
   assert_true(
     typecheck_source("value: Int(isBetween(0, 10)) = 3") ==
