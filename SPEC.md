@@ -1,6 +1,6 @@
 # Test SPEC
 
-172 tests across 2 module(s) — 140 pending, 32 active
+174 tests across 2 module(s) — 141 pending, 33 active
 
 ## `specs/`
 
@@ -11,6 +11,13 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-004
   - decisions: 4 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **Apple Pkl stdlib declaration modifiers** — verifies: PKL-140 — tags: parser, evaluator, typechecker, stdlib
+  > Parser and evaluator accept four Apple Pkl stdlib idioms that previously tripped `unsupported expression` / `missing expression body` / `expected type parameter, got in`. (1) `external` modifier on properties / classes / functions: already recognised by `is_modifier_text` and consumed by `skip_member_header`; the gap was the resulting property with no `=` body, which the parser now flags as an abstract slot. (2) Abstract property slots (`foo: Int?`): the parser sets a new `Binding.abstract_slot = true` field, stores a `NullLiteral` placeholder value, and both evaluator + typechecker skip the binding (eval: not pushed onto ObjectValue; typecheck: type recorded as the declared slot type, no validation against the placeholder). (3) Variance modifiers `<in T>` / `<out T>` on class / function / typealias type parameters: parser consumes the modifier before the identifier; pkl-mbt treats type parameters invariantly so the marker is purely a parse-side acknowledgement. (4) Function type annotations on properties (`comparator: (V, V) -> Boolean = ...`): new `parse_property_type_annotation` helper uses `stop_at_arrow=false` because property declarations end at `=` / `{`, making the arrow unambiguous. The same helper is wired into class-property declarations. (5) Declarations-only modules (`module pkl.math` with only `external` properties) now evaluate to the empty ObjectValue rather than `missing expression body`, mirroring Apple Pkl's stdlib loading model.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-001, PKL-002, PKL-116
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **Bytes literal and Bytes methods** (minor) — verifies: PKL-083 — tags: evaluator, renderer, bytes, stdlib
@@ -1030,6 +1037,10 @@
 
 - [x] **cli reflect minimal stub** — verifies: PKL-080 — tags: moonbit, cli, pkl-reflect, stdlib, contract
   > The native CLI evaluates a fixture that imports `pkl:reflect` and reads mirror constants plus the `Class` factory `reflectee` field, exercising the minimal stub registered in `builtin_stdlib_source`.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli stdlib modifiers** — verifies: PKL-140 — tags: moonbit, cli, parser, stdlib, contract
+  > The native CLI evaluates a fixture using stdlib-style declarations: `external` modifier, abstract property slots (no `=` default), `<in T>` / `<out T>` variance modifiers, function type annotations, and a declarations-only module footprint. The rendered output skips abstract slots and keeps the regular bindings; declarations-only fragments evaluate to the empty ObjectValue.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli test examples diff fail** — verifies: PKL-100 — tags: moonbit, cli, pkl-test, examples, contract

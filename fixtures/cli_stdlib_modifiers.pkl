@@ -1,0 +1,25 @@
+// PKL-140: stdlib-style declarations — `external` modifier, abstract
+// property slots (no `=` default), variance modifiers (`<in T>` /
+// `<out T>`), function type annotations, and declarations-only modules.
+@ModuleInfo { minPklVersion = "0.31.0" }
+module pkl_mbt.cli_stdlib_modifiers
+
+external minInt: Int
+
+abstract class Box<out T> {
+  value: T
+}
+
+class Container<in T> {
+  x: T
+}
+
+class Version {
+  major: Int
+}
+
+comparator: (Version, Version) -> Boolean = (a, b) -> a.major < b.major
+
+abstractSlot: Int?
+
+filled: String = "ok"

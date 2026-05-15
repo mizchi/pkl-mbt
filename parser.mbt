@@ -604,6 +604,7 @@ fn Parser::parse(self : Parser) -> ParseResult {
               type_name: binding.type_name,
               value: binding.value,
               exported: binding.exported,
+              abstract_slot: binding.abstract_slot,
             })
           } else {
             bindings.push(binding)
@@ -726,7 +727,7 @@ fn Parser::parse_let_decl(self : Parser) -> Binding? {
   if name == "" {
     None
   } else {
-    Some({ name, type_name, value, exported: false })
+    Some({ name, type_name, value, exported: false, abstract_slot: false })
   }
 }
 
@@ -752,7 +753,31 @@ fn Parser::parse_local_decl(self : Parser) -> Binding? {
   if name == "" {
     None
   } else {
-    Some({ name, type_name, value, exported: false })
+    Some({ name, type_name, value, exported: false, abstract_slot: false })
+  }
+}
+
+///|
+/// PKL-140: property-level type annotation that accepts function types
+/// (`(A, B) -> R`). The standard `parse_type_annotation` stops at `->`
+/// so call sites that follow with a lambda body (`fn parameter type`)
+/// don't accidentally swallow the arrow. Property declarations end
+/// with `=` / `{`, so function types are unambiguous here.
+fn Parser::parse_property_type_annotation(self : Parser) -> String? {
+  self.skip_whitespace()
+  if !self.at(colon()) {
+    return None
+  }
+  ignore(self.bump())
+  self.skip_whitespace()
+  let type_name = self.parse_type_text(
+    stop_at_arrow=false,
+    stop_at_expression_operator=false,
+  )
+  if type_name == "" {
+    None
+  } else {
+    Some(type_name)
   }
 }
 
@@ -904,6 +929,15 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
     let mut more = true
     while more {
       self.skip_whitespace()
+      // PKL-140: Apple Pkl supports variance modifiers `<in T>` / `<out T>`
+      // on type parameters. `in` is a keyword token (`in_kw`) and would
+      // trip `expect(identifier())`; skip it here so the parameter name
+      // parses. pkl-mbt is fully invariant under the hood — the modifier
+      // is recorded as parsed but doesn't influence the typechecker.
+      if self.at(in_kw()) || self.at_text("out") {
+        ignore(self.bump())
+        self.skip_whitespace()
+      }
       match self.expect(identifier(), "type parameter") {
         Some(tok) => type_parameters.push(tok.text())
         None => type_parameters.push("")
@@ -1008,7 +1042,7 @@ fn Parser::parse_class_property_decl(self : Parser) -> ClassProperty? {
     Some(tok) => tok.text()
     None => ""
   }
-  let type_name = self.parse_type_annotation()
+  let type_name = self.parse_property_type_annotation()
   let value = if ({
       self.skip_whitespace()
       self.at(lbrace())
@@ -1051,6 +1085,12 @@ fn Parser::parse_typealias_decl(self : Parser) -> TypeAliasDecl? {
     let mut more = true
     while more {
       self.skip_whitespace()
+      // PKL-140: variance modifiers `<in T>` / `<out T>` on typealias type
+      // parameters. Apple Pkl's `typealias NonNull = Any(...)` etc.
+      if self.at(in_kw()) || self.at_text("out") {
+        ignore(self.bump())
+        self.skip_whitespace()
+      }
       match self.expect(identifier(), "type parameter") {
         Some(tok) => type_parameters.push(tok.text())
         None => ()
@@ -1121,6 +1161,12 @@ fn Parser::parse_function_decl(self : Parser) -> FunctionDecl? {
     let mut more = true
     while more {
       self.skip_whitespace()
+      // PKL-140: variance modifiers `<in T>` / `<out T>` — skip before the
+      // identifier parse (matches the class-decl path).
+      if self.at(in_kw()) || self.at_text("out") {
+        ignore(self.bump())
+        self.skip_whitespace()
+      }
       match self.expect(identifier(), "type parameter") {
         Some(tok) => type_parameters.push(tok.text())
         None => type_parameters.push("")
@@ -1213,7 +1259,14 @@ fn Parser::parse_property_decl(self : Parser) -> Binding? {
     Some(tok) => tok.text()
     None => ""
   }
-  let type_name = self.parse_type_annotation()
+  let type_name = self.parse_property_type_annotation()
+  // PKL-140: a property declared without a `{` body and without `=`
+  // is an abstract / external slot (`foo: Int?` / `external minInt: Int`).
+  // Apple Pkl uses this in stdlib modules for host-bound or
+  // subclass-filled properties. Mark the binding as abstract and skip
+  // it at the evaluator (no value to render); only the type record
+  // survives for typecheck purposes.
+  let mut abstract_slot = false
   let value = if ({
       self.skip_whitespace()
       self.at(lbrace())
@@ -1226,13 +1279,14 @@ fn Parser::parse_property_decl(self : Parser) -> Binding? {
     ignore(self.bump())
     self.parse_expr()
   } else {
-    self.parse_empty_unsupported_expr()
+    abstract_slot = true
+    NullLiteral
   }
   self.builder.finish_node()
   if name == "" {
     None
   } else {
-    Some({ name, type_name, value, exported: true })
+    Some({ name, type_name, value, exported: true, abstract_slot })
   }
 }
 

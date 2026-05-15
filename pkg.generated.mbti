@@ -251,6 +251,7 @@ pub(all) struct Binding {
   type_name : String?
   value : Expr
   exported : Bool
+  abstract_slot : Bool
 } derive(Eq, @debug.Debug)
 
 pub(all) struct ClassDecl {

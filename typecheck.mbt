@@ -2133,6 +2133,7 @@ fn all_program_bindings(program : Program) -> Array[Binding] {
                 function_decl.return_type_name,
               ),
               exported: false,
+              abstract_slot: false,
             })
           None => ()
         }
@@ -3681,6 +3682,22 @@ fn infer_program(
   let bindings = all_program_bindings(program)
   infer_imports(program.imports, env, diagnostics, resolve_import)
   for binding in program.bindings {
+    // PKL-140: abstract / external slots carry a synthetic `NullLiteral`
+    // value the typechecker would otherwise reject against the declared
+    // type. Skip validation but keep the slot's type in the recorded
+    // module shape so cross-module references still see it.
+    if binding.abstract_slot {
+      let slot_type = match binding.type_name {
+        Some(text) =>
+          match type_from_annotation(text, type_env) {
+            Some(t) => t
+            None => UnknownType
+          }
+        None => UnknownType
+      }
+      fields.push({ name: binding.name, typ: slot_type })
+      continue
+    }
     match
       resolve_binding_type(
         binding.name,
@@ -3731,10 +3748,11 @@ fn infer_program(
         ),
       )
     None if fields.length() > 0 => ObjectType(fields)
-    None => {
-      diagnostics.push(Diagnostic::{ message: "missing expression body" })
-      UnknownType
-    }
+    // PKL-140: declarations-only modules (Apple Pkl stdlib pattern)
+    // typecheck to the empty ObjectType. The class / typealias /
+    // function declarations are still tracked in program.declarations
+    // and remain available to importers.
+    None => ObjectType([])
   }
 }
 

@@ -241,6 +241,7 @@ fn all_eval_bindings(program : Program) -> Array[Binding] {
                 function_decl.return_type_name,
               ),
               exported: false,
+              abstract_slot: false,
             })
           None => ()
         }
@@ -5333,6 +5334,13 @@ fn eval_program(
     resolve_import_classes,
   )
   for binding in program.bindings {
+    // PKL-140: abstract / external slot bindings (declared without a
+    // `=` default) carry no value to render. Skip them at the module
+    // evaluation level — the typechecker still records the slot's
+    // type for downstream cross-module references.
+    if binding.abstract_slot {
+      continue
+    }
     if binding.exported {
       let resolved_value = match
         eval_pkl_test_catch_binding_value(
@@ -5422,10 +5430,12 @@ fn eval_program(
         ),
       )
     None if members.length() > 0 => Some(ObjectValue(members))
-    None => {
-      diagnostics.push(Diagnostic::{ message: "missing expression body" })
-      None
-    }
+    // PKL-140: declarations-only modules (stdlib `pkl:math`, `pkl:test`,
+    // etc.) have no value bindings to render but still parse cleanly.
+    // Apple Pkl treats these as empty modules; the loadable surface is
+    // the class / typealias / function declarations alone. Returning
+    // an empty ObjectValue keeps the eval pipeline happy.
+    None => Some(ObjectValue([]))
   }
 }
 

@@ -2544,6 +2544,53 @@ test "PKL-139: Pair(a, b) collapses to 2-element Listing" {
 }
 
 ///|
+test "PKL-140: external modifier on property declaration" {
+  guard typecheck_source("external minInt: Int") is TypeOk(_) else { panic() }
+}
+
+///|
+test "PKL-140: abstract property slot skipped at evaluation" {
+  guard eval_source("foo: Int?\nbar = 5") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  inspect(members.length(), content="1")
+  inspect(members[0].name, content="bar")
+}
+
+///|
+test "PKL-140: variance modifier in T accepted on class" {
+  guard typecheck_source("class Container<in T> { x: T }") is TypeOk(_) else {
+    panic()
+  }
+}
+
+///|
+test "PKL-140: variance modifier out T accepted on class" {
+  guard typecheck_source("class Container<out T> { x: T }") is TypeOk(_) else {
+    panic()
+  }
+}
+
+///|
+test "PKL-140: function type annotation on property" {
+  guard eval_source(
+      "class V { x: Int }\nf: (V, V) -> Boolean = (a, b) -> a.x < b.x",
+    )
+    is EvalOk(ObjectValue(_)) else {
+    panic()
+  }
+}
+
+///|
+test "PKL-140: declarations-only module evaluates to empty object" {
+  guard eval_source("class Foo { x: Int }\ntypealias Bar = Int")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  inspect(members.length(), content="0")
+}
+
+///|
 test "Number constraint predicate accepts both Int and Float" {
   assert_true(
     eval_source("a: Number(isPositive) = 3\nb: Number(isPositive) = 0.5") ==

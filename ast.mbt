@@ -112,6 +112,11 @@ pub(all) struct Binding {
   type_name : String?
   value : Expr
   exported : Bool
+  // PKL-140: True when the property was declared without a default
+  // (`foo: Int?` / `external minInt: Int`). The evaluator skips
+  // these — Apple Pkl's stdlib uses the form for host-bound slots
+  // and abstract templates whose subclasses fill in the value.
+  abstract_slot : Bool
 } derive(Eq, Debug)
 
 ///|

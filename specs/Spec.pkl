@@ -1785,6 +1785,39 @@ local listingMappingStdlibCore = new Scenario {
   }
 }
 
+local stdlibModifiers = new Scenario {
+  id = "PKL-140"
+  name = "Apple Pkl stdlib declaration modifiers"
+  description =
+    "Parser and evaluator accept four Apple Pkl stdlib idioms that previously tripped `unsupported expression` / `missing expression body` / `expected type parameter, got in`. (1) `external` modifier on properties / classes / functions: already recognised by `is_modifier_text` and consumed by `skip_member_header`; the gap was the resulting property with no `=` body, which the parser now flags as an abstract slot. (2) Abstract property slots (`foo: Int?`): the parser sets a new `Binding.abstract_slot = true` field, stores a `NullLiteral` placeholder value, and both evaluator + typechecker skip the binding (eval: not pushed onto ObjectValue; typecheck: type recorded as the declared slot type, no validation against the placeholder). (3) Variance modifiers `<in T>` / `<out T>` on class / function / typealias type parameters: parser consumes the modifier before the identifier; pkl-mbt treats type parameters invariantly so the marker is purely a parse-side acknowledgement. (4) Function type annotations on properties (`comparator: (V, V) -> Boolean = ...`): new `parse_property_type_annotation` helper uses `stop_at_arrow=false` because property declarations end at `=` / `{`, making the arrow unambiguous. The same helper is wired into class-property declarations. (5) Declarations-only modules (`module pkl.math` with only `external` properties) now evaluate to the empty ObjectValue rather than `missing expression body`, mirroring Apple Pkl's stdlib loading model."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-001"; "PKL-002"; "PKL-116" }
+  tags { "parser"; "evaluator"; "typechecker"; "stdlib" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary =
+        "Promote abstract slots to a dedicated `Binding.abstract_slot` flag rather than a sentinel Expr"
+      rationale =
+        "An alternative is to overload `UnsupportedExpr` for the abstract case, but then every eval / typecheck arm has to disambiguate `legitimate abstract slot` from `parse failure`. A dedicated boolean keeps the two cases factored and lets the parser still emit `UnsupportedExpr` for actual parse errors."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Variance modifiers are parsed but not enforced"
+      rationale =
+        "Apple Pkl's variance semantics (`out T` covariant, `in T` contravariant) interact with the typechecker's subtype relation. pkl-mbt is fully invariant under the hood and the test suite doesn't exercise variance-dependent assignments yet. Accepting the modifier without enforcing it unblocks every stdlib class declaration immediately; correctness is a future slice once subtype-relation tests are in place."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Function type annotations only accept arrows in property position"
+      rationale =
+        "`parse_type_annotation` defaults to `stop_at_arrow=true` because lambda parameter type annotations (`(x: Int) -> x + 1`) need the arrow to terminate the type so the lambda body starts. Property declarations always end the type at `=` or `{`, so the arrow is unambiguous there. Splitting the helper into `parse_property_type_annotation` (arrow allowed) and `parse_type_annotation` (arrow stops) keeps each call site honest."
+    }
+  }
+}
+
 local httpsImports = new Scenario {
   id = "PKL-129"
   name = "URI imports via https with mizchi/x/http"
@@ -3077,5 +3110,6 @@ scenarios {
   newBodyInference
   pkspecPolish
   httpsImports
+  stdlibModifiers
   ...roadmap.entries
 }

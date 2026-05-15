@@ -354,6 +354,21 @@ local cliListingMappingStdlib = new Test {
   timeoutSec = 120
 }
 
+local cliStdlibModifiers = new Test {
+  name = "cli stdlib modifiers"
+  description =
+    "The native CLI evaluates a fixture using stdlib-style declarations: `external` modifier, abstract property slots (no `=` default), `<in T>` / `<out T>` variance modifiers, function type annotations, and a declarations-only module footprint. The rendered output skips abstract slots and keeps the regular bindings; declarations-only fragments evaluate to the empty ObjectValue."
+  tags { "moonbit"; "cli"; "parser"; "stdlib"; "contract" }
+  specRef { "PKL-140" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_stdlib_modifiers.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "comparator = <function>"
+    "filled = \"ok\""
+  }
+  timeoutSec = 120
+}
+
 local cliHttpsImports = new Test {
   name = "cli https URI import"
   description =
@@ -663,6 +678,7 @@ tests {
   cliNewBodyInference
   cliPkspecPolish
   cliHttpsImports
+  cliStdlibModifiers
   cliFormat
   cliTestExamplesPass
   cliTestExamplesFail
