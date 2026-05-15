@@ -1,6 +1,6 @@
 # Test SPEC
 
-109 tests across 2 module(s) — 97 pending, 12 active
+111 tests across 2 module(s) — 98 pending, 13 active
 
 ## `specs/`
 
@@ -418,10 +418,10 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **read trace and throw built-ins** [draft] — verifies: PKL-084 — tags: stdlib, io, diagnostics, next
-  > Built-in `read(uri)`, `read?(uri)`, `trace(value)`, and `throw(message)`. read covers `env:` / `prop:` / `file:` URIs at minimum, trace stamps a diagnostic without affecting the value, and throw aborts with a localized error.
+- [ ] **read built-in with explicit sandbox policy** [draft] — verifies: PKL-098 — tags: stdlib, io, sandbox, next
+  > Built-in `read(uri)` and `read?(uri)` covering `env:` / `prop:` / `file:` URIs at minimum, gated by an explicit allow-list policy. The non-`?` form rejects unsupported schemes and missing resources with a diagnostic; the `?` variant returns null instead. Stays separate from PKL-084 because it introduces external state (host environment / filesystem) and the sandboxing policy is an architectural decision that must precede the implementation.
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-009
+  - depends on: PKL-084
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
@@ -553,6 +553,13 @@
   > The parser and typechecker accept primitive Pkl-style type annotations and reject mismatched property/member values.
   - contributes to: GOAL-PKL-PURE
   - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **trace and throw built-ins** (minor) — verifies: PKL-084 — tags: stdlib, diagnostics
+  > `throw(message)` recognized as a builtin call ahead of the generic call path. The argument must evaluate to a String; on success it pushes a diagnostic carrying the message verbatim and aborts evaluation (no value returned), letting the existing diagnostic surface reuse the `test.catch` capture path. Anything other than a String surfaces `throw expects a String argument`, and wrong arity surfaces `throw expects exactly one argument`. `trace(value)` recognized as a sibling builtin that evaluates the argument and returns it verbatim; the stderr-stamp side of Apple Pkl's `trace` is deferred to a follow-up slice because the only observable channel for it lives in the CLI layer and would balloon this slice into renderer / diagnostic territory. Both builtins honor user shadowing (`throw = (s) -> s` takes precedence) so the same identifier remains free for user-defined helpers, mirroring how `Bytes` / `Regex` honor shadows.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-009
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **typecheck Pkl callable parameter and return annotations** (critical) — verifies: PKL-023 — tags: parser, typechecker
@@ -702,7 +709,11 @@
   > The native CLI `test` subcommand walks a `facts: Mapping<String, Listing<Boolean>>` member, reports a PASS line per fact, and ends with the pass / fail summary.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-080, PKL-081, PKL-082, PKL-083, PKL-085, PKL-086, PKL-087, PKL-088, PKL-091, PKL-093 — tags: moonbit, unit, contract
+- [x] **cli trace pass-through** — verifies: PKL-084 — tags: moonbit, cli, trace, contract
+  > The native CLI evaluates a fixture where `trace(value)` wraps its argument; the rendered output shows the inner values unchanged, confirming the builtin pass-through semantics ship as part of PKL-084.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-080, PKL-081, PKL-082, PKL-083, PKL-084, PKL-085, PKL-086, PKL-087, PKL-088, PKL-091, PKL-093 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 

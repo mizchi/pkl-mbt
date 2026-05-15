@@ -3401,6 +3401,72 @@ fn eval_expr_with_bindings(
           })
           None
         }
+      } else if callee is Identifier("throw") &&
+        !stack_contains_binding(stack, "throw") &&
+        find_binding(bindings, "throw") is None {
+        // PKL-084 split-1: `throw("...")` aborts evaluation by pushing a
+        // diagnostic carrying the message verbatim and returning no value.
+        // The message must evaluate to a String — anything else is a
+        // dedicated diagnostic rather than the user-supplied one so the
+        // origin of the failure stays unambiguous.
+        if arguments.length() == 1 {
+          match
+            eval_expr_with_bindings(
+              arguments[0],
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ) {
+            Some(StringValue(message)) => {
+              diagnostics.push(Diagnostic::{ message, })
+              None
+            }
+            Some(_) => {
+              diagnostics.push(Diagnostic::{
+                message: "throw expects a String argument",
+              })
+              None
+            }
+            None => None
+          }
+        } else {
+          diagnostics.push(Diagnostic::{
+            message: "throw expects exactly one argument",
+          })
+          None
+        }
+      } else if callee is Identifier("trace") &&
+        !stack_contains_binding(stack, "trace") &&
+        find_binding(bindings, "trace") is None {
+        // PKL-084 split-1: `trace(value)` evaluates the argument and
+        // returns it verbatim. Apple Pkl additionally writes the value to
+        // stderr as a side effect; the diagnostic-surface piece of that
+        // contract is deferred to a follow-up slice because the only
+        // observable channel for a stderr stamp lives in the CLI layer
+        // and would expand the slice into renderer + diagnostic territory.
+        if arguments.length() == 1 {
+          eval_expr_with_bindings(
+            arguments[0],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          )
+        } else {
+          diagnostics.push(Diagnostic::{
+            message: "trace expects exactly one argument",
+          })
+          None
+        }
       } else if callee is Identifier("Regex") &&
         !stack_contains_binding(stack, "Regex") &&
         find_binding(bindings, "Regex") is None {

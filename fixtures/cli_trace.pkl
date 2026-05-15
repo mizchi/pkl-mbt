@@ -1,0 +1,2 @@
+passed = trace(42)
+sum = trace(2) + trace(3)

@@ -1503,6 +1503,38 @@ local durationAndDataSizeLiterals = new Scenario {
   }
 }
 
+local traceAndThrowBuiltins = new Scenario {
+  id = "PKL-084"
+  name = "trace and throw built-ins"
+  description =
+    "`throw(message)` recognized as a builtin call ahead of the generic call path. The argument must evaluate to a String; on success it pushes a diagnostic carrying the message verbatim and aborts evaluation (no value returned), letting the existing diagnostic surface reuse the `test.catch` capture path. Anything other than a String surfaces `throw expects a String argument`, and wrong arity surfaces `throw expects exactly one argument`. `trace(value)` recognized as a sibling builtin that evaluates the argument and returns it verbatim; the stderr-stamp side of Apple Pkl's `trace` is deferred to a follow-up slice because the only observable channel for it lives in the CLI layer and would balloon this slice into renderer / diagnostic territory. Both builtins honor user shadowing (`throw = (s) -> s` takes precedence) so the same identifier remains free for user-defined helpers, mirroring how `Bytes` / `Regex` honor shadows."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-009" }
+  tags { "stdlib"; "diagnostics" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Split `read` off into its own slice; ship `throw` + `trace` first"
+      rationale =
+        "The original PKL-084 bundled `read(uri)` with `throw` and `trace`, but `read` is a sandbox boundary, not just an stdlib call — it introduces external state (env / prop / file) and forces an allow-list policy decision before any implementation can ship without a footgun. `throw` and `trace` carry no such dependency: they are pure value-side builtins whose semantics are fully specified inside the evaluator. Shipping them first delivers the diagnostic-style escape hatch fixtures expect (`throw(\"...\")` aborts; `trace(x)` is a transparent inspection wrapper) while leaving the `read` sandbox question to a dedicated slice."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Recognize `throw` / `trace` at the call-expression layer, not in stdlib source"
+      rationale =
+        "`pkl:math` and the minimal `pkl:reflect` stub live as Pkl source strings in `builtin_stdlib_source`, but those are import-resolved modules. `throw` and `trace` are top-level identifiers in Apple Pkl's base scope, not behind an `import`. The closest existing pattern is `Bytes` / `Regex`, which are recognized at the `CallExpr` layer with explicit shadowing checks; placing `throw` / `trace` next to them keeps the dispatch logic localized and makes user shadowing work without touching the import resolver."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Defer the stderr side of `trace` to a follow-up slice"
+      rationale =
+        "Apple Pkl's `trace` writes a diagnostic line to stderr and returns the value. The value-side semantics ship today because they are testable without touching the CLI; the stderr side requires plumbing a diagnostic channel through the evaluator and the CLI's print path, which is a renderer-surface decision rather than a builtin-semantics decision. Tag the gap explicitly in the source comment so the next slice picks it up deliberately."
+    }
+  }
+}
+
 local pklReflectMinimal = new Scenario {
   id = "PKL-080"
   name = "minimal pkl:reflect support"
@@ -2307,5 +2339,6 @@ scenarios {
   upstreamFixtureSweep
   upstreamJsonGoldDiff
   pklReflectMinimal
+  traceAndThrowBuiltins
   ...roadmap.entries
 }

@@ -1571,6 +1571,81 @@ test "pkl:math exposes Int abs, min, max functions" {
 }
 
 ///|
+test "throw built-in aborts evaluation with the given message" {
+  // PKL-084 split-1: `throw("...")` evaluates the message, pushes a
+  // diagnostic carrying the message verbatim, and returns no value. The
+  // diagnostic surface lines up with the existing constrained-rejection
+  // path so `test.catch` could capture it as the surfacing message.
+  guard eval_source("res = throw(\"boom\")") is EvalError(diagnostics) else {
+    panic()
+  }
+  inspect(diagnostics[0].message, content="boom")
+}
+
+///|
+test "throw built-in rejects non-String arguments" {
+  guard eval_source("res = throw(7)") is EvalError(diagnostics) else { panic() }
+  inspect(diagnostics[0].message, content="throw expects a String argument")
+}
+
+///|
+test "throw built-in rejects wrong arity" {
+  guard eval_source("res = throw(\"a\", \"b\")") is EvalError(diagnostics) else {
+    panic()
+  }
+  inspect(diagnostics[0].message, content="throw expects exactly one argument")
+}
+
+///|
+test "throw is shadowable by a local binding" {
+  // PKL-084 split-1: the builtin form only kicks in when `throw` is not
+  // shadowed by a user binding. Defining `throw` locally as an identity
+  // lambda takes precedence, mirroring how `Bytes` / `Regex` honor
+  // user-defined shadows. The lambda binding itself shows up in the
+  // exported module too; the assertion narrows to the `res` member.
+  guard eval_source("throw = (s) -> s\nres = throw(\"keep\")")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut res_value : Value? = None
+  for entry in members {
+    if entry.name == "res" {
+      res_value = Some(entry.value)
+    }
+  }
+  assert_true(res_value == Some(StringValue("keep")))
+}
+
+///|
+test "trace built-in passes the value through unchanged" {
+  // PKL-084 split-1: `trace(x)` evaluates `x` and returns it verbatim;
+  // a real trace would also stamp a diagnostic (Apple Pkl prints to
+  // stderr), which this slice intentionally defers — the value-side
+  // semantics ship first because the diagnostic surface needs CLI plumbing
+  // to be observable.
+  assert_true(
+    eval_source("res = trace(42)") ==
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: IntValue(42) }])),
+  )
+}
+
+///|
+test "trace built-in composes inside expressions" {
+  assert_true(
+    eval_source("res = trace(2) + trace(3)") ==
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: IntValue(5) }])),
+  )
+}
+
+///|
+test "trace built-in rejects wrong arity" {
+  guard eval_source("res = trace(1, 2)") is EvalError(diagnostics) else {
+    panic()
+  }
+  inspect(diagnostics[0].message, content="trace expects exactly one argument")
+}
+
+///|
 test "pkl:reflect exposes builtin type mirror constants" {
   // PKL-080 minimal slice: `pkl:reflect` is implemented as a thin Pkl source
   // stub (mirror constants + factory lambdas), the same shape `pkl:math` uses.

@@ -87,6 +87,7 @@ local moonUnit = new Test {
     "PKL-081"
     "PKL-082"
     "PKL-083"
+    "PKL-084"
     "PKL-085"
     "PKL-086"
     "PKL-087"
@@ -163,6 +164,18 @@ local cliEvalProperties = new Test {
   cmd = "moon run cmd/main --target native -- eval -f properties fixtures/cli.pkl"
   workdir = ".."
   expectStdoutContains { "name = hawk"; "age = 2" }
+  timeoutSec = 120
+}
+
+local cliTrace = new Test {
+  name = "cli trace pass-through"
+  description =
+    "The native CLI evaluates a fixture where `trace(value)` wraps its argument; the rendered output shows the inner values unchanged, confirming the builtin pass-through semantics ship as part of PKL-084."
+  tags { "moonbit"; "cli"; "trace"; "contract" }
+  specRef { "PKL-084" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_trace.pkl"
+  workdir = ".."
+  expectStdoutContains { "passed = 42"; "sum = 5" }
   timeoutSec = 120
 }
 
@@ -269,6 +282,7 @@ tests {
   cliEvalFormatPcf
   cliEvalYaml
   cliEvalProperties
+  cliTrace
   cliReflectStub
   cliTestPass
   cliTestFail

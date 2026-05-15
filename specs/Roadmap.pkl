@@ -23,22 +23,22 @@ import "../pkspec/Spec.pkl"
 
 // ── stdlib expansion ────────────────────────────────────────────────────────
 
-local readTraceThrow: Spec.Scenario = new {
-  id = "PKL-084"
-  name = "read trace and throw built-ins"
+local readSandboxedBuiltin: Spec.Scenario = new {
+  id = "PKL-098"
+  name = "read built-in with explicit sandbox policy"
   description =
-    "Built-in `read(uri)`, `read?(uri)`, `trace(value)`, and `throw(message)`. read covers `env:` / `prop:` / `file:` URIs at minimum, trace stamps a diagnostic without affecting the value, and throw aborts with a localized error."
+    "Built-in `read(uri)` and `read?(uri)` covering `env:` / `prop:` / `file:` URIs at minimum, gated by an explicit allow-list policy. The non-`?` form rejects unsupported schemes and missing resources with a diagnostic; the `?` variant returns null instead. Stays separate from PKL-084 because it introduces external state (host environment / filesystem) and the sandboxing policy is an architectural decision that must precede the implementation."
   contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-009" }
-  tags { "stdlib"; "io"; "diagnostics"; "next" }
+  dependsOn { "PKL-084" }
+  tags { "stdlib"; "io"; "sandbox"; "next" }
   reviewStatus = "draft"
   severity = "major"
   decisions {
     new Spec.Decision {
       date = "2026-05-15"
-      summary = "read() is a sandbox boundary, not just an stdlib call"
+      summary = "Decide the sandbox policy before any concrete `read` semantics ship"
       rationale =
-        "read() introduces external state into the evaluator, which means we have to decide the sandboxing policy (env / prop / file scopes, default-deny vs allow-list) before the implementation. Treat this scenario as an architectural decision, not a quick add."
+        "`read()` is the first builtin that pulls external state into the evaluator (env vars, properties, filesystem). Without a policy decision (default-deny vs allow-list, per-scheme scoping, evaluator-vs-CLI configuration surface), the implementation drifts toward either an over-permissive footgun or an under-specified diagnostic. Treat this slice as a policy-then-implementation pair, distinct from the pure builtin semantics PKL-084 just shipped."
     }
   }
 }
@@ -86,7 +86,7 @@ local floatConstraintPredicates: Spec.Scenario = new {
 // ── CLI surface and upstream compatibility ──────────────────────────────────
 
 entries: Listing<Spec.Scenario> = new {
-  readTraceThrow
+  readSandboxedBuiltin
   genericClassDeclarations
   genericFunctionTypeParameters
   floatConstraintPredicates
