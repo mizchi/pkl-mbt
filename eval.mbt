@@ -320,6 +320,39 @@ fn eval_constrained_type_source_name(
 }
 
 ///|
+// PKL-138: coerce an empty `ObjectValue([])` to the empty Listing /
+// Mapping value when the binding's type annotation requires it. Parsers
+// can't tell whether `new {}` (no explicit type, empty body) is meant
+// to be a Listing, Mapping, or Object — the binding's type annotation
+// is the disambiguator, applied here at eval time.
+//
+// Non-empty `ObjectValue`s aren't coerced: if the body had real entries
+// they would have been parsed as listing / mapping body via the
+// `parse_inferred_new_body` peek (which dispatches on the first
+// significant token), so a non-empty ObjectValue with a Listing /
+// Mapping annotation is a real type mismatch.
+fn coerce_value_to_annotated_type(value : Value, type_name : String?) -> Value {
+  match (value, type_name) {
+    (ObjectValue(members), Some(name)) if members.length() == 0 =>
+      if name == "Listing" ||
+        name == "List" ||
+        name.has_prefix("Listing<") ||
+        name.has_prefix("List<") {
+        ListingValue([])
+      } else if name == "Mapping" || name.has_prefix("Mapping<") {
+        MappingValue([])
+      } else if name == "Set" || name.has_prefix("Set<") {
+        // PKL-119 will introduce SetValue; until then collapse to
+        // ListingValue (matches how Listing/List share a variant today).
+        ListingValue([])
+      } else {
+        value
+      }
+    _ => value
+  }
+}
+
+///|
 fn eval_constrained_type_annotation_value_is_valid(
   type_name : String?,
   value : Value,
@@ -781,7 +814,11 @@ fn resolve_binding_value(
                 diagnostics,
                 resolve_import,
               ) {
-              Some(value) =>
+              Some(raw_value) => {
+                let value = coerce_value_to_annotated_type(
+                  raw_value,
+                  binding.type_name,
+                )
                 if pkl_constrained_type_annotation_value_is_valid(
                     binding.type_name,
                     value,
@@ -792,6 +829,7 @@ fn resolve_binding_value(
                 } else {
                   None
                 }
+              }
               None => None
             }
           }
@@ -4812,7 +4850,8 @@ fn eval_object_members(
         diagnostics,
         resolve_import,
       ) {
-      Some(value) =>
+      Some(raw_value) => {
+        let value = coerce_value_to_annotated_type(raw_value, field.type_name)
         if field.name == "@when" || field.name == "@for" {
           // Synthetic when-conditional / for-generator emitted by the
           // matching parse helper. The value is the picked branch's (or the
@@ -4836,6 +4875,7 @@ fn eval_object_members(
           ) {
           values.push({ name: field.name, value })
         }
+      }
       None => ()
     }
   }
@@ -5172,7 +5212,11 @@ fn eval_program(
           )
       }
       match resolved_value {
-        Some(value) =>
+        Some(raw_value) => {
+          let value = coerce_value_to_annotated_type(
+            raw_value,
+            binding.type_name,
+          )
           if eval_constrained_type_annotation_value_is_valid(
               binding.type_name,
               value,
@@ -5199,6 +5243,7 @@ fn eval_program(
             ) {
             members.push({ name: binding.name, value })
           }
+        }
         None => ()
       }
     }

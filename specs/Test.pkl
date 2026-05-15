@@ -354,6 +354,28 @@ local cliListingMappingStdlib = new Test {
   timeoutSec = 120
 }
 
+local cliNewBodyInference = new Test {
+  name = "cli new body inference"
+  description =
+    "The native CLI evaluates a fixture that exercises bare `new { ... }` literals dispatched into listing / mapping / object bodies by the first significant token, plus empty `new {}` literals coerced to ListingValue / MappingValue via the binding's type annotation. Chained methods (`emptyListing.toList().map(...)`, `emptyMapping.keys`) succeed because the coercion runs before the method dispatch."
+  tags { "moonbit"; "cli"; "parser"; "evaluator"; "pkf-pkspec"; "contract" }
+  specRef { "PKL-138" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_new_body_inference.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "xs {"
+    "emptyListing {}"
+    "m {"
+    "emptyMapping {}"
+    "obj {"
+    "listingLen = 3"
+    "mappingLen = 2"
+    "emptyChained {}"
+    "emptyMapKeys {}"
+  }
+  timeoutSec = 120
+}
+
 local cliWhenConditional = new Test {
   name = "cli when conditional property"
   description =
@@ -605,6 +627,7 @@ tests {
   cliListingMappingStdlib
   cliListingMappingFunctional
   cliWhenConditional
+  cliNewBodyInference
   cliFormat
   cliTestExamplesPass
   cliTestExamplesFail

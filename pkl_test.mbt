@@ -2399,6 +2399,61 @@ test "PKL-136: new Listing<T> parses body as listing" {
 }
 
 ///|
+test "PKL-138: bare new { 1; 2; 3 } infers as listing body" {
+  guard eval_source("xs: Listing<Int> = new { 1; 2; 3 }")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is ListingValue(xs) else { panic() }
+  inspect(xs.length(), content="3")
+}
+
+///|
+test "PKL-138: bare new { [\"a\"] = 1 } infers as mapping body" {
+  guard eval_source(
+      "m: Mapping<String, Int> = new { [\"a\"] = 1; [\"b\"] = 2 }",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is MappingValue(entries) else { panic() }
+  inspect(entries.length(), content="2")
+}
+
+///|
+test "PKL-138: empty new {} coerces to ListingValue under Listing<T>" {
+  guard eval_source("xs: Listing<Int> = new {}\nys = xs.toList()")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is ListingValue(xs) else { panic() }
+  guard members[1].value is ListingValue(ys) else { panic() }
+  inspect(xs.length(), content="0")
+  inspect(ys.length(), content="0")
+}
+
+///|
+test "PKL-138: empty new {} coerces to MappingValue under Mapping" {
+  guard eval_source("m: Mapping<String, Int> = new {}\nks = m.keys")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is MappingValue(_) else { panic() }
+  guard members[1].value is ListingValue(ks) else { panic() }
+  inspect(ks.length(), content="0")
+}
+
+///|
+test "PKL-138: bare new { ident = ... } still parses as object body" {
+  guard eval_source("obj = new { name = \"foo\"; count = 5 }")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is ObjectValue(inner) else { panic() }
+  inspect(inner.length(), content="2")
+}
+
+///|
 test "Number constraint predicate accepts both Int and Float" {
   assert_true(
     eval_source("a: Number(isPositive) = 3\nb: Number(isPositive) = 0.5") ==

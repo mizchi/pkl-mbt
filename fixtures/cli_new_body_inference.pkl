@@ -1,0 +1,25 @@
+// PKL-138: new { ... } body inference based on first significant token
+// and empty-body coercion via binding type annotation.
+xs: Listing<Int> = new { 1; 2; 3 }
+
+emptyListing: Listing<Int> = new {}
+
+m: Mapping<String, Int> = new {
+  ["a"] = 1
+  ["b"] = 2
+}
+
+emptyMapping: Mapping<String, Int> = new {}
+
+obj = new {
+  name = "foo"
+  count = 5
+}
+
+listingLen = xs.length
+
+mappingLen = m.length
+
+emptyChained = emptyListing.toList().map((n) -> n + 1)
+
+emptyMapKeys = emptyMapping.keys

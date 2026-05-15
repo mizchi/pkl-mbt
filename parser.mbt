@@ -1791,12 +1791,74 @@ fn Parser::parse_object_expr(self : Parser) -> Expr {
   } else if type_name == "Mapping" || type_name.has_prefix("Mapping<") {
     self.parse_mapping_body()
   } else if type_name == "" {
-    self.parse_object_body()
+    // PKL-138: peek the first significant token inside `{` to decide
+    // whether `new { ... }` is a listing, mapping, or object body. The
+    // binding's type annotation isn't visible at parse time, so we
+    // infer from the body's first item shape.
+    self.parse_inferred_new_body()
   } else {
     TypedObjectLiteral(type_name, self.parse_object_body_members())
   }
   self.builder.finish_node()
   value
+}
+
+///|
+/// PKL-138: dispatch `new { ... }` (no explicit type) by peeking the
+/// first significant token inside the body brace.
+///
+/// - First token `[` → Mapping body (`new { ["a"] = 1 }`)
+/// - First token starts a property decl (`ident =` / `ident :` / `ident {`)
+///   or a visibility / control keyword (`local`, `hidden`, `fixed`, `when`,
+///   `for`) → Object body
+/// - First token `}` (empty body) → Object body (the eval coerces to the
+///   empty Listing / Mapping if the binding's annotation requires it)
+/// - Otherwise (bare expression: literal, `(`, `new`, unary operator,
+///   identifier-without-property-suffix) → Listing body
+fn Parser::parse_inferred_new_body(self : Parser) -> Expr {
+  self.skip_whitespace()
+  if !self.at(lbrace()) {
+    return self.parse_object_body()
+  }
+  let first_idx = self.skip_trivia_from(self.pos + 1)
+  let first = if first_idx >= self.len {
+    eof()
+  } else {
+    self.tokens[first_idx].kind()
+  }
+  let first_text = if first_idx >= self.len {
+    ""
+  } else {
+    self.tokens[first_idx].text()
+  }
+  if first == lbracket() {
+    self.parse_mapping_body()
+  } else if first == rbrace() ||
+    first == when_kw() ||
+    first == for_kw() ||
+    first == local_kw() ||
+    self.at_property_decl_from(first_idx) ||
+    // `hidden` / `fixed` are identifiers token-wise but mark a
+    // property declaration when they precede an identifier.
+    (
+      (first_text == "hidden" || first_text == "fixed") &&
+      self.at_property_decl_from(self.skip_trivia_from(first_idx + 1))
+    ) {
+    self.parse_object_body()
+  } else {
+    self.parse_listing_body()
+  }
+}
+
+///|
+/// Helper: skip trivia tokens starting at `start` and return the next
+/// significant token index.
+fn Parser::skip_trivia_from(self : Parser, start : Int) -> Int {
+  let mut i = start
+  while i < self.len && is_trivia(self.tokens[i].kind()) {
+    i += 1
+  }
+  i
 }
 
 ///|

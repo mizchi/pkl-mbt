@@ -1,6 +1,6 @@
 # Test SPEC
 
-166 tests across 2 module(s) — 137 pending, 29 active
+168 tests across 2 module(s) — 138 pending, 30 active
 
 ## `specs/`
 
@@ -482,6 +482,13 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-029
   - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **new body inference from first token and binding annotation** — verifies: PKL-138 — tags: parser, evaluator, pkf-pkspec
+  > Apple Pkl writes `tests: Listing<Test> = new { ... }` and `m: Mapping<K, V> = new { ... }` without an explicit `Listing` / `Mapping` qualifier on `new`. The parser previously dispatched `new { ... }` (empty type prefix) unconditionally to `parse_object_body`, so bare-expression bodies parsed as zero members (the property-decl loop skipped them) and empty bodies came back as `ObjectValue([])` that failed every Listing / Mapping method. The new `parse_inferred_new_body` helper peeks the first significant token inside the brace: `[` → mapping body, `}` / `local` / `when` / `for` / property-decl / `hidden ident` / `fixed ident` → object body, anything else (literal / `(` / unary / `new` / identifier without property suffix) → listing body. For the empty-body case the parser still produces `ObjectLiteral([])`; the evaluator's `coerce_value_to_annotated_type` helper then projects it to `ListingValue([])` / `MappingValue([])` when the binding's type annotation requires it. Coercion runs at every binding eval site (`resolve_binding_value`, module-level binding loop, `eval_object_members`).
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-005
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **null-coalescing operator and let expressions** (minor) — verifies: PKL-088 — tags: evaluator, expressions
@@ -993,6 +1000,10 @@
 
 - [x] **cli listing mapping stdlib** — verifies: PKL-134 — tags: moonbit, cli, stdlib, pkf-pkspec, contract
   > The native CLI evaluates a fixture that exercises Listing.toList / length / isEmpty, Mapping.toMap / length / keys / values, and the `List<T>` type annotation. Each method returns the expected value and the rendered PCF matches the equivalent literal.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli new body inference** — verifies: PKL-138 — tags: moonbit, cli, parser, evaluator, pkf-pkspec, contract
+  > The native CLI evaluates a fixture that exercises bare `new { ... }` literals dispatched into listing / mapping / object bodies by the first significant token, plus empty `new {}` literals coerced to ListingValue / MappingValue via the binding's type annotation. Chained methods (`emptyListing.toList().map(...)`, `emptyMapping.keys`) succeed because the coercion runs before the method dispatch.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli reflect minimal stub** — verifies: PKL-080 — tags: moonbit, cli, pkl-reflect, stdlib, contract

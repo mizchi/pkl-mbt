@@ -1785,6 +1785,38 @@ local listingMappingStdlibCore = new Scenario {
   }
 }
 
+local newBodyInference = new Scenario {
+  id = "PKL-138"
+  name = "new body inference from first token and binding annotation"
+  description =
+    "Apple Pkl writes `tests: Listing<Test> = new { ... }` and `m: Mapping<K, V> = new { ... }` without an explicit `Listing` / `Mapping` qualifier on `new`. The parser previously dispatched `new { ... }` (empty type prefix) unconditionally to `parse_object_body`, so bare-expression bodies parsed as zero members (the property-decl loop skipped them) and empty bodies came back as `ObjectValue([])` that failed every Listing / Mapping method. The new `parse_inferred_new_body` helper peeks the first significant token inside the brace: `[` → mapping body, `}` / `local` / `when` / `for` / property-decl / `hidden ident` / `fixed ident` → object body, anything else (literal / `(` / unary / `new` / identifier without property suffix) → listing body. For the empty-body case the parser still produces `ObjectLiteral([])`; the evaluator's `coerce_value_to_annotated_type` helper then projects it to `ListingValue([])` / `MappingValue([])` when the binding's type annotation requires it. Coercion runs at every binding eval site (`resolve_binding_value`, module-level binding loop, `eval_object_members`)."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-005" }
+  tags { "parser"; "evaluator"; "pkf-pkspec" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Peek-based dispatch in the parser, type-driven coercion in the evaluator"
+      rationale =
+        "An alternative is to parse `new { ... }` into a single FlexibleLiteral variant that captures both bare expressions and object members, then disambiguate at typecheck / eval time. That preserves more information but requires touching every consumer of `ObjectLiteral` / `ListingLiteral` / `MappingLiteral`. The peek approach covers all non-empty cases at parse time (the body shape is unambiguous when the first item is concrete), and only the empty body needs the type-driven fallback. Two narrow integration points (parser peek + eval coercion) rather than threading a new AST variant through every stage."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Coerce only empty `ObjectValue([])` to `ListingValue([])` / `MappingValue([])`"
+      rationale =
+        "A non-empty `ObjectValue` with a `Listing<T>` annotation is a real type mismatch — the body had real members (`name = ...`), so it can't be a listing. Limiting coercion to empty values keeps the diagnostic surface honest: legitimate type errors still surface, only the parse-time ambiguity around `new {}` gets smoothed over. The coercion runs before the constraint / annotation check so the post-coerced value is what gets validated, mirroring upstream's semantics where `new {}` is a polymorphic empty literal."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Include `Set<T>` in the coercion table, folding to `ListingValue([])`"
+      rationale =
+        "`Set` doesn't have a dedicated value variant yet (PKL-119 is the future slice that splits Set / Pair / Map / IntSeq), so coerce empty `new {}` annotated as `Set<T>` to `ListingValue([])` for now. The runtime behaviour matches how pkl-mbt already collapses Listing / List into a single variant. When PKL-119 ships, the table extends to a dedicated `SetValue([])` arm."
+    }
+  }
+}
+
 local whenConditionalProperty = new Scenario {
   id = "PKL-136"
   name = "when conditional property in Listing / Mapping bodies"
@@ -2976,5 +3008,6 @@ scenarios {
   listingMappingStdlibCore
   listingMappingFunctional
   whenConditionalProperty
+  newBodyInference
   ...roadmap.entries
 }
