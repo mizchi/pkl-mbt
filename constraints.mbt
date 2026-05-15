@@ -10,6 +10,10 @@ priv enum ConstraintIntPredicate {
   IsPositive
   IsGreaterThan(Int)
   IsLessThan(Int)
+  NotIsBetween(Int, Int)
+  NotIsPositive
+  NotIsGreaterThan(Int)
+  NotIsLessThan(Int)
 }
 
 ///|
@@ -231,6 +235,16 @@ fn pkl_single_int_constraint_argument(text : String, name : String) -> Int? {
 
 ///|
 fn pkl_int_constraint_predicate(text : String) -> ConstraintIntPredicate? {
+  if text.has_prefix("!") && text.length() > 1 {
+    let inner = String::unsafe_substring(text, start=1, end=text.length())
+    match pkl_int_constraint_predicate(inner) {
+      Some(IsBetween(lower, upper)) => return Some(NotIsBetween(lower, upper))
+      Some(IsPositive) => return Some(NotIsPositive)
+      Some(IsGreaterThan(threshold)) => return Some(NotIsGreaterThan(threshold))
+      Some(IsLessThan(threshold)) => return Some(NotIsLessThan(threshold))
+      _ => return None
+    }
+  }
   match pkl_is_between_range(text) {
     Some(range) => return Some(IsBetween(range.lower, range.upper))
     None => ()
@@ -287,6 +301,10 @@ fn pkl_constraint_name(predicate : ConstraintIntPredicate) -> String {
     IsPositive => "isPositive"
     IsGreaterThan(_) => "isGreaterThan"
     IsLessThan(_) => "isLessThan"
+    NotIsBetween(_, _) => "!isBetween"
+    NotIsPositive => "!isPositive"
+    NotIsGreaterThan(_) => "!isGreaterThan"
+    NotIsLessThan(_) => "!isLessThan"
   }
 }
 
@@ -300,6 +318,10 @@ fn pkl_constraint_predicate_accepts(
     IsPositive => value > 0
     IsGreaterThan(threshold) => value > threshold
     IsLessThan(threshold) => value < threshold
+    NotIsBetween(lower, upper) => !(value >= lower && value <= upper)
+    NotIsPositive => !(value > 0)
+    NotIsGreaterThan(threshold) => !(value > threshold)
+    NotIsLessThan(threshold) => !(value < threshold)
   }
 }
 

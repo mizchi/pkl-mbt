@@ -1075,8 +1075,8 @@ local negatedConstraintPredicates = new Scenario {
     "Type annotations with negated constraints, such as `Int(!isPositive)`, invert supported predicate results in typechecking and evaluation paths."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-054"; "PKL-053"; "PKL-046" }
-  tags { "typechecker"; "evaluator"; "next" }
-  reviewStatus = "draft"
+  tags { "typechecker"; "evaluator" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -1084,6 +1084,26 @@ local negatedConstraintPredicates = new Scenario {
       summary = "Add constraint negation after list evaluation"
       rationale =
         "Upstream fixtures include negated constraints such as `!isPositive`. Once constraint lists are evaluated in order, negation can be represented as a predicate wrapper without changing the surrounding metadata flow."
+    }
+  }
+}
+
+local userDefinedConstraintFunctions = new Scenario {
+  id = "PKL-056"
+  name = "evaluate Pkl user-defined type constraint functions"
+  description =
+    "Type constraints can call user-defined predicate factories such as `isGreaterThan(5)`, so supported function declarations can participate in annotation checking instead of being matched only by built-in names."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-055"; "PKL-044"; "PKL-046" }
+  tags { "typechecker"; "evaluator"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Move from name-matched constraints to callable predicates"
+      rationale =
+        "Built-in-style numeric predicates and negation are now supported by syntax matching. Upstream fixtures also define custom predicate factories; evaluating those requires connecting type-constraint expressions to callable runtime/typecheck information."
     }
   }
 }
@@ -1146,4 +1166,5 @@ scenarios {
   numericConstraintPredicates
   multipleConstraintPredicates
   negatedConstraintPredicates
+  userDefinedConstraintFunctions
 }
