@@ -1,0 +1,11 @@
+function identity<T>(x: T): T = x
+
+class Box<T> {
+  value: T
+}
+
+intResult = identity(7) + 1
+
+intBox = new Box { value = 5 }
+
+boxedSum = intBox.value + 100

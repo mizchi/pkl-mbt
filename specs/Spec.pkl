@@ -1503,6 +1503,46 @@ local durationAndDataSizeLiterals = new Scenario {
   }
 }
 
+local callSiteGenericInference = new Scenario {
+  id = "PKL-110"
+  name = "call-site generic inference"
+  description =
+    "The typechecker propagates concrete types through generic function calls and class literals. Each `ClassDecl.type_parameters` / `FunctionDecl.type_parameters` entry binds to a new `TypeVariable(name)` variant in the typecheck `Type` enum (previously `UnknownType`). At every call site (`infer_lambda_application` and `infer_function_type_call`) the typechecker walks parameter / argument pairs through `unify_for_substitution`, building a `TypeSubstitution` table that records `TypeVariable(\"T\") := <concrete>` bindings. `substitute_type` then rewrites the inferred return type, the parameter cache entries, and the declared return annotation so the call's result has the concrete type — `identity(7)` typechecks as `Int`, so `identity(7) + 1` succeeds while `identity(\"hi\") + 1` rejects with `operator + expects Int operands`. The class literal path in `apply_type_annotation` does the symmetric move: when the expected `ClassType` still carries TypeVariable members and the inferred `ObjectType` carries concrete member types, `substitute_class_type_variables` unifies and rewrites the class type before returning, so downstream field accesses (`intBox.value`) resolve to the substituted member type. `type_accepts` treats `TypeVariable(_)` on either side as accept-any during the structural pass so unification can run without false rejection; the substitution table is the diagnostic surface. Generic class declarations whose body uses are exhausted at scope exit (e.g. a function body that references T but is never called) still typecheck — the variable simply stays free and renders as its parameter name."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-089"; "PKL-090" }
+  tags { "typechecker"; "generics"; "inference" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary =
+        "Promote type parameters to a real `TypeVariable(String)` variant instead of overloading `UnknownType`"
+      rationale =
+        "PKL-089 / PKL-090 deliberately bound T to `UnknownType` because the substitution machinery was deferred. Now that the machinery exists, `UnknownType` is too coarse: it means 'I don't know this type — accept anything', while a free `T` means 'this site is a parameter — rewrite me at the call site'. Conflating them would either leak `UnknownType` into substituted return types (silently accepting nonsense) or require call-side flags to distinguish them. A dedicated variant is cheaper and lets `render_type` print the original parameter name (`T`) instead of `Unknown`, which is the form Pkl users wrote."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Collect substitutions in a separate pass over parameter / argument pairs"
+      rationale =
+        "Hindley-Milner-style unification with constraint generation is the textbook approach. A separate accumulating pass keeps the diagnostic surface clean: `type_accepts` still drives argument rejection, `unify_for_substitution` does not raise diagnostics on conflict (it just records the first binding), and `substitute_type` runs at well-defined boundaries (return-from-call, after-class-literal-annotation). This split lets the substitution pass remain non-recursive at the top level — every signature reduces to a finite walk over the parameter list."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary =
+        "Apply class-type substitution inside `apply_type_annotation` rather than at the `TypedObjectLiteral` site"
+      rationale =
+        "`apply_type_annotation` is the single funnel for `binding: ClassType = new ClassType { ... }`, `binding = new ClassType { ... }`, and `binding: ClassType` (no body). Doing substitution at the funnel guarantees every path benefits — including imports and re-amends that route through the same annotation resolver. Doing it at `TypedObjectLiteral` would miss the `binding: Box<Int> = someBox` annotation form once user-facing generic syntax expands."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Leave the evaluator untouched"
+      rationale =
+        "Substitution is a typechecker-side phenomenon: at runtime, `new Box { value = 5 }` has always carried `value = IntValue(5)` regardless of T's static binding. The new variant lives in `typecheck.mbt` only, and the evaluator's PKL-090 short-circuit (`eval_type_name_is_type_parameter`) still applies — it never relied on the typechecker's representation of T."
+    }
+  }
+}
+
 local pklTestExamples = new Scenario {
   id = "PKL-100"
   name = "pkl test examples and golden diff"
@@ -2540,5 +2580,6 @@ scenarios {
   genericFunctionTypeParameters
   cliFormat
   pklTestExamples
+  callSiteGenericInference
   ...roadmap.entries
 }

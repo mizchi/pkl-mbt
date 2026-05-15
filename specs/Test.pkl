@@ -193,6 +193,23 @@ local cliGenerics = new Test {
   timeoutSec = 120
 }
 
+local cliGenericInference = new Test {
+  name = "cli generic call-site inference"
+  description =
+    "The native CLI evaluates a fixture that depends on substituted generic types: `identity(7) + 1` typechecks and evaluates to `8` because T binds Int at the call site, and `intBox.value + 100` typechecks and evaluates to `105` because Box<T>'s value member instantiates as Int from the literal."
+  tags { "moonbit"; "cli"; "generics"; "inference"; "contract" }
+  specRef { "PKL-110" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_generic_inference.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "intResult = 8"
+    "intBox {"
+    "value = 5"
+    "boxedSum = 105"
+  }
+  timeoutSec = 120
+}
+
 local cliTestExamplesPass = new Test {
   name = "cli test examples gold match"
   description =
@@ -375,6 +392,7 @@ tests {
   cliTestExamplesPass
   cliTestExamplesFail
   cliGenerics
+  cliGenericInference
   cliTrace
   cliReflectStub
   cliTestPass

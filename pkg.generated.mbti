@@ -386,6 +386,7 @@ pub(all) enum Type {
   UnionType(Array[Type])
   NullableType(Type)
   DefaultedType(Type)
+  TypeVariable(String)
   UnknownType
 } derive(Eq, @debug.Debug)
 

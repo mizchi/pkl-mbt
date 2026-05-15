@@ -1,6 +1,6 @@
 # Test SPEC
 
-150 tests across 2 module(s) — 132 pending, 18 active
+151 tests across 2 module(s) — 132 pending, 19 active
 
 ## `specs/`
 
@@ -34,7 +34,7 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **Float Power and split float div semantics** (minor) [draft] — verifies: PKL-111 — tags: evaluator, typechecker, float
+- [ ] **Float Power and split float div semantics** (minor) [draft] — verifies: PKL-111 — tags: evaluator, typechecker, float, next
   > Decide and implement the operator surface for `**` / `~/` / `%` on Float operands: either widen all three (matching JVM Pkl), or surface them as `math.pow` / `math.floorDiv` / `math.remainder` stdlib calls. Today they diagnose with `not defined for Float operands`.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-092
@@ -111,10 +111,11 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **call-site generic inference** [draft] — verifies: PKL-110 — tags: typechecker, generics, inference, next
-  > Replace the PKL-089 / PKL-090 `UnknownType` placeholder with a `TypeVariable` propagation rule: at a call site like `identity(42)`, bind `T = Int` and propagate the binding through the parameter / return / body types so `b.value` on `new Box { value = 5 }` resolves to `Int`. Introduces a substitution table threaded through `infer_expr_with_bindings`.
+- [ ] **call-site generic inference** — verifies: PKL-110 — tags: typechecker, generics, inference
+  > The typechecker propagates concrete types through generic function calls and class literals. Each `ClassDecl.type_parameters` / `FunctionDecl.type_parameters` entry binds to a new `TypeVariable(name)` variant in the typecheck `Type` enum (previously `UnknownType`). At every call site (`infer_lambda_application` and `infer_function_type_call`) the typechecker walks parameter / argument pairs through `unify_for_substitution`, building a `TypeSubstitution` table that records `TypeVariable("T") := <concrete>` bindings. `substitute_type` then rewrites the inferred return type, the parameter cache entries, and the declared return annotation so the call's result has the concrete type — `identity(7)` typechecks as `Int`, so `identity(7) + 1` succeeds while `identity("hi") + 1` rejects with `operator + expects Int operands`. The class literal path in `apply_type_annotation` does the symmetric move: when the expected `ClassType` still carries TypeVariable members and the inferred `ObjectType` carries concrete member types, `substitute_class_type_variables` unifies and rewrites the class type before returning, so downstream field accesses (`intBox.value`) resolve to the substituted member type. `type_accepts` treats `TypeVariable(_)` on either side as accept-any during the structural pass so unification can run without false rejection; the substitution table is the diagnostic surface. Generic class declarations whose body uses are exhausted at scope exit (e.g. a function body that references T but is never called) still typecheck — the variable simply stays free and renders as its parameter name.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-089, PKL-090
+  - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **cli format subcommand** — verifies: PKL-099 — tags: cli, renderer, format
@@ -912,6 +913,10 @@
 
 - [x] **cli format subcommand** — verifies: PKL-099 — tags: moonbit, cli, format, contract
   > The native CLI `format` subcommand re-emits the source through the PCF renderer, normalizing whitespace and indentation. Today the formatter operates on the evaluated module value; trivia-preserving idempotent reformatting is a follow-up.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli generic call-site inference** — verifies: PKL-110 — tags: moonbit, cli, generics, inference, contract
+  > The native CLI evaluates a fixture that depends on substituted generic types: `identity(7) + 1` typechecks and evaluates to `8` because T binds Int at the call site, and `intBox.value + 100` typechecks and evaluates to `105` because Box<T>'s value member instantiates as Int from the literal.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli generic class and function declarations** — verifies: PKL-089, PKL-090 — tags: moonbit, cli, generics, contract

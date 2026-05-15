@@ -133,18 +133,6 @@ local upstreamFixtureSweepExpansion: Spec.Scenario = new {
 
 // ── typechecker rounding ────────────────────────────────────────────────────
 
-local callSiteGenericInference: Spec.Scenario = new {
-  id = "PKL-110"
-  name = "call-site generic inference"
-  description =
-    "Replace the PKL-089 / PKL-090 `UnknownType` placeholder with a `TypeVariable` propagation rule: at a call site like `identity(42)`, bind `T = Int` and propagate the binding through the parameter / return / body types so `b.value` on `new Box { value = 5 }` resolves to `Int`. Introduces a substitution table threaded through `infer_expr_with_bindings`."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-089"; "PKL-090" }
-  tags { "typechecker"; "generics"; "inference"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 local floatPowerAndIntDivideForFloat: Spec.Scenario = new {
   id = "PKL-111"
   name = "Float Power and split float div semantics"
@@ -152,7 +140,7 @@ local floatPowerAndIntDivideForFloat: Spec.Scenario = new {
     "Decide and implement the operator surface for `**` / `~/` / `%` on Float operands: either widen all three (matching JVM Pkl), or surface them as `math.pow` / `math.floorDiv` / `math.remainder` stdlib calls. Today they diagnose with `not defined for Float operands`."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-092" }
-  tags { "evaluator"; "typechecker"; "float" }
+  tags { "evaluator"; "typechecker"; "float"; "next" }
   reviewStatus = "draft"
   severity = "minor"
 }
@@ -427,7 +415,6 @@ entries: Listing<Spec.Scenario> = new {
   diagnosticSourcePosition
   errorMessageUpstreamAlign
   upstreamFixtureSweepExpansion
-  callSiteGenericInference
   floatPowerAndIntDivideForFloat
   floatThresholdConstraints
   equalityTypecheckOperandMatch

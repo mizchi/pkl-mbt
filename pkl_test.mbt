@@ -1648,6 +1648,54 @@ test "generic class declaration with two type parameters" {
 }
 
 ///|
+test "PKL-110: generic function return type substitutes argument type" {
+  // identity<T>(7): T binds Int at the call site, so identity(7) + 1
+  // typechecks as Int + Int → Int.
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "function identity<T>(x: T): T = x\nres = identity(7) + 1",
+  )
+  guard session.typecheck_path("main.pkl") is TypeOk(_) else { panic() }
+  assert_true(true)
+}
+
+///|
+test "PKL-110: generic function rejects mismatched downstream usage" {
+  // T binds String at the call site, so identity("hi") + 1 is a typecheck
+  // error (String + Int rejects). Without PKL-110 substitution the return
+  // type was UnknownType and the downstream + was silently accepted.
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "function identity<T>(x: T): T = x\nres = identity(\"hi\") + 1",
+  )
+  guard session.typecheck_path("main.pkl") is TypeError(_) else { panic() }
+  assert_true(true)
+}
+
+///|
+test "PKL-110: generic class member type instantiates from literal" {
+  // class Box<T> { value: T }: when we write `new Box { value = 5 }`,
+  // T binds Int and b.value resolves to Int, so b.value + 1 typechecks.
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "class Box<T> { value: T }\nb = new Box { value = 5 }\nres = b.value + 1",
+  )
+  guard session.typecheck_path("main.pkl") is TypeOk(_) else { panic() }
+  assert_true(true)
+}
+
+///|
+test "PKL-110: generic class member type rejects after instantiation" {
+  // After T binds String, b.value is String, so b.value + 1 fails.
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "class Box<T> { value: T }\nb = new Box { value = \"hi\" }\nres = b.value + 1",
+  )
+  guard session.typecheck_path("main.pkl") is TypeError(_) else { panic() }
+  assert_true(true)
+}
+
+///|
 test "Float literal evaluates as FloatValue" {
   // PKL-092: `3.14` lexes into a Float token, parses into `FloatLiteral`,
   // and evaluates into `FloatValue`. Sanity check before the
