@@ -319,6 +319,29 @@ test "parse Pkl class function and typealias declarations" {
 }
 
 ///|
+test "parse Pkl const function declarations" {
+  let source = "const function above(n) = (x) -> x > n\nvalue: Int(above(5)) = 6"
+  let parsed = parse_source(source)
+  inspect(parsed.diagnostics.length(), content="0")
+  inspect(parsed.unsupported_syntax.length(), content="0")
+  inspect(parsed.program.declarations.length(), content="1")
+  guard parsed.program.declarations[0] is FunctionDeclaration(function_decl) else {
+    panic()
+  }
+  inspect(function_decl.name, content="above")
+  inspect(function_decl.parameters.length(), content="1")
+  inspect(function_decl.parameters[0].name, content="n")
+  assert_true(
+    typecheck_source(source) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+  assert_true(
+    eval_source(source) ==
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(6) }])),
+  )
+}
+
+///|
 test "parse and typecheck Pkl class method declarations" {
   let source = "class Bird { function label(prefix: String): String = prefix }\nbird = new Bird {}\nvalue = bird.label"
   let parsed = parse_source(source)

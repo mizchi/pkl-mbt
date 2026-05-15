@@ -1115,8 +1115,8 @@ local constFunctionDeclarations = new Scenario {
     "Const-qualified function declarations such as `const function isGreaterThan(n) = (x) -> x > n` parse as function declarations, so upstream constraint-factory fixtures can use their original syntax."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-056"; "PKL-015" }
-  tags { "parser"; "typechecker"; "next" }
-  reviewStatus = "draft"
+  tags { "parser"; "typechecker" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -1124,6 +1124,26 @@ local constFunctionDeclarations = new Scenario {
       summary = "Handle declaration modifiers after callable constraints"
       rationale =
         "User-defined constraint factories now work for plain function declarations. Upstream fixtures commonly mark these declarations as `const`, so the parser needs to accept modifier-qualified function declarations before those fixtures can run unchanged."
+    }
+  }
+}
+
+local constrainedClassProperties = new Scenario {
+  id = "PKL-058"
+  name = "evaluate Pkl constrained class property annotations"
+  description =
+    "Typed object values enforce constrained class property annotations, including user-defined numeric constraint factories from top-level function declarations."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-057"; "PKL-056"; "PKL-035" }
+  tags { "evaluator"; "typechecker"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Move constraint checks into class property materialization"
+      rationale =
+        "Upstream constraints fixtures combine `const function` predicate factories with class property annotations. The parser can now keep those declarations, so typed object evaluation and checking need to enforce the constrained property contracts."
     }
   }
 }
@@ -1188,4 +1208,5 @@ scenarios {
   negatedConstraintPredicates
   userDefinedConstraintFunctions
   constFunctionDeclarations
+  constrainedClassProperties
 }
