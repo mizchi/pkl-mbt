@@ -111,10 +111,34 @@ local cliEvalJson = new Test {
   name = "cli eval json"
   description = "The native CLI emits a JSON document when invoked with `-f json`."
   tags { "moonbit"; "cli"; "renderer"; "json"; "contract" }
-  specRef { "PKL-072" }
+  specRef { "PKL-072"; "PKL-094" }
   cmd = "moon run cmd/main --target native -- eval -f json fixtures/cli.pkl"
   workdir = ".."
   expectStdoutContains { "\"name\": \"hawk\""; "\"age\": 2" }
+  timeoutSec = 120
+}
+
+local cliEvalFormatLong = new Test {
+  name = "cli eval --format long form"
+  description =
+    "The native CLI accepts the `--format` long-form flag and dispatches to the JSON renderer."
+  tags { "moonbit"; "cli"; "renderer"; "json"; "contract" }
+  specRef { "PKL-094" }
+  cmd = "moon run cmd/main --target native -- eval --format json fixtures/cli.pkl"
+  workdir = ".."
+  expectStdoutContains { "\"name\": \"hawk\""; "\"age\": 2" }
+  timeoutSec = 120
+}
+
+local cliEvalFormatPcf = new Test {
+  name = "cli eval --format pcf"
+  description =
+    "The native CLI accepts `--format pcf` explicitly and emits the same PCF output as the default."
+  tags { "moonbit"; "cli"; "renderer"; "pcf"; "contract" }
+  specRef { "PKL-094" }
+  cmd = "moon run cmd/main --target native -- eval --format pcf fixtures/cli.pkl"
+  workdir = ".."
+  expectStdoutContains { "name = \"hawk\""; "age = 2" }
   timeoutSec = 120
 }
 
@@ -122,7 +146,7 @@ local cliEvalYaml = new Test {
   name = "cli eval yaml"
   description = "The native CLI emits a YAML document when invoked with `-f yaml`."
   tags { "moonbit"; "cli"; "renderer"; "yaml"; "contract" }
-  specRef { "PKL-073" }
+  specRef { "PKL-073"; "PKL-094" }
   cmd = "moon run cmd/main --target native -- eval -f yaml fixtures/cli.pkl"
   workdir = ".."
   expectStdoutContains { "name: hawk"; "age: 2" }
@@ -133,7 +157,7 @@ local cliEvalProperties = new Test {
   name = "cli eval properties"
   description = "The native CLI emits a Java Properties document when invoked with `-f properties`."
   tags { "moonbit"; "cli"; "renderer"; "properties"; "contract" }
-  specRef { "PKL-074" }
+  specRef { "PKL-074"; "PKL-094" }
   cmd = "moon run cmd/main --target native -- eval -f properties fixtures/cli.pkl"
   workdir = ".."
   expectStdoutContains { "name = hawk"; "age = 2" }
@@ -178,6 +202,8 @@ tests {
   moonUnit
   cliEval
   cliEvalJson
+  cliEvalFormatLong
+  cliEvalFormatPcf
   cliEvalYaml
   cliEvalProperties
   upstreamSmoke

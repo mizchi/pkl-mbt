@@ -121,18 +121,6 @@ local floatConstraintPredicates: Spec.Scenario = new {
 
 // ── CLI surface and upstream compatibility ──────────────────────────────────
 
-local cliOutputFormat: Spec.Scenario = new {
-  id = "PKL-094"
-  name = "CLI --format flag for eval"
-  description =
-    "`moon run cmd/main eval --format json|yaml|pcf|properties path.pkl` dispatches to the matching renderer; the default stays pcf."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-072"; "PKL-073"; "PKL-074" }
-  tags { "cli"; "renderer"; "next" }
-  reviewStatus = "draft"
-  severity = "minor"
-}
-
 local cliTestRunnerIntegration: Spec.Scenario = new {
   id = "PKL-095"
   name = "CLI test runner integrates pkl:test"
@@ -140,7 +128,7 @@ local cliTestRunnerIntegration: Spec.Scenario = new {
     "`moon run cmd/main test path.pkl` runs the `pkl:test` cases declared in the module, reports pass / fail counts, and exits non-zero on any failure."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-058" }
-  tags { "cli"; "pkl-test" }
+  tags { "cli"; "pkl-test"; "next" }
   reviewStatus = "draft"
   severity = "minor"
 }
@@ -176,7 +164,6 @@ entries: Listing<Spec.Scenario> = new {
   genericClassDeclarations
   genericFunctionTypeParameters
   floatConstraintPredicates
-  cliOutputFormat
   cliTestRunnerIntegration
   upstreamFixtureEvaluation
   upstreamGoldOutputDiff

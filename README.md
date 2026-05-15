@@ -56,7 +56,7 @@ The current slice is intentionally small and executable:
 - `Regex` values from `Regex("<pattern>")` with `.pattern` accessor and `.matches(input)` / `.find(input)` / `.findAll(input)` / `.replace(input, repl)` / `.replaceAll(input, repl)` methods backed by `moonbitlang/regexp`; the PCF renderer round-trips `RegexValue` as `Regex("<escaped-pattern>")` while JSON / YAML / Properties project the pattern as a plain string
 - `String(...)` constraint predicates with three documented shapes: length comparisons (`length > 0`, `>=` / `<` / `<=` / `==` / `!=`), `length.NAME(...)` method calls reusing the Int predicate grammar (`length.isBetween(1, 64)`, `length.isPositive`, `length.isGreaterThan(N)`, `length.isLessThan(N)`), and full-input regex matches (`matches(Regex("<pattern>"))`); `!`-prefix negation wraps any predicate, and the same cascade fires at both typecheck (String literals) and runtime (any String value)
 - Collection element constraint propagation: `Listing<T>` and `Mapping<K, V>` annotations recurse through the constrained-type cascade so per-element predicates fire (`Listing<Int(isPositive)>`, `Mapping<String(length > 0), Int(isBetween(0, 9))>`); nested wrappers compose and the first rejecting element short-circuits with a diagnostic naming the failing predicate
-- native CLI commands: `parse`, `check`, and `eval`
+- native CLI commands: `parse`, `check`, and `eval` (the latter with `-f` / `--format pcf|json|yaml|properties` dispatch, default `pcf`)
 - common string escape decoding/rendering for `\n`, `\t`, `\r`, `\"`, and `\\`
 - ripple-backed `AnalysisSession` for source-driven typechecking
 - pkspec contracts for the implemented behavior
@@ -66,7 +66,7 @@ The current slice is intentionally small and executable:
 
 ## Current Completion Estimate
 
-As of the `PKL-093` spec slice, this project has 87 implemented pkspec scenarios and a 10-entry roadmap of draft slices in `specs/Roadmap.pkl`. The next tracked slice is `PKL-094`, which lifts the existing `eval -f <fmt>` flag into a long-form `--format` variant and registers `pcf` as an explicit dispatch entry so the CLI matches Apple Pkl's renderer-selection surface. `PKL-080` (minimal `pkl:reflect`) stays in the roadmap as a deeper follow-up since its API surface requires the full Class / Property / Type object graph.
+As of the `PKL-094` spec slice, this project has 88 implemented pkspec scenarios and a 9-entry roadmap of draft slices in `specs/Roadmap.pkl`. The next tracked slice is `PKL-095`, which wires `moon run cmd/main test path.pkl` into the existing `pkl:test` engine so module-declared test cases run from the CLI and report pass / fail counts. `PKL-080` (minimal `pkl:reflect`) stays in the roadmap as a deeper follow-up since its API surface requires the full Class / Property / Type object graph.
 
 These are engineering estimates, not formal coverage numbers:
 
@@ -120,4 +120,4 @@ git submodule update --init --recursive
 
 ## Scope
 
-This is not a full Pkl implementation yet. With the four-renderer surface (PCF / JSON / YAML / Properties), the core `pkl:base` Listing / Mapping / String / Int builtins, the Int-side `pkl:math` constants and helpers, the `??` / `let (...)` expression forms, the object-body `when` / `for` generators, `hidden` / `local` member filtering, typealiased argument resolution, the Int-magnitude `Duration` / `DataSize` literals, the `Regex` literal + method surface, the String constraint predicate cascade, and collection element constraint propagation closed out, the next compatibility work pivots to `PKL-094` CLI `--format` long-form flag; the full draft roadmap lives in `specs/Roadmap.pkl`.
+This is not a full Pkl implementation yet. With the four-renderer surface (PCF / JSON / YAML / Properties), the core `pkl:base` Listing / Mapping / String / Int builtins, the Int-side `pkl:math` constants and helpers, the `??` / `let (...)` expression forms, the object-body `when` / `for` generators, `hidden` / `local` member filtering, typealiased argument resolution, the Int-magnitude `Duration` / `DataSize` literals, the `Regex` literal + method surface, the String constraint predicate cascade, collection element constraint propagation, and the CLI `--format` long-form dispatch closed out, the next compatibility work pivots to `PKL-095` (`moon run cmd/main test path.pkl` integrating `pkl:test`); the full draft roadmap lives in `specs/Roadmap.pkl`.

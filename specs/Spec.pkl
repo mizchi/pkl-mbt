@@ -1502,6 +1502,38 @@ local durationAndDataSizeLiterals = new Scenario {
   }
 }
 
+local cliFormatFlag = new Scenario {
+  id = "PKL-094"
+  name = "CLI --format flag for eval"
+  description =
+    "The `pkl eval` subcommand accepts both the short `-f` and the long `--format` flag and dispatches to the matching renderer. The format string is validated against the closed set `pcf` / `json` / `yaml` / `properties` before evaluation begins; an unrecognised format fails fast with `unsupported format: <text>`. Inside the dispatch, `pcf` has its own explicit arm rather than acting as the unmatched fallback, so adding a future renderer surfaces as a missing-arm warning at compile time. The default format remains `pcf` when neither flag is present, matching the existing CLI contract and the upstream `pkl eval` default. Both short and long forms are tested via the pkspec contracts: `cli eval --format long form` exercises `--format json`, `cli eval --format pcf` exercises the explicit `pcf` arm, and the existing `cli eval json` / `cli eval yaml` / `cli eval properties` tests stay on the short form to cover the original surface."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-072"; "PKL-073"; "PKL-074" }
+  tags { "cli"; "renderer" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Promote pcf into the dispatch match instead of leaving it as the else fallback"
+      rationale =
+        "The previous chain ran `if json ... else if yaml ... else if properties ... else pcf`, which silently absorbed any new format token that slipped past the up-front validation. Making `pcf` an explicit `match` arm fails the compile when a new format is added without a matching renderer hookup, which keeps the validation list and the dispatch list in sync by construction."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Test both short and long forms via separate pkspec scenarios"
+      rationale =
+        "The flag-parsing loop in `cmd/main/main.mbt` treats `-f` and `--format` symmetrically — they share a single branch in the argument scanner — but the contract surface should still exercise both spellings independently so a future refactor that collapses the parsing path cannot regress one form without the other. Two new scenarios (`cli eval --format long form`, `cli eval --format pcf`) cover the long form and the explicit `pcf` dispatch; the existing three short-form scenarios keep their coverage of the short flag."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Keep `pcf` as the default rather than requiring an explicit flag"
+      rationale =
+        "Upstream `pkl eval path.pkl` (no flag) emits PCF. Changing the default here would silently break existing automation that relies on PCF-shaped output. The slice only adds explicit `pcf` dispatch and the long-form flag; the flag-less behavior stays identical to the previous release."
+    }
+  }
+}
+
 local collectionElementConstraints = new Scenario {
   id = "PKL-093"
   name = "Listing and Mapping element constraint propagation"
@@ -2082,5 +2114,6 @@ scenarios {
   regexLiteralAndMethods
   stringConstraintPredicates
   collectionElementConstraints
+  cliFormatFlag
   ...roadmap.entries
 }

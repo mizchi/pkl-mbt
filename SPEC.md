@@ -1,6 +1,6 @@
 # Test SPEC
 
-104 tests across 2 module(s) — 97 pending, 7 active
+106 tests across 2 module(s) — 97 pending, 9 active
 
 ## `specs/`
 
@@ -12,13 +12,14 @@
   - depends on: PKL-077
   - body: _not yet implemented_
 
-- [ ] **CLI --format flag for eval** (minor) [draft] — verifies: PKL-094 — tags: cli, renderer, next
-  > `moon run cmd/main eval --format json|yaml|pcf|properties path.pkl` dispatches to the matching renderer; the default stays pcf.
+- [ ] **CLI --format flag for eval** (minor) — verifies: PKL-094 — tags: cli, renderer
+  > The `pkl eval` subcommand accepts both the short `-f` and the long `--format` flag and dispatches to the matching renderer. The format string is validated against the closed set `pcf` / `json` / `yaml` / `properties` before evaluation begins; an unrecognised format fails fast with `unsupported format: <text>`. Inside the dispatch, `pcf` has its own explicit arm rather than acting as the unmatched fallback, so adding a future renderer surfaces as a missing-arm warning at compile time. The default format remains `pcf` when neither flag is present, matching the existing CLI contract and the upstream `pkl eval` default. Both short and long forms are tested via the pkspec contracts: `cli eval --format long form` exercises `--format json`, `cli eval --format pcf` exercises the explicit `pcf` arm, and the existing `cli eval json` / `cli eval yaml` / `cli eval properties` tests stay on the short form to cover the original surface.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-072, PKL-073, PKL-074
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **CLI test runner integrates pkl:test** (minor) [draft] — verifies: PKL-095 — tags: cli, pkl-test
+- [ ] **CLI test runner integrates pkl:test** (minor) [draft] — verifies: PKL-095 — tags: cli, pkl-test, next
   > `moon run cmd/main test path.pkl` runs the `pkl:test` cases declared in the module, reports pass / fail counts, and exits non-zero on any failure.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-058
@@ -665,15 +666,23 @@
   > The native CLI evaluates a Pkl file and prints module object properties.
   - body: `cmd` (exit 0 expected)
 
-- [x] **cli eval json** — verifies: PKL-072 — tags: moonbit, cli, renderer, json, contract
+- [x] **cli eval --format long form** — verifies: PKL-094 — tags: moonbit, cli, renderer, json, contract
+  > The native CLI accepts the `--format` long-form flag and dispatches to the JSON renderer.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli eval --format pcf** — verifies: PKL-094 — tags: moonbit, cli, renderer, pcf, contract
+  > The native CLI accepts `--format pcf` explicitly and emits the same PCF output as the default.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli eval json** — verifies: PKL-072, PKL-094 — tags: moonbit, cli, renderer, json, contract
   > The native CLI emits a JSON document when invoked with `-f json`.
   - body: `cmd` (exit 0 expected)
 
-- [x] **cli eval properties** — verifies: PKL-074 — tags: moonbit, cli, renderer, properties, contract
+- [x] **cli eval properties** — verifies: PKL-074, PKL-094 — tags: moonbit, cli, renderer, properties, contract
   > The native CLI emits a Java Properties document when invoked with `-f properties`.
   - body: `cmd` (exit 0 expected)
 
-- [x] **cli eval yaml** — verifies: PKL-073 — tags: moonbit, cli, renderer, yaml, contract
+- [x] **cli eval yaml** — verifies: PKL-073, PKL-094 — tags: moonbit, cli, renderer, yaml, contract
   > The native CLI emits a YAML document when invoked with `-f yaml`.
   - body: `cmd` (exit 0 expected)
 

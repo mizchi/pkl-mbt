@@ -1,7 +1,7 @@
 ///|
 fn usage() -> Unit {
   println("usage: pkl <parse|check|eval> <file.pkl>")
-  println("       pkl eval [-f pcf|json|yaml|properties] <file.pkl>")
+  println("       pkl eval [-f|--format pcf|json|yaml|properties] <file.pkl>")
   println("       pkl parse-many <file.pkl>...")
 }
 
@@ -265,31 +265,38 @@ fn main {
       load_path(session, path, [])
       match session.eval_path(path) {
         EvalOk(value) =>
-          if format == "json" {
-            println(@pkl.render_value_as_json(value))
-          } else if format == "yaml" {
-            // render_value_as_yaml already terminates each line with `\n`,
-            // including the final entry. Drop the trailing newline so
-            // `println` does not double-up at end-of-stream.
-            let yaml = @pkl.render_value_as_yaml(value)
-            let trimmed = if yaml.has_suffix("\n") {
-              String::unsafe_substring(yaml, start=0, end=yaml.length() - 1)
-            } else {
-              yaml
+          // The format string is validated up-front, so this match is
+          // exhaustive at runtime. The explicit `pcf` arm doubles as
+          // documentation: a future renderer added here surfaces as a
+          // missing-arm warning rather than a silent fallback.
+          match format {
+            "json" => println(@pkl.render_value_as_json(value))
+            "yaml" => {
+              // render_value_as_yaml already terminates each line with
+              // `\n`, including the final entry. Drop the trailing
+              // newline so `println` does not double-up at end-of-stream.
+              let yaml = @pkl.render_value_as_yaml(value)
+              let trimmed = if yaml.has_suffix("\n") {
+                String::unsafe_substring(yaml, start=0, end=yaml.length() - 1)
+              } else {
+                yaml
+              }
+              println(trimmed)
             }
-            println(trimmed)
-          } else if format == "properties" {
-            // Properties output is also line-terminated per entry; strip the
-            // trailing newline so `println` keeps a single final newline.
-            let props = @pkl.render_value_as_properties(value)
-            let trimmed = if props.has_suffix("\n") {
-              String::unsafe_substring(props, start=0, end=props.length() - 1)
-            } else {
-              props
+            "properties" => {
+              // Properties output is also line-terminated per entry;
+              // strip the trailing newline so `println` keeps a single
+              // final newline.
+              let props = @pkl.render_value_as_properties(value)
+              let trimmed = if props.has_suffix("\n") {
+                String::unsafe_substring(props, start=0, end=props.length() - 1)
+              } else {
+                props
+              }
+              println(trimmed)
             }
-            println(trimmed)
-          } else {
-            println(@pkl.render_value(value))
+            "pcf" => println(@pkl.render_value(value))
+            _ => fail("unsupported format: \{format}")
           }
         EvalError(diagnostics) => {
           print_diagnostics(diagnostics)
