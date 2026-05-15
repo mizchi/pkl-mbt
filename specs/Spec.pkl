@@ -1502,6 +1502,44 @@ local durationAndDataSizeLiterals = new Scenario {
   }
 }
 
+local stringConstraintPredicates = new Scenario {
+  id = "PKL-091"
+  name = "String constraint predicates"
+  description =
+    "`String(...)` annotations recognise three predicate shapes — length comparisons (`length > 0`, `length >= 1`, etc., plus `<` / `<=` / `==` / `!=`), `length.NAME(...)` method calls that reuse the Int predicate grammar (`length.isBetween(1, 64)`, `length.isPositive`, `length.isGreaterThan(N)`, `length.isLessThan(N)`), and full-input regex matches (`matches(Regex(\"<pattern>\"))`). Negation via the `!` prefix wraps any of these. Predicates run as part of the same constrained-type-annotation rejection cascade as the Int predicates: `pkl_constrained_type_annotation_has_supported_constraint` returns true when a String constraint is present, the runtime value-rejection path dispatches on String values, and the typecheck literal-expression path dispatches on String literals. Diagnostics keep the constraint name verbatim (`length > 0`, `length.isBetween`, `matches`, `!matches`, etc.) so the rejection message reads back to the original source shape."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-077"; "PKL-081" }
+  tags { "evaluator"; "typechecker"; "constraint"; "string" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Mirror the Int constraint cascade rather than introducing a parallel pipeline"
+      rationale =
+        "The Int constraint cascade already covers the three integration points a new constraint family needs (`has_supported_constraint` gate, runtime value rejection, typecheck literal rejection). Mirroring its shape — a `ConstraintStringPredicate` enum plus `_predicates(type_name)` / `_rejection_message_from_source` helpers — keeps the surface area small and lets a future Float or collection-element constraint follow the same template. The dispatch point inside `pkl_constrained_type_annotation_value_rejection_message_from_source` adds a String branch after the existing Int branch, so non-String constrained types are unaffected."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Parse the constraint text rather than retyping the constraint as an Expr"
+      rationale =
+        "Constraint text arrives as the raw source between `String(` and `)`. Retyping it through the parser would mean threading a parser dependency into the constraint module and recompiling the constraint on every value check. Parsing the three documented shapes textually — operator-based comparison, `length.`-prefixed method call delegating back to the Int parser, and `matches(Regex(\"...\"))` literal — is enough to cover the slice scope and keeps the constraint module self-contained."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Reuse the moonbitlang/regexp engine that PKL-081 added rather than caching compiled patterns"
+      rationale =
+        "Patterns inside constraint text are short-lived: the same constrained type is matched against many values, but the regex source is fixed. Compiling on each `matches(...)` predicate evaluation is wasteful but never quadratic — caching the compiled regex would need a constraint-level value store and only matters once a workload uses thousands of constrained values per second. Defer caching until profiling justifies it; for now the predicate compiles inside `pkl_string_predicate_accepts` and treats a malformed pattern as a deterministic rejection so the constraint cascade still produces a stable diagnostic."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Anchor `matches(Regex(...))` to the entire string, matching `Regex.matches`"
+      rationale =
+        "`String(matches(Regex(\"...\")))` says \"the entire value matches this regex\", not \"the regex matches somewhere in the value\". PKL-081 made the same choice for `Regex.matches`, so anchoring here keeps the two surfaces consistent — `String(matches(Regex(p)))` accepts iff `Regex(p).matches(value)` returns true. Substring matches stay reachable via the unanchored regex (`Regex(\".*pattern.*\")`) without changing the predicate semantics."
+    }
+  }
+}
+
 local regexLiteralAndMethods = new Scenario {
   id = "PKL-081"
   name = "Regex literal and Regex methods"
@@ -2010,5 +2048,6 @@ scenarios {
   typeAliasedCallableArgumentEvaluation
   durationAndDataSizeLiterals
   regexLiteralAndMethods
+  stringConstraintPredicates
   ...roadmap.entries
 }

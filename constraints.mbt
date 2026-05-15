@@ -550,7 +550,8 @@ fn pkl_user_defined_constrained_type_source_name(
 fn pkl_constrained_type_annotation_has_supported_constraint(
   type_name : String,
 ) -> Bool {
-  pkl_constrained_int_predicates(type_name).length() > 0
+  pkl_constrained_int_predicates(type_name).length() > 0 ||
+  pkl_constrained_string_predicates(type_name).length() > 0
 }
 
 ///|
@@ -653,10 +654,25 @@ fn pkl_constrained_type_annotation_expr_rejection_message_from_source(
 ) -> String? {
   match pkl_int_literal_value(expr) {
     Some(value) =>
-      pkl_constrained_int_rejection_message_from_source(
+      return pkl_constrained_int_rejection_message_from_source(
+        display_name, source_name, value,
+      )
+    None => ()
+  }
+  match pkl_string_literal_value(expr) {
+    Some(value) =>
+      pkl_constrained_string_rejection_message_from_source(
         display_name, source_name, value,
       )
     None => None
+  }
+}
+
+///|
+fn pkl_string_literal_value(expr : Expr) -> String? {
+  match expr {
+    StringLiteral(value) => Some(value)
+    _ => None
   }
 }
 
@@ -800,9 +816,347 @@ fn pkl_constrained_type_annotation_value_rejection_message_from_source(
 ) -> String? {
   match pkl_value_int(value) {
     Some(inner) =>
-      pkl_constrained_int_rejection_message_from_source(
+      return pkl_constrained_int_rejection_message_from_source(
+        display_name, source_name, inner,
+      )
+    None => ()
+  }
+  match pkl_value_string(value) {
+    Some(inner) =>
+      pkl_constrained_string_rejection_message_from_source(
         display_name, source_name, inner,
       )
     None => None
   }
+}
+
+///|
+priv enum ConstraintStringLengthOp {
+  StringLengthGreaterThan
+  StringLengthGreaterOrEqual
+  StringLengthLessThan
+  StringLengthLessOrEqual
+  StringLengthEqual
+  StringLengthNotEqual
+}
+
+///|
+priv enum ConstraintStringPredicate {
+  StringLengthIsBetween(Int, Int)
+  StringLengthIsPositive
+  StringLengthIsGreaterThan(Int)
+  StringLengthIsLessThan(Int)
+  StringLengthCompare(ConstraintStringLengthOp, Int)
+  StringMatchesRegex(String)
+  NotStringLengthIsBetween(Int, Int)
+  NotStringLengthIsPositive
+  NotStringLengthIsGreaterThan(Int)
+  NotStringLengthIsLessThan(Int)
+  NotStringLengthCompare(ConstraintStringLengthOp, Int)
+  NotStringMatchesRegex(String)
+}
+
+///|
+fn pkl_value_string(value : Value) -> String? {
+  match value {
+    StringValue(inner) => Some(inner)
+    _ => None
+  }
+}
+
+///|
+fn pkl_constraint_trim(text : String) -> String {
+  let mut start = 0
+  let mut end = text.length()
+  while start < end {
+    let c = text[start].to_int().unsafe_to_char()
+    if c == ' ' || c == '\t' {
+      start += 1
+    } else {
+      break
+    }
+  }
+  while end > start {
+    let c = text[end - 1].to_int().unsafe_to_char()
+    if c == ' ' || c == '\t' {
+      end -= 1
+    } else {
+      break
+    }
+  }
+  String::unsafe_substring(text, start~, end~)
+}
+
+///|
+fn pkl_constraint_split_at_operator(
+  text : String,
+  op : String,
+) -> (String, String)? {
+  match text.find(op) {
+    Some(index) =>
+      Some(
+        (
+          String::unsafe_substring(text, start=0, end=index),
+          String::unsafe_substring(
+            text,
+            start=index + op.length(),
+            end=text.length(),
+          ),
+        ),
+      )
+    None => None
+  }
+}
+
+///|
+fn pkl_string_length_lhs_matches(text : String) -> Bool {
+  let trimmed = pkl_constraint_trim(text)
+  trimmed == "length" || trimmed == "this.length"
+}
+
+///|
+/// Parse a `length OP N` comparison fragment. Operators are tried in
+/// length-descending order so `>=` is recognized before `>`.
+fn pkl_string_length_comparison_predicate(
+  text : String,
+) -> ConstraintStringPredicate? {
+  let ops : Array[(String, ConstraintStringLengthOp)] = [
+    (">=", StringLengthGreaterOrEqual),
+    ("<=", StringLengthLessOrEqual),
+    ("==", StringLengthEqual),
+    ("!=", StringLengthNotEqual),
+    (">", StringLengthGreaterThan),
+    ("<", StringLengthLessThan),
+  ]
+  for entry in ops {
+    let (op_text, op) = entry
+    match pkl_constraint_split_at_operator(text, op_text) {
+      Some((lhs, rhs)) =>
+        if pkl_string_length_lhs_matches(lhs) {
+          match pkl_parse_constraint_int_text(pkl_constraint_trim(rhs)) {
+            Some(value) => return Some(StringLengthCompare(op, value))
+            None => ()
+          }
+        }
+      None => ()
+    }
+  }
+  None
+}
+
+///|
+fn pkl_string_length_dot_method_predicate(
+  text : String,
+) -> ConstraintStringPredicate? {
+  let prefix = if text.has_prefix("length.") {
+    Some("length.".length())
+  } else if text.has_prefix("this.length.") {
+    Some("this.length.".length())
+  } else {
+    None
+  }
+  match prefix {
+    Some(start) => {
+      let suffix = String::unsafe_substring(text, start~, end=text.length())
+      // Reuse the existing Int predicate parser against the `.length`
+      // suffix so length.isBetween / length.isGreaterThan / length.isLessThan
+      // share the numeric grammar.
+      match pkl_int_constraint_predicate(suffix) {
+        Some(IsBetween(lower, upper)) =>
+          Some(StringLengthIsBetween(lower, upper))
+        Some(IsPositive) => Some(StringLengthIsPositive)
+        Some(IsGreaterThan(n)) => Some(StringLengthIsGreaterThan(n))
+        Some(IsLessThan(n)) => Some(StringLengthIsLessThan(n))
+        Some(NotIsBetween(lower, upper)) =>
+          Some(NotStringLengthIsBetween(lower, upper))
+        Some(NotIsPositive) => Some(NotStringLengthIsPositive)
+        Some(NotIsGreaterThan(n)) => Some(NotStringLengthIsGreaterThan(n))
+        Some(NotIsLessThan(n)) => Some(NotStringLengthIsLessThan(n))
+        _ => None
+      }
+    }
+    None => None
+  }
+}
+
+///|
+fn pkl_string_matches_regex_inner(text : String) -> String? {
+  let prefix = "matches(Regex(\""
+  let suffix = "\"))"
+  if text.has_prefix(prefix) &&
+    text.has_suffix(suffix) &&
+    text.length() >= prefix.length() + suffix.length() {
+    Some(
+      String::unsafe_substring(
+        text,
+        start=prefix.length(),
+        end=text.length() - suffix.length(),
+      ),
+    )
+  } else {
+    None
+  }
+}
+
+///|
+fn pkl_string_constraint_predicate(text : String) -> ConstraintStringPredicate? {
+  let trimmed = pkl_constraint_trim(text)
+  if trimmed.has_prefix("!") && trimmed.length() > 1 {
+    let inner = String::unsafe_substring(trimmed, start=1, end=trimmed.length())
+    match pkl_string_constraint_predicate(inner) {
+      Some(StringLengthIsBetween(lower, upper)) =>
+        return Some(NotStringLengthIsBetween(lower, upper))
+      Some(StringLengthIsPositive) => return Some(NotStringLengthIsPositive)
+      Some(StringLengthIsGreaterThan(n)) =>
+        return Some(NotStringLengthIsGreaterThan(n))
+      Some(StringLengthIsLessThan(n)) =>
+        return Some(NotStringLengthIsLessThan(n))
+      Some(StringLengthCompare(op, n)) =>
+        return Some(NotStringLengthCompare(op, n))
+      Some(StringMatchesRegex(pattern)) =>
+        return Some(NotStringMatchesRegex(pattern))
+      _ => return None
+    }
+  }
+  match pkl_string_length_dot_method_predicate(trimmed) {
+    Some(predicate) => return Some(predicate)
+    None => ()
+  }
+  match pkl_string_length_comparison_predicate(trimmed) {
+    Some(predicate) => return Some(predicate)
+    None => ()
+  }
+  match pkl_string_matches_regex_inner(trimmed) {
+    Some(pattern) => return Some(StringMatchesRegex(pattern))
+    None => ()
+  }
+  None
+}
+
+///|
+fn pkl_constrained_string_predicates(
+  type_name : String,
+) -> Array[ConstraintStringPredicate] {
+  let predicates : Array[ConstraintStringPredicate] = []
+  match pkl_constrained_type_base_name(type_name) {
+    Some("String") =>
+      match pkl_constrained_type_constraint_text(type_name) {
+        Some(text) => {
+          let parts = pkl_split_constraint_arguments(text)
+          for part in parts {
+            match pkl_string_constraint_predicate(part) {
+              Some(predicate) => predicates.push(predicate)
+              None => ()
+            }
+          }
+        }
+        None => ()
+      }
+    _ => ()
+  }
+  predicates
+}
+
+///|
+fn pkl_string_length_op_text(op : ConstraintStringLengthOp) -> String {
+  match op {
+    StringLengthGreaterThan => ">"
+    StringLengthGreaterOrEqual => ">="
+    StringLengthLessThan => "<"
+    StringLengthLessOrEqual => "<="
+    StringLengthEqual => "=="
+    StringLengthNotEqual => "!="
+  }
+}
+
+///|
+fn pkl_string_constraint_name(predicate : ConstraintStringPredicate) -> String {
+  match predicate {
+    StringLengthIsBetween(_, _) => "length.isBetween"
+    StringLengthIsPositive => "length.isPositive"
+    StringLengthIsGreaterThan(_) => "length.isGreaterThan"
+    StringLengthIsLessThan(_) => "length.isLessThan"
+    StringLengthCompare(op, _) => "length \{pkl_string_length_op_text(op)}"
+    StringMatchesRegex(_) => "matches"
+    NotStringLengthIsBetween(_, _) => "!length.isBetween"
+    NotStringLengthIsPositive => "!length.isPositive"
+    NotStringLengthIsGreaterThan(_) => "!length.isGreaterThan"
+    NotStringLengthIsLessThan(_) => "!length.isLessThan"
+    NotStringLengthCompare(op, _) =>
+      "!(length \{pkl_string_length_op_text(op)})"
+    NotStringMatchesRegex(_) => "!matches"
+  }
+}
+
+///|
+fn pkl_string_length_op_accepts(
+  op : ConstraintStringLengthOp,
+  length : Int,
+  threshold : Int,
+) -> Bool {
+  match op {
+    StringLengthGreaterThan => length > threshold
+    StringLengthGreaterOrEqual => length >= threshold
+    StringLengthLessThan => length < threshold
+    StringLengthLessOrEqual => length <= threshold
+    StringLengthEqual => length == threshold
+    StringLengthNotEqual => length != threshold
+  }
+}
+
+///|
+fn pkl_string_predicate_accepts(
+  predicate : ConstraintStringPredicate,
+  value : String,
+) -> Bool {
+  let len = value.length()
+  match predicate {
+    StringLengthIsBetween(lower, upper) => len >= lower && len <= upper
+    StringLengthIsPositive => len > 0
+    StringLengthIsGreaterThan(threshold) => len > threshold
+    StringLengthIsLessThan(threshold) => len < threshold
+    StringLengthCompare(op, threshold) =>
+      pkl_string_length_op_accepts(op, len, threshold)
+    StringMatchesRegex(pattern) =>
+      try {
+        let re = @regexp.compile(pattern)
+        let m = re.execute(value)
+        m.matched() && m.before().length() == 0 && m.after().length() == 0
+      } catch {
+        // A malformed pattern means the predicate cannot accept anything;
+        // surface this as a rejection via the diagnostic path so the user
+        // sees the constraint name plus the bad pattern.
+        _ => false
+      }
+    NotStringLengthIsBetween(lower, upper) => !(len >= lower && len <= upper)
+    NotStringLengthIsPositive => !(len > 0)
+    NotStringLengthIsGreaterThan(threshold) => !(len > threshold)
+    NotStringLengthIsLessThan(threshold) => !(len < threshold)
+    NotStringLengthCompare(op, threshold) =>
+      !pkl_string_length_op_accepts(op, len, threshold)
+    NotStringMatchesRegex(pattern) =>
+      try {
+        let re = @regexp.compile(pattern)
+        let m = re.execute(value)
+        !(m.matched() && m.before().length() == 0 && m.after().length() == 0)
+      } catch {
+        _ => true
+      }
+  }
+}
+
+///|
+fn pkl_constrained_string_rejection_message_from_source(
+  display_name : String,
+  source_name : String,
+  value : String,
+) -> String? {
+  for predicate in pkl_constrained_string_predicates(source_name) {
+    if !pkl_string_predicate_accepts(predicate, value) {
+      return Some(
+        "type annotation \{display_name} constraint \{pkl_string_constraint_name(predicate)} rejects \"\{value}\"",
+      )
+    }
+  }
+  None
 }

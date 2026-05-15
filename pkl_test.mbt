@@ -4590,3 +4590,131 @@ test "render Pkl Regex values as Regex(\"...\") PCF literals" {
     ),
   )
 }
+
+///|
+test "Pkl String constraint length comparison accepts in-range values" {
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", "name: String(length > 0) = \"hawk\"")
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([ValueMember::{ name: "name", value: StringValue("hawk") }]),
+    ),
+  )
+}
+
+///|
+test "Pkl String constraint length comparison rejects out-of-range values" {
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", "name: String(length > 0) = \"\"")
+  match session.eval_path("main.pkl") {
+    EvalError(diagnostics) => {
+      let mut found = false
+      for d in diagnostics {
+        if d.message.contains("length") && d.message.contains("rejects") {
+          found = true
+        }
+      }
+      assert_true(found)
+    }
+    EvalOk(_) => assert_true(false)
+  }
+}
+
+///|
+test "Pkl String constraint length.isBetween accepts and rejects" {
+  let accepting = AnalysisSession::new()
+  accepting.set_source(
+    "main.pkl", "name: String(length.isBetween(1, 4)) = \"hi\"",
+  )
+  assert_true(
+    accepting.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([ValueMember::{ name: "name", value: StringValue("hi") }]),
+    ),
+  )
+  let rejecting = AnalysisSession::new()
+  rejecting.set_source(
+    "main.pkl", "name: String(length.isBetween(1, 4)) = \"toolong\"",
+  )
+  match rejecting.eval_path("main.pkl") {
+    EvalError(diagnostics) => {
+      let mut found = false
+      for d in diagnostics {
+        if d.message.contains("isBetween") && d.message.contains("rejects") {
+          found = true
+        }
+      }
+      assert_true(found)
+    }
+    EvalOk(_) => assert_true(false)
+  }
+}
+
+///|
+test "Pkl String constraint matches(Regex(...)) accepts and rejects" {
+  let accepting = AnalysisSession::new()
+  accepting.set_source(
+    "main.pkl", "id: String(matches(Regex(\"[a-z]+\"))) = \"hawk\"",
+  )
+  assert_true(
+    accepting.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([ValueMember::{ name: "id", value: StringValue("hawk") }]),
+    ),
+  )
+  let rejecting = AnalysisSession::new()
+  rejecting.set_source(
+    "main.pkl", "id: String(matches(Regex(\"[a-z]+\"))) = \"HAWK\"",
+  )
+  match rejecting.eval_path("main.pkl") {
+    EvalError(diagnostics) => {
+      let mut found = false
+      for d in diagnostics {
+        if d.message.contains("matches") && d.message.contains("rejects") {
+          found = true
+        }
+      }
+      assert_true(found)
+    }
+    EvalOk(_) => assert_true(false)
+  }
+}
+
+///|
+test "Pkl String constraint length.isPositive rejects empty strings" {
+  let rejecting = AnalysisSession::new()
+  rejecting.set_source("main.pkl", "name: String(length.isPositive) = \"\"")
+  match rejecting.eval_path("main.pkl") {
+    EvalError(diagnostics) => {
+      let mut found = false
+      for d in diagnostics {
+        if d.message.contains("isPositive") && d.message.contains("rejects") {
+          found = true
+        }
+      }
+      assert_true(found)
+    }
+    EvalOk(_) => assert_true(false)
+  }
+}
+
+///|
+test "Pkl String constraint negated matches rejects matching values" {
+  let rejecting = AnalysisSession::new()
+  rejecting.set_source(
+    "main.pkl", "id: String(!matches(Regex(\"[0-9]+\"))) = \"123\"",
+  )
+  match rejecting.eval_path("main.pkl") {
+    EvalError(diagnostics) => {
+      let mut found = false
+      for d in diagnostics {
+        if d.message.contains("!matches") && d.message.contains("rejects") {
+          found = true
+        }
+      }
+      assert_true(found)
+    }
+    EvalOk(_) => assert_true(false)
+  }
+}

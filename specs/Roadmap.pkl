@@ -107,18 +107,6 @@ local genericFunctionTypeParameters: Spec.Scenario = new {
   severity = "major"
 }
 
-local stringConstraintPredicates: Spec.Scenario = new {
-  id = "PKL-091"
-  name = "String constraint predicates"
-  description =
-    "`String(length > 0)`, `String(length.isBetween(1, 64))`, and `String(matches(Regex(...)))` are recognized by both the typechecker and the runtime, mirroring the existing numeric constraint cascade."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-077"; "PKL-081" }
-  tags { "constraint"; "string"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 local floatConstraintPredicates: Spec.Scenario = new {
   id = "PKL-092"
   name = "Float constraint predicates"
@@ -138,7 +126,7 @@ local collectionElementConstraints: Spec.Scenario = new {
     "Constraint annotations on Listing / Mapping element types (`Listing<Int(isPositive)>`, `Mapping<String, String(length > 0)>`) propagate to each element at typecheck and runtime."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-091"; "PKL-075" }
-  tags { "constraint"; "collection" }
+  tags { "constraint"; "collection"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -199,7 +187,6 @@ entries: Listing<Spec.Scenario> = new {
   readTraceThrow
   genericClassDeclarations
   genericFunctionTypeParameters
-  stringConstraintPredicates
   floatConstraintPredicates
   collectionElementConstraints
   cliOutputFormat
