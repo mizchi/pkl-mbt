@@ -27,18 +27,6 @@ import "../pkspec/Spec.pkl"
 
 // ── type system expansion ───────────────────────────────────────────────────
 
-local genericClassDeclarations: Spec.Scenario = new {
-  id = "PKL-089"
-  name = "generic class declarations"
-  description =
-    "`class Box<T> { value: T }` declares a parameterized class; instances bind T at construction time and the typechecker propagates the binding through property and method accesses."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-040" }
-  tags { "typechecker"; "generics"; "class"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 local genericFunctionTypeParameters: Spec.Scenario = new {
   id = "PKL-090"
   name = "generic function type parameters"
@@ -46,7 +34,7 @@ local genericFunctionTypeParameters: Spec.Scenario = new {
     "Function declarations such as `function identity<T>(x: T): T = x` accept a type parameter list; the typechecker infers the binding from the argument types at call sites."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-089" }
-  tags { "typechecker"; "generics"; "callable" }
+  tags { "typechecker"; "generics"; "callable"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -54,6 +42,5 @@ local genericFunctionTypeParameters: Spec.Scenario = new {
 // ── CLI surface and upstream compatibility ──────────────────────────────────
 
 entries: Listing<Spec.Scenario> = new {
-  genericClassDeclarations
   genericFunctionTypeParameters
 }

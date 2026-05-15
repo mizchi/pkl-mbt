@@ -1571,6 +1571,41 @@ test "pkl:math exposes Int abs, min, max functions" {
 }
 
 ///|
+test "generic class declaration parses without error" {
+  // PKL-089: `class Box<T>` parses, captures `T` as a type parameter on
+  // the ClassDecl, and typechecks (T binds to UnknownType inside the
+  // class body). Instantiation-time T-binding lands with PKL-090.
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "class Box<T> { value: T }\nb = new Box { value = 5 }",
+  )
+  guard session.typecheck_path("main.pkl") is TypeOk(_) else { panic() }
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut box_value : Value? = None
+  for entry in members {
+    if entry.name == "b" {
+      box_value = Some(entry.value)
+    }
+  }
+  assert_true(
+    box_value ==
+    Some(ObjectValue([ValueMember::{ name: "value", value: IntValue(5) }])),
+  )
+}
+
+///|
+test "generic class declaration with two type parameters" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "class Pair<A, B> { first: A; second: B }\np = new Pair { first = 1; second = \"hi\" }",
+  )
+  guard session.typecheck_path("main.pkl") is TypeOk(_) else { panic() }
+  assert_true(true)
+}
+
+///|
 test "Float literal evaluates as FloatValue" {
   // PKL-092: `3.14` lexes into a Float token, parses into `FloatLiteral`,
   // and evaluates into `FloatValue`. Sanity check before the

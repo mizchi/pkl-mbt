@@ -883,6 +883,33 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
     Some(tok) => tok.text()
     None => ""
   }
+  // PKL-089: optional type parameter list immediately after the class
+  // name (`class Box<T, U>`). The parser collects the parameter names so
+  // the AST records them, but downstream stages treat the names as
+  // `UnknownType` for now — binding-at-instantiation lands with PKL-090.
+  let type_parameters : Array[String] = []
+  self.skip_whitespace()
+  if self.at_text("<") {
+    ignore(self.bump())
+    let mut more = true
+    while more {
+      self.skip_whitespace()
+      match self.expect(identifier(), "type parameter") {
+        Some(tok) => type_parameters.push(tok.text())
+        None => ()
+      }
+      self.skip_whitespace()
+      if self.at_text(",") {
+        ignore(self.bump())
+      } else {
+        more = false
+      }
+    }
+    self.skip_whitespace()
+    if self.at_text(">") {
+      ignore(self.bump())
+    }
+  }
   let mut parent_name : String? = None
   while !self.at(eof()) && !self.at(lbrace()) {
     if is_separator(self.peek_kind()) || self.at(rbrace()) {
@@ -932,7 +959,7 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
   if name == "" {
     None
   } else {
-    Some({ name, parent_name, properties, methods })
+    Some({ name, type_parameters, parent_name, properties, methods })
   }
 }
 

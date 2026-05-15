@@ -1815,13 +1815,30 @@ fn class_decl_to_members(
   type_env : Array[TypeBinding],
   diagnostics : Array[Diagnostic],
 ) -> Array[TypeMember] {
+  // PKL-089: introduce type parameter names into a scoped type environment
+  // so `class Box<T> { value: T }` typechecks. Each parameter binds to
+  // `UnknownType` for now; the body uses of `T` therefore pass through
+  // the same path that already handles unknown-but-tolerated annotations,
+  // without falsely matching any concrete type.
+  let scoped_env = if class_decl.type_parameters.length() == 0 {
+    type_env
+  } else {
+    let next : Array[TypeBinding] = []
+    for parameter in class_decl.type_parameters {
+      next.push({ name: parameter, typ: UnknownType })
+    }
+    for binding in type_env {
+      next.push(binding)
+    }
+    next
+  }
   let own_members = merge_type_members(
-    class_properties_to_members(class_decl.properties, type_env, diagnostics),
-    class_methods_to_members(class_decl.methods, type_env, diagnostics),
+    class_properties_to_members(class_decl.properties, scoped_env, diagnostics),
+    class_methods_to_members(class_decl.methods, scoped_env, diagnostics),
   )
   let members = match class_decl.parent_name {
     Some(parent_name) =>
-      match lookup_type(type_env, parent_name) {
+      match lookup_type(scoped_env, parent_name) {
         Some(ClassType(_, base_members)) =>
           merge_type_members(base_members, own_members)
         Some(_) => {
@@ -1843,7 +1860,7 @@ fn class_decl_to_members(
     class_decl.name,
     members,
     class_decl.methods,
-    type_env,
+    scoped_env,
     diagnostics,
   )
   members

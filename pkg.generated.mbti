@@ -255,6 +255,7 @@ pub(all) struct Binding {
 
 pub(all) struct ClassDecl {
   name : String
+  type_parameters : Array[String]
   parent_name : String?
   properties : Array[ClassProperty]
   methods : Array[FunctionDecl]

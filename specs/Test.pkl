@@ -92,6 +92,7 @@ local moonUnit = new Test {
     "PKL-086"
     "PKL-087"
     "PKL-088"
+    "PKL-089"
     "PKL-091"
     "PKL-092"
     "PKL-093"
@@ -166,6 +167,26 @@ local cliEvalProperties = new Test {
   cmd = "moon run cmd/main --target native -- eval -f properties fixtures/cli.pkl"
   workdir = ".."
   expectStdoutContains { "name = hawk"; "age = 2" }
+  timeoutSec = 120
+}
+
+local cliGenerics = new Test {
+  name = "cli generic class declarations"
+  description =
+    "The native CLI evaluates a fixture that declares `class Box<T>` and `class Pair<A, B>`, instantiates each with `new`, and renders the resulting Object values."
+  tags { "moonbit"; "cli"; "generics"; "contract" }
+  specRef { "PKL-089" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_generics.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "intBox {"
+    "value = 42"
+    "stringBox {"
+    "value = \"hello\""
+    "mixedPair {"
+    "first = 1"
+    "second = \"two\""
+  }
   timeoutSec = 120
 }
 
@@ -304,6 +325,7 @@ tests {
   cliEvalYaml
   cliEvalProperties
   cliFloat
+  cliGenerics
   cliTrace
   cliReflectStub
   cliTestPass

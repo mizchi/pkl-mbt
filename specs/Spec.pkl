@@ -1503,6 +1503,39 @@ local durationAndDataSizeLiterals = new Scenario {
   }
 }
 
+local genericClassDeclarations = new Scenario {
+  id = "PKL-089"
+  name = "generic class declarations"
+  description =
+    "`class Box<T> { value: T }` and `class Pair<A, B> { first: A; second: B }` parse, typecheck, and evaluate. The parser recognizes the optional `<T1, T2, ...>` list immediately after the class name and stores the parameter names on `ClassDecl.type_parameters`. The typechecker injects each parameter into a class-scoped `type_env` as a binding to `UnknownType`, so body uses of `T` route through the existing unknown-but-tolerated annotation path rather than failing as 'unknown type annotation'. Parent-name lookup (`extends`) and method-body validation also receive the scoped env so a parameter visible in a property type stays visible on a method signature. The evaluator is unchanged: type parameters are a typechecker-only construct in this slice, so instantiating `new Box { value = 5 }` produces an `ObjectValue` whose `value` member carries the actual runtime value. Instantiation-time T-binding (where the typechecker would propagate `Int` through `b.value` after `new Box { value = 5 }`) stays deferred — that lands together with PKL-090's call-site inference."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-040" }
+  tags { "typechecker"; "generics"; "class" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary =
+        "Bind type parameters to `UnknownType` rather than introducing a real `TypeVariable` variant"
+      rationale =
+        "A faithful `TypeVariable` representation would require propagation rules (substitution at call sites, unification at instantiation, variance tracking) that span the entire typechecker. None of those rules ship in this slice — the goal is for fixtures that declare a generic class to parse and typecheck without false rejection. `UnknownType` already serves as the 'tolerated but not constrained' fallback, so binding `T` to it lets every existing branch keep working without new code paths. When PKL-090 lands call-site inference, the upgrade path is to swap `UnknownType` for a real type variable variant — but doing that today, without inference, would be dead code."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Inject the parameter scope into a single helper at `class_decl_to_members`"
+      rationale =
+        "Class properties, methods, parent-name lookup, and method-body validation all reach for the type environment. Inserting the parameters once at `class_decl_to_members` and threading the scoped env through every downstream call keeps the change local. The alternative — passing `type_parameters` as a parameter through each callee — would touch every helper signature without buying additional flexibility."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Keep the evaluator unchanged"
+      rationale =
+        "Pkl's value model is structural: an `ObjectValue` carries member values regardless of the declared type parameters. There is no runtime artifact that holds 'Box of Int' versus 'Box of String'. Touching the evaluator would either invent a phantom value variant or layer runtime type tags onto every object — both are larger architectural moves that this slice declines."
+    }
+  }
+}
+
 local floatNumericsAndConstraints = new Scenario {
   id = "PKL-092"
   name = "Float numerics and constraint predicates"
@@ -2413,5 +2446,6 @@ scenarios {
   traceAndThrowBuiltins
   readSandboxedBuiltin
   floatNumericsAndConstraints
+  genericClassDeclarations
   ...roadmap.entries
 }

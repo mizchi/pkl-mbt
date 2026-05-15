@@ -117,6 +117,12 @@ pub(all) enum Declaration {
 ///|
 pub(all) struct ClassDecl {
   name : String
+  // PKL-089: optional list of type parameter names (`class Box<T, U>` →
+  // `["T", "U"]`). Empty for non-generic classes. The names introduce
+  // scope-local pseudo-types inside the class body that the typechecker
+  // treats as `UnknownType` until instantiation-time binding (PKL-090)
+  // lands; until then the field is purely a parser-side acknowledgement.
+  type_parameters : Array[String]
   parent_name : String?
   properties : Array[ClassProperty]
   methods : Array[FunctionDecl]

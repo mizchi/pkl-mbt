@@ -1,0 +1,12 @@
+class Box<T> {
+  value: T
+}
+
+class Pair<A, B> {
+  first: A
+  second: B
+}
+
+intBox = new Box { value = 42 }
+stringBox = new Box { value = "hello" }
+mixedPair = new Pair { first = 1; second = "two" }
