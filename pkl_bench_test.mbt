@@ -55,3 +55,80 @@ test "bench analysis/import-eval-cache-hit" (b : @bench.T) {
     b.keep(session.eval_path("main.pkl"))
   })
 }
+
+///|
+/// Heavy fixtures the regular suite hits in CI / pkf release-check.
+/// Stress the parser / evaluator on real-world Apple Pkl stdlib files
+/// and pkspec's own schemas so regressions on those paths show up in
+/// the bench output, not just in wall-clock pkf runs.
+fn read_bench_source(path : String) -> String {
+  @fs.read_file_to_string(path) catch {
+    _ => ""
+  }
+}
+
+///|
+let bench_apple_pkl_stdlib_base : String = read_bench_source(
+  "third_party/apple-pkl/stdlib/base.pkl",
+)
+
+///|
+let bench_pkspec_test_schema : String = read_bench_source(
+  "../pkspec/pkl/Test.pkl",
+)
+
+///|
+test "bench parse/apple-pkl-stdlib-base" (b : @bench.T) {
+  if bench_apple_pkl_stdlib_base == "" {
+    return
+  }
+  b.bench(name="parse/apple-pkl-stdlib-base", fn() {
+    let parsed = parse_source(bench_apple_pkl_stdlib_base)
+    b.keep(
+      parsed.program.bindings.length() + parsed.program.declarations.length(),
+    )
+  })
+}
+
+///|
+test "bench eval/apple-pkl-stdlib-base" (b : @bench.T) {
+  if bench_apple_pkl_stdlib_base == "" {
+    return
+  }
+  b.bench(name="eval/apple-pkl-stdlib-base", fn() {
+    b.keep(eval_source(bench_apple_pkl_stdlib_base))
+  })
+}
+
+///|
+test "bench parse/pkspec-test-schema" (b : @bench.T) {
+  if bench_pkspec_test_schema == "" {
+    return
+  }
+  b.bench(name="parse/pkspec-test-schema", fn() {
+    let parsed = parse_source(bench_pkspec_test_schema)
+    b.keep(
+      parsed.program.bindings.length() + parsed.program.declarations.length(),
+    )
+  })
+}
+
+///|
+test "bench eval/pkspec-test-schema" (b : @bench.T) {
+  if bench_pkspec_test_schema == "" {
+    return
+  }
+  b.bench(name="eval/pkspec-test-schema", fn() {
+    b.keep(eval_source(bench_pkspec_test_schema))
+  })
+}
+
+///|
+test "bench typecheck/pkspec-test-schema" (b : @bench.T) {
+  if bench_pkspec_test_schema == "" {
+    return
+  }
+  b.bench(name="typecheck/pkspec-test-schema", fn() {
+    b.keep(typecheck_source(bench_pkspec_test_schema))
+  })
+}
