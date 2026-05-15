@@ -7,9 +7,7 @@
 
 ///|
 fn read_wbtest_source(path : String) -> String {
-  try {
-    @fs.read_file_to_string(path)
-  } catch {
+  @fs.read_file_to_string(path) catch {
     _ => ""
   }
 }

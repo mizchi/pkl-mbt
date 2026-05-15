@@ -103,8 +103,7 @@ async fn load_expr_imports(
     }
     LambdaExpr(_, body, _) =>
       load_expr_imports(session, from, body, stack, loaded)
-    NonNullExpr(inner) =>
-      load_expr_imports(session, from, inner, stack, loaded)
+    NonNullExpr(inner) => load_expr_imports(session, from, inner, stack, loaded)
     UnaryExpr(_, inner) =>
       load_expr_imports(session, from, inner, stack, loaded)
     ConditionalExpr(condition, then_expr, else_expr) => {
