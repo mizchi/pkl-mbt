@@ -1,16 +1,71 @@
 # Test SPEC
 
-73 tests across 2 module(s) — 69 pending, 4 active
+101 tests across 2 module(s) — 97 pending, 4 active
 
 ## `specs/`
 
 ### `Spec.pkl`
+
+- [ ] **Bytes literals and conversions** (minor) [draft] — verifies: PKL-083 — tags: stdlib, bytes
+  > `Bytes` values created via `Bytes(...)` or string conversions, plus length, slice, and base64 encoding / decoding.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-077
+  - body: _not yet implemented_
+
+- [ ] **CLI --format flag for eval** (minor) [draft] — verifies: PKL-094 — tags: cli, renderer
+  > `moon run cmd/main eval --format json|yaml|pcf|properties path.pkl` dispatches to the matching renderer; the default stays pcf.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-072, PKL-073, PKL-074
+  - body: _not yet implemented_
+
+- [ ] **CLI test runner integrates pkl:test** (minor) [draft] — verifies: PKL-095 — tags: cli, pkl-test
+  > `moon run cmd/main test path.pkl` runs the `pkl:test` cases declared in the module, reports pass / fail counts, and exits non-zero on any failure.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-058
+  - body: _not yet implemented_
+
+- [ ] **Duration and DataSize literals and arithmetic** (minor) [draft] — verifies: PKL-082 — tags: stdlib, duration, datasize
+  > Numeric literals with `.h` / `.min` / `.s` / `.ms` / `.us` / `.ns` produce `Duration`; `.kb` / `.mb` / `.gb` / `.kib` / `.mib` / `.gib` produce `DataSize`. Both support addition, subtraction, comparison, and conversion to a normalized base unit.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-009
+  - body: _not yet implemented_
+
+- [ ] **Float constraint predicates** (minor) [draft] — verifies: PKL-092 — tags: constraint, float
+  > Numeric constraint predicates (`isPositive`, `isBetween`, etc.) accept Float values alongside Int, including mixed Int / Float comparisons inside user-defined factories.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-078
+  - body: _not yet implemented_
+
+- [ ] **Listing and Mapping element constraint propagation** [draft] — verifies: PKL-093 — tags: constraint, collection
+  > Constraint annotations on Listing / Mapping element types (`Listing<Int(isPositive)>`, `Mapping<String, String(length > 0)>`) propagate to each element at typecheck and runtime.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-091, PKL-075
+  - body: _not yet implemented_
+
+- [ ] **Regex literal and Regex methods** [draft] — verifies: PKL-081 — tags: stdlib, regex, constraint
+  > `Regex(#"..."#)` literal, plus `matches`, `find`, `findAll`, `replace`, and `replaceAll`. Regex-based String constraints (e.g. `String(matches(Regex(...)))`) become typecheckable and runtime-enforceable.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-077
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **String constraint predicates** [draft] — verifies: PKL-091 — tags: constraint, string
+  > `String(length > 0)`, `String(length.isBetween(1, 64))`, and `String(matches(Regex(...)))` are recognized by both the typechecker and the runtime, mirroring the existing numeric constraint cascade.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-077, PKL-081
+  - body: _not yet implemented_
 
 - [ ] **allow Pkl class property defaults to satisfy missing members** — verifies: PKL-035 — tags: typechecker
   > Assignments to declared class types accept object literals that omit class properties with defaults, while still requiring properties without annotations or defaults.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-034
   - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **diff evaluation output against apple/pkl gold files** [draft] — verifies: PKL-097 — tags: compatibility, upstream, renderer
+  > For each upstream fixture that evaluates, byte-diff the PCF / JSON output against the `expected` gold files in `LanguageSnippetTests/output`. Mismatches fail the smoke script.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-071, PKL-072, PKL-096
   - body: _not yet implemented_
 
 - [ ] **enforce Pkl constrained function parameter annotations** — verifies: PKL-047 — tags: typechecker, evaluator
@@ -102,6 +157,12 @@
   - contributes to: GOAL-PKL-PURE
   - body: _not yet implemented_
 
+- [ ] **evaluate broader upstream Pkl fixtures** [draft] — verifies: PKL-096 — tags: compatibility, upstream
+  > Expand `scripts/upstream-smoke.sh` from the current ~10 fixtures to the bulk of `LanguageSnippetTests/input/basic`, accepting only those that exercise implemented language features and gating new failures via the script.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-075, PKL-077, PKL-085
+  - body: _not yet implemented_
+
 - [ ] **evaluate constrained Pkl callable return annotations** — verifies: PKL-065 — tags: evaluator, callable, typechecker
   > Function, lambda, and class method calls enforce constrained return annotations, including user-defined numeric predicate factories.
   - contributes to: GOAL-PKL-PURE
@@ -116,6 +177,18 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **evaluate object body for-generators** [draft] — verifies: PKL-085 — tags: evaluator, object
+  > `for (k, v in source) { ... }` inside an object body expands into repeated members, with iteration over Listing / Mapping / Set sources matching Apple Pkl semantics.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-075
+  - body: _not yet implemented_
+
+- [ ] **evaluate object body when-conditionals** [draft] — verifies: PKL-086 — tags: evaluator, object
+  > `when (cond) { ... } else { ... }` inside an object body conditionally adds members at evaluation time, matching Apple Pkl semantics for both inline and standalone forms.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-009
+  - body: _not yet implemented_
+
 - [ ] **evaluate simple Pkl callable closure captures** — verifies: PKL-061 — tags: evaluator, callable
   > Function and lambda values preserve simple scalar lexical bindings so returned lambdas and higher-order callables can evaluate variables from their defining scope.
   - contributes to: GOAL-PKL-PURE
@@ -123,7 +196,7 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **evaluate typealiased Pkl callable argument annotations** [draft] — verifies: PKL-069 — tags: evaluator, callable, typealias, next
+- [ ] **evaluate typealiased Pkl callable argument annotations** [draft] — verifies: PKL-069 — tags: evaluator, callable, typealias
   > Function, lambda, and class method calls resolve typealiased parameter annotations through the alias chain at runtime so built-in and user-defined constrained predicates fire when the constraint is declared via a typealias such as typealias Small = Int(isBetween(0, 10)).
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-066, PKL-068
@@ -151,6 +224,56 @@
   - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **expand pkl:math beyond maxInt32** (minor) [draft] — verifies: PKL-079 — tags: stdlib, pkl-math
+  > `pkl:math` exposes min, max, abs, sqrt, pow, log, exp, ceil, floor, round, and the maxInt / minInt / maxFloat constants matching Apple Pkl.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-007
+  - body: _not yet implemented_
+
+- [ ] **expose pkl:base Int operations** (minor) [draft] — verifies: PKL-078 — tags: stdlib, pkl-base, numeric
+  > Int instance methods abs, isEven, isOdd, toFloat, toString, toString(radix), and toChar evaluate, along with the matching Float-side projections.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-077
+  - body: _not yet implemented_
+
+- [ ] **expose pkl:base Listing operations** [draft] — verifies: PKL-075 — tags: stdlib, pkl-base, listing
+  > Listing instance methods length, isEmpty, contains, fold, map, filter, take, drop, distinct, join, and reverse evaluate against the implemented Pkl core.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-009
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **expose pkl:base Mapping operations** [draft] — verifies: PKL-076 — tags: stdlib, pkl-base, mapping
+  > Mapping instance methods containsKey, keys, values, length, fold, getOrNull, and the entries -> Listing<Pair> projection evaluate.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-075
+  - body: _not yet implemented_
+
+- [ ] **expose pkl:base String operations** [draft] — verifies: PKL-077 — tags: stdlib, pkl-base, string
+  > String instance methods length, toUpperCase, toLowerCase, split, replaceAll, replaceFirst, padStart, padEnd, take, drop, contains, startsWith, endsWith, and indexOf evaluate.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-009
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **generic class declarations** [draft] — verifies: PKL-089 — tags: typechecker, generics, class
+  > `class Box<T> { value: T }` declares a parameterized class; instances bind T at construction time and the typechecker propagates the binding through property and method accesses.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-040
+  - body: _not yet implemented_
+
+- [ ] **generic function type parameters** [draft] — verifies: PKL-090 — tags: typechecker, generics, callable
+  > Function declarations such as `function identity<T>(x: T): T = x` accept a type parameter list; the typechecker infers the binding from the argument types at call sites.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-089
+  - body: _not yet implemented_
+
+- [ ] **hidden and local object members** [draft] — verifies: PKL-087 — tags: evaluator, renderer, object
+  > Members declared `hidden ` or `local ` are visible inside expressions but absent from rendered output. The interpreter and every renderer respects this distinction.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-070
+  - body: _not yet implemented_
+
 - [ ] **infer Pkl class property default types** — verifies: PKL-034 — tags: typechecker
   > Class declarations use property default expressions as member type contracts when no explicit annotation is present, so assignments to declared class types still reject incompatible object members.
   - contributes to: GOAL-PKL-PURE
@@ -163,6 +286,13 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-015
   - decisions: 2 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **minimal pkl:reflect support** (minor) [draft] — verifies: PKL-080 — tags: stdlib, pkl-reflect
+  > `pkl:reflect.Type` / `Class` / `Property` enough for the upstream `reflect.pkl` fixtures: get the runtime type of a value, list class properties, and check whether a type is a subtype of another.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-040
+  - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **model Pkl callable runtime values** — verifies: PKL-044 — tags: evaluator
@@ -205,6 +335,12 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-029
   - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **null-coalescing operator and let expressions** (minor) [draft] — verifies: PKL-088 — tags: evaluator, expressions
+  > The `??` operator picks the right-hand value when the left is null; `let (name = expr) body` introduces a scoped binding inside an expression.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-009
   - body: _not yet implemented_
 
 - [ ] **parse Pkl call lambda and operator expressions** — verifies: PKL-018 — tags: parser
@@ -267,9 +403,51 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **read trace and throw built-ins** [draft] — verifies: PKL-084 — tags: stdlib, io, diagnostics
+  > Built-in `read(uri)`, `read?(uri)`, `trace(value)`, and `throw(message)`. read covers `env:` / `prop:` / `file:` URIs at minimum, trace stamps a diagnostic without affecting the value, and throw aborts with a localized error.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-009
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
 - [ ] **reject invalid integer operations** (critical) — verifies: PKL-003
   > The typechecker rejects binary arithmetic when either operand is not an Int.
   - contributes to: GOAL-PKL-PURE
+  - body: _not yet implemented_
+
+- [ ] **render Pkl objects and listings as PCF** [draft] — verifies: PKL-071 — tags: renderer, pcf
+  > PCF rendering emits nested objects, listings, and mappings with the brace / element conventions Apple Pkl uses, including ordering and indentation, so the upstream fixture gold outputs match byte-for-byte.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-070
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **render Pkl values as JSON** [draft] — verifies: PKL-072 — tags: renderer, json
+  > Module rendering emits a JSON document equivalent to Apple Pkl's `pkl eval -f json` output, including String escapes, Mapping keys coerced to strings, and Listing -> array.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-071
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **render Pkl values as Java Properties** (minor) [draft] — verifies: PKL-074 — tags: renderer, properties
+  > Module rendering emits a `.properties` document with dotted-path keys and escaped values matching `pkl eval -f properties`, including handling of nested objects and listings.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-072
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **render Pkl values as PCF primitives** [draft] — verifies: PKL-070 — tags: renderer, pcf, next
+  > Module rendering as the canonical Pkl Configuration Format (PCF) emits Int, Float, Boolean, String, and Null values with the same lexical form Apple Pkl uses, so a round-trip through render -> parse is stable for primitives.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-009
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **render Pkl values as YAML** (minor) [draft] — verifies: PKL-073 — tags: renderer, yaml
+  > Module rendering emits YAML equivalent to `pkl eval -f yaml`, including block-style sequences and mappings, quoted-when-needed strings, and multiline `|` for embedded newlines.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-072
+  - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **support Pkl class inheritance defaults** — verifies: PKL-038 — tags: parser, typechecker, evaluator

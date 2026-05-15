@@ -1,0 +1,498 @@
+/// Forward-looking roadmap of pkspec scenarios.
+///
+/// Every entry here is `reviewStatus = "draft"`, so `pkspec spec --check`
+/// ignores them — they exist as a structured TODO list, NOT as a binding
+/// commitment. Promote to `specs/Spec.pkl` (and flip `reviewStatus` to
+/// `"approved"`) when starting the slice.
+///
+/// Loose grouping (the ID ranges are conventional, not enforced):
+///   PKL-069             constraint-system round-off
+///   PKL-070 .. PKL-074  renderers (pcf / json / yaml / properties)
+///   PKL-075 .. PKL-084  stdlib expansion (pkl:base / pkl:math / pkl:reflect / regex / duration / read / trace)
+///   PKL-085 .. PKL-088  object expression features (for / when / hidden / null-coalescing)
+///   PKL-089 .. PKL-093  type system (generics + non-numeric constraints)
+///   PKL-094 .. PKL-097  CLI surface and upstream compatibility expansion
+@ModuleInfo { minPklVersion = "0.31.0" }
+module specs.Roadmap
+
+import "../pkspec/Spec.pkl"
+
+// ── constraint-system round-off ─────────────────────────────────────────────
+
+local typeAliasedCallableArgumentEvaluation: Spec.Scenario = new {
+  id = "PKL-069"
+  name = "evaluate typealiased Pkl callable argument annotations"
+  description =
+    "Function, lambda, and class method calls resolve typealiased parameter annotations through the alias chain at runtime so built-in and user-defined constrained predicates fire when the constraint is declared via a typealias such as typealias Small = Int(isBetween(0, 10))."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-066"; "PKL-068" }
+  tags { "evaluator"; "callable"; "typealias" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Spec.Decision {
+      date = "2026-05-15"
+      summary = "Mirror the return-side alias resolution on the argument side"
+      rationale =
+        "Callable arguments enforce constrained annotations declared inline, and return-side alias resolution now works through eval_resolved_type_alias. The argument-side rejection helper should follow the same alias resolution so typealiased parameter annotations are not silently bypassed at runtime."
+    }
+  }
+}
+
+// ── renderers ───────────────────────────────────────────────────────────────
+
+local pcfRendererPrimitives: Spec.Scenario = new {
+  id = "PKL-070"
+  name = "render Pkl values as PCF primitives"
+  description =
+    "Module rendering as the canonical Pkl Configuration Format (PCF) emits Int, Float, Boolean, String, and Null values with the same lexical form Apple Pkl uses, so a round-trip through render -> parse is stable for primitives."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-009" }
+  tags { "renderer"; "pcf"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Spec.Decision {
+      date = "2026-05-15"
+      summary = "Pick PCF as the first renderer target"
+      rationale =
+        "PCF is Pkl's native output format and the only renderer where round-tripping back through the parser is meaningful. JSON / YAML diverge from PCF for the kinds of values where rendering bugs tend to hide (escapes, numeric formatting), so PCF first gives the strongest correctness signal."
+    }
+  }
+}
+
+local pcfRendererObjects: Spec.Scenario = new {
+  id = "PKL-071"
+  name = "render Pkl objects and listings as PCF"
+  description =
+    "PCF rendering emits nested objects, listings, and mappings with the brace / element conventions Apple Pkl uses, including ordering and indentation, so the upstream fixture gold outputs match byte-for-byte."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-070" }
+  tags { "renderer"; "pcf" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Spec.Decision {
+      date = "2026-05-15"
+      summary = "Aim for byte-equal output with upstream"
+      rationale =
+        "If the renderer matches Apple Pkl byte-for-byte the upstream LanguageSnippetTests gold outputs become a free regression suite. Cosmetic divergence would force us to maintain a parallel set of golds."
+    }
+  }
+}
+
+local jsonRenderer: Spec.Scenario = new {
+  id = "PKL-072"
+  name = "render Pkl values as JSON"
+  description =
+    "Module rendering emits a JSON document equivalent to Apple Pkl's `pkl eval -f json` output, including String escapes, Mapping keys coerced to strings, and Listing -> array."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-071" }
+  tags { "renderer"; "json" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Spec.Decision {
+      date = "2026-05-15"
+      summary = "Match the `-f json` shape, not arbitrary JSON"
+      rationale =
+        "Apple Pkl has specific rules for how Mappings, Listings, hidden members, and Null become JSON. Re-deriving those rules from scratch will diverge; we mirror the upstream behavior so existing Pkl configs ported here serialize identically."
+    }
+  }
+}
+
+local yamlRenderer: Spec.Scenario = new {
+  id = "PKL-073"
+  name = "render Pkl values as YAML"
+  description =
+    "Module rendering emits YAML equivalent to `pkl eval -f yaml`, including block-style sequences and mappings, quoted-when-needed strings, and multiline `|` for embedded newlines."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-072" }
+  tags { "renderer"; "yaml" }
+  reviewStatus = "draft"
+  severity = "minor"
+  decisions {
+    new Spec.Decision {
+      date = "2026-05-15"
+      summary = "YAML after JSON for shared rendering scaffolding"
+      rationale =
+        "YAML and JSON share the value-projection step; once JSON works the YAML pass is mostly textual serialization with quoting rules."
+    }
+  }
+}
+
+local propertiesRenderer: Spec.Scenario = new {
+  id = "PKL-074"
+  name = "render Pkl values as Java Properties"
+  description =
+    "Module rendering emits a `.properties` document with dotted-path keys and escaped values matching `pkl eval -f properties`, including handling of nested objects and listings."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-072" }
+  tags { "renderer"; "properties" }
+  reviewStatus = "draft"
+  severity = "minor"
+  decisions {
+    new Spec.Decision {
+      date = "2026-05-15"
+      summary = "Properties renderer covers Java / Spring use-cases"
+      rationale =
+        "Many existing Apple Pkl deployments emit .properties for legacy JVM consumers. Including it early closes the largest non-cloud-native renderer gap with a relatively small implementation surface."
+    }
+  }
+}
+
+// ── stdlib expansion ────────────────────────────────────────────────────────
+
+local pklBaseListOperations: Spec.Scenario = new {
+  id = "PKL-075"
+  name = "expose pkl:base Listing operations"
+  description =
+    "Listing instance methods length, isEmpty, contains, fold, map, filter, take, drop, distinct, join, and reverse evaluate against the implemented Pkl core."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-009" }
+  tags { "stdlib"; "pkl-base"; "listing" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Spec.Decision {
+      date = "2026-05-15"
+      summary = "Listing operations are the most frequently used stdlib surface"
+      rationale =
+        "Real Pkl configurations almost always project / filter / fold over listings. Implementing this slice unlocks the majority of upstream fixtures that currently fail because they call `.map { ... }`."
+    }
+  }
+}
+
+local pklBaseMapOperations: Spec.Scenario = new {
+  id = "PKL-076"
+  name = "expose pkl:base Mapping operations"
+  description =
+    "Mapping instance methods containsKey, keys, values, length, fold, getOrNull, and the entries -> Listing<Pair> projection evaluate."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-075" }
+  tags { "stdlib"; "pkl-base"; "mapping" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local pklBaseStringOperations: Spec.Scenario = new {
+  id = "PKL-077"
+  name = "expose pkl:base String operations"
+  description =
+    "String instance methods length, toUpperCase, toLowerCase, split, replaceAll, replaceFirst, padStart, padEnd, take, drop, contains, startsWith, endsWith, and indexOf evaluate."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-009" }
+  tags { "stdlib"; "pkl-base"; "string" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Spec.Decision {
+      date = "2026-05-15"
+      summary = "String ops unblock secrets / URL / template patterns"
+      rationale =
+        "Configuration code paths that build URLs, secrets, or templated strings depend on the String surface. Without it, even toy Pkl programs need verbose workarounds."
+    }
+  }
+}
+
+local pklBaseIntOperations: Spec.Scenario = new {
+  id = "PKL-078"
+  name = "expose pkl:base Int operations"
+  description =
+    "Int instance methods abs, isEven, isOdd, toFloat, toString, toString(radix), and toChar evaluate, along with the matching Float-side projections."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-077" }
+  tags { "stdlib"; "pkl-base"; "numeric" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+local pklMathExpansion: Spec.Scenario = new {
+  id = "PKL-079"
+  name = "expand pkl:math beyond maxInt32"
+  description =
+    "`pkl:math` exposes min, max, abs, sqrt, pow, log, exp, ceil, floor, round, and the maxInt / minInt / maxFloat constants matching Apple Pkl."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-007" }
+  tags { "stdlib"; "pkl-math" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+local pklReflectMinimal: Spec.Scenario = new {
+  id = "PKL-080"
+  name = "minimal pkl:reflect support"
+  description =
+    "`pkl:reflect.Type` / `Class` / `Property` enough for the upstream `reflect.pkl` fixtures: get the runtime type of a value, list class properties, and check whether a type is a subtype of another."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-040" }
+  tags { "stdlib"; "pkl-reflect" }
+  reviewStatus = "draft"
+  severity = "minor"
+  decisions {
+    new Spec.Decision {
+      date = "2026-05-15"
+      summary = "Reflect is small but enables generator-style fixtures"
+      rationale =
+        "Several non-trivial Apple Pkl fixtures introspect their own module via `pkl:reflect`. Even a partial implementation unlocks a category of fixtures otherwise unreachable."
+    }
+  }
+}
+
+local regexSupport: Spec.Scenario = new {
+  id = "PKL-081"
+  name = "Regex literal and Regex methods"
+  description =
+    "`Regex(#\"...\"#)` literal, plus `matches`, `find`, `findAll`, `replace`, and `replaceAll`. Regex-based String constraints (e.g. `String(matches(Regex(...)))`) become typecheckable and runtime-enforceable."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-077" }
+  tags { "stdlib"; "regex"; "constraint" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Spec.Decision {
+      date = "2026-05-15"
+      summary = "Regex is a hard prerequisite for String constraint depth"
+      rationale =
+        "String constraint predicates lean almost entirely on Regex. Without Regex we can only implement length-based String constraints, leaving the most common real-world constraint shape (pattern match) unimplemented."
+    }
+  }
+}
+
+local durationAndDataSize: Spec.Scenario = new {
+  id = "PKL-082"
+  name = "Duration and DataSize literals and arithmetic"
+  description =
+    "Numeric literals with `.h` / `.min` / `.s` / `.ms` / `.us` / `.ns` produce `Duration`; `.kb` / `.mb` / `.gb` / `.kib` / `.mib` / `.gib` produce `DataSize`. Both support addition, subtraction, comparison, and conversion to a normalized base unit."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-009" }
+  tags { "stdlib"; "duration"; "datasize" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+local bytesLiterals: Spec.Scenario = new {
+  id = "PKL-083"
+  name = "Bytes literals and conversions"
+  description =
+    "`Bytes` values created via `Bytes(...)` or string conversions, plus length, slice, and base64 encoding / decoding."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-077" }
+  tags { "stdlib"; "bytes" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+local readTraceThrow: Spec.Scenario = new {
+  id = "PKL-084"
+  name = "read trace and throw built-ins"
+  description =
+    "Built-in `read(uri)`, `read?(uri)`, `trace(value)`, and `throw(message)`. read covers `env:` / `prop:` / `file:` URIs at minimum, trace stamps a diagnostic without affecting the value, and throw aborts with a localized error."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-009" }
+  tags { "stdlib"; "io"; "diagnostics" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Spec.Decision {
+      date = "2026-05-15"
+      summary = "read() is a sandbox boundary, not just an stdlib call"
+      rationale =
+        "read() introduces external state into the evaluator, which means we have to decide the sandboxing policy (env / prop / file scopes, default-deny vs allow-list) before the implementation. Treat this scenario as an architectural decision, not a quick add."
+    }
+  }
+}
+
+// ── object expression features ──────────────────────────────────────────────
+
+local objectBodyForGenerators: Spec.Scenario = new {
+  id = "PKL-085"
+  name = "evaluate object body for-generators"
+  description =
+    "`for (k, v in source) { ... }` inside an object body expands into repeated members, with iteration over Listing / Mapping / Set sources matching Apple Pkl semantics."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-075" }
+  tags { "evaluator"; "object" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local objectBodyWhenConditionals: Spec.Scenario = new {
+  id = "PKL-086"
+  name = "evaluate object body when-conditionals"
+  description =
+    "`when (cond) { ... } else { ... }` inside an object body conditionally adds members at evaluation time, matching Apple Pkl semantics for both inline and standalone forms."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-009" }
+  tags { "evaluator"; "object" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local hiddenAndLocalMembers: Spec.Scenario = new {
+  id = "PKL-087"
+  name = "hidden and local object members"
+  description =
+    "Members declared `hidden ` or `local ` are visible inside expressions but absent from rendered output. The interpreter and every renderer respects this distinction."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-070" }
+  tags { "evaluator"; "renderer"; "object" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local nullCoalescingAndLet: Spec.Scenario = new {
+  id = "PKL-088"
+  name = "null-coalescing operator and let expressions"
+  description =
+    "The `??` operator picks the right-hand value when the left is null; `let (name = expr) body` introduces a scoped binding inside an expression."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-009" }
+  tags { "evaluator"; "expressions" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+// ── type system expansion ───────────────────────────────────────────────────
+
+local genericClassDeclarations: Spec.Scenario = new {
+  id = "PKL-089"
+  name = "generic class declarations"
+  description =
+    "`class Box<T> { value: T }` declares a parameterized class; instances bind T at construction time and the typechecker propagates the binding through property and method accesses."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-040" }
+  tags { "typechecker"; "generics"; "class" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local genericFunctionTypeParameters: Spec.Scenario = new {
+  id = "PKL-090"
+  name = "generic function type parameters"
+  description =
+    "Function declarations such as `function identity<T>(x: T): T = x` accept a type parameter list; the typechecker infers the binding from the argument types at call sites."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-089" }
+  tags { "typechecker"; "generics"; "callable" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local stringConstraintPredicates: Spec.Scenario = new {
+  id = "PKL-091"
+  name = "String constraint predicates"
+  description =
+    "`String(length > 0)`, `String(length.isBetween(1, 64))`, and `String(matches(Regex(...)))` are recognized by both the typechecker and the runtime, mirroring the existing numeric constraint cascade."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-077"; "PKL-081" }
+  tags { "constraint"; "string" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local floatConstraintPredicates: Spec.Scenario = new {
+  id = "PKL-092"
+  name = "Float constraint predicates"
+  description =
+    "Numeric constraint predicates (`isPositive`, `isBetween`, etc.) accept Float values alongside Int, including mixed Int / Float comparisons inside user-defined factories."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-078" }
+  tags { "constraint"; "float" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+local collectionElementConstraints: Spec.Scenario = new {
+  id = "PKL-093"
+  name = "Listing and Mapping element constraint propagation"
+  description =
+    "Constraint annotations on Listing / Mapping element types (`Listing<Int(isPositive)>`, `Mapping<String, String(length > 0)>`) propagate to each element at typecheck and runtime."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-091"; "PKL-075" }
+  tags { "constraint"; "collection" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+// ── CLI surface and upstream compatibility ──────────────────────────────────
+
+local cliOutputFormat: Spec.Scenario = new {
+  id = "PKL-094"
+  name = "CLI --format flag for eval"
+  description =
+    "`moon run cmd/main eval --format json|yaml|pcf|properties path.pkl` dispatches to the matching renderer; the default stays pcf."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-072"; "PKL-073"; "PKL-074" }
+  tags { "cli"; "renderer" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+local cliTestRunnerIntegration: Spec.Scenario = new {
+  id = "PKL-095"
+  name = "CLI test runner integrates pkl:test"
+  description =
+    "`moon run cmd/main test path.pkl` runs the `pkl:test` cases declared in the module, reports pass / fail counts, and exits non-zero on any failure."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-058" }
+  tags { "cli"; "pkl-test" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+local upstreamFixtureEvaluation: Spec.Scenario = new {
+  id = "PKL-096"
+  name = "evaluate broader upstream Pkl fixtures"
+  description =
+    "Expand `scripts/upstream-smoke.sh` from the current ~10 fixtures to the bulk of `LanguageSnippetTests/input/basic`, accepting only those that exercise implemented language features and gating new failures via the script."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-075"; "PKL-077"; "PKL-085" }
+  tags { "compatibility"; "upstream" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local upstreamGoldOutputDiff: Spec.Scenario = new {
+  id = "PKL-097"
+  name = "diff evaluation output against apple/pkl gold files"
+  description =
+    "For each upstream fixture that evaluates, byte-diff the PCF / JSON output against the `expected` gold files in `LanguageSnippetTests/output`. Mismatches fail the smoke script."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-071"; "PKL-072"; "PKL-096" }
+  tags { "compatibility"; "upstream"; "renderer" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+entries: Listing<Spec.Scenario> = new {
+  typeAliasedCallableArgumentEvaluation
+  pcfRendererPrimitives
+  pcfRendererObjects
+  jsonRenderer
+  yamlRenderer
+  propertiesRenderer
+  pklBaseListOperations
+  pklBaseMapOperations
+  pklBaseStringOperations
+  pklBaseIntOperations
+  pklMathExpansion
+  pklReflectMinimal
+  regexSupport
+  durationAndDataSize
+  bytesLiterals
+  readTraceThrow
+  objectBodyForGenerators
+  objectBodyWhenConditionals
+  hiddenAndLocalMembers
+  nullCoalescingAndLet
+  genericClassDeclarations
+  genericFunctionTypeParameters
+  stringConstraintPredicates
+  floatConstraintPredicates
+  collectionElementConstraints
+  cliOutputFormat
+  cliTestRunnerIntegration
+  upstreamFixtureEvaluation
+  upstreamGoldOutputDiff
+}

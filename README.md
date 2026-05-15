@@ -47,7 +47,7 @@ The current slice is intentionally small and executable:
 
 ## Current Completion Estimate
 
-As of the `PKL-068` spec slice, this project has 68 implemented pkspec scenarios. The next tracked slice is `PKL-069`, which mirrors the typealias resolution on the runtime argument side so typealiased callable parameter annotations enforce their predicates.
+As of the `PKL-068` spec slice, this project has 68 implemented pkspec scenarios and a 29-entry roadmap of draft slices in `specs/Roadmap.pkl`. The next tracked slice is `PKL-070`, which lands a PCF renderer for primitive Pkl values — the start of the stdlib / renderer pivot. The remaining constraint round-off task `PKL-069` is kept in the roadmap as a draft.
 
 These are engineering estimates, not formal coverage numbers:
 
@@ -91,7 +91,7 @@ git submodule update --init --recursive
 ```text
 .
 ├── *.mbt              # parser, AST, evaluator, typechecker, ripple analysis
-├── specs/             # project pkspec scenarios and executable checks
+├── specs/             # project pkspec scenarios (Spec.pkl) + roadmap (Roadmap.pkl)
 ├── pkspec/            # vendored pkspec authoring schemas
 ├── third_party/        # upstream apple/pkl submodule
 ├── scripts/            # local test adapters
@@ -101,4 +101,4 @@ git submodule update --init --recursive
 
 ## Scope
 
-This is not a full Pkl implementation yet. The next compatibility work is `PKL-069` typealiased callable argument evaluation, followed by broader Pkl type/stdlib coverage and class/object semantics.
+This is not a full Pkl implementation yet. The next compatibility work pivots toward renderers and stdlib expansion, starting with `PKL-070` PCF primitive rendering; the full draft roadmap (PKL-069 through PKL-097) lives in `specs/Roadmap.pkl`.
