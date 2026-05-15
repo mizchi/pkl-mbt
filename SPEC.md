@@ -1,6 +1,6 @@
 # Test SPEC
 
-174 tests across 2 module(s) — 141 pending, 33 active
+175 tests across 2 module(s) — 141 pending, 34 active
 
 ## `specs/`
 
@@ -148,10 +148,11 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **amends base module property merge** [draft] — verifies: PKL-137 — tags: evaluator, amends, pkf-pkspec, next
-  > When a module declares `amends "...base.pkl"`, the child module inherits the base module's properties (including `tests`, `defaults`, `output`, `renderedScenarios`, etc.). pkspec's `Spec.pkl amends Test.pkl`, and project `specs/Spec.pkl amends pkspec/Spec.pkl`. Today the evaluator parses `amends` but does not merge the base's evaluated bindings into the child; the child sees `unknown type annotation Test` and never resolves the base's `tests: Listing<Test>` field. Reuse the existing import path to evaluate the base, then merge the child's overrides into the base's property map, mirroring Apple Pkl's child-wins semantics.
+- [ ] **amends base module property and type merge** — verifies: PKL-137 — tags: evaluator, typechecker, amends, pkf-pkspec
+  > `amends "base.pkl"` / `extends "base.pkl"` flows the base module's typealiases and class declarations into the child's unqualified type scope, in addition to the property values that PKL-006 already merged at eval time. (1) `infer_program` resolves `program.module_relation`, calls `resolve_import_types(relation.uri)`, and seeds the child's `type_env` with the base's `TypeExport`s so a bare `Test` annotation in the child resolves to the base's `class Test`. (2) `type_exports_from_parse_result` now exports `TypeAliasDeclaration`s alongside `ClassDeclaration`s. (3) `collect_declared_types_with_imports` falls back to `type_from_annotation` (not just `builtin_type_from_annotation`) so union / constrained / nullable alias targets resolve. (4) `type_from_annotation` strips a balanced outer paren wrapper before dispatch so target text like `("draft" | "review" | "approved")` splits correctly. (5) `builtin_type_from_annotation` recognises a quoted string literal in type position as `StringType` so string-literal union types (`"critical" | "major" | "minor"`) resolve. (6) `type_accepts` admits an empty `ObjectType([])` against `ListingType(_)` / `MappingType(_)`. (7) `parse_property_decl` routes a brace-bodied amend (`tests { entry }`) through `parse_inferred_new_body` so the body shape follows the first significant token.
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-006
+  - depends on: PKL-006, PKL-118, PKL-138
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **call-site generic inference** — verifies: PKL-110 — tags: typechecker, generics, inference
@@ -518,7 +519,7 @@
   - depends on: PKL-098
   - body: _not yet implemented_
 
-- [ ] **output renderer driver path** [draft] — verifies: PKL-104 — tags: renderer, output, driver, pkf-pkspec
+- [ ] **output renderer driver path** [draft] — verifies: PKL-104 — tags: renderer, output, driver, pkf-pkspec, next
   > Recognize module-level `output { renderer = new JsonRenderer { ... } }` declarations and dispatch the chosen renderer (with optional converters) instead of relying on the `-f` CLI flag. Requires class-name tagging on `ObjectValue` so the renderer class can be read at runtime.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-097
@@ -950,6 +951,10 @@
   - body: _not yet implemented_
 
 ### `Test.pkl`
+
+- [x] **cli amends base merge** — verifies: PKL-137 — tags: moonbit, cli, evaluator, amends, pkf-pkspec, contract
+  > The native CLI evaluates a child fixture that `amends` a sibling base module. The base provides a `Test` class, a `Severity` string-literal union typealias, and an empty `tests: Listing<Test>` slot; the child adds one entry referencing the base's class by its bare name. The child's typecheck succeeds (no `unknown type annotation Test`) and the rendered output shows the merged listing.
+  - body: `cmd` (exit 0 expected)
 
 - [x] **cli any top type** — verifies: PKL-133 — tags: moonbit, cli, typechecker, any, pkf-pkspec, contract
   > The native CLI evaluates a fixture that exercises `Any`-typed bindings (Int / String / Bool), a nullable `Any?` defaulted to null, and a `Mapping<String, Any>` carrying heterogeneous value types. Every binding typechecks (via the new `AnyType` short-circuit in `type_accepts`) and the evaluator emits the same PCF as the concrete annotations would.

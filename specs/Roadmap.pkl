@@ -69,7 +69,7 @@ local outputRendererDriver: Spec.Scenario = new {
     "Recognize module-level `output { renderer = new JsonRenderer { ... } }` declarations and dispatch the chosen renderer (with optional converters) instead of relying on the `-f` CLI flag. Requires class-name tagging on `ObjectValue` so the renderer class can be read at runtime."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-097" }
-  tags { "renderer"; "output"; "driver"; "pkf-pkspec" }
+  tags { "renderer"; "output"; "driver"; "pkf-pkspec"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -353,20 +353,7 @@ local lspServer: Spec.Scenario = new {
 // Promote PKL-133 first (smallest, no dependencies); the rest stack on
 // top of it in numerical order.
 
-local amendsBaseMerge: Spec.Scenario = new {
-  id = "PKL-137"
-  name = "amends base module property merge"
-  description =
-    "When a module declares `amends \"...base.pkl\"`, the child module inherits the base module's properties (including `tests`, `defaults`, `output`, `renderedScenarios`, etc.). pkspec's `Spec.pkl amends Test.pkl`, and project `specs/Spec.pkl amends pkspec/Spec.pkl`. Today the evaluator parses `amends` but does not merge the base's evaluated bindings into the child; the child sees `unknown type annotation Test` and never resolves the base's `tests: Listing<Test>` field. Reuse the existing import path to evaluate the base, then merge the child's overrides into the base's property map, mirroring Apple Pkl's child-wins semantics."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-006" }
-  tags { "evaluator"; "amends"; "pkf-pkspec"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 entries: Listing<Spec.Scenario> = new {
-  amendsBaseMerge
   pklRepl
   pklAnalyzeLint
   readNullableParserForm

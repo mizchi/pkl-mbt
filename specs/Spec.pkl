@@ -1785,6 +1785,38 @@ local listingMappingStdlibCore = new Scenario {
   }
 }
 
+local amendsBaseMerge = new Scenario {
+  id = "PKL-137"
+  name = "amends base module property and type merge"
+  description =
+    "`amends \"base.pkl\"` / `extends \"base.pkl\"` flows the base module's typealiases and class declarations into the child's unqualified type scope, in addition to the property values that PKL-006 already merged at eval time. (1) `infer_program` resolves `program.module_relation`, calls `resolve_import_types(relation.uri)`, and seeds the child's `type_env` with the base's `TypeExport`s so a bare `Test` annotation in the child resolves to the base's `class Test`. (2) `type_exports_from_parse_result` now exports `TypeAliasDeclaration`s alongside `ClassDeclaration`s. (3) `collect_declared_types_with_imports` falls back to `type_from_annotation` (not just `builtin_type_from_annotation`) so union / constrained / nullable alias targets resolve. (4) `type_from_annotation` strips a balanced outer paren wrapper before dispatch so target text like `(\"draft\" | \"review\" | \"approved\")` splits correctly. (5) `builtin_type_from_annotation` recognises a quoted string literal in type position as `StringType` so string-literal union types (`\"critical\" | \"major\" | \"minor\"`) resolve. (6) `type_accepts` admits an empty `ObjectType([])` against `ListingType(_)` / `MappingType(_)`. (7) `parse_property_decl` routes a brace-bodied amend (`tests { entry }`) through `parse_inferred_new_body` so the body shape follows the first significant token."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-006"; "PKL-118"; "PKL-138" }
+  tags { "evaluator"; "typechecker"; "amends"; "pkf-pkspec" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Inject relation type exports unqualified"
+      rationale =
+        "Apple Pkl's `amends` brings the base's names into the child's scope without a prefix, unlike `import \"base\" as base` which exposes them as `base.Foo`. Mirror that: the relation's TypeExports are pushed straight into the child's `type_env` with their original names. The `imported_type_bindings` path (qualified) keeps working for explicit `import` declarations."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Approximate string-literal types as `StringType`"
+      rationale =
+        "A full string-literal type would need a refined `StringLiteralType(String)` variant + narrowing in `type_accepts` + render adjustments. Collapsing each literal to `StringType` lets union typealiases (`\"critical\" | \"major\" | \"minor\"`) typecheck cleanly. A future slice can add the refined variant if call sites need it."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Empty `new {}` typecheck coercion mirrors PKL-138 eval coercion"
+      rationale =
+        "PKL-138 already coerced an empty `ObjectValue([])` to `ListingValue([])` / `MappingValue([])` at eval time. The typechecker had no matching rule, so `tests: Listing<Test> = new {}` typechecked as `Listing<Test> does not accept Object`. Adding the corresponding rule in `type_accepts` keeps the two phases in sync."
+    }
+  }
+}
+
 local stdlibModifiers = new Scenario {
   id = "PKL-140"
   name = "Apple Pkl stdlib declaration modifiers"
@@ -3111,5 +3143,6 @@ scenarios {
   pkspecPolish
   httpsImports
   stdlibModifiers
+  amendsBaseMerge
   ...roadmap.entries
 }

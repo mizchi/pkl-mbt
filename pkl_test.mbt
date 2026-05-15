@@ -2591,6 +2591,42 @@ test "PKL-140: declarations-only module evaluates to empty object" {
 }
 
 ///|
+test "PKL-137: string-literal union typealias resolves" {
+  guard typecheck_source(
+      "typealias Severity = (\"critical\" | \"major\")\nx: Severity = \"major\"",
+    )
+    is TypeOk(_) else {
+    panic()
+  }
+}
+
+///|
+test "PKL-137: empty new {} accepts Listing<T> annotation in typecheck" {
+  guard typecheck_source("xs: Listing<Int> = new {}") is TypeOk(_) else {
+    panic()
+  }
+}
+
+///|
+test "PKL-137: empty new {} accepts Mapping annotation in typecheck" {
+  guard typecheck_source("m: Mapping<String, Int> = new {}") is TypeOk(_) else {
+    panic()
+  }
+}
+
+///|
+test "PKL-137: property amend body parses as listing for bare elements" {
+  guard eval_source(
+      "class T { name: String }\nbase: Listing<T> = new {}\nresult = base",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is ListingValue(_) else { panic() }
+  guard members[1].value is ListingValue(_) else { panic() }
+}
+
+///|
 test "Number constraint predicate accepts both Int and Float" {
   assert_true(
     eval_source("a: Number(isPositive) = 3\nb: Number(isPositive) = 0.5") ==

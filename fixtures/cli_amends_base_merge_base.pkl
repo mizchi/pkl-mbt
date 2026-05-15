@@ -1,0 +1,10 @@
+// Base module for PKL-137. Provides the Test class and an empty
+// `tests: Listing<Test>` slot the child fills in.
+typealias Severity = ("critical" | "major" | "minor")
+
+class Test {
+  name: String
+  severity: Severity = "minor"
+}
+
+tests: Listing<Test> = new {}

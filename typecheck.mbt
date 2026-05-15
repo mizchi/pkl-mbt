@@ -231,7 +231,20 @@ fn builtin_type_from_annotation(name : String) -> Type? {
     // PKL-133: top type. Maps to its own `AnyType` variant so render
     // output stays as `Any` instead of collapsing to `Unknown`.
     "Any" => Some(AnyType)
-    _ => None
+    // PKL-137: a quoted string literal in type position
+    // (`typealias Severity = "critical" | "major"`) is Apple Pkl's
+    // string-literal type. pkl-mbt approximates each literal as the
+    // base `StringType` for now — the union machinery still flags
+    // mismatched non-string operands, and the `==` / `is` paths fall
+    // through to runtime equality on the literal value. A future
+    // slice can introduce a refined `StringLiteralType("...")` variant
+    // if call sites need the narrowed shape.
+    _ =>
+      if name.length() >= 2 && name.has_prefix("\"") && name.has_suffix("\"") {
+        Some(StringType)
+      } else {
+        None
+      }
   }
 }
 
@@ -420,6 +433,33 @@ fn constrained_type_suffix_is_balanced(name : String, start : Int) -> Bool {
 
 ///|
 fn type_from_annotation(name : String, type_env : Array[TypeBinding]) -> Type? {
+  // PKL-137: strip a balanced outer paren wrapper before the dispatch
+  // table runs. Parser-emitted type text retains the parens (`("a" |
+  // "b")` survives intact through `parse_type_text`), so an alias like
+  // `typealias Severity = ("critical" | "major")` arrives here with the
+  // outer parens — `split_top_level_union_choices` then keeps the `|`
+  // inside parens and refuses to split, which makes the whole thing
+  // look like a single unknown name.
+  if name.has_prefix("(") && name.has_suffix(")") {
+    let mut depth = 0
+    let mut wraps_whole = true
+    for i = 0; i < name.length(); i = i + 1 {
+      let c = name[i].to_int().unsafe_to_char()
+      if c == '(' {
+        depth = depth + 1
+      } else if c == ')' {
+        depth = depth - 1
+        if depth == 0 && i < name.length() - 1 {
+          wraps_whole = false
+          break
+        }
+      }
+    }
+    if wraps_whole && depth == 0 {
+      let inner = String::unsafe_substring(name, start=1, end=name.length() - 1)
+      return type_from_annotation(inner, type_env)
+    }
+  }
   let union_choices = split_top_level_union_choices(name)
   if union_choices.length() > 1 {
     let types : Array[Type] = []
@@ -1120,6 +1160,14 @@ fn type_accepts(expected : Type, inferred : Type) -> Bool {
       }
       ok
     }
+    // PKL-137: an empty `new {}` literal infers to `ObjectType([])` at
+    // parse time. PKL-138's eval-side coercion projects the runtime
+    // value to `ListingValue([])` / `MappingValue([])` based on the
+    // binding annotation; mirror the same coercion here so the
+    // typechecker accepts `tests: Listing<Test> = new {}` and
+    // `m: Mapping<K, V> = new {}` cleanly.
+    (ListingType(_), ObjectType(members)) => members.length() == 0
+    (MappingType(_), ObjectType(members)) => members.length() == 0
     (MappingType(expected_entries), MappingType(actual_entries)) => {
       if expected_entries.length() == 0 {
         return true
@@ -2402,8 +2450,18 @@ fn collect_declared_types_with_imports(
           bound: None,
         })
       TypeAliasDeclaration(type_alias) =>
-        match builtin_type_from_annotation(type_alias.target) {
-          Some(typ) =>
+        // PKL-137: fall back to `type_from_annotation` so union /
+        // constrained / nullable / generic alias targets resolve too.
+        // `builtin_type_from_annotation` alone misses
+        // `("draft" | "review" | "approved")` and similar; the richer
+        // resolver participates in the partially built `type_env`
+        // (later aliases can reference earlier ones).
+        match
+          (
+            builtin_type_from_annotation(type_alias.target),
+            type_from_annotation(type_alias.target, type_env),
+          ) {
+          (Some(typ), _) | (None, Some(typ)) =>
             type_env.push({
               name: type_alias.name,
               typ,
@@ -2414,7 +2472,7 @@ fn collect_declared_types_with_imports(
               },
               bound: None,
             })
-          None => ()
+          (None, None) => ()
         }
       // PKL-090 flattened function-level type parameters into the
       // module-level type_env so annotations like `(x: T): T` resolve.
@@ -2517,7 +2575,18 @@ fn type_exports_from_parse_result(parsed : ParseResult) -> Array[TypeExport] {
           Some(typ) => exports.push({ name: class_decl.name, typ })
           None => ()
         }
-      FunctionDeclaration(_) | TypeAliasDeclaration(_) => ()
+      // PKL-137: typealiases participate in the importing / amending
+      // module's type scope the same way classes do. pkspec's
+      // `Spec.pkl amends Test.pkl` references `Id`, `ReviewStatus`,
+      // `Severity`, `IsoDate`, etc. — all typealiases declared in
+      // Test.pkl. Export their resolved types so the relation /
+      // import lookup populates the child's type env with them.
+      TypeAliasDeclaration(type_alias) =>
+        match lookup_type(type_env, type_alias.name) {
+          Some(typ) => exports.push({ name: type_alias.name, typ })
+          None => ()
+        }
+      FunctionDeclaration(_) => ()
     }
   }
   exports
@@ -3663,10 +3732,40 @@ fn infer_program(
   } else {
     []
   }
+  // PKL-137: `amends "base.pkl"` / `extends "base.pkl"` brings the
+  // base module's class / typealias declarations into the child's
+  // unqualified type scope. Without this, the child sees the base's
+  // property types (via `infer_module_relation`) but writing a
+  // `class Test` from the base as a bare `Test` annotation in the
+  // child errors with `unknown type annotation Test`.
+  let relation_types : Array[TypeBinding] = []
+  match program.module_relation {
+    Some(relation) =>
+      match resolve_import_types(relation.uri) {
+        Some(exports) =>
+          for type_export in exports {
+            relation_types.push({
+              name: type_export.name,
+              typ: type_export.typ,
+              alias_decl: None,
+              bound: None,
+            })
+          }
+        None => ()
+      }
+    None => ()
+  }
+  let combined_imports : Array[TypeBinding] = []
+  for binding in imported_types {
+    combined_imports.push(binding)
+  }
+  for binding in relation_types {
+    combined_imports.push(binding)
+  }
   let type_env = collect_declared_types_with_imports(
     program.declarations,
     diagnostics,
-    imported_types,
+    combined_imports,
   )
   push_constrained_class_property_default_diagnostics(
     program.declarations,

@@ -1294,7 +1294,14 @@ fn Parser::parse_property_decl(self : Parser) -> Binding? {
       self.skip_whitespace()
       self.at(lbrace())
     }) {
-    self.parse_object_body()
+    // PKL-137: `name { body }` (no `=`, brace body) is Apple Pkl's
+    // *amend* form — the body's shape depends on the existing value
+    // of `name` (Listing → bare elements, Mapping → `[k] = v` entries,
+    // object → property decls). The parser doesn't know the existing
+    // type at this point, so dispatch by peeking the first significant
+    // token inside the brace, the same way PKL-138 does for
+    // `new { ... }`.
+    self.parse_inferred_new_body()
   } else if ({
       self.skip_whitespace()
       self.at(eq())

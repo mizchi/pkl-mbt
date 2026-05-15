@@ -354,6 +354,21 @@ local cliListingMappingStdlib = new Test {
   timeoutSec = 120
 }
 
+local cliAmendsBaseMerge = new Test {
+  name = "cli amends base merge"
+  description =
+    "The native CLI evaluates a child fixture that `amends` a sibling base module. The base provides a `Test` class, a `Severity` string-literal union typealias, and an empty `tests: Listing<Test>` slot; the child adds one entry referencing the base's class by its bare name. The child's typecheck succeeds (no `unknown type annotation Test`) and the rendered output shows the merged listing."
+  tags { "moonbit"; "cli"; "evaluator"; "amends"; "pkf-pkspec"; "contract" }
+  specRef { "PKL-137" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_amends_base_merge.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "tests {"
+    "name = \"alpha\""
+  }
+  timeoutSec = 120
+}
+
 local cliStdlibModifiers = new Test {
   name = "cli stdlib modifiers"
   description =
@@ -679,6 +694,7 @@ tests {
   cliPkspecPolish
   cliHttpsImports
   cliStdlibModifiers
+  cliAmendsBaseMerge
   cliFormat
   cliTestExamplesPass
   cliTestExamplesFail

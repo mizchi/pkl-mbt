@@ -1,0 +1,12 @@
+// PKL-137: a child module that `amends` a base inherits the base's
+// class / typealias declarations into its unqualified type scope and
+// the base's property values into its rendered output.
+amends "cli_amends_base_merge_base.pkl"
+
+local alpha: Test = new {
+  name = "alpha"
+}
+
+tests {
+  alpha
+}
