@@ -1,7 +1,7 @@
 ///|
 fn usage() -> Unit {
   println("usage: pkl <parse|check|eval> <file.pkl>")
-  println("       pkl eval [-f pcf|json] <file.pkl>")
+  println("       pkl eval [-f pcf|json|yaml] <file.pkl>")
   println("       pkl parse-many <file.pkl>...")
 }
 
@@ -223,7 +223,7 @@ fn main {
       i = i + 1
     }
   }
-  if format != "pcf" && format != "json" {
+  if format != "pcf" && format != "json" && format != "yaml" {
     fail("unsupported format: \{format}")
   }
   if positional.length() != 1 {
@@ -264,6 +264,17 @@ fn main {
         EvalOk(value) =>
           if format == "json" {
             println(@pkl.render_value_as_json(value))
+          } else if format == "yaml" {
+            // render_value_as_yaml already terminates each line with `\n`,
+            // including the final entry. Drop the trailing newline so
+            // `println` does not double-up at end-of-stream.
+            let yaml = @pkl.render_value_as_yaml(value)
+            let trimmed = if yaml.has_suffix("\n") {
+              String::unsafe_substring(yaml, start=0, end=yaml.length() - 1)
+            } else {
+              yaml
+            }
+            println(trimmed)
           } else {
             println(@pkl.render_value(value))
           }

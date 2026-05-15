@@ -1464,6 +1464,38 @@ local jsonRenderer = new Scenario {
   }
 }
 
+local yamlRenderer = new Scenario {
+  id = "PKL-073"
+  name = "render Pkl values as YAML"
+  description =
+    "The CLI `eval -f yaml` (or `--format yaml`) flag emits a YAML document matching Apple Pkl's `pkl eval -f yaml` block-style shape: ObjectValue and MappingValue project to block mappings (Mapping keys are coerced to strings, indented two spaces per level), ListingValue projects to block sequences at the parent column with `- value` entries, and empty composites use the `[]` / `{}` flow form. String scalars stay bare when they parse as plain YAML, switch to single-quoted with `''` escapes for leading indicators / numeric-or-keyword shapes / inline `: ` / ` #` / trailing whitespace, and switch to double-quoted with `\\n`, `\\t`, `\\r`, `\\\\`, `\\\"`, and `\\uXXXX` escapes when the value contains control characters or a backslash. The default `eval` output stays PCF."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-072" }
+  tags { "renderer"; "yaml"; "cli" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Mirror Apple Pkl's block-style YAML projection rules"
+      rationale =
+        "Apple Pkl's YAML renderer commits to a deterministic block-style projection (sequences emit `- item` at the parent column, mappings emit `key: value` with two-space indentation, empties use the flow `[]` / `{}` form). Mirroring that projection now means existing Pkl configurations ported here serialize to YAML without divergence, and adding `indentWidth` / `omitNullProperties` / converters later remains an opaque extension instead of a re-architecting."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Reuse the JSON `-f` CLI flag rather than the `output { renderer }` block"
+      rationale =
+        "PKL-072 wires `eval -f json` through a CLI flag because the `output { renderer = new JsonRenderer { ... } }` shape depends on stdlib classes (`JsonRenderer`, `YamlRenderer`) that we have not implemented yet — that lives in PKL-079 stdlib expansion. Reusing the same flag for YAML keeps the CLI surface uniform; once the stdlib renderer classes land, the `output { renderer }` path simply re-invokes the same internal `render_value_as_yaml` entry point."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Use double-quoted form for control-character strings instead of block scalars"
+      rationale =
+        "Apple Pkl uses `|`, `|-`, and `|+` block scalars for multiline / control-character strings to keep YAML output human-readable. That projection is non-trivial (indentation indicators, chomping indicators, leading-whitespace handling) and is best implemented as its own slice. Until then, double-quoted strings with the JSON-style `\\n` / `\\t` / `\\uXXXX` escapes produce equivalent YAML — slightly less readable but still spec-compliant and round-trippable through any YAML 1.1 parser."
+    }
+  }
+}
+
 scenarios {
   parseArithmetic
   evalArithmetic
@@ -1536,5 +1568,6 @@ scenarios {
   pcfRendererPrimitives
   pcfRendererObjects
   jsonRenderer
+  yamlRenderer
   ...roadmap.entries
 }

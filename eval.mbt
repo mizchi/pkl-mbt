@@ -2480,6 +2480,446 @@ fn render_json_array(
 }
 
 ///|
+/// Render a Value as YAML, mirroring the basic shape of `pkl eval -f yaml`.
+///
+/// Block style is used throughout: mappings emit `key: value` per line,
+/// listings emit `- value` per line at the same column as the parent key, and
+/// empty composites use flow form (`[]` / `{}`). String scalars are bare when
+/// they parse as plain YAML, single-quoted when they collide with reserved
+/// shapes (numeric / keyword / leading indicator / inline `: ` / ` #`), and
+/// double-quoted with `\`-escapes when they contain control characters or a
+/// backslash. Block scalars (`|`, `|-`, `|+`) for multiline strings remain
+/// follow-up work.
+///
+/// Indentation is fixed at two spaces; Apple Pkl's `indentWidth` knob lives
+/// inside the `YamlRenderer` stdlib class (PKL-079 expansion), which our
+/// pipeline does not consume yet.
+pub fn render_value_as_yaml(value : Value) -> String {
+  let buf = StringBuilder::new()
+  render_yaml_root(value, buf)
+  buf.to_string()
+}
+
+///|
+fn render_yaml_root(value : Value, buf : StringBuilder) -> Unit {
+  match value {
+    ObjectValue(members) =>
+      if members.length() == 0 {
+        buf.write_string("{}\n")
+      } else {
+        render_yaml_mapping_members(members, 0, buf)
+      }
+    MappingValue(entries) =>
+      if entries.length() == 0 {
+        buf.write_string("{}\n")
+      } else {
+        render_yaml_mapping_entries(entries, 0, buf)
+      }
+    ListingValue(elements) =>
+      if elements.length() == 0 {
+        buf.write_string("[]\n")
+      } else {
+        render_yaml_sequence(elements, 0, buf)
+      }
+    _ => {
+      render_yaml_scalar(value, buf)
+      buf.write_char('\n')
+    }
+  }
+}
+
+///|
+fn render_yaml_mapping_members(
+  members : Array[ValueMember],
+  indent : Int,
+  buf : StringBuilder,
+) -> Unit {
+  for i = 0; i < members.length(); i = i + 1 {
+    write_yaml_indent(buf, indent)
+    render_yaml_key(members[i].name, buf)
+    buf.write_char(':')
+    render_yaml_block_value(members[i].value, indent, buf)
+  }
+}
+
+///|
+fn render_yaml_mapping_entries(
+  entries : Array[ValueEntry],
+  indent : Int,
+  buf : StringBuilder,
+) -> Unit {
+  for i = 0; i < entries.length(); i = i + 1 {
+    write_yaml_indent(buf, indent)
+    render_yaml_key(yaml_coerce_key(entries[i].key), buf)
+    buf.write_char(':')
+    render_yaml_block_value(entries[i].value, indent, buf)
+  }
+}
+
+///|
+fn render_yaml_block_value(
+  value : Value,
+  indent : Int,
+  buf : StringBuilder,
+) -> Unit {
+  match value {
+    ObjectValue(members) =>
+      if members.length() == 0 {
+        buf.write_string(" {}\n")
+      } else {
+        buf.write_char('\n')
+        render_yaml_mapping_members(members, indent + 2, buf)
+      }
+    MappingValue(entries) =>
+      if entries.length() == 0 {
+        buf.write_string(" {}\n")
+      } else {
+        buf.write_char('\n')
+        render_yaml_mapping_entries(entries, indent + 2, buf)
+      }
+    ListingValue(elements) =>
+      if elements.length() == 0 {
+        buf.write_string(" []\n")
+      } else {
+        buf.write_char('\n')
+        render_yaml_sequence(elements, indent, buf)
+      }
+    _ => {
+      buf.write_char(' ')
+      render_yaml_scalar(value, buf)
+      buf.write_char('\n')
+    }
+  }
+}
+
+///|
+fn render_yaml_sequence(
+  elements : Array[Value],
+  indent : Int,
+  buf : StringBuilder,
+) -> Unit {
+  for i = 0; i < elements.length(); i = i + 1 {
+    write_yaml_indent(buf, indent)
+    buf.write_char('-')
+    render_yaml_seq_item(elements[i], indent + 2, buf)
+  }
+}
+
+///|
+fn render_yaml_seq_item(
+  value : Value,
+  indent : Int,
+  buf : StringBuilder,
+) -> Unit {
+  // The first sub-member or sub-element shares the `- ` line; the rest are
+  // continued at `indent` (two spaces past the `- `).
+  match value {
+    ObjectValue(members) =>
+      if members.length() == 0 {
+        buf.write_string(" {}\n")
+      } else {
+        buf.write_char(' ')
+        render_yaml_key(members[0].name, buf)
+        buf.write_char(':')
+        render_yaml_block_value(members[0].value, indent, buf)
+        for i = 1; i < members.length(); i = i + 1 {
+          write_yaml_indent(buf, indent)
+          render_yaml_key(members[i].name, buf)
+          buf.write_char(':')
+          render_yaml_block_value(members[i].value, indent, buf)
+        }
+      }
+    MappingValue(entries) =>
+      if entries.length() == 0 {
+        buf.write_string(" {}\n")
+      } else {
+        buf.write_char(' ')
+        render_yaml_key(yaml_coerce_key(entries[0].key), buf)
+        buf.write_char(':')
+        render_yaml_block_value(entries[0].value, indent, buf)
+        for i = 1; i < entries.length(); i = i + 1 {
+          write_yaml_indent(buf, indent)
+          render_yaml_key(yaml_coerce_key(entries[i].key), buf)
+          buf.write_char(':')
+          render_yaml_block_value(entries[i].value, indent, buf)
+        }
+      }
+    ListingValue(elements) =>
+      if elements.length() == 0 {
+        buf.write_string(" []\n")
+      } else {
+        buf.write_char(' ')
+        buf.write_char('-')
+        render_yaml_seq_item(elements[0], indent + 2, buf)
+        for i = 1; i < elements.length(); i = i + 1 {
+          write_yaml_indent(buf, indent)
+          buf.write_char('-')
+          render_yaml_seq_item(elements[i], indent + 2, buf)
+        }
+      }
+    _ => {
+      buf.write_char(' ')
+      render_yaml_scalar(value, buf)
+      buf.write_char('\n')
+    }
+  }
+}
+
+///|
+fn render_yaml_scalar(value : Value, buf : StringBuilder) -> Unit {
+  match value {
+    IntValue(n) => buf.write_string("\{n}")
+    BoolValue(true) => buf.write_string("true")
+    BoolValue(false) => buf.write_string("false")
+    NullValue => buf.write_string("null")
+    StringValue(s) => render_yaml_string(s, buf)
+    _ =>
+      // Composite values reach this path only via the same renderer fallback
+      // that PCF / JSON use, so produce a deterministic flow form rather than
+      // panic. Anything richer is handled by the block-mode entry points.
+      render_pcf_inline(value, 0, buf)
+  }
+}
+
+///|
+fn render_yaml_key(name : String, buf : StringBuilder) -> Unit {
+  // Keys reuse the scalar-string quoting policy.
+  render_yaml_string(name, buf)
+}
+
+///|
+fn render_yaml_string(s : String, buf : StringBuilder) -> Unit {
+  if s == "" {
+    buf.write_string("''")
+    return
+  }
+  if yaml_string_needs_double_quote(s) {
+    render_yaml_double_quoted(s, buf)
+    return
+  }
+  if yaml_string_needs_single_quote(s) {
+    render_yaml_single_quoted(s, buf)
+    return
+  }
+  buf.write_string(s)
+}
+
+///|
+fn yaml_string_needs_double_quote(s : String) -> Bool {
+  for c in s {
+    if c < ' ' || c == '\u{7F}' || c == '\\' {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn yaml_string_needs_single_quote(s : String) -> Bool {
+  // Reserved YAML 1.1 plain-scalar keywords.
+  if yaml_is_reserved_keyword(s) {
+    return true
+  }
+  if yaml_looks_like_number(s) {
+    return true
+  }
+  let mut first : Char = ' '
+  let mut has_char = false
+  for c in s {
+    first = c
+    has_char = true
+    break
+  }
+  if !has_char {
+    return false
+  }
+  if first == ' ' || first == '\t' {
+    return true
+  }
+  // Leading indicator characters that would otherwise alter parsing.
+  match first {
+    '-'
+    | '?'
+    | ':'
+    | ','
+    | '['
+    | ']'
+    | '{'
+    | '}'
+    | '#'
+    | '&'
+    | '*'
+    | '!'
+    | '|'
+    | '>'
+    | '\''
+    | '"'
+    | '%'
+    | '@'
+    | '`' => return true
+    _ => ()
+  }
+  // Trailing whitespace.
+  let mut last : Char = first
+  for c in s {
+    last = c
+  }
+  if last == ' ' || last == '\t' {
+    return true
+  }
+  // Embedded `: ` or ` #` flips a plain scalar into something the YAML parser
+  // would re-interpret, so reach for single quotes.
+  if yaml_contains_pair(s, ':', ' ') || yaml_contains_pair(s, ' ', '#') {
+    return true
+  }
+  false
+}
+
+///|
+fn yaml_is_reserved_keyword(s : String) -> Bool {
+  match s {
+    "true"
+    | "True"
+    | "TRUE"
+    | "false"
+    | "False"
+    | "FALSE"
+    | "null"
+    | "Null"
+    | "NULL"
+    | "~"
+    | "yes"
+    | "Yes"
+    | "YES"
+    | "no"
+    | "No"
+    | "NO"
+    | "on"
+    | "On"
+    | "ON"
+    | "off"
+    | "Off"
+    | "OFF" => true
+    _ => false
+  }
+}
+
+///|
+fn yaml_looks_like_number(s : String) -> Bool {
+  // Recognize the common `[+-]?digits(.digits)?(e[+-]?digits)?` shape that
+  // YAML would otherwise parse as a number.
+  let mut idx = 0
+  let mut saw_digit = false
+  let mut saw_dot = false
+  let mut saw_exp = false
+  let chars : Array[Char] = []
+  for c in s {
+    chars.push(c)
+  }
+  if chars.length() == 0 {
+    return false
+  }
+  if chars[idx] == '+' || chars[idx] == '-' {
+    idx = idx + 1
+  }
+  while idx < chars.length() {
+    let c = chars[idx]
+    if c >= '0' && c <= '9' {
+      saw_digit = true
+      idx = idx + 1
+    } else if c == '.' && !saw_dot && !saw_exp {
+      saw_dot = true
+      idx = idx + 1
+    } else if (c == 'e' || c == 'E') && !saw_exp && saw_digit {
+      saw_exp = true
+      idx = idx + 1
+      if idx < chars.length() && (chars[idx] == '+' || chars[idx] == '-') {
+        idx = idx + 1
+      }
+    } else {
+      return false
+    }
+  }
+  saw_digit
+}
+
+///|
+fn yaml_contains_pair(s : String, a : Char, b : Char) -> Bool {
+  let mut prev : Char = '\u{0}'
+  let mut have_prev = false
+  for c in s {
+    if have_prev && prev == a && c == b {
+      return true
+    }
+    prev = c
+    have_prev = true
+  }
+  false
+}
+
+///|
+fn render_yaml_single_quoted(s : String, buf : StringBuilder) -> Unit {
+  buf.write_char('\'')
+  for c in s {
+    if c == '\'' {
+      buf.write_string("''")
+    } else {
+      buf.write_char(c)
+    }
+  }
+  buf.write_char('\'')
+}
+
+///|
+fn render_yaml_double_quoted(s : String, buf : StringBuilder) -> Unit {
+  buf.write_char('"')
+  for c in s {
+    match c {
+      '"' => buf.write_string("\\\"")
+      '\\' => buf.write_string("\\\\")
+      '\n' => buf.write_string("\\n")
+      '\r' => buf.write_string("\\r")
+      '\t' => buf.write_string("\\t")
+      '\u{08}' => buf.write_string("\\b")
+      '\u{0C}' => buf.write_string("\\f")
+      _ =>
+        if c < ' ' || c == '\u{7F}' {
+          let code = c.to_int()
+          let hex = json_hex4(code)
+          buf.write_string("\\u")
+          buf.write_string(hex)
+        } else {
+          buf.write_char(c)
+        }
+    }
+  }
+  buf.write_char('"')
+}
+
+///|
+fn yaml_coerce_key(value : Value) -> String {
+  match value {
+    StringValue(s) => s
+    IntValue(n) => "\{n}"
+    BoolValue(true) => "true"
+    BoolValue(false) => "false"
+    NullValue => "null"
+    _ => {
+      let buf = StringBuilder::new()
+      render_pcf_inline(value, 0, buf)
+      buf.to_string()
+    }
+  }
+}
+
+///|
+fn write_yaml_indent(buf : StringBuilder, indent : Int) -> Unit {
+  for i = 0; i < indent; i = i + 1 {
+    buf.write_char(' ')
+  }
+}
+
+///|
 fn eval_source_with_imports(
   source : String,
   resolve_import : (String) -> EvalResult?,

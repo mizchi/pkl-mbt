@@ -75,6 +75,7 @@ local moonUnit = new Test {
     "PKL-070"
     "PKL-071"
     "PKL-072"
+    "PKL-073"
   }
   cmd = "moon test --target js"
   timeoutSec = 120
@@ -99,6 +100,17 @@ local cliEvalJson = new Test {
   cmd = "moon run cmd/main --target native -- eval -f json fixtures/cli.pkl"
   workdir = ".."
   expectStdoutContains { "\"name\": \"hawk\""; "\"age\": 2" }
+  timeoutSec = 120
+}
+
+local cliEvalYaml = new Test {
+  name = "cli eval yaml"
+  description = "The native CLI emits a YAML document when invoked with `-f yaml`."
+  tags { "moonbit"; "cli"; "renderer"; "yaml"; "contract" }
+  specRef { "PKL-073" }
+  cmd = "moon run cmd/main --target native -- eval -f yaml fixtures/cli.pkl"
+  workdir = ".."
+  expectStdoutContains { "name: hawk"; "age: 2" }
   timeoutSec = 120
 }
 
@@ -136,4 +148,11 @@ local upstreamParserSuite = new Test {
   timeoutSec = 180
 }
 
-tests { moonUnit; cliEval; cliEvalJson; upstreamSmoke; upstreamParserSuite }
+tests {
+  moonUnit
+  cliEval
+  cliEvalJson
+  cliEvalYaml
+  upstreamSmoke
+  upstreamParserSuite
+}

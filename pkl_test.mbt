@@ -513,6 +513,264 @@ test "JSON rendered top-level Pkl matches the jsonRenderer1 fixture shape" {
 }
 
 ///|
+test "render Pkl values as YAML primitives" {
+  inspect(render_value_as_yaml(IntValue(0)), content="0\n")
+  inspect(render_value_as_yaml(IntValue(42)), content="42\n")
+  inspect(render_value_as_yaml(IntValue(-7)), content="-7\n")
+  inspect(render_value_as_yaml(BoolValue(true)), content="true\n")
+  inspect(render_value_as_yaml(BoolValue(false)), content="false\n")
+  inspect(render_value_as_yaml(NullValue), content="null\n")
+  inspect(render_value_as_yaml(StringValue("")), content="''\n")
+  inspect(render_value_as_yaml(StringValue("hawk")), content="hawk\n")
+}
+
+///|
+test "render YAML strings with quoting and escapes" {
+  // Strings that collide with reserved scalar shapes get single-quoted.
+  inspect(render_value_as_yaml(StringValue("true")), content="'true'\n")
+  inspect(render_value_as_yaml(StringValue("null")), content="'null'\n")
+  inspect(render_value_as_yaml(StringValue("42")), content="'42'\n")
+  inspect(render_value_as_yaml(StringValue("3.14")), content="'3.14'\n")
+  // Indicator-prefixed plain scalars must be quoted.
+  inspect(render_value_as_yaml(StringValue("- foo")), content="'- foo'\n")
+  inspect(render_value_as_yaml(StringValue("? foo")), content="'? foo'\n")
+  inspect(render_value_as_yaml(StringValue(": foo")), content="': foo'\n")
+  // Internal ": " or " #" promote to single-quoted as well.
+  inspect(render_value_as_yaml(StringValue("foo: bar")), content="'foo: bar'\n")
+  inspect(
+    render_value_as_yaml(StringValue("foo # bar")),
+    content="'foo # bar'\n",
+  )
+  // Embedded apostrophes are legal inside plain scalars (YAML treats `'` as
+  // an indicator only at the very start), so they pass through unquoted.
+  // A leading apostrophe still trips single-quoting, with `''` escape.
+  inspect(
+    render_value_as_yaml(StringValue("she said 'hi'")),
+    content="she said 'hi'\n",
+  )
+  inspect(
+    render_value_as_yaml(StringValue("'leading")),
+    content="'''leading'\n",
+  )
+  // Control characters and backslashes require double-quoting.
+  inspect(render_value_as_yaml(StringValue("a\nb")), content="\"a\\nb\"\n")
+  inspect(render_value_as_yaml(StringValue("a\tb")), content="\"a\\tb\"\n")
+  inspect(render_value_as_yaml(StringValue("a\rb")), content="\"a\\rb\"\n")
+  inspect(
+    render_value_as_yaml(StringValue("c:\\path")),
+    content="\"c:\\\\path\"\n",
+  )
+  inspect(render_value_as_yaml(StringValue("\u{01}")), content="\"\\u0001\"\n")
+}
+
+///|
+test "render Pkl module bindings as YAML mapping" {
+  let value : Value = ObjectValue([
+    ValueMember::{ name: "name", value: StringValue("pigeon") },
+    ValueMember::{ name: "age", value: IntValue(30) },
+  ])
+  inspect(
+    render_value_as_yaml(value),
+    content=(
+      #|name: pigeon
+      #|age: 30
+      #|
+    ),
+  )
+}
+
+///|
+test "render Pkl listings and mappings as YAML" {
+  inspect(render_value_as_yaml(ListingValue([])), content="[]\n")
+  inspect(render_value_as_yaml(MappingValue([])), content="{}\n")
+  inspect(
+    render_value_as_yaml(
+      ListingValue([StringValue("string"), BoolValue(true), IntValue(42)]),
+    ),
+    content=(
+      #|- string
+      #|- true
+      #|- 42
+      #|
+    ),
+  )
+  inspect(
+    render_value_as_yaml(
+      MappingValue([
+        ValueEntry::{ key: StringValue("name"), value: StringValue("pigeon") },
+        ValueEntry::{ key: StringValue("age"), value: IntValue(30) },
+      ]),
+    ),
+    content=(
+      #|name: pigeon
+      #|age: 30
+      #|
+    ),
+  )
+}
+
+///|
+test "YAML Mapping keys coerce non-string values to strings" {
+  inspect(
+    render_value_as_yaml(
+      MappingValue([
+        ValueEntry::{ key: IntValue(1), value: StringValue("a") },
+        ValueEntry::{ key: BoolValue(true), value: StringValue("b") },
+        ValueEntry::{ key: NullValue, value: StringValue("c") },
+      ]),
+    ),
+    content=(
+      #|'1': a
+      #|'true': b
+      #|'null': c
+      #|
+    ),
+  )
+}
+
+///|
+test "render nested Pkl objects and arrays as YAML" {
+  let value : Value = ObjectValue([
+    ValueMember::{ name: "name", value: StringValue("pigeon") },
+    ValueMember::{
+      name: "friends",
+      value: ListingValue([StringValue("barn owl"), StringValue("parrot")]),
+    },
+    ValueMember::{
+      name: "address",
+      value: ObjectValue([
+        ValueMember::{ name: "street", value: StringValue("Norton St.") },
+        ValueMember::{ name: "zip", value: IntValue(12345) },
+      ]),
+    },
+  ])
+  inspect(
+    render_value_as_yaml(value),
+    content=(
+      #|name: pigeon
+      #|friends:
+      #|- barn owl
+      #|- parrot
+      #|address:
+      #|  street: Norton St.
+      #|  zip: 12345
+      #|
+    ),
+  )
+}
+
+///|
+test "render YAML sequence of mappings and nested sequences" {
+  // Mirrors the nestedFriends / nestedFriends2 shapes from
+  // yamlRendererIndentationWidth2.yml: outer sequence whose elements are
+  // sequences or single-member objects.
+  let value : Value = ObjectValue([
+    ValueMember::{
+      name: "nestedFriends",
+      value: ListingValue([
+        ListingValue([StringValue("barn owl"), StringValue("parrot")]),
+        ListingValue([StringValue("elf owl"), StringValue("albatross")]),
+      ]),
+    },
+    ValueMember::{
+      name: "nestedFriends2",
+      value: ListingValue([
+        ObjectValue([
+          ValueMember::{ name: "name", value: StringValue("barn owl") },
+        ]),
+        ObjectValue([
+          ValueMember::{ name: "name", value: StringValue("parrot") },
+        ]),
+      ]),
+    },
+  ])
+  inspect(
+    render_value_as_yaml(value),
+    content=(
+      #|nestedFriends:
+      #|- - barn owl
+      #|  - parrot
+      #|- - elf owl
+      #|  - albatross
+      #|nestedFriends2:
+      #|- name: barn owl
+      #|- name: parrot
+      #|
+    ),
+  )
+}
+
+///|
+test "render YAML sequence of multi-member mappings" {
+  let value : Value = ListingValue([
+    ObjectValue([
+      ValueMember::{ name: "name", value: StringValue("alice") },
+      ValueMember::{ name: "age", value: IntValue(30) },
+    ]),
+    ObjectValue([
+      ValueMember::{ name: "name", value: StringValue("bob") },
+      ValueMember::{ name: "age", value: IntValue(25) },
+    ]),
+  ])
+  inspect(
+    render_value_as_yaml(value),
+    content=(
+      #|- name: alice
+      #|  age: 30
+      #|- name: bob
+      #|  age: 25
+      #|
+    ),
+  )
+}
+
+///|
+test "render empty composites as YAML" {
+  let value : Value = ObjectValue([
+    ValueMember::{ name: "a3", value: ListingValue([]) },
+    ValueMember::{ name: "b2", value: MappingValue([]) },
+    ValueMember::{ name: "b3", value: ObjectValue([]) },
+    ValueMember::{
+      name: "nested",
+      value: ObjectValue([
+        ValueMember::{ name: "a3", value: ListingValue([]) },
+        ValueMember::{ name: "b2", value: MappingValue([]) },
+      ]),
+    },
+  ])
+  inspect(
+    render_value_as_yaml(value),
+    content=(
+      #|a3: []
+      #|b2: {}
+      #|b3: {}
+      #|nested:
+      #|  a3: []
+      #|  b2: {}
+      #|
+    ),
+  )
+}
+
+///|
+test "YAML rendered top-level Pkl matches the yamlRenderer1 fixture shape" {
+  // Apple Pkl's `pkl eval -f yaml` on the upstream `yamlRenderer1.yml.pkl`
+  // would emit this shape, modulo the indentWidth default (we keep 2 spaces
+  // for now; the upstream fixture uses indentWidth=4 explicitly).
+  let source = "pigeon {\n  name = \"pigeon\"\n  age = 30\n}\n"
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  inspect(
+    render_value_as_yaml(value),
+    content=(
+      #|pigeon:
+      #|  name: pigeon
+      #|  age: 30
+      #|
+    ),
+  )
+}
+
+///|
 test "parser treats Pkl comments as trivia" {
   let parsed = parse_source(
     "// leading\nname = \"hawk\" // trailing\nage = 2 /* block */\n",

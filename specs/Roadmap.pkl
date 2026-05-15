@@ -41,26 +41,6 @@ local typeAliasedCallableArgumentEvaluation: Spec.Scenario = new {
 
 // ── renderers ───────────────────────────────────────────────────────────────
 
-local yamlRenderer: Spec.Scenario = new {
-  id = "PKL-073"
-  name = "render Pkl values as YAML"
-  description =
-    "Module rendering emits YAML equivalent to `pkl eval -f yaml`, including block-style sequences and mappings, quoted-when-needed strings, and multiline `|` for embedded newlines."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-072" }
-  tags { "renderer"; "yaml"; "next" }
-  reviewStatus = "draft"
-  severity = "minor"
-  decisions {
-    new Spec.Decision {
-      date = "2026-05-15"
-      summary = "YAML after JSON for shared rendering scaffolding"
-      rationale =
-        "YAML and JSON share the value-projection step; once JSON works the YAML pass is mostly textual serialization with quoting rules."
-    }
-  }
-}
-
 local propertiesRenderer: Spec.Scenario = new {
   id = "PKL-074"
   name = "render Pkl values as Java Properties"
@@ -68,7 +48,7 @@ local propertiesRenderer: Spec.Scenario = new {
     "Module rendering emits a `.properties` document with dotted-path keys and escaped values matching `pkl eval -f properties`, including handling of nested objects and listings."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-072" }
-  tags { "renderer"; "properties" }
+  tags { "renderer"; "properties"; "next" }
   reviewStatus = "draft"
   severity = "minor"
   decisions {
@@ -407,7 +387,6 @@ local upstreamGoldOutputDiff: Spec.Scenario = new {
 
 entries: Listing<Spec.Scenario> = new {
   typeAliasedCallableArgumentEvaluation
-  yamlRenderer
   propertiesRenderer
   pklBaseListOperations
   pklBaseMapOperations
