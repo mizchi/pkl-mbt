@@ -1426,6 +1426,111 @@ test "String builtins compose through Listing pipelines" {
 }
 
 ///|
+test "Int.abs, isEven, and isOdd are properties" {
+  assert_true(
+    eval_source(
+      "n = -7\np = 4\nabs_n = n.abs\nabs_p = p.abs\nodd = n.isOdd\neven = p.isEven",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "n", value: IntValue(-7) },
+        ValueMember::{ name: "p", value: IntValue(4) },
+        ValueMember::{ name: "abs_n", value: IntValue(7) },
+        ValueMember::{ name: "abs_p", value: IntValue(4) },
+        ValueMember::{ name: "odd", value: BoolValue(true) },
+        ValueMember::{ name: "even", value: BoolValue(true) },
+      ]),
+    ),
+  )
+  assert_true(
+    eval_source("zero = 0\nev = zero.isEven\nod = zero.isOdd") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "zero", value: IntValue(0) },
+        ValueMember::{ name: "ev", value: BoolValue(true) },
+        ValueMember::{ name: "od", value: BoolValue(false) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Int.toString() and toString(radix) methods" {
+  assert_true(
+    eval_source(
+      "n = 255\ndec = n.toString()\nhex = n.toString(16)\nbin = n.toString(2)\noct = n.toString(8)",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "n", value: IntValue(255) },
+        ValueMember::{ name: "dec", value: StringValue("255") },
+        ValueMember::{ name: "hex", value: StringValue("ff") },
+        ValueMember::{ name: "bin", value: StringValue("11111111") },
+        ValueMember::{ name: "oct", value: StringValue("377") },
+      ]),
+    ),
+  )
+  // Negative numbers get a leading `-`.
+  assert_true(
+    eval_source("n = -42\ndec = n.toString()\nhex = n.toString(16)") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "n", value: IntValue(-42) },
+        ValueMember::{ name: "dec", value: StringValue("-42") },
+        ValueMember::{ name: "hex", value: StringValue("-2a") },
+      ]),
+    ),
+  )
+  // Zero stays "0" in every radix.
+  assert_true(
+    eval_source(
+      "n = 0\ndec = n.toString()\nhex = n.toString(16)\nbin = n.toString(2)",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "n", value: IntValue(0) },
+        ValueMember::{ name: "dec", value: StringValue("0") },
+        ValueMember::{ name: "hex", value: StringValue("0") },
+        ValueMember::{ name: "bin", value: StringValue("0") },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Int.toChar() projects a Unicode code point to a String" {
+  assert_true(
+    eval_source("a = 65\nA = a.toChar()\nz = 122\nlowercase_z = z.toChar()") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "a", value: IntValue(65) },
+        ValueMember::{ name: "A", value: StringValue("A") },
+        ValueMember::{ name: "z", value: IntValue(122) },
+        ValueMember::{ name: "lowercase_z", value: StringValue("z") },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Int builtins compose with String / Listing pipelines" {
+  assert_true(
+    eval_source(
+      "xs = new Listing { 10; 255; 16 }\nhex_csv = xs.map((n) -> n.toString(16)).join(\",\")",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([IntValue(10), IntValue(255), IntValue(16)]),
+        },
+        ValueMember::{ name: "hex_csv", value: StringValue("a,ff,10") },
+      ]),
+    ),
+  )
+}
+
+///|
 test "render Pkl module bindings as Java Properties" {
   let value : Value = ObjectValue([
     ValueMember::{ name: "name", value: StringValue("pigeon") },

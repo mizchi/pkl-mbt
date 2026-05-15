@@ -1124,6 +1124,22 @@ fn is_string_method_name(name : String) -> Bool {
 }
 
 ///|
+fn is_int_property_name(name : String) -> Bool {
+  match name {
+    "abs" | "isEven" | "isOdd" => true
+    _ => false
+  }
+}
+
+///|
+fn is_int_method_name(name : String) -> Bool {
+  match name {
+    "toString" | "toChar" => true
+    _ => false
+  }
+}
+
+///|
 fn contains_entry_key(entries : Array[ValueEntry], key : Value) -> Bool {
   for entry in entries {
     if entry.key == key {
@@ -1550,6 +1566,127 @@ fn eval_mapping_method(
         }
       }
       Some(acc)
+    }
+    _ => None
+  }
+}
+
+///|
+fn eval_int_property(
+  n : Int,
+  name : String,
+  diagnostics : Array[Diagnostic],
+) -> Value? {
+  match name {
+    "abs" => if n < 0 { Some(IntValue(0 - n)) } else { Some(IntValue(n)) }
+    "isEven" => Some(BoolValue(n % 2 == 0))
+    "isOdd" => Some(BoolValue(n % 2 != 0))
+    _ => {
+      diagnostics.push(Diagnostic::{ message: "unknown Int property \{name}" })
+      None
+    }
+  }
+}
+
+///|
+fn int_to_string_radix(n : Int, radix : Int) -> String {
+  if n == 0 {
+    return "0"
+  }
+  let digits = "0123456789abcdefghijklmnopqrstuvwxyz"
+  let negative = n < 0
+  let mut value = if negative { 0 - n } else { n }
+  let chars : Array[Char] = []
+  while value > 0 {
+    let d = value % radix
+    chars.push(digits.unsafe_get(d).to_int().unsafe_to_char())
+    value = value / radix
+  }
+  let buf = StringBuilder::new()
+  if negative {
+    buf.write_char('-')
+  }
+  let mut i = chars.length() - 1
+  while i >= 0 {
+    buf.write_char(chars[i])
+    i = i - 1
+  }
+  buf.to_string()
+}
+
+///|
+fn eval_int_method(
+  n : Int,
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let arg_values : Array[Value] = []
+  let mut ok = true
+  for argument in arguments {
+    match
+      eval_expr_with_bindings(
+        argument, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      ) {
+      Some(v) => arg_values.push(v)
+      None => ok = false
+    }
+  }
+  if !ok {
+    return None
+  }
+  match method_name {
+    "toString" =>
+      if arg_values.length() == 0 {
+        Some(StringValue("\{n}"))
+      } else if arg_values.length() == 1 {
+        match arg_values[0] {
+          IntValue(radix) =>
+            if radix < 2 || radix > 36 {
+              diagnostics.push(Diagnostic::{
+                message: "Int.toString radix must be between 2 and 36, got \{radix}",
+              })
+              None
+            } else {
+              Some(StringValue(int_to_string_radix(n, radix)))
+            }
+          _ => {
+            diagnostics.push(Diagnostic::{
+              message: "Int.toString radix must be Int",
+            })
+            None
+          }
+        }
+      } else {
+        diagnostics.push(Diagnostic::{
+          message: "Int.toString expects 0 or 1 arguments, got \{arg_values.length()}",
+        })
+        None
+      }
+    "toChar" => {
+      if arg_values.length() != 0 {
+        diagnostics.push(Diagnostic::{
+          message: "Int.toChar expects 0 arguments, got \{arg_values.length()}",
+        })
+        return None
+      }
+      if n < 0 || n > 0x10FFFF {
+        diagnostics.push(Diagnostic::{
+          message: "Int.toChar code point out of range: \{n}",
+        })
+        return None
+      }
+      let buf = StringBuilder::new()
+      buf.write_char(n.unsafe_to_char())
+      Some(StringValue(buf.to_string()))
     }
     _ => None
   }
@@ -2177,6 +2314,15 @@ fn eval_expr_with_bindings(
             })
             None
           }
+        Some(IntValue(n)) =>
+          if is_int_property_name(member_name) {
+            eval_int_property(n, member_name, diagnostics)
+          } else {
+            diagnostics.push(Diagnostic::{
+              message: "unknown Int property \{member_name}",
+            })
+            None
+          }
         Some(_) => {
           diagnostics.push(Diagnostic::{
             message: "member access expects Object",
@@ -2226,6 +2372,15 @@ fn eval_expr_with_bindings(
           } else {
             diagnostics.push(Diagnostic::{
               message: "unknown String property \{member_name}",
+            })
+            None
+          }
+        Some(IntValue(n)) =>
+          if is_int_property_name(member_name) {
+            eval_int_property(n, member_name, diagnostics)
+          } else {
+            diagnostics.push(Diagnostic::{
+              message: "unknown Int property \{member_name}",
             })
             None
           }
@@ -2327,7 +2482,8 @@ fn eval_expr_with_bindings(
             )
           } else if is_listing_method_name(method_name) ||
             is_mapping_method_name(method_name) ||
-            is_string_method_name(method_name) {
+            is_string_method_name(method_name) ||
+            is_int_method_name(method_name) {
             match
               eval_expr_with_bindings(
                 target_expr, bindings, env, class_env, cache, stack, declarations,
@@ -2369,6 +2525,18 @@ fn eval_expr_with_bindings(
                     diagnostics, resolve_import,
                   )
                 }
+              Some(IntValue(n)) =>
+                if is_int_method_name(method_name) {
+                  eval_int_method(
+                    n, method_name, arguments, bindings, env, class_env, cache, stack,
+                    declarations, diagnostics, resolve_import,
+                  )
+                } else {
+                  eval_callable_call(
+                    callee, arguments, bindings, env, class_env, cache, stack, declarations,
+                    diagnostics, resolve_import,
+                  )
+                }
               _ =>
                 eval_callable_call(
                   callee, arguments, bindings, env, class_env, cache, stack, declarations,
@@ -2391,7 +2559,8 @@ fn eval_expr_with_bindings(
             )
           } else if is_listing_method_name(method_name) ||
             is_mapping_method_name(method_name) ||
-            is_string_method_name(method_name) {
+            is_string_method_name(method_name) ||
+            is_int_method_name(method_name) {
             match
               eval_expr_with_bindings(
                 target_expr, bindings, env, class_env, cache, stack, declarations,
@@ -2426,6 +2595,18 @@ fn eval_expr_with_bindings(
                 if is_string_method_name(method_name) {
                   eval_string_method(
                     s, method_name, arguments, bindings, env, class_env, cache, stack,
+                    declarations, diagnostics, resolve_import,
+                  )
+                } else {
+                  eval_callable_call(
+                    callee, arguments, bindings, env, class_env, cache, stack, declarations,
+                    diagnostics, resolve_import,
+                  )
+                }
+              Some(IntValue(n)) =>
+                if is_int_method_name(method_name) {
+                  eval_int_method(
+                    n, method_name, arguments, bindings, env, class_env, cache, stack,
                     declarations, diagnostics, resolve_import,
                   )
                 } else {

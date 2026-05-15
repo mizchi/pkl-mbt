@@ -43,18 +43,6 @@ local typeAliasedCallableArgumentEvaluation: Spec.Scenario = new {
 
 // ── stdlib expansion ────────────────────────────────────────────────────────
 
-local pklBaseIntOperations: Spec.Scenario = new {
-  id = "PKL-078"
-  name = "expose pkl:base Int operations"
-  description =
-    "Int instance methods abs, isEven, isOdd, toFloat, toString, toString(radix), and toChar evaluate, along with the matching Float-side projections."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-077" }
-  tags { "stdlib"; "pkl-base"; "numeric"; "next" }
-  reviewStatus = "draft"
-  severity = "minor"
-}
-
 local pklMathExpansion: Spec.Scenario = new {
   id = "PKL-079"
   name = "expand pkl:math beyond maxInt32"
@@ -62,7 +50,7 @@ local pklMathExpansion: Spec.Scenario = new {
     "`pkl:math` exposes min, max, abs, sqrt, pow, log, exp, ceil, floor, round, and the maxInt / minInt / maxFloat constants matching Apple Pkl."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-007" }
-  tags { "stdlib"; "pkl-math" }
+  tags { "stdlib"; "pkl-math"; "next" }
   reviewStatus = "draft"
   severity = "minor"
 }
@@ -315,7 +303,6 @@ local upstreamGoldOutputDiff: Spec.Scenario = new {
 
 entries: Listing<Spec.Scenario> = new {
   typeAliasedCallableArgumentEvaluation
-  pklBaseIntOperations
   pklMathExpansion
   pklReflectMinimal
   regexSupport

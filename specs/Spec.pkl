@@ -1464,6 +1464,38 @@ local jsonRenderer = new Scenario {
   }
 }
 
+local pklBaseInt = new Scenario {
+  id = "PKL-078"
+  name = "expose pkl:base Int operations"
+  description =
+    "Int properties (`abs`, `isEven`, `isOdd`) and methods (`toString()`, `toString(radix)`, `toChar()`) dispatch against `IntValue` receivers via the same `MemberAccess` / `CallExpr` interception as the Listing / Mapping / String builtins. `toString(radix)` accepts radices 2..36 and writes a leading `-` for negative inputs. `toChar()` projects a Unicode code point (0..0x10FFFF) to a single-character `StringValue`. Int builtins compose with String / Listing pipelines, so `xs.map((n) -> n.toString(16)).join(\",\")` returns a hex-CSV `StringValue`."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-077" }
+  tags { "stdlib"; "pkl-base"; "numeric" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Implement radix conversion in-tree rather than via a third-party crate"
+      rationale =
+        "MoonBit's `Int` type does not expose a built-in radix-aware `toString`. Pulling in a numeric-formatting library for one method would balloon the dependency surface; implementing the loop ourselves (a 20-line helper that walks the digit table) keeps the slice focused. The radix bound (2..36) matches Java's `Integer.toString(int, int radix)` and Apple Pkl's `Int.toString(radix: Int(isBetween(2, 36)))` constraint."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Defer `toFloat()` and Float-side projections until a real `Float` value lands"
+      rationale =
+        "Apple Pkl's Int surface includes `toFloat(): Float`, and the Roadmap entry called for matching Float-side projections. Our value model has no `FloatValue` yet — numeric literals like `1.23` currently fail to evaluate. Implementing `toFloat` against `IntValue` alone would mean returning an `IntValue` again (since there's no other slot), which is misleading. The Float surface arrives with PKL-092, at which point `toFloat()` slots in alongside the new value variant."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Reject `toChar` code points outside the Unicode range explicitly"
+      rationale =
+        "Apple Pkl's `Int.toChar()` errors when the receiver is outside `0..0x10FFFF`. Our `Char::unsafe_to_char` would happily accept any 32-bit input, but a code point above `0x10FFFF` is not a valid Unicode scalar and the resulting `StringValue` would be ill-formed. The explicit bound check matches Apple Pkl's behavior and protects downstream renderers (JSON / YAML / Properties string-escape paths) from surrogate-pair leakage."
+    }
+  }
+}
+
 local pklBaseString = new Scenario {
   id = "PKL-077"
   name = "expose pkl:base String operations"
@@ -1701,5 +1733,6 @@ scenarios {
   pklBaseListing
   pklBaseMapping
   pklBaseString
+  pklBaseInt
   ...roadmap.entries
 }
