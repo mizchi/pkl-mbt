@@ -44,26 +44,6 @@ local pklReflectMinimal: Spec.Scenario = new {
   }
 }
 
-local regexSupport: Spec.Scenario = new {
-  id = "PKL-081"
-  name = "Regex literal and Regex methods"
-  description =
-    "`Regex(#\"...\"#)` literal, plus `matches`, `find`, `findAll`, `replace`, and `replaceAll`. Regex-based String constraints (e.g. `String(matches(Regex(...)))`) become typecheckable and runtime-enforceable."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-077" }
-  tags { "stdlib"; "regex"; "constraint"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-  decisions {
-    new Spec.Decision {
-      date = "2026-05-15"
-      summary = "Regex is a hard prerequisite for String constraint depth"
-      rationale =
-        "String constraint predicates lean almost entirely on Regex. Without Regex we can only implement length-based String constraints, leaving the most common real-world constraint shape (pattern match) unimplemented."
-    }
-  }
-}
-
 local bytesLiterals: Spec.Scenario = new {
   id = "PKL-083"
   name = "Bytes literals and conversions"
@@ -134,7 +114,7 @@ local stringConstraintPredicates: Spec.Scenario = new {
     "`String(length > 0)`, `String(length.isBetween(1, 64))`, and `String(matches(Regex(...)))` are recognized by both the typechecker and the runtime, mirroring the existing numeric constraint cascade."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-077"; "PKL-081" }
-  tags { "constraint"; "string" }
+  tags { "constraint"; "string"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -215,7 +195,6 @@ local upstreamGoldOutputDiff: Spec.Scenario = new {
 
 entries: Listing<Spec.Scenario> = new {
   pklReflectMinimal
-  regexSupport
   bytesLiterals
   readTraceThrow
   genericClassDeclarations

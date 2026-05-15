@@ -14,6 +14,10 @@ pub(all) enum Value {
   // larger unit divides both). Float magnitudes are out of scope here.
   DurationValue(Int, String)
   DataSizeValue(Int, String)
+  // PKL-081: Regex value created via `Regex("<pattern>")`. Stores the
+  // source pattern so methods can recompile via `moonbitlang/regexp`
+  // and renderers can round-trip the value through `Regex("...")`.
+  RegexValue(String)
 } derive(Eq, Debug)
 
 ///|
@@ -811,6 +815,7 @@ fn eval_value_type_name(value : Value) -> String {
     FunctionValue(_, _, _, _) => "Function"
     DurationValue(_, _) => "Duration"
     DataSizeValue(_, _) => "DataSize"
+    RegexValue(_) => "Regex"
   }
 }
 
@@ -846,6 +851,7 @@ fn eval_value_accepts_type_annotation(
     ("Function", FunctionValue(_, _, _, _)) => true
     ("Duration", DurationValue(_, _)) => true
     ("DataSize", DataSizeValue(_, _)) => true
+    ("Regex", RegexValue(_)) => true
     _ => false
   }
 }
@@ -1326,6 +1332,162 @@ fn datasize_in_unit(
   } else {
     magnitude / (to_f / from_f)
   }
+}
+
+///|
+fn is_regex_method_name(name : String) -> Bool {
+  match name {
+    "matches" | "find" | "findAll" | "replace" | "replaceAll" => true
+    _ => false
+  }
+}
+
+///|
+/// Compile `pattern` via `moonbitlang/regexp`. Returns `None` and pushes
+/// a diagnostic on syntax errors so callers can bail out without
+/// propagating a raise. Each call recompiles — the value model only
+/// caches the source string so equality stays decidable on the surface.
+fn compile_regex_pattern(
+  pattern : String,
+  diagnostics : Array[Diagnostic],
+) -> @regexp.Regexp? {
+  Some(@regexp.compile(pattern)) catch {
+    err => {
+      diagnostics.push(Diagnostic::{ message: "invalid Regex pattern: \{err}" })
+      None
+    }
+  }
+}
+
+///|
+fn regex_matches_full(re : @regexp.Regexp, input : String) -> Bool {
+  let m = re.execute(input)
+  if !m.matched() {
+    return false
+  }
+  // Full-input match: the captured slice must cover the entire input
+  // with nothing before or after. `before` / `after` come back as views
+  // so an empty view means the match anchored at both ends.
+  m.before().length() == 0 && m.after().length() == 0
+}
+
+///|
+fn regex_find_first(re : @regexp.Regexp, input : String) -> String? {
+  match re.match_(input) {
+    Some(m) =>
+      match m.get(0) {
+        Some(view) => Some(view.to_owned())
+        None => None
+      }
+    None => None
+  }
+}
+
+///|
+/// Repeatedly execute the regex on the remaining suffix, collecting each
+/// match's text. Advances by at least one character on zero-width
+/// matches so the walk always terminates.
+fn regex_find_all(re : @regexp.Regexp, input : String) -> Array[String] {
+  let out : Array[String] = []
+  let mut rest = input
+  while rest.length() > 0 {
+    match re.match_(rest) {
+      Some(m) =>
+        match m.get(0) {
+          Some(view) => {
+            let matched_text = view.to_owned()
+            out.push(matched_text)
+            let after = m.after().to_owned()
+            if matched_text.length() == 0 && after.length() == rest.length() {
+              // Zero-width match at the head of `rest`: skip one char to
+              // avoid an infinite loop.
+              if rest.length() <= 1 {
+                rest = ""
+              } else {
+                rest = String::unsafe_substring(
+                  rest,
+                  start=1,
+                  end=rest.length(),
+                )
+              }
+            } else {
+              rest = after
+            }
+          }
+          None => break
+        }
+      None => break
+    }
+  }
+  out
+}
+
+///|
+fn regex_replace_first(
+  re : @regexp.Regexp,
+  input : String,
+  replacement : String,
+) -> String {
+  match re.match_(input) {
+    Some(m) => {
+      let buf = StringBuilder::new()
+      buf.write_string(m.before().to_owned())
+      buf.write_string(replacement)
+      buf.write_string(m.after().to_owned())
+      buf.to_string()
+    }
+    None => input
+  }
+}
+
+///|
+fn regex_replace_all(
+  re : @regexp.Regexp,
+  input : String,
+  replacement : String,
+) -> String {
+  let buf = StringBuilder::new()
+  let mut rest = input
+  while rest.length() > 0 {
+    match re.match_(rest) {
+      Some(m) =>
+        match m.get(0) {
+          Some(view) => {
+            let matched_text = view.to_owned()
+            buf.write_string(m.before().to_owned())
+            buf.write_string(replacement)
+            let after = m.after().to_owned()
+            if matched_text.length() == 0 && after.length() == rest.length() {
+              // Zero-width match: emit the first char verbatim then
+              // continue, so substitution never spins.
+              if rest.length() >= 1 {
+                buf.write_string(String::unsafe_substring(rest, start=0, end=1))
+              }
+              if rest.length() <= 1 {
+                rest = ""
+              } else {
+                rest = String::unsafe_substring(
+                  rest,
+                  start=1,
+                  end=rest.length(),
+                )
+              }
+            } else {
+              rest = after
+            }
+          }
+          None => {
+            buf.write_string(rest)
+            rest = ""
+          }
+        }
+      None => {
+        buf.write_string(rest)
+        rest = ""
+      }
+    }
+  }
+  buf.to_string()
 }
 
 ///|
@@ -2056,6 +2218,162 @@ fn eval_datasize_method(
 }
 
 ///|
+fn eval_regex_property(
+  pattern : String,
+  name : String,
+  diagnostics : Array[Diagnostic],
+) -> Value? {
+  match name {
+    "pattern" => Some(StringValue(pattern))
+    _ => {
+      diagnostics.push(Diagnostic::{ message: "unknown Regex property \{name}" })
+      None
+    }
+  }
+}
+
+///|
+fn eval_regex_method(
+  pattern : String,
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let arg_values : Array[Value] = []
+  let mut ok = true
+  for argument in arguments {
+    match
+      eval_expr_with_bindings(
+        argument, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      ) {
+      Some(v) => arg_values.push(v)
+      None => ok = false
+    }
+  }
+  if !ok {
+    return None
+  }
+  let re = match compile_regex_pattern(pattern, diagnostics) {
+    Some(r) => r
+    None => return None
+  }
+  match method_name {
+    "matches" =>
+      if arg_values.length() == 1 {
+        match arg_values[0] {
+          StringValue(input) => Some(BoolValue(regex_matches_full(re, input)))
+          _ => {
+            diagnostics.push(Diagnostic::{
+              message: "Regex.matches expects a String argument",
+            })
+            None
+          }
+        }
+      } else {
+        diagnostics.push(Diagnostic::{
+          message: "Regex.matches expects exactly one argument",
+        })
+        None
+      }
+    "find" =>
+      if arg_values.length() == 1 {
+        match arg_values[0] {
+          StringValue(input) =>
+            match regex_find_first(re, input) {
+              Some(found) => Some(StringValue(found))
+              None => Some(NullValue)
+            }
+          _ => {
+            diagnostics.push(Diagnostic::{
+              message: "Regex.find expects a String argument",
+            })
+            None
+          }
+        }
+      } else {
+        diagnostics.push(Diagnostic::{
+          message: "Regex.find expects exactly one argument",
+        })
+        None
+      }
+    "findAll" =>
+      if arg_values.length() == 1 {
+        match arg_values[0] {
+          StringValue(input) => {
+            let matches = regex_find_all(re, input)
+            let elements : Array[Value] = []
+            for s in matches {
+              elements.push(StringValue(s))
+            }
+            Some(ListingValue(elements))
+          }
+          _ => {
+            diagnostics.push(Diagnostic::{
+              message: "Regex.findAll expects a String argument",
+            })
+            None
+          }
+        }
+      } else {
+        diagnostics.push(Diagnostic::{
+          message: "Regex.findAll expects exactly one argument",
+        })
+        None
+      }
+    "replace" =>
+      if arg_values.length() == 2 {
+        match (arg_values[0], arg_values[1]) {
+          (StringValue(input), StringValue(repl)) =>
+            Some(StringValue(regex_replace_first(re, input, repl)))
+          _ => {
+            diagnostics.push(Diagnostic::{
+              message: "Regex.replace expects (String, String) arguments",
+            })
+            None
+          }
+        }
+      } else {
+        diagnostics.push(Diagnostic::{
+          message: "Regex.replace expects exactly two arguments",
+        })
+        None
+      }
+    "replaceAll" =>
+      if arg_values.length() == 2 {
+        match (arg_values[0], arg_values[1]) {
+          (StringValue(input), StringValue(repl)) =>
+            Some(StringValue(regex_replace_all(re, input, repl)))
+          _ => {
+            diagnostics.push(Diagnostic::{
+              message: "Regex.replaceAll expects (String, String) arguments",
+            })
+            None
+          }
+        }
+      } else {
+        diagnostics.push(Diagnostic::{
+          message: "Regex.replaceAll expects exactly two arguments",
+        })
+        None
+      }
+    _ => {
+      diagnostics.push(Diagnostic::{
+        message: "unknown Regex method \{method_name}",
+      })
+      None
+    }
+  }
+}
+
+///|
 fn eval_string_property(
   s : String,
   name : String,
@@ -2694,6 +3012,8 @@ fn eval_expr_with_bindings(
           eval_duration_property(n, unit, member_name, diagnostics)
         Some(DataSizeValue(n, unit)) =>
           eval_datasize_property(n, unit, member_name, diagnostics)
+        Some(RegexValue(pattern)) =>
+          eval_regex_property(pattern, member_name, diagnostics)
         Some(_) => {
           diagnostics.push(Diagnostic::{
             message: "member access expects Object",
@@ -2763,6 +3083,8 @@ fn eval_expr_with_bindings(
           eval_duration_property(n, unit, member_name, diagnostics)
         Some(DataSizeValue(n, unit)) =>
           eval_datasize_property(n, unit, member_name, diagnostics)
+        Some(RegexValue(pattern)) =>
+          eval_regex_property(pattern, member_name, diagnostics)
         Some(_) => {
           diagnostics.push(Diagnostic::{
             message: "safe member access expects Object",
@@ -2850,189 +3172,241 @@ fn eval_expr_with_bindings(
         }
       }
     CallExpr(callee, arguments) =>
-      match callee {
-        MemberAccess(target_expr, method_name) =>
-          if class_method_call_available(
-              target_expr, method_name, bindings, class_env,
+      if callee is Identifier("Regex") &&
+        !stack_contains_binding(stack, "Regex") &&
+        find_binding(bindings, "Regex") is None {
+        // PKL-081: `Regex("<pattern>")` is recognized as a constructor
+        // form before the generic call path runs. The argument must be a
+        // single String literal evaluating to the pattern; the result is
+        // a `RegexValue` carrying the pattern verbatim. Patterns are not
+        // compiled here — that happens lazily inside the method
+        // dispatchers, so a Regex value can be constructed even if the
+        // pattern is later unused.
+        if arguments.length() == 1 {
+          match
+            eval_expr_with_bindings(
+              arguments[0],
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
             ) {
-            eval_class_method_call(
-              target_expr, method_name, arguments, false, bindings, env, class_env,
-              cache, stack, declarations, diagnostics, resolve_import,
-            )
-          } else if is_listing_method_name(method_name) ||
-            is_mapping_method_name(method_name) ||
-            is_string_method_name(method_name) ||
-            is_int_method_name(method_name) ||
-            method_name == "toUnit" {
-            match
-              eval_expr_with_bindings(
-                target_expr, bindings, env, class_env, cache, stack, declarations,
-                diagnostics, resolve_import,
-              ) {
-              Some(ListingValue(elements)) =>
-                if is_listing_method_name(method_name) {
-                  eval_listing_method(
-                    elements, method_name, arguments, bindings, env, class_env, cache,
-                    stack, declarations, diagnostics, resolve_import,
-                  )
-                } else {
-                  eval_callable_call(
-                    callee, arguments, bindings, env, class_env, cache, stack, declarations,
-                    diagnostics, resolve_import,
-                  )
-                }
-              Some(MappingValue(entries)) =>
-                if is_mapping_method_name(method_name) {
-                  eval_mapping_method(
-                    entries, method_name, arguments, bindings, env, class_env, cache,
-                    stack, declarations, diagnostics, resolve_import,
-                  )
-                } else {
-                  eval_callable_call(
-                    callee, arguments, bindings, env, class_env, cache, stack, declarations,
-                    diagnostics, resolve_import,
-                  )
-                }
-              Some(StringValue(s)) =>
-                if is_string_method_name(method_name) {
-                  eval_string_method(
-                    s, method_name, arguments, bindings, env, class_env, cache, stack,
-                    declarations, diagnostics, resolve_import,
-                  )
-                } else {
-                  eval_callable_call(
-                    callee, arguments, bindings, env, class_env, cache, stack, declarations,
-                    diagnostics, resolve_import,
-                  )
-                }
-              Some(IntValue(n)) =>
-                if is_int_method_name(method_name) {
-                  eval_int_method(
-                    n, method_name, arguments, bindings, env, class_env, cache, stack,
-                    declarations, diagnostics, resolve_import,
-                  )
-                } else {
-                  eval_callable_call(
-                    callee, arguments, bindings, env, class_env, cache, stack, declarations,
-                    diagnostics, resolve_import,
-                  )
-                }
-              Some(DurationValue(n, unit)) =>
-                eval_duration_method(
-                  n, unit, method_name, arguments, bindings, env, class_env, cache,
-                  stack, declarations, diagnostics, resolve_import,
-                )
-              Some(DataSizeValue(n, unit)) =>
-                eval_datasize_method(
-                  n, unit, method_name, arguments, bindings, env, class_env, cache,
-                  stack, declarations, diagnostics, resolve_import,
-                )
-              _ =>
-                eval_callable_call(
-                  callee, arguments, bindings, env, class_env, cache, stack, declarations,
-                  diagnostics, resolve_import,
-                )
+            Some(StringValue(pattern)) => Some(RegexValue(pattern))
+            Some(_) => {
+              diagnostics.push(Diagnostic::{
+                message: "Regex expects a String argument",
+              })
+              None
             }
-          } else {
+            None => None
+          }
+        } else {
+          diagnostics.push(Diagnostic::{
+            message: "Regex expects exactly one argument",
+          })
+          None
+        }
+      } else {
+        match callee {
+          MemberAccess(target_expr, method_name) =>
+            if class_method_call_available(
+                target_expr, method_name, bindings, class_env,
+              ) {
+              eval_class_method_call(
+                target_expr, method_name, arguments, false, bindings, env, class_env,
+                cache, stack, declarations, diagnostics, resolve_import,
+              )
+            } else if is_listing_method_name(method_name) ||
+              is_mapping_method_name(method_name) ||
+              is_string_method_name(method_name) ||
+              is_int_method_name(method_name) ||
+              is_regex_method_name(method_name) ||
+              method_name == "toUnit" {
+              match
+                eval_expr_with_bindings(
+                  target_expr, bindings, env, class_env, cache, stack, declarations,
+                  diagnostics, resolve_import,
+                ) {
+                Some(ListingValue(elements)) =>
+                  if is_listing_method_name(method_name) {
+                    eval_listing_method(
+                      elements, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                Some(MappingValue(entries)) =>
+                  if is_mapping_method_name(method_name) {
+                    eval_mapping_method(
+                      entries, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                Some(StringValue(s)) =>
+                  if is_string_method_name(method_name) {
+                    eval_string_method(
+                      s, method_name, arguments, bindings, env, class_env, cache,
+                      stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                Some(IntValue(n)) =>
+                  if is_int_method_name(method_name) {
+                    eval_int_method(
+                      n, method_name, arguments, bindings, env, class_env, cache,
+                      stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                Some(DurationValue(n, unit)) =>
+                  eval_duration_method(
+                    n, unit, method_name, arguments, bindings, env, class_env, cache,
+                    stack, declarations, diagnostics, resolve_import,
+                  )
+                Some(DataSizeValue(n, unit)) =>
+                  eval_datasize_method(
+                    n, unit, method_name, arguments, bindings, env, class_env, cache,
+                    stack, declarations, diagnostics, resolve_import,
+                  )
+                Some(RegexValue(pattern)) =>
+                  eval_regex_method(
+                    pattern, method_name, arguments, bindings, env, class_env, cache,
+                    stack, declarations, diagnostics, resolve_import,
+                  )
+                _ =>
+                  eval_callable_call(
+                    callee, arguments, bindings, env, class_env, cache, stack, declarations,
+                    diagnostics, resolve_import,
+                  )
+              }
+            } else {
+              eval_callable_call(
+                callee, arguments, bindings, env, class_env, cache, stack, declarations,
+                diagnostics, resolve_import,
+              )
+            }
+          SafeMemberAccess(target_expr, method_name) =>
+            if class_method_call_available(
+                target_expr, method_name, bindings, class_env,
+              ) {
+              eval_class_method_call(
+                target_expr, method_name, arguments, true, bindings, env, class_env,
+                cache, stack, declarations, diagnostics, resolve_import,
+              )
+            } else if is_listing_method_name(method_name) ||
+              is_mapping_method_name(method_name) ||
+              is_string_method_name(method_name) ||
+              is_int_method_name(method_name) ||
+              is_regex_method_name(method_name) ||
+              method_name == "toUnit" {
+              match
+                eval_expr_with_bindings(
+                  target_expr, bindings, env, class_env, cache, stack, declarations,
+                  diagnostics, resolve_import,
+                ) {
+                Some(NullValue) => Some(NullValue)
+                Some(ListingValue(elements)) =>
+                  if is_listing_method_name(method_name) {
+                    eval_listing_method(
+                      elements, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                Some(MappingValue(entries)) =>
+                  if is_mapping_method_name(method_name) {
+                    eval_mapping_method(
+                      entries, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                Some(StringValue(s)) =>
+                  if is_string_method_name(method_name) {
+                    eval_string_method(
+                      s, method_name, arguments, bindings, env, class_env, cache,
+                      stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                Some(IntValue(n)) =>
+                  if is_int_method_name(method_name) {
+                    eval_int_method(
+                      n, method_name, arguments, bindings, env, class_env, cache,
+                      stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                Some(DurationValue(n, unit)) =>
+                  eval_duration_method(
+                    n, unit, method_name, arguments, bindings, env, class_env, cache,
+                    stack, declarations, diagnostics, resolve_import,
+                  )
+                Some(DataSizeValue(n, unit)) =>
+                  eval_datasize_method(
+                    n, unit, method_name, arguments, bindings, env, class_env, cache,
+                    stack, declarations, diagnostics, resolve_import,
+                  )
+                Some(RegexValue(pattern)) =>
+                  eval_regex_method(
+                    pattern, method_name, arguments, bindings, env, class_env, cache,
+                    stack, declarations, diagnostics, resolve_import,
+                  )
+                _ =>
+                  eval_callable_call(
+                    callee, arguments, bindings, env, class_env, cache, stack, declarations,
+                    diagnostics, resolve_import,
+                  )
+              }
+            } else {
+              eval_callable_call(
+                callee, arguments, bindings, env, class_env, cache, stack, declarations,
+                diagnostics, resolve_import,
+              )
+            }
+          _ =>
             eval_callable_call(
               callee, arguments, bindings, env, class_env, cache, stack, declarations,
               diagnostics, resolve_import,
             )
-          }
-        SafeMemberAccess(target_expr, method_name) =>
-          if class_method_call_available(
-              target_expr, method_name, bindings, class_env,
-            ) {
-            eval_class_method_call(
-              target_expr, method_name, arguments, true, bindings, env, class_env,
-              cache, stack, declarations, diagnostics, resolve_import,
-            )
-          } else if is_listing_method_name(method_name) ||
-            is_mapping_method_name(method_name) ||
-            is_string_method_name(method_name) ||
-            is_int_method_name(method_name) ||
-            method_name == "toUnit" {
-            match
-              eval_expr_with_bindings(
-                target_expr, bindings, env, class_env, cache, stack, declarations,
-                diagnostics, resolve_import,
-              ) {
-              Some(NullValue) => Some(NullValue)
-              Some(ListingValue(elements)) =>
-                if is_listing_method_name(method_name) {
-                  eval_listing_method(
-                    elements, method_name, arguments, bindings, env, class_env, cache,
-                    stack, declarations, diagnostics, resolve_import,
-                  )
-                } else {
-                  eval_callable_call(
-                    callee, arguments, bindings, env, class_env, cache, stack, declarations,
-                    diagnostics, resolve_import,
-                  )
-                }
-              Some(MappingValue(entries)) =>
-                if is_mapping_method_name(method_name) {
-                  eval_mapping_method(
-                    entries, method_name, arguments, bindings, env, class_env, cache,
-                    stack, declarations, diagnostics, resolve_import,
-                  )
-                } else {
-                  eval_callable_call(
-                    callee, arguments, bindings, env, class_env, cache, stack, declarations,
-                    diagnostics, resolve_import,
-                  )
-                }
-              Some(StringValue(s)) =>
-                if is_string_method_name(method_name) {
-                  eval_string_method(
-                    s, method_name, arguments, bindings, env, class_env, cache, stack,
-                    declarations, diagnostics, resolve_import,
-                  )
-                } else {
-                  eval_callable_call(
-                    callee, arguments, bindings, env, class_env, cache, stack, declarations,
-                    diagnostics, resolve_import,
-                  )
-                }
-              Some(IntValue(n)) =>
-                if is_int_method_name(method_name) {
-                  eval_int_method(
-                    n, method_name, arguments, bindings, env, class_env, cache, stack,
-                    declarations, diagnostics, resolve_import,
-                  )
-                } else {
-                  eval_callable_call(
-                    callee, arguments, bindings, env, class_env, cache, stack, declarations,
-                    diagnostics, resolve_import,
-                  )
-                }
-              Some(DurationValue(n, unit)) =>
-                eval_duration_method(
-                  n, unit, method_name, arguments, bindings, env, class_env, cache,
-                  stack, declarations, diagnostics, resolve_import,
-                )
-              Some(DataSizeValue(n, unit)) =>
-                eval_datasize_method(
-                  n, unit, method_name, arguments, bindings, env, class_env, cache,
-                  stack, declarations, diagnostics, resolve_import,
-                )
-              _ =>
-                eval_callable_call(
-                  callee, arguments, bindings, env, class_env, cache, stack, declarations,
-                  diagnostics, resolve_import,
-                )
-            }
-          } else {
-            eval_callable_call(
-              callee, arguments, bindings, env, class_env, cache, stack, declarations,
-              diagnostics, resolve_import,
-            )
-          }
-        _ =>
-          eval_callable_call(
-            callee, arguments, bindings, env, class_env, cache, stack, declarations,
-            diagnostics, resolve_import,
-          )
+        }
       }
     LambdaExpr(parameters, body, return_type_name) =>
       Some(
@@ -3954,6 +4328,11 @@ fn render_pcf_scalar(value : Value, buf : StringBuilder) -> Unit {
     FunctionValue(_, _, _, _) => buf.write_string("<function>")
     DurationValue(n, unit) => buf.write_string("\{n}.\{unit}")
     DataSizeValue(n, unit) => buf.write_string("\{n}.\{unit}")
+    RegexValue(pattern) => {
+      buf.write_string("Regex(\"")
+      buf.write_string(escape_string(pattern))
+      buf.write_string("\")")
+    }
     ObjectValue(_) | ListingValue(_) | MappingValue(_) =>
       // Defensive: callers should route block values through
       // render_pcf_inline / render_pcf_block_body. Falling back keeps
@@ -4128,6 +4507,10 @@ fn render_json_value(value : Value, indent : Int, buf : StringBuilder) -> Unit {
     // the dedicated projection table from `pkl:base` lands.
     DurationValue(n, unit) => render_json_string("\{n}.\{unit}", buf)
     DataSizeValue(n, unit) => render_json_string("\{n}.\{unit}", buf)
+    // PKL-081: Regex projects as the pattern string in JSON / YAML /
+    // Properties, mirroring upstream Apple Pkl behavior for opaque
+    // stdlib values.
+    RegexValue(pattern) => render_json_string(pattern, buf)
   }
 }
 
@@ -4470,6 +4853,7 @@ fn render_yaml_scalar(value : Value, buf : StringBuilder) -> Unit {
     StringValue(s) => render_yaml_string(s, buf)
     DurationValue(n, unit) => render_yaml_string("\{n}.\{unit}", buf)
     DataSizeValue(n, unit) => render_yaml_string("\{n}.\{unit}", buf)
+    RegexValue(pattern) => render_yaml_string(pattern, buf)
     _ =>
       // Composite values reach this path only via the same renderer fallback
       // that PCF / JSON use, so produce a deterministic flow form rather than
@@ -4856,6 +5240,7 @@ fn write_compact_json_value(value : Value, buf : StringBuilder) -> Unit {
     FunctionValue(_, _, _, _) => buf.write_string("null")
     DurationValue(n, unit) => render_json_string("\{n}.\{unit}", buf)
     DataSizeValue(n, unit) => render_json_string("\{n}.\{unit}", buf)
+    RegexValue(pattern) => render_json_string(pattern, buf)
   }
 }
 
@@ -4869,6 +5254,7 @@ fn write_properties_scalar(value : Value, buf : StringBuilder) -> Unit {
     StringValue(s) => write_properties_value(s, buf)
     DurationValue(n, unit) => write_properties_value("\{n}.\{unit}", buf)
     DataSizeValue(n, unit) => write_properties_value("\{n}.\{unit}", buf)
+    RegexValue(pattern) => write_properties_value(pattern, buf)
     _ =>
       // Unreachable in practice: render_properties_leaf already dispatches
       // composites through the compact-JSON path.

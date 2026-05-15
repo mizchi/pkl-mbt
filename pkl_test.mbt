@@ -4455,3 +4455,138 @@ test "render Pkl Duration and DataSize values as PCF literals" {
     ),
   )
 }
+
+///|
+test "construct Pkl Regex values from a pattern string" {
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", "a = Regex(\"a+\")\nb = Regex(\"^foo$\")")
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "a", value: RegexValue("a+") },
+        ValueMember::{ name: "b", value: RegexValue("^foo$") },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl Regex pattern property returns the source pattern" {
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", "p = Regex(\"[0-9]+\").pattern")
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([ValueMember::{ name: "p", value: StringValue("[0-9]+") }]),
+    ),
+  )
+}
+
+///|
+test "Pkl Regex matches checks the entire input" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "a = Regex(\"[0-9]+\").matches(\"123\")\nb = Regex(\"[0-9]+\").matches(\"abc123\")\nc = Regex(\"a.c\").matches(\"abc\")",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "a", value: BoolValue(true) },
+        ValueMember::{ name: "b", value: BoolValue(false) },
+        ValueMember::{ name: "c", value: BoolValue(true) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl Regex find returns the first match or null" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "a = Regex(\"[0-9]+\").find(\"abc123def456\")\nb = Regex(\"x+\").find(\"abc\")",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "a", value: StringValue("123") },
+        ValueMember::{ name: "b", value: NullValue },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl Regex findAll returns all non-overlapping matches" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "a = Regex(\"[0-9]+\").findAll(\"abc12de3f456\")\nb = Regex(\"x+\").findAll(\"abc\")",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "a",
+          value: ListingValue([
+            StringValue("12"),
+            StringValue("3"),
+            StringValue("456"),
+          ]),
+        },
+        ValueMember::{ name: "b", value: ListingValue([]) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl Regex replace substitutes the first match" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "a = Regex(\"[0-9]+\").replace(\"abc12de3\", \"X\")\nb = Regex(\"x+\").replace(\"abc\", \"Y\")",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "a", value: StringValue("abcXde3") },
+        ValueMember::{ name: "b", value: StringValue("abc") },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl Regex replaceAll substitutes every non-overlapping match" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "a = Regex(\"[0-9]+\").replaceAll(\"abc12de3f456\", \"X\")\nb = Regex(\"x+\").replaceAll(\"abc\", \"Y\")",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "a", value: StringValue("abcXdeXfX") },
+        ValueMember::{ name: "b", value: StringValue("abc") },
+      ]),
+    ),
+  )
+}
+
+///|
+test "render Pkl Regex values as Regex(\"...\") PCF literals" {
+  let value : Value = ObjectValue([
+    ValueMember::{ name: "digits", value: RegexValue("[0-9]+") },
+    ValueMember::{ name: "anchored", value: RegexValue("^foo$") },
+  ])
+  inspect(
+    render_value(value),
+    content=(
+      #|digits = Regex("[0-9]+")
+      #|anchored = Regex("^foo$")
+    ),
+  )
+}

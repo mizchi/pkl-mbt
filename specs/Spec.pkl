@@ -1502,6 +1502,44 @@ local durationAndDataSizeLiterals = new Scenario {
   }
 }
 
+local regexLiteralAndMethods = new Scenario {
+  id = "PKL-081"
+  name = "Regex literal and Regex methods"
+  description =
+    "`Regex(\"<pattern>\")` is recognized as a constructor form before the generic call path runs; the call's single String argument is captured verbatim as a `RegexValue(String)` carrying the pattern. The `.pattern` property exposes the original source pattern as a `String`. Five Regex methods dispatch through the same MemberAccess / SafeMemberAccess sites as the other stdlib value methods: `.matches(input)` returns true only when the regex covers the entire input (anchored on both ends), `.find(input)` returns the first match's text or `null`, `.findAll(input)` returns a `Listing<String>` of every non-overlapping match, `.replace(input, repl)` substitutes the first match, and `.replaceAll(input, repl)` substitutes every non-overlapping match. Compilation is deferred to the first method call so a Regex value can be constructed even if its pattern is later unused; an invalid pattern reports a diagnostic at method-call time. The PCF renderer round-trips a `RegexValue(p)` back as `Regex(\"<escaped-p>\")`; JSON / YAML / Properties project the pattern as a plain string."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-077" }
+  tags { "evaluator"; "renderer"; "regex"; "stdlib" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Pull in moonbitlang/regexp instead of writing a pure-MoonBit regex engine"
+      rationale =
+        "Apple Pkl's regex grammar is the standard PCRE-compatible flavor; reimplementing it for this slice would dwarf every other stdlib slice combined and gain nothing for compatibility. `moonbitlang/regexp` 0.3.5 is a maintained MoonBit-native package with PCRE-style features (character classes, anchors, alternation, repetition, capture groups). Adding it as a dep keeps the slice focused on Pkl-side wiring (value variant, method dispatch, renderer surface) and lets the regex semantics inherit a well-tested implementation."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Compile the pattern lazily at method-call time, not at constructor time"
+      rationale =
+        "Compiling `Regex(\"<pat>\")` eagerly forces the entire program to fail at construction even when the regex is dead code (e.g. a typealias body that's never instantiated). Lazy compilation localizes the failure to the actual `.matches` / `.find` / etc. call, which both matches user intuition and lets a Regex value participate in renderers (PCF / JSON / YAML / Properties) without ever invoking the engine."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Anchor `.matches` to the whole input rather than searching for a substring match"
+      rationale =
+        "Apple Pkl's `String.matches(regex)` returns true iff the entire input matches; `.find` / `.findAll` cover the unanchored substring case. Mirroring that split here keeps the Regex API consistent with the existing String API (`.contains` / `.startsWith` / `.endsWith` for unanchored checks, `.matches` for full-input). The implementation checks the match's `before` and `after` views are both empty to distinguish a full match from a partial one."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Project Regex as the pattern string in JSON / YAML / Properties; round-trip as Regex(\"...\") in PCF"
+      rationale =
+        "JSON / YAML / Properties have no native regex type, so the only deterministic projection is the source pattern as a quoted string — matching the same shape we use for Duration / DataSize. PCF, on the other hand, is the format that flows back into the parser; emitting `Regex(\"<escaped-pattern>\")` lets the same Regex value re-evaluate to itself, which is the property the rest of the renderer surface relies on."
+    }
+  }
+}
+
 local typeAliasedCallableArgumentEvaluation = new Scenario {
   id = "PKL-069"
   name = "evaluate typealiased Pkl callable argument annotations"
@@ -1971,5 +2009,6 @@ scenarios {
   hiddenAndLocalMembers
   typeAliasedCallableArgumentEvaluation
   durationAndDataSizeLiterals
+  regexLiteralAndMethods
   ...roadmap.entries
 }
