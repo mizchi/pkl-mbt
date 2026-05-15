@@ -205,10 +205,13 @@ fn main {
     println("ok \{passed}")
     return
   }
-  // Pull out optional flags after the command. Only `eval` currently
-  // understands `-f <format>` / `--format <format>`; everything else
-  // continues to require exactly one positional argument.
+  // Pull out optional flags after the command. `eval` understands
+  // `-f <format>` / `--format <format>`; `test` understands
+  // `--overwrite` to regenerate the examples golden file. Unknown
+  // tokens are treated as positional arguments, which keeps the legacy
+  // single-file form working.
   let mut format = "pcf"
+  let mut overwrite = false
   let positional : Array[String] = []
   let mut i = 2
   while i < args.length() {
@@ -220,6 +223,9 @@ fn main {
       }
       format = args[i + 1]
       i = i + 2
+    } else if token == "--overwrite" {
+      overwrite = true
+      i = i + 1
     } else {
       positional.push(token)
       i = i + 1
@@ -320,11 +326,20 @@ fn main {
       load_path(session, path, [])
       match session.eval_path(path) {
         EvalOk(value) => {
-          let summary = run_pkl_test(value)
-          for line in summary.lines {
+          let facts_summary = run_pkl_test(value)
+          for line in facts_summary.lines {
             println(line)
           }
-          if summary.failed > 0 {
+          // PKL-100: `examples` are tracked alongside `facts`. The
+          // facts walker keeps its own summary (rendered above); the
+          // examples diff runs as a second pass and contributes its own
+          // pass / fail lines plus an additional non-zero exit on
+          // mismatch / missing golden.
+          let examples_summary = run_pkl_examples_test(value, path, overwrite)
+          for line in examples_summary.lines {
+            println(line)
+          }
+          if facts_summary.failed > 0 || examples_summary.failed > 0 {
             @sys.exit(1)
           }
         }
@@ -383,18 +398,7 @@ fn run_pkl_test(value : @pkl.Value) -> PklTestSummary {
   let lines : Array[String] = []
   let mut passed = 0
   let mut failed = 0
-  let facts : @pkl.Value? = match value {
-    @pkl.ObjectValue(members) => {
-      let mut found : @pkl.Value? = None
-      for entry in members {
-        if entry.name == "facts" {
-          found = Some(entry.value)
-        }
-      }
-      found
-    }
-    _ => None
-  }
+  let facts : @pkl.Value? = lookup_module_member(value, "facts")
   match facts {
     Some(@pkl.MappingValue(entries)) =>
       for entry in entries {
@@ -437,6 +441,81 @@ fn run_pkl_test(value : @pkl.Value) -> PklTestSummary {
     None => ()
   }
   lines.push("\{passed} passed, \{failed} failed")
+  { lines, failed }
+}
+
+///|
+/// PKL-100 / PKL-095 shared helper: pick a top-level module member by
+/// name. Returns the member value when the module is an `ObjectValue`
+/// carrying that name; everything else (non-object module, missing
+/// member) collapses to `None` so callers can branch on absence.
+fn lookup_module_member(value : @pkl.Value, name : String) -> @pkl.Value? {
+  match value {
+    @pkl.ObjectValue(members) => {
+      let mut found : @pkl.Value? = None
+      for entry in members {
+        if entry.name == name {
+          found = Some(entry.value)
+        }
+      }
+      found
+    }
+    _ => None
+  }
+}
+
+///|
+/// PKL-100: walk the `examples` member and diff each example's rendered
+/// PCF text against the corresponding section of the
+/// `<path>-expected.pcf` golden file. On `--overwrite` the golden is
+/// regenerated wholesale; otherwise mismatches surface as `FAIL` lines
+/// and force a non-zero exit. The minimal envelope format is the
+/// rendered `examples { ... }` block verbatim; richer per-example diffs
+/// (with byte-level reporting) layer on top of this once a structured
+/// golden format is introduced.
+fn run_pkl_examples_test(
+  value : @pkl.Value,
+  path : String,
+  overwrite : Bool,
+) -> PklTestSummary {
+  let lines : Array[String] = []
+  let mut failed = 0
+  match lookup_module_member(value, "examples") {
+    Some(examples_value) => {
+      let envelope = @pkl.ObjectValue([
+        { name: "examples", value: examples_value },
+      ])
+      let rendered = @pkl.render_value(envelope) + "\n"
+      let golden_path = path + "-expected.pcf"
+      if overwrite {
+        @fs.write_string_to_file(golden_path, rendered) catch {
+          _ => {
+            failed = failed + 1
+            lines.push(
+              "FAIL examples could not write golden file \{golden_path}",
+            )
+          }
+        }
+        lines.push("OVERWRITE \{golden_path}")
+      } else {
+        let expected = @fs.read_file_to_string(golden_path) catch { _ => "" }
+        if expected == "" {
+          failed = failed + 1
+          lines.push("FAIL examples missing golden file \{golden_path}")
+        } else if expected == rendered {
+          let count = match examples_value {
+            @pkl.MappingValue(entries) => entries.length()
+            _ => 0
+          }
+          lines.push("PASS examples (\{count} examples)")
+        } else {
+          failed = failed + 1
+          lines.push("FAIL examples diff against \{golden_path}")
+        }
+      }
+    }
+    None => ()
+  }
   { lines, failed }
 }
 

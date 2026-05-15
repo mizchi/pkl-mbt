@@ -1,6 +1,6 @@
 # Test SPEC
 
-148 tests across 2 module(s) — 132 pending, 16 active
+150 tests across 2 module(s) — 132 pending, 18 active
 
 ## `specs/`
 
@@ -527,10 +527,11 @@
   - depends on: PKL-009
   - body: _not yet implemented_
 
-- [ ] **pkl test Apple-compatible runner** [draft] — verifies: PKL-100 — tags: cli, pkl-test, next
-  > `moon run cmd/main -- test` extends beyond the minimal facts-walker to match Apple Pkl's runner: `examples { ["label"] { value } }` blocks with expected-vs-actual diff against a `<file>-expected.pcf` golden, `--overwrite` mode to regenerate goldens, ignored / pending markers, multi-file test discovery, and an exit code matching upstream (0 on pass, non-zero on fail).
+- [ ] **pkl test examples and golden diff** — verifies: PKL-100 — tags: cli, pkl-test, examples
+  > The native CLI `test` subcommand walks the module-level `examples` member alongside the existing `facts` walker. Each example is rendered through the PCF envelope (`examples { ["label"] { ... } }`) and the entire envelope is byte-diffed against a sibling `<file>-expected.pcf` golden file. A passing diff prints `PASS examples (N examples)`; a mismatch prints `FAIL examples diff against <path>` and contributes to the non-zero exit. The `--overwrite` CLI flag regenerates the golden file from the current rendering (printing `OVERWRITE <path>`), matching Apple Pkl's golden-file workflow. Modules without an `examples` member skip the diff entirely so facts-only fixtures keep working unchanged.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-095
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **pkl-codegen bridge** [draft] — verifies: PKL-131 — tags: cli, codegen
@@ -919,6 +920,14 @@
 
 - [x] **cli reflect minimal stub** — verifies: PKL-080 — tags: moonbit, cli, pkl-reflect, stdlib, contract
   > The native CLI evaluates a fixture that imports `pkl:reflect` and reads mirror constants plus the `Class` factory `reflectee` field, exercising the minimal stub registered in `builtin_stdlib_source`.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli test examples diff fail** — verifies: PKL-100 — tags: moonbit, cli, pkl-test, examples, contract
+  > When the rendered `examples` envelope diverges from the `<file>-expected.pcf` golden the runner emits `FAIL examples diff against <path>` and contributes to the non-zero exit.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli test examples gold match** — verifies: PKL-100 — tags: moonbit, cli, pkl-test, examples, contract
+  > The native CLI `test` subcommand walks the `examples` member alongside `facts` and reports `PASS examples (N examples)` when the rendered envelope matches the `<file>-expected.pcf` golden byte-for-byte.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli test failing facts** — verifies: PKL-095 — tags: moonbit, cli, pkl-test, contract

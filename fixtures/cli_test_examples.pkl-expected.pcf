@@ -1,0 +1,10 @@
+examples {
+  ["addition"] {
+    2
+    4
+  }
+  ["multiplication"] {
+    6
+    20
+  }
+}

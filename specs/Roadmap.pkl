@@ -21,18 +21,6 @@ import "../pkspec/Spec.pkl"
 
 // ── CLI surface ─────────────────────────────────────────────────────────────
 
-local pklTestAppleCompat: Spec.Scenario = new {
-  id = "PKL-100"
-  name = "pkl test Apple-compatible runner"
-  description =
-    "`moon run cmd/main -- test` extends beyond the minimal facts-walker to match Apple Pkl's runner: `examples { [\"label\"] { value } }` blocks with expected-vs-actual diff against a `<file>-expected.pcf` golden, `--overwrite` mode to regenerate goldens, ignored / pending markers, multi-file test discovery, and an exit code matching upstream (0 on pass, non-zero on fail)."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-095" }
-  tags { "cli"; "pkl-test"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 local pklRepl: Spec.Scenario = new {
   id = "PKL-101"
   name = "pkl repl interactive evaluator"
@@ -430,7 +418,6 @@ local lspServer: Spec.Scenario = new {
 }
 
 entries: Listing<Spec.Scenario> = new {
-  pklTestAppleCompat
   pklRepl
   pklAnalyzeLint
   readNullableParserForm

@@ -1,0 +1,5 @@
+examples: Mapping<String, Listing<Int>> = new Mapping {
+  ["math"] = new Listing {
+    1 + 1
+  }
+}

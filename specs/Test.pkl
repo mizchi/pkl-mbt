@@ -193,6 +193,32 @@ local cliGenerics = new Test {
   timeoutSec = 120
 }
 
+local cliTestExamplesPass = new Test {
+  name = "cli test examples gold match"
+  description =
+    "The native CLI `test` subcommand walks the `examples` member alongside `facts` and reports `PASS examples (N examples)` when the rendered envelope matches the `<file>-expected.pcf` golden byte-for-byte."
+  tags { "moonbit"; "cli"; "pkl-test"; "examples"; "contract" }
+  specRef { "PKL-100" }
+  cmd = "moon run cmd/main --target native -- test fixtures/cli_test_examples.pkl"
+  workdir = ".."
+  expectStdoutContains { "PASS examples (2 examples)" }
+  timeoutSec = 120
+}
+
+local cliTestExamplesFail = new Test {
+  name = "cli test examples diff fail"
+  description =
+    "When the rendered `examples` envelope diverges from the `<file>-expected.pcf` golden the runner emits `FAIL examples diff against <path>` and contributes to the non-zero exit."
+  tags { "moonbit"; "cli"; "pkl-test"; "examples"; "contract" }
+  specRef { "PKL-100" }
+  cmd = "moon run cmd/main --target native -- test fixtures/cli_test_examples_fail.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "FAIL examples diff against fixtures/cli_test_examples_fail.pkl-expected.pcf"
+  }
+  timeoutSec = 120
+}
+
 local cliFormat = new Test {
   name = "cli format subcommand"
   description =
@@ -346,6 +372,8 @@ tests {
   cliEvalProperties
   cliFloat
   cliFormat
+  cliTestExamplesPass
+  cliTestExamplesFail
   cliGenerics
   cliTrace
   cliReflectStub

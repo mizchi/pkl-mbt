@@ -1,0 +1,10 @@
+examples: Mapping<String, Listing<Int>> = new Mapping {
+  ["addition"] = new Listing {
+    1 + 1
+    2 + 2
+  }
+  ["multiplication"] = new Listing {
+    2 * 3
+    4 * 5
+  }
+}

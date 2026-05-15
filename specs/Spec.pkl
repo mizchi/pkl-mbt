@@ -1503,6 +1503,38 @@ local durationAndDataSizeLiterals = new Scenario {
   }
 }
 
+local pklTestExamples = new Scenario {
+  id = "PKL-100"
+  name = "pkl test examples and golden diff"
+  description =
+    "The native CLI `test` subcommand walks the module-level `examples` member alongside the existing `facts` walker. Each example is rendered through the PCF envelope (`examples { [\"label\"] { ... } }`) and the entire envelope is byte-diffed against a sibling `<file>-expected.pcf` golden file. A passing diff prints `PASS examples (N examples)`; a mismatch prints `FAIL examples diff against <path>` and contributes to the non-zero exit. The `--overwrite` CLI flag regenerates the golden file from the current rendering (printing `OVERWRITE <path>`), matching Apple Pkl's golden-file workflow. Modules without an `examples` member skip the diff entirely so facts-only fixtures keep working unchanged."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-095" }
+  tags { "cli"; "pkl-test"; "examples" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Diff the entire `examples` envelope, not per-example sections"
+      rationale =
+        "A structured per-example golden format would buy granular diff reporting at the cost of inventing a sectioning convention (Apple Pkl uses a custom delimiter scheme). Diffing the whole envelope keeps the implementation portable across renderer formats and the golden file readable as plain PCF. Per-example diff reporting is a follow-up once the envelope baseline is stable."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "`--overwrite` flag instead of an environment variable"
+      rationale =
+        "Apple Pkl uses `--overwrite` to regenerate goldens; matching the flag name keeps the workflow muscle-memory portable. The flag is parsed centrally with the other CLI flags so future subcommands can opt in to the same regeneration channel without inventing parallel flag names."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Compose with the existing facts walker rather than replace it"
+      rationale =
+        "PKL-095's facts walker is a working contract used by existing fixtures; `examples` is additive. Running both walkers sequentially on the same module keeps the existing fixtures' `PASS addition (N assertions)` lines intact while letting new fixtures add examples on top. Both contribute to the same non-zero exit path so failures of either kind block CI."
+    }
+  }
+}
+
 local cliFormat = new Scenario {
   id = "PKL-099"
   name = "cli format subcommand"
@@ -2507,5 +2539,6 @@ scenarios {
   genericClassDeclarations
   genericFunctionTypeParameters
   cliFormat
+  pklTestExamples
   ...roadmap.entries
 }
