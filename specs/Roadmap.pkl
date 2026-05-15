@@ -41,26 +41,6 @@ local typeAliasedCallableArgumentEvaluation: Spec.Scenario = new {
 
 // ── renderers ───────────────────────────────────────────────────────────────
 
-local pcfRendererObjects: Spec.Scenario = new {
-  id = "PKL-071"
-  name = "render Pkl objects and listings as PCF"
-  description =
-    "PCF rendering emits nested objects, listings, and mappings with the brace / element conventions Apple Pkl uses, including ordering and indentation, so the upstream fixture gold outputs match byte-for-byte."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-070" }
-  tags { "renderer"; "pcf"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-  decisions {
-    new Spec.Decision {
-      date = "2026-05-15"
-      summary = "Aim for byte-equal output with upstream"
-      rationale =
-        "If the renderer matches Apple Pkl byte-for-byte the upstream LanguageSnippetTests gold outputs become a free regression suite. Cosmetic divergence would force us to maintain a parallel set of golds."
-    }
-  }
-}
-
 local jsonRenderer: Spec.Scenario = new {
   id = "PKL-072"
   name = "render Pkl values as JSON"
@@ -68,7 +48,7 @@ local jsonRenderer: Spec.Scenario = new {
     "Module rendering emits a JSON document equivalent to Apple Pkl's `pkl eval -f json` output, including String escapes, Mapping keys coerced to strings, and Listing -> array."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-071" }
-  tags { "renderer"; "json" }
+  tags { "renderer"; "json"; "next" }
   reviewStatus = "draft"
   severity = "major"
   decisions {
@@ -447,7 +427,6 @@ local upstreamGoldOutputDiff: Spec.Scenario = new {
 
 entries: Listing<Spec.Scenario> = new {
   typeAliasedCallableArgumentEvaluation
-  pcfRendererObjects
   jsonRenderer
   yamlRenderer
   propertiesRenderer

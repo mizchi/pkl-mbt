@@ -5,6 +5,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
 UPSTREAM="third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input"
+GOLD="third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/output"
 
 parse_ok() {
   local label="$1"
@@ -16,6 +17,22 @@ parse_ok() {
     exit 1
   fi
   printf 'upstream parse ok: %s\n' "$label"
+}
+
+eval_matches_gold() {
+  local label="$1"
+  local input="$2"
+  local gold="$3"
+  local actual
+  actual="$(moon run cmd/main --target native -- eval "$input")"
+  if ! diff -u "$gold" <(printf '%s\n' "$actual") >/tmp/upstream-smoke-diff.$$; then
+    printf 'upstream eval mismatch: %s\n' "$label" >&2
+    cat /tmp/upstream-smoke-diff.$$ >&2
+    rm -f /tmp/upstream-smoke-diff.$$
+    exit 1
+  fi
+  rm -f /tmp/upstream-smoke-diff.$$
+  printf 'upstream eval ok: %s (gold match)\n' "$label"
 }
 
 eval_contains() {
@@ -45,42 +62,39 @@ parse_ok \
 parse_ok "modules/objects.pkl" "$UPSTREAM/modules/objects.pkl"
 parse_ok "classes/constraints8.pkl" "$UPSTREAM/classes/constraints8.pkl"
 
-eval_contains \
+eval_matches_gold \
   "basic/parens.pkl" \
   "$UPSTREAM/basic/parens.pkl" \
-  "res2 = 20"
-eval_contains \
-  "basic/import1.pkl res1" \
+  "$GOLD/basic/parens.pcf"
+eval_matches_gold \
+  "basic/import1.pkl" \
   "$UPSTREAM/basic/import1.pkl" \
-  "res1 = 6"
-eval_contains \
-  "basic/import1.pkl res4" \
-  "$UPSTREAM/basic/import1.pkl" \
-  "res4 = 3"
-eval_contains \
-  "basic/import2.pkl libFoo" \
+  "$GOLD/basic/import1.pcf"
+eval_matches_gold \
+  "basic/import2.pkl" \
   "$UPSTREAM/basic/import2.pkl" \
-  "libFoo = 6"
-eval_contains \
-  "basic/import2.pkl libBar" \
-  "$UPSTREAM/basic/import2.pkl" \
-  "libBar = 3"
-eval_contains \
+  "$GOLD/basic/import2.pcf"
+eval_matches_gold \
   "basic/import3.pkl" \
   "$UPSTREAM/basic/import3.pkl" \
-  "bak = 6"
-eval_contains \
+  "$GOLD/basic/import3.pcf"
+eval_matches_gold \
   "modules/filename with spaces.pkl" \
   "$UPSTREAM/modules/filename with spaces.pkl" \
-  "foo = \"bar\""
-eval_contains \
+  "$GOLD/modules/filename with spaces.pcf"
+eval_matches_gold \
   "modules/filename with spaces 2.pkl" \
   "$UPSTREAM/modules/filename with spaces 2.pkl" \
-  "otherFile = foo = \"bar\""
-eval_contains \
+  "$GOLD/modules/filename with spaces 2.pcf"
+eval_matches_gold \
   "modules/objects.pkl" \
   "$UPSTREAM/modules/objects.pkl" \
-  "x = y = z = 1"
+  "$GOLD/modules/objects.pcf"
+
+# classes/constraints8 carries our project-specific error diagnostic wording
+# rather than Apple Pkl's "Type constraint ... violated. Value: ..." text,
+# so we keep the partial substring check until the diagnostic surface is
+# aligned with upstream wording.
 eval_contains \
   "classes/constraints8.pkl" \
   "$UPSTREAM/classes/constraints8.pkl" \

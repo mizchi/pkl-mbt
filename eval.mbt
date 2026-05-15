@@ -2141,17 +2141,12 @@ pub fn eval_source(source : String) -> EvalResult {
 ///|
 /// entry points.
 pub fn render_value(value : Value) -> String {
+  let buf = StringBuilder::new()
   match value {
-    IntValue(n) => "\{n}"
-    BoolValue(true) => "true"
-    BoolValue(false) => "false"
-    StringValue(s) => "\"\{escape_string(s)}\""
-    NullValue => "null"
-    ObjectValue(members) => render_object_members(members)
-    ListingValue(elements) => render_listing_elements(elements)
-    MappingValue(entries) => render_mapping_entries(entries)
-    FunctionValue(_, _, _, _) => "<function>"
+    ObjectValue(members) => render_pcf_module(members, buf)
+    _ => render_pcf_inline(value, 0, buf)
   }
+  buf.to_string()
 }
 
 ///|
@@ -2171,49 +2166,145 @@ fn escape_string(value : String) -> String {
 }
 
 ///|
-fn render_object_members(members : Array[ValueMember]) -> String {
-  let buf = StringBuilder::new()
-  for i, field in members {
-    if i > 0 {
-      buf.write_string("\n")
+fn pcf_is_block_value(value : Value) -> Bool {
+  match value {
+    ObjectValue(_) | ListingValue(_) | MappingValue(_) => true
+    _ => false
+  }
+}
+
+///|
+fn write_pcf_indent(buf : StringBuilder, indent : Int) -> Unit {
+  for i = 0; i < indent; i = i + 1 {
+    buf.write_char(' ')
+  }
+}
+
+///|
+fn render_pcf_scalar(value : Value, buf : StringBuilder) -> Unit {
+  match value {
+    IntValue(n) => buf.write_string("\{n}")
+    BoolValue(true) => buf.write_string("true")
+    BoolValue(false) => buf.write_string("false")
+    StringValue(s) => {
+      buf.write_char('"')
+      buf.write_string(escape_string(s))
+      buf.write_char('"')
     }
-    buf.write_string(field.name)
+    NullValue => buf.write_string("null")
+    FunctionValue(_, _, _, _) => buf.write_string("<function>")
+    ObjectValue(_) | ListingValue(_) | MappingValue(_) =>
+      // Defensive: callers should route block values through
+      // render_pcf_inline / render_pcf_block_body. Falling back keeps
+      // diagnostics non-empty if we ever miss a case.
+      render_pcf_inline(value, 0, buf)
+  }
+}
+
+///|
+fn render_pcf_inline(value : Value, indent : Int, buf : StringBuilder) -> Unit {
+  if pcf_is_block_value(value) {
+    buf.write_string("new ")
+    render_pcf_block_body(value, indent, buf)
+  } else {
+    render_pcf_scalar(value, buf)
+  }
+}
+
+///|
+fn render_pcf_block_body(
+  value : Value,
+  indent : Int,
+  buf : StringBuilder,
+) -> Unit {
+  match value {
+    ObjectValue([]) | ListingValue([]) | MappingValue([]) =>
+      buf.write_string("{}")
+    ObjectValue(members) => {
+      buf.write_string("{\n")
+      for i = 0; i < members.length(); i = i + 1 {
+        if i > 0 {
+          buf.write_char('\n')
+        }
+        write_pcf_indent(buf, indent + 2)
+        render_pcf_object_member(members[i], indent + 2, buf)
+      }
+      buf.write_char('\n')
+      write_pcf_indent(buf, indent)
+      buf.write_char('}')
+    }
+    ListingValue(elements) => {
+      buf.write_string("{\n")
+      for i = 0; i < elements.length(); i = i + 1 {
+        if i > 0 {
+          buf.write_char('\n')
+        }
+        write_pcf_indent(buf, indent + 2)
+        render_pcf_inline(elements[i], indent + 2, buf)
+      }
+      buf.write_char('\n')
+      write_pcf_indent(buf, indent)
+      buf.write_char('}')
+    }
+    MappingValue(entries) => {
+      buf.write_string("{\n")
+      for i = 0; i < entries.length(); i = i + 1 {
+        if i > 0 {
+          buf.write_char('\n')
+        }
+        write_pcf_indent(buf, indent + 2)
+        render_pcf_mapping_entry(entries[i], indent + 2, buf)
+      }
+      buf.write_char('\n')
+      write_pcf_indent(buf, indent)
+      buf.write_char('}')
+    }
+    _ => render_pcf_scalar(value, buf)
+  }
+}
+
+///|
+fn render_pcf_object_member(
+  field : ValueMember,
+  indent : Int,
+  buf : StringBuilder,
+) -> Unit {
+  buf.write_string(field.name)
+  if pcf_is_block_value(field.value) {
+    buf.write_char(' ')
+    render_pcf_block_body(field.value, indent, buf)
+  } else {
     buf.write_string(" = ")
-    buf.write_string(render_value(field.value))
+    render_pcf_scalar(field.value, buf)
   }
-  buf.to_string()
 }
 
 ///|
-fn render_listing_elements(elements : Array[Value]) -> String {
-  let buf = StringBuilder::new()
-  buf.write_string("new Listing {")
-  for element in elements {
-    buf.write_string("\n  ")
-    buf.write_string(render_value(element))
+fn render_pcf_mapping_entry(
+  entry : ValueEntry,
+  indent : Int,
+  buf : StringBuilder,
+) -> Unit {
+  buf.write_char('[')
+  render_pcf_inline(entry.key, indent, buf)
+  buf.write_char(']')
+  if pcf_is_block_value(entry.value) {
+    buf.write_char(' ')
+    render_pcf_block_body(entry.value, indent, buf)
+  } else {
+    buf.write_string(" = ")
+    render_pcf_scalar(entry.value, buf)
   }
-  if elements.length() > 0 {
-    buf.write_string("\n")
-  }
-  buf.write_string("}")
-  buf.to_string()
 }
 
 ///|
-fn render_mapping_entries(entries : Array[ValueEntry]) -> String {
-  let buf = StringBuilder::new()
-  buf.write_string("new Mapping {")
-  for entry in entries {
-    buf.write_string("\n  [")
-    buf.write_string(render_value(entry.key))
-    buf.write_string("] = ")
-    buf.write_string(render_value(entry.value))
+fn render_pcf_module(members : Array[ValueMember], buf : StringBuilder) -> Unit {
+  for i = 0; i < members.length(); i = i + 1 {
+    if i > 0 {
+      buf.write_char('\n')
+    }
+    render_pcf_object_member(members[i], 0, buf)
   }
-  if entries.length() > 0 {
-    buf.write_string("\n")
-  }
-  buf.write_string("}")
-  buf.to_string()
 }
 
 ///|

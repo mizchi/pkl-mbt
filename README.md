@@ -38,6 +38,7 @@ The current slice is intentionally small and executable:
 - typecheck literal-body callable return validation for built-in and user-defined constrained return annotations
 - runtime typealias resolution for callable and class method return annotations
 - PCF renderer for Int, Boolean, String, and Null primitives (round-trips through the parser, matches upstream `parens.pkl` / `import1.pkl` byte-for-byte)
+- PCF renderer for nested objects, listings, and mappings (2-space indent, type-tag-free `new { ... }` wrappers, matches the `basic` / `modules` / `classes` upstream gold output)
 - native CLI commands: `parse`, `check`, and `eval`
 - common string escape decoding/rendering for `\n`, `\t`, `\r`, `\"`, and `\\`
 - ripple-backed `AnalysisSession` for source-driven typechecking
@@ -48,7 +49,7 @@ The current slice is intentionally small and executable:
 
 ## Current Completion Estimate
 
-As of the `PKL-070` spec slice, this project has 69 implemented pkspec scenarios and a 28-entry roadmap of draft slices in `specs/Roadmap.pkl`. The next tracked slice is `PKL-071`, which extends the PCF renderer to objects, listings, and mappings so the upstream `LanguageSnippetTests` gold outputs match byte-for-byte beyond the primitive cases. The constraint round-off task `PKL-069` is kept in the roadmap as a draft.
+As of the `PKL-071` spec slice, this project has 70 implemented pkspec scenarios and a 27-entry roadmap of draft slices in `specs/Roadmap.pkl`. The next tracked slice is `PKL-072`, which adds a JSON renderer matching Apple Pkl's `pkl eval -f json` shape. The constraint round-off task `PKL-069` is kept in the roadmap as a draft.
 
 These are engineering estimates, not formal coverage numbers:
 
@@ -102,4 +103,4 @@ git submodule update --init --recursive
 
 ## Scope
 
-This is not a full Pkl implementation yet. The next compatibility work continues the renderer pivot with `PKL-071` PCF object / listing / mapping rendering; the full draft roadmap lives in `specs/Roadmap.pkl`.
+This is not a full Pkl implementation yet. The next compatibility work continues the renderer pivot with `PKL-072` JSON rendering; the full draft roadmap lives in `specs/Roadmap.pkl`.

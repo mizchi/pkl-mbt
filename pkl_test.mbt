@@ -201,6 +201,131 @@ test "PCF render output reparses to the original module" {
 }
 
 ///|
+test "render Pkl listings and mappings as PCF blocks" {
+  inspect(
+    render_value(ListingValue([])),
+    content=(
+      #|new {}
+    ),
+  )
+  inspect(
+    render_value(ListingValue([IntValue(1), IntValue(2), IntValue(3)])),
+    content=(
+      #|new {
+      #|  1
+      #|  2
+      #|  3
+      #|}
+    ),
+  )
+  inspect(
+    render_value(MappingValue([])),
+    content=(
+      #|new {}
+    ),
+  )
+  inspect(
+    render_value(
+      MappingValue([
+        ValueEntry::{ key: StringValue("hawk"), value: StringValue("forest") },
+        ValueEntry::{ key: StringValue("owl"), value: StringValue("night") },
+      ]),
+    ),
+    content=(
+      #|new {
+      #|  ["hawk"] = "forest"
+      #|  ["owl"] = "night"
+      #|}
+    ),
+  )
+}
+
+///|
+test "render Pkl module bindings with nested PCF blocks" {
+  guard eval_source(
+      "foo = new {\n  name = \"hawk\"\n  age = 2\n}\nempty = new {}",
+    )
+    is EvalOk(value) else {
+    panic()
+  }
+  inspect(
+    render_value(value),
+    content=(
+      #|foo {
+      #|  name = "hawk"
+      #|  age = 2
+      #|}
+      #|empty {}
+    ),
+  )
+}
+
+///|
+test "render Pkl module bindings with nested listings and mappings" {
+  guard eval_source(
+      "nums = new Listing { 1; 2; 3 }\nempty_list = new Listing {}\nhabitats = new Mapping { [\"hawk\"] = \"forest\" }\nempty_map = new Mapping {}",
+    )
+    is EvalOk(value) else {
+    panic()
+  }
+  inspect(
+    render_value(value),
+    content=(
+      #|nums {
+      #|  1
+      #|  2
+      #|  3
+      #|}
+      #|empty_list {}
+      #|habitats {
+      #|  ["hawk"] = "forest"
+      #|}
+      #|empty_map {}
+    ),
+  )
+}
+
+///|
+test "render deeply nested Pkl values as PCF" {
+  guard eval_source(
+      "config = new {\n  servers = new Listing {\n    new Mapping { [\"host\"] = \"a\"; [\"port\"] = 1 }\n    new Mapping { [\"host\"] = \"b\"; [\"port\"] = 2 }\n  }\n}",
+    )
+    is EvalOk(value) else {
+    panic()
+  }
+  inspect(
+    render_value(value),
+    content=(
+      #|config {
+      #|  servers {
+      #|    new {
+      #|      ["host"] = "a"
+      #|      ["port"] = 1
+      #|    }
+      #|    new {
+      #|      ["host"] = "b"
+      #|      ["port"] = 2
+      #|    }
+      #|  }
+      #|}
+    ),
+  )
+}
+
+///|
+test "PCF rendered object members reparse to the original module" {
+  // Object members use `name = scalar` / `name { ... }` lines that round
+  // through the parser; listing / mapping rendering drops the type tag
+  // and uses Pkl's element shorthand which our parser does not yet
+  // accept, so this round-trip stays on the object-member subset.
+  let source = "outer = new {\n  inner = new {\n    deep = new {\n      x = 1\n    }\n  }\n  flat = 42\n}"
+  guard eval_source(source) is EvalOk(first_pass) else { panic() }
+  let rendered = render_value(first_pass)
+  guard eval_source(rendered) is EvalOk(second_pass) else { panic() }
+  assert_true(first_pass == second_pass)
+}
+
+///|
 test "parser treats Pkl comments as trivia" {
   let parsed = parse_source(
     "// leading\nname = \"hawk\" // trailing\nage = 2 /* block */\n",

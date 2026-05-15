@@ -1400,7 +1400,37 @@ local pcfRendererPrimitives = new Scenario {
   }
 }
 
-goals { pureMoonBitCore }
+local pcfRendererObjects = new Scenario {
+  id = "PKL-071"
+  name = "render Pkl objects and listings as PCF"
+  description =
+    "PCF rendering emits nested objects, listings, and mappings with the brace / element conventions Apple Pkl uses, including 2-space indentation, type-tag-free `new { ... }` wrappers for non-scalar listing / mapping values, and the empty `{}` form. The basic, modules, and classes upstream fixtures match the gold `.pcf` output byte-for-byte."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-070" }
+  tags { "renderer"; "pcf" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Drop the explicit type tag from nested PCF blocks"
+      rationale =
+        "Apple Pkl PCF emits `new { ... }` (no `Listing` / `Mapping` / `Dynamic` tag) for non-scalar values that appear as listing elements or mapping keys / values, and `name { ... }` for typed and untyped block-valued properties. Re-introducing the tags broke byte-for-byte parity with the upstream gold outputs."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Treat module top-level as ObjectValue with a flat layout"
+      rationale =
+        "The CLI evaluation result is always an ObjectValue at the module boundary, so render_value treats ObjectValue at the entry point as a module (no enclosing braces, no indentation, members on their own lines) and dispatches every nested value through the inline path. This keeps the top-level layout indistinguishable from `pkl eval` and lets render_value still produce a self-contained value for non-module callers such as pkl:test.catch."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Skip the listing / mapping round-trip test"
+      rationale =
+        "PCF rendering drops the `Listing` / `Mapping` tag and uses Pkl's listing / mapping shorthand syntax for elements, which this evaluator's parser does not yet accept. The round-trip unit test stays on the object-member subset until the parser slice that accepts the shorthand lands; byte-for-byte parity with upstream gold output is enforced via the upstream smoke check instead."
+    }
+  }
+}
 
 scenarios {
   parseArithmetic
@@ -1472,5 +1502,6 @@ scenarios {
   constrainedCallableReturnBodyTypechecking
   typeAliasedCallableReturnEvaluation
   pcfRendererPrimitives
+  pcfRendererObjects
   ...roadmap.entries
 }
