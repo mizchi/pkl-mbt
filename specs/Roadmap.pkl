@@ -119,18 +119,6 @@ local floatConstraintPredicates: Spec.Scenario = new {
   severity = "minor"
 }
 
-local collectionElementConstraints: Spec.Scenario = new {
-  id = "PKL-093"
-  name = "Listing and Mapping element constraint propagation"
-  description =
-    "Constraint annotations on Listing / Mapping element types (`Listing<Int(isPositive)>`, `Mapping<String, String(length > 0)>`) propagate to each element at typecheck and runtime."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-091"; "PKL-075" }
-  tags { "constraint"; "collection"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 // ── CLI surface and upstream compatibility ──────────────────────────────────
 
 local cliOutputFormat: Spec.Scenario = new {
@@ -140,7 +128,7 @@ local cliOutputFormat: Spec.Scenario = new {
     "`moon run cmd/main eval --format json|yaml|pcf|properties path.pkl` dispatches to the matching renderer; the default stays pcf."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-072"; "PKL-073"; "PKL-074" }
-  tags { "cli"; "renderer" }
+  tags { "cli"; "renderer"; "next" }
   reviewStatus = "draft"
   severity = "minor"
 }
@@ -188,7 +176,6 @@ entries: Listing<Spec.Scenario> = new {
   genericClassDeclarations
   genericFunctionTypeParameters
   floatConstraintPredicates
-  collectionElementConstraints
   cliOutputFormat
   cliTestRunnerIntegration
   upstreamFixtureEvaluation

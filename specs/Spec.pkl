@@ -1502,6 +1502,38 @@ local durationAndDataSizeLiterals = new Scenario {
   }
 }
 
+local collectionElementConstraints = new Scenario {
+  id = "PKL-093"
+  name = "Listing and Mapping element constraint propagation"
+  description =
+    "`pkl_constrained_type_annotation_has_supported_constraint` recurses into the `Listing<T>` and `Mapping<K, V>` wrappers so element-level constraint annotations register as supported. The value-rejection cascade gains a collection branch after the Int / String branches: for a `Listing<T>` annotation on a `ListingValue`, every element re-enters the cascade with `T` as both display and source name; for a `Mapping<K, V>` annotation on a `MappingValue`, each entry's key is checked against `K` and each entry's value against `V`. The first rejecting element produces the diagnostic and short-circuits the cascade so error messages name a single failing predicate rather than a list. Nested wrappers (`Listing<Listing<Int(isPositive)>>`, `Mapping<String, Listing<Int(isBetween(0, 9))>>`) compose naturally because each recursion uses the same entry point; depth is capped at 8 to keep cycle-like aliases bounded."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-091"; "PKL-075" }
+  tags { "evaluator"; "typechecker"; "constraint"; "collection" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Recurse through the existing entry points rather than threading a separate per-element checker"
+      rationale =
+        "The constrained-type cascade is already the value-side authority for Int and String predicates. Routing the per-element check back through `pkl_constrained_type_annotation_value_rejection_message_from_source` means any constraint family that lands later (Float, user-defined factories, future types) inherits collection support for free without touching the collection plumbing. The depth bound on the same path keeps recursive aliases (`typealias R = Listing<R>`) from looping the runtime."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Short-circuit on the first rejecting element instead of reporting every failure at once"
+      rationale =
+        "Apple Pkl reports the first failing constraint and aborts — listing every failure would multiply the diagnostic count on common typos (missing constraint, wrong predicate). Short-circuiting matches that behavior and keeps the diagnostic vocabulary identical to the scalar path; `length rejects` reads the same whether it fired on a top-level value or the third element of a Listing."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Reuse `generic_argument_text` / `split_top_level_generic_arguments` from the typechecker"
+      rationale =
+        "Both helpers already balance angle-bracket and paren nesting correctly for `Listing<Pair<Int, Int>>` / `Mapping<String, Listing<Int>>` shapes. Reusing them keeps a single source of truth for the collection-type grammar and avoids a parallel parser that would drift the moment one side learns a new wrapper type."
+    }
+  }
+}
+
 local stringConstraintPredicates = new Scenario {
   id = "PKL-091"
   name = "String constraint predicates"
@@ -2049,5 +2081,6 @@ scenarios {
   durationAndDataSizeLiterals
   regexLiteralAndMethods
   stringConstraintPredicates
+  collectionElementConstraints
   ...roadmap.entries
 }

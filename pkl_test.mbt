@@ -4718,3 +4718,102 @@ test "Pkl String constraint negated matches rejects matching values" {
     EvalOk(_) => assert_true(false)
   }
 }
+
+///|
+test "Pkl Listing element constraint accepts a Listing of valid Ints" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "xs: Listing<Int(isPositive)> = new Listing { 1; 2; 3 }",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl Listing element constraint rejects an element that fails the predicate" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "xs: Listing<Int(isPositive)> = new Listing { 1; -2; 3 }",
+  )
+  match session.eval_path("main.pkl") {
+    EvalError(diagnostics) => {
+      let mut found = false
+      for d in diagnostics {
+        if d.message.contains("isPositive") && d.message.contains("rejects") {
+          found = true
+        }
+      }
+      assert_true(found)
+    }
+    EvalOk(_) => assert_true(false)
+  }
+}
+
+///|
+test "Pkl Listing element constraint propagates String predicates" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "names: Listing<String(length > 0)> = new Listing { \"hawk\"; \"\" }",
+  )
+  match session.eval_path("main.pkl") {
+    EvalError(diagnostics) => {
+      let mut found = false
+      for d in diagnostics {
+        if d.message.contains("length") && d.message.contains("rejects") {
+          found = true
+        }
+      }
+      assert_true(found)
+    }
+    EvalOk(_) => assert_true(false)
+  }
+}
+
+///|
+test "Pkl Mapping element constraint validates entry values" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "scores: Mapping<String, Int(isBetween(0, 9))> = new Mapping { [\"a\"] = 3; [\"b\"] = 12 }",
+  )
+  match session.eval_path("main.pkl") {
+    EvalError(diagnostics) => {
+      let mut found = false
+      for d in diagnostics {
+        if d.message.contains("isBetween") && d.message.contains("rejects") {
+          found = true
+        }
+      }
+      assert_true(found)
+    }
+    EvalOk(_) => assert_true(false)
+  }
+}
+
+///|
+test "Pkl Mapping element constraint validates entry keys" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "scores: Mapping<String(length > 0), Int> = new Mapping { [\"ok\"] = 3; [\"\"] = 4 }",
+  )
+  match session.eval_path("main.pkl") {
+    EvalError(diagnostics) => {
+      let mut found = false
+      for d in diagnostics {
+        if d.message.contains("length") && d.message.contains("rejects") {
+          found = true
+        }
+      }
+      assert_true(found)
+    }
+    EvalOk(_) => assert_true(false)
+  }
+}

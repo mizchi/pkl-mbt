@@ -550,8 +550,54 @@ fn pkl_user_defined_constrained_type_source_name(
 fn pkl_constrained_type_annotation_has_supported_constraint(
   type_name : String,
 ) -> Bool {
-  pkl_constrained_int_predicates(type_name).length() > 0 ||
-  pkl_constrained_string_predicates(type_name).length() > 0
+  pkl_constrained_type_annotation_has_supported_constraint_with_depth(
+    type_name, 0,
+  )
+}
+
+///|
+/// Recurse into collection wrappers so `Listing<Int(isPositive)>` and
+/// `Mapping<String(length > 0), Int>` register as supported. Depth is
+/// capped to keep mutually-recursive aliases from looping the cascade.
+fn pkl_constrained_type_annotation_has_supported_constraint_with_depth(
+  type_name : String,
+  depth : Int,
+) -> Bool {
+  if depth > 8 {
+    return false
+  }
+  if pkl_constrained_int_predicates(type_name).length() > 0 ||
+    pkl_constrained_string_predicates(type_name).length() > 0 {
+    return true
+  }
+  match generic_argument_text(type_name, "Listing") {
+    Some(inner_text) =>
+      return pkl_constrained_type_annotation_has_supported_constraint_with_depth(
+        inner_text,
+        depth + 1,
+      )
+    None => ()
+  }
+  match generic_argument_text(type_name, "Mapping") {
+    Some(inner_text) => {
+      let parts = split_top_level_generic_arguments(inner_text)
+      if parts.length() == 2 {
+        if pkl_constrained_type_annotation_has_supported_constraint_with_depth(
+            parts[0],
+            depth + 1,
+          ) ||
+          pkl_constrained_type_annotation_has_supported_constraint_with_depth(
+            parts[1],
+            depth + 1,
+          ) {
+          return true
+        }
+      }
+      return false
+    }
+    None => ()
+  }
+  false
 }
 
 ///|
@@ -823,11 +869,84 @@ fn pkl_constrained_type_annotation_value_rejection_message_from_source(
   }
   match pkl_value_string(value) {
     Some(inner) =>
-      pkl_constrained_string_rejection_message_from_source(
+      return pkl_constrained_string_rejection_message_from_source(
         display_name, source_name, inner,
       )
-    None => None
+    None => ()
   }
+  pkl_collection_element_rejection_message_from_source(
+    display_name, source_name, value,
+  )
+}
+
+///|
+/// If `source_name` looks like `Listing<T>` / `Mapping<K, V>`, walk the
+/// matching value variant and apply the same constrained-type cascade
+/// to each element. Non-collection sources fall through to `None`,
+/// preserving the existing dispatch behaviour for scalars.
+fn pkl_collection_element_rejection_message_from_source(
+  display_name : String,
+  source_name : String,
+  value : Value,
+) -> String? {
+  match generic_argument_text(source_name, "Listing") {
+    Some(element_type) =>
+      match value {
+        ListingValue(elements) =>
+          for element in elements {
+            match
+              pkl_constrained_type_annotation_value_rejection_message_from_source(
+                element_type, element_type, element,
+              ) {
+              Some(message) => return Some(message)
+              None => ()
+            }
+          } nobreak {
+            return None
+          }
+        _ => return None
+      }
+    None => ()
+  }
+  match generic_argument_text(source_name, "Mapping") {
+    Some(inner_text) => {
+      let parts = split_top_level_generic_arguments(inner_text)
+      if parts.length() != 2 {
+        return None
+      }
+      let key_type = parts[0]
+      let value_type = parts[1]
+      match value {
+        MappingValue(entries) =>
+          for entry in entries {
+            match
+              pkl_constrained_type_annotation_value_rejection_message_from_source(
+                key_type,
+                key_type,
+                entry.key,
+              ) {
+              Some(message) => return Some(message)
+              None => ()
+            }
+            match
+              pkl_constrained_type_annotation_value_rejection_message_from_source(
+                value_type,
+                value_type,
+                entry.value,
+              ) {
+              Some(message) => return Some(message)
+              None => ()
+            }
+          } nobreak {
+            return None
+          }
+        _ => return None
+      }
+    }
+    None => ()
+  }
+  let _ = display_name
+  None
 }
 
 ///|
