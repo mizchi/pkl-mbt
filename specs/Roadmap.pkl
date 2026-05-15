@@ -6,27 +6,474 @@
 /// `"approved"`) when starting the slice.
 ///
 /// Loose grouping (the ID ranges are conventional, not enforced):
-///   PKL-069             constraint-system round-off
-///   PKL-070 .. PKL-074  renderers (pcf / json / yaml / properties)
-///   PKL-075 .. PKL-084  stdlib expansion (pkl:base / pkl:math / pkl:reflect / regex / duration / read / trace)
-///   PKL-085 .. PKL-088  object expression features (for / when / hidden / null-coalescing)
-///   PKL-089 .. PKL-093  type system (generics + non-numeric constraints)
-///   PKL-094 .. PKL-097  CLI surface and upstream compatibility expansion
+///   PKL-099 .. PKL-106  CLI surface (format / repl / analyze / output driver)
+///   PKL-107 .. PKL-109  diagnostics, upstream compatibility
+///   PKL-110 .. PKL-118  typechecker rounding (generics inference, equality, narrowing)
+///   PKL-119 .. PKL-124  stdlib expansion (Set/Pair/Map, math float, semver/json/yaml/xml)
+///   PKL-125 .. PKL-127  renderer expansion (block scalars, plist/xml/protobuf, converters)
+///   PKL-128             package / https URI import
+///   PKL-129 .. PKL-130  documentation generation, codegen bridge
+///   PKL-131             LSP server foundation
 @ModuleInfo { minPklVersion = "0.31.0" }
 module specs.Roadmap
 
 import "../pkspec/Spec.pkl"
 
-// ── constraint-system round-off ─────────────────────────────────────────────
+// ── CLI surface ─────────────────────────────────────────────────────────────
 
-// ── renderers ───────────────────────────────────────────────────────────────
+local cliFormat: Spec.Scenario = new {
+  id = "PKL-099"
+  name = "cli format subcommand"
+  description =
+    "`moon run cmd/main -- format <file>` re-emits the source through the PCF renderer, preserving the program structure and normalizing whitespace / indentation. The first-cut output relies on the existing renderer surface (no CST trivia preservation); a follow-up may add trivia-preserving idempotent reformatting."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-070" }
+  tags { "cli"; "renderer"; "format"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local pklTestAppleCompat: Spec.Scenario = new {
+  id = "PKL-100"
+  name = "pkl test Apple-compatible runner"
+  description =
+    "`moon run cmd/main -- test` extends beyond the minimal facts-walker to match Apple Pkl's runner: `examples { [\"label\"] { value } }` blocks with expected-vs-actual diff against a `<file>-expected.pcf` golden, `--overwrite` mode to regenerate goldens, ignored / pending markers, multi-file test discovery, and an exit code matching upstream (0 on pass, non-zero on fail)."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-095" }
+  tags { "cli"; "pkl-test"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local pklRepl: Spec.Scenario = new {
+  id = "PKL-101"
+  name = "pkl repl interactive evaluator"
+  description =
+    "`moon run cmd/main -- repl` opens an interactive read-eval-print loop: each line parses as either a binding (`x = 5`) or an expression and prints the rendered result. Reuses the `AnalysisSession` so each entry incrementally extends the module."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-009" }
+  tags { "cli"; "repl" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+local pklAnalyzeLint: Spec.Scenario = new {
+  id = "PKL-102"
+  name = "pkl analyze lint subcommand"
+  description =
+    "`moon run cmd/main -- analyze <file>` reports lint findings: unused local bindings, unused imports, unused class properties, shadowed identifiers. Diagnostics carry source position once PKL-107 lands."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-009" }
+  tags { "cli"; "lint" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+local readNullableParserForm: Spec.Scenario = new {
+  id = "PKL-103"
+  name = "nullable read parser form"
+  description =
+    "Parser support for the `?`-suffixed call form `read?(uri)`. The evaluator returns `null` instead of a diagnostic when the resource is missing or the scheme is rejected, mirroring Apple Pkl's null-safe read."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-098" }
+  tags { "parser"; "evaluator"; "read"; "nullable" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+local outputRendererDriver: Spec.Scenario = new {
+  id = "PKL-104"
+  name = "output renderer driver path"
+  description =
+    "Recognize module-level `output { renderer = new JsonRenderer { ... } }` declarations and dispatch the chosen renderer (with optional converters) instead of relying on the `-f` CLI flag. Requires class-name tagging on `ObjectValue` so the renderer class can be read at runtime."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-097" }
+  tags { "renderer"; "output"; "driver" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local outputConverters: Spec.Scenario = new {
+  id = "PKL-105"
+  name = "renderer converters"
+  description =
+    "JSON / YAML / Properties renderers honor `converters { [\"path\"] = (value) -> ...; [\"Class\"] = (value) -> ... }`. Converters apply path-first then type-first; the value the converter returns is rendered in place."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-104" }
+  tags { "renderer"; "converter" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local cliAllowedModules: Spec.Scenario = new {
+  id = "PKL-106"
+  name = "cli sandbox flags"
+  description =
+    "`--allowed-modules <pattern>` / `--module-path <dir>` / `-p NAME=VALUE` populate the sandbox allow-list and the `prop:` resolver, lifting `read(\"prop:NAME\")` into the allow-list alongside `env:`."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-098" }
+  tags { "cli"; "sandbox" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+// ── diagnostics, upstream compatibility ─────────────────────────────────────
+
+local diagnosticSourcePosition: Spec.Scenario = new {
+  id = "PKL-107"
+  name = "source position in diagnostics"
+  description =
+    "Every `Diagnostic` carries `start` / `end` / `line` / `column` so error messages point at the offending token. The parser already carries the CST positions; the typechecker / evaluator need the relevant Expr node to thread the position into the diagnostic."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-004" }
+  tags { "diagnostics"; "position" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local errorMessageUpstreamAlign: Spec.Scenario = new {
+  id = "PKL-108"
+  name = "error message text upstream alignment"
+  description =
+    "Rephrase constraint / type rejection / read-failure messages to match Apple Pkl's exact wording so upstream error-fixture diffs become byte-exact. Today's diagnostics are functional but use project-local phrasing."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-107" }
+  tags { "diagnostics"; "compatibility" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local upstreamFixtureSweepExpansion: Spec.Scenario = new {
+  id = "PKL-109"
+  name = "upstream fixture sweep expansion"
+  description =
+    "Walk additional upstream `LanguageSnippetTests/input/*` subtrees (`api/`, `errors/`, `generators/`, `lambdas/`, `listings/`, `mappings/`, `methods/`, `objects/`, `packages/`, `projects/`) and promote every fixture that gold-matches byte-for-byte to the curated list. Tracks rolling coverage of the ~800-fixture upstream suite."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-096" }
+  tags { "compatibility"; "upstream" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+// ── typechecker rounding ────────────────────────────────────────────────────
+
+local callSiteGenericInference: Spec.Scenario = new {
+  id = "PKL-110"
+  name = "call-site generic inference"
+  description =
+    "Replace the PKL-089 / PKL-090 `UnknownType` placeholder with a `TypeVariable` propagation rule: at a call site like `identity(42)`, bind `T = Int` and propagate the binding through the parameter / return / body types so `b.value` on `new Box { value = 5 }` resolves to `Int`. Introduces a substitution table threaded through `infer_expr_with_bindings`."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-089"; "PKL-090" }
+  tags { "typechecker"; "generics"; "inference"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local floatPowerAndIntDivideForFloat: Spec.Scenario = new {
+  id = "PKL-111"
+  name = "Float Power and split float div semantics"
+  description =
+    "Decide and implement the operator surface for `**` / `~/` / `%` on Float operands: either widen all three (matching JVM Pkl), or surface them as `math.pow` / `math.floorDiv` / `math.remainder` stdlib calls. Today they diagnose with `not defined for Float operands`."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-092" }
+  tags { "evaluator"; "typechecker"; "float" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+local floatThresholdConstraints: Spec.Scenario = new {
+  id = "PKL-112"
+  name = "Float-threshold constraint predicates"
+  description =
+    "Lift the constraint predicate threshold encoding from Int to Double so `Float(isBetween(0.5, 1.5))` parses and runs without losing precision. Today the constraint parser only accepts Int literals as thresholds."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-092" }
+  tags { "constraint"; "float" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+local equalityTypecheckOperandMatch: Spec.Scenario = new {
+  id = "PKL-113"
+  name = "equality typecheck operand match"
+  description =
+    "`a == b` and `a != b` reject when the operand types are statically distinct (e.g. `5 == \"hi\"`). Today the typechecker returns BoolType unconditionally."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-004" }
+  tags { "typechecker"; "equality" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+local guardNarrowingExtension: Spec.Scenario = new {
+  id = "PKL-114"
+  name = "is-guard narrowing extension"
+  description =
+    "`is`-guard typecheck narrows for Float / Number / generic-type contexts. Today narrowing covers Int / Bool / String / Null only."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-092" }
+  tags { "typechecker"; "narrowing" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+local genericTypeAliases: Spec.Scenario = new {
+  id = "PKL-115"
+  name = "generic type aliases"
+  description =
+    "`typealias Box<T> = ...` parses and binds T in the target. The current parser does not recognize the `<T>` after the alias name; the typechecker has no substitution logic for alias arguments."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-110" }
+  tags { "parser"; "typechecker"; "typealias"; "generics" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local typeParameterBounds: Spec.Scenario = new {
+  id = "PKL-116"
+  name = "type parameter bounds"
+  description =
+    "`class Box<T : Number>` constrains T to a supertype. Parser accepts the `: <type>` suffix; typechecker checks the bound at call sites once PKL-110 inference exists."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-089"; "PKL-110" }
+  tags { "parser"; "typechecker"; "generics"; "bounds" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+local inheritanceDispatchHardening: Spec.Scenario = new {
+  id = "PKL-117"
+  name = "inheritance dispatch hardening"
+  description =
+    "Super method calls (`super.method()`), abstract method enforcement, and override-direction type compatibility. Existing class inheritance handles property defaults but not the full method-dispatch surface."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-040" }
+  tags { "evaluator"; "typechecker"; "inheritance" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local crossModuleTypecheckCompleteness: Spec.Scenario = new {
+  id = "PKL-118"
+  name = "cross-module typecheck round-trip completeness"
+  description =
+    "Imported modules' class definitions, type aliases, function signatures, and constraint annotations participate in the importing module's typecheck the same way local declarations do. Today some sites lose precision when crossing the import boundary."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-006" }
+  tags { "typechecker"; "imports" }
+  reviewStatus = "draft"
+  severity = "major"
+}
 
 // ── stdlib expansion ────────────────────────────────────────────────────────
 
-// ── object expression features ──────────────────────────────────────────────
+local setPairMapIntSeqVariants: Spec.Scenario = new {
+  id = "PKL-119"
+  name = "Set / Pair / Map / IntSeq Value variants"
+  description =
+    "Introduce dedicated Value variants for `Set` / `Pair` / `Map` / `IntSeq` instead of folding into `ListingValue` / `MappingValue`. The renderer round-trip for these stdlib types becomes accurate (`Set(1, 2, 3)`, `Pair(a, b)`), and equality / iteration matches upstream semantics."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-075" }
+  tags { "evaluator"; "stdlib"; "renderer" }
+  reviewStatus = "draft"
+  severity = "major"
+}
 
-// ── type system expansion ───────────────────────────────────────────────────
+local pklMathFloatOps: Spec.Scenario = new {
+  id = "PKL-120"
+  name = "pkl:math Float operations"
+  description =
+    "Expose Float-side helpers on `pkl:math`: `sqrt`, `pow`, `log`, `exp`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`, `atan`, `atan2`. Float numerics already exist (PKL-092), so the additions are stdlib wiring."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-092" }
+  tags { "stdlib"; "pkl-math"; "float" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
 
-// ── CLI surface and upstream compatibility ──────────────────────────────────
+local floatMagnitudeDurationDataSize: Spec.Scenario = new {
+  id = "PKL-121"
+  name = "Float magnitude Duration / DataSize literals"
+  description =
+    "`1.5.s`, `2.5.gib` and other Float-magnitude unit literals parse and evaluate to Duration / DataSize values whose magnitude is Double. Today only Int magnitudes are recognized."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-082"; "PKL-092" }
+  tags { "parser"; "evaluator"; "duration"; "datasize"; "float" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
 
-entries: Listing<Spec.Scenario> = new {}
+local stringUnicodeMethods: Spec.Scenario = new {
+  id = "PKL-122"
+  name = "String unicode and codepoint methods"
+  description =
+    "`String.codePoints`, `String.normalize`, `String.toRunes`, surrogate-pair aware `length`, and case-folding methods. Today `length` and indexing operate on UTF-16 code units."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-077" }
+  tags { "stdlib"; "string"; "unicode" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+local pklPlatformSemver: Spec.Scenario = new {
+  id = "PKL-123"
+  name = "pkl:platform and pkl:semver stdlib modules"
+  description =
+    "`pkl:platform` exposes the host OS / arch fields (`current.operatingSystem`, `current.architecture`). `pkl:semver` provides `Version`, `parse(s)`, comparison helpers. Both are read-only stubs from the evaluator's perspective."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-080" }
+  tags { "stdlib"; "platform"; "semver" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+local pklRendererStdlibModules: Spec.Scenario = new {
+  id = "PKL-124"
+  name = "pkl:json / pkl:yaml / pkl:xml / pkl:protobuf stdlib modules"
+  description =
+    "Stdlib classes for the renderer surface (`JsonRenderer`, `YamlRenderer`, `XmlRenderer`, `ProtobufRenderer`) that the `output { renderer }` driver path looks up. Today the CLI dispatches renderers via the `-f` flag and the stdlib classes do not exist."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-104" }
+  tags { "stdlib"; "renderer" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+// ── renderer expansion ──────────────────────────────────────────────────────
+
+local yamlBlockScalars: Spec.Scenario = new {
+  id = "PKL-125"
+  name = "YAML block scalars"
+  description =
+    "`|`, `|-`, `|+`, `>`, `>-`, `>+` block scalar projection for multiline / control-character strings. Today the YAML renderer double-quotes such strings, which is spec-compliant but less human-readable than upstream."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-073" }
+  tags { "renderer"; "yaml" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+local plistXmlProtobufRenderers: Spec.Scenario = new {
+  id = "PKL-126"
+  name = "plist / xml / protobuf renderers"
+  description =
+    "Three additional output formats matching Apple Pkl's renderer surface. plist follows the Apple plist DTD (Foundation property list, XML-1.0 form). XML emits Pkl objects as element trees. protobuf serializes against an externally provided `.proto` schema."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-070" }
+  tags { "renderer"; "plist"; "xml"; "protobuf" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local rendererConverters: Spec.Scenario = new {
+  id = "PKL-127"
+  name = "renderer converter machinery"
+  description =
+    "JSON / YAML / Properties renderers honor `converters { [\"path\"] = (value) -> ...; [\"Class\"] = (value) -> ... }`. Path lookups beat class lookups; the converter return value replaces the source value in the rendered output."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-104" }
+  tags { "renderer"; "converter" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+// ── parser surface ─────────────────────────────────────────────────────────
+
+local parserSurfaceExpansion: Spec.Scenario = new {
+  id = "PKL-128"
+  name = "parser surface expansion"
+  description =
+    "String interpolation `\\(expr)`, scientific notation Float (`1e10` / `2.5e-3`), triple-quoted heredoc strings, annotation classes (`@Deprecated`, `@Since`), and constraint predicate composition (`Int(isPositive & isLessThan(10))`). Each is a parser-side extension; downstream stages are mostly ready."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-001" }
+  tags { "parser" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local packageHttpsImports: Spec.Scenario = new {
+  id = "PKL-129"
+  name = "package and https URI imports"
+  description =
+    "`import \"package://pkg.pkl-lang.org/...\"` and `import \"https://example.com/foo.pkl\"` resolve through a sandbox-aware fetcher with checksum verification. Today only `pkl:`, file-relative, and absolute paths are recognized."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-006" }
+  tags { "parser"; "imports"; "sandbox" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+// ── documentation, codegen, LSP ─────────────────────────────────────────────
+
+local pkldoc: Spec.Scenario = new {
+  id = "PKL-130"
+  name = "pkldoc documentation generation"
+  description =
+    "`moon run cmd/main -- doc <module>` renders the module's class / typealias / function declarations as Markdown / HTML, using the doc-comment text already captured by the parser."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-080" }
+  tags { "cli"; "pkldoc" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+local codegenBridge: Spec.Scenario = new {
+  id = "PKL-131"
+  name = "pkl-codegen bridge"
+  description =
+    "Lower a typechecked Pkl module to a target language schema (Java / Kotlin / Swift / Go). The bridge consumes the existing typechecker state via `pkl:reflect`'s minimal stub once expanded."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-080"; "PKL-110" }
+  tags { "cli"; "codegen" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local lspServer: Spec.Scenario = new {
+  id = "PKL-132"
+  name = "LSP server foundation"
+  description =
+    "A Language Server Protocol server (stdio or socket transport) that surfaces hover, go-to-definition, find-references, completion, diagnostics, semantic tokens, and rename. The existing CST + typechecker + ripple-backed AnalysisSession provide the analysis substrate."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-107" }
+  tags { "lsp"; "editor" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+entries: Listing<Spec.Scenario> = new {
+  cliFormat
+  pklTestAppleCompat
+  pklRepl
+  pklAnalyzeLint
+  readNullableParserForm
+  outputRendererDriver
+  outputConverters
+  cliAllowedModules
+  diagnosticSourcePosition
+  errorMessageUpstreamAlign
+  upstreamFixtureSweepExpansion
+  callSiteGenericInference
+  floatPowerAndIntDivideForFloat
+  floatThresholdConstraints
+  equalityTypecheckOperandMatch
+  guardNarrowingExtension
+  genericTypeAliases
+  typeParameterBounds
+  inheritanceDispatchHardening
+  crossModuleTypecheckCompleteness
+  setPairMapIntSeqVariants
+  pklMathFloatOps
+  floatMagnitudeDurationDataSize
+  stringUnicodeMethods
+  pklPlatformSemver
+  pklRendererStdlibModules
+  yamlBlockScalars
+  plistXmlProtobufRenderers
+  rendererConverters
+  parserSurfaceExpansion
+  packageHttpsImports
+  pkldoc
+  codegenBridge
+  lspServer
+}
