@@ -43,6 +43,12 @@ priv struct ClassBinding {
 }
 
 ///|
+priv struct EvalTypeAliasBinding {
+  name : String
+  target : String
+}
+
+///|
 pub(all) struct ClassExport {
   name : String
   parent_name : String?
@@ -81,6 +87,20 @@ fn lookup_class_binding(
   for binding in env {
     if binding.name == name {
       found = Some(binding)
+    }
+  }
+  found
+}
+
+///|
+fn lookup_eval_type_alias(
+  env : Array[EvalTypeAliasBinding],
+  name : String,
+) -> String? {
+  let mut found : String? = None
+  for binding in env {
+    if binding.name == name {
+      found = Some(binding.target)
     }
   }
   found
@@ -208,6 +228,75 @@ fn all_eval_bindings(program : Program) -> Array[Binding] {
     bindings.push(binding)
   }
   bindings
+}
+
+///|
+fn eval_type_alias_bindings(
+  declarations : Array[Declaration],
+) -> Array[EvalTypeAliasBinding] {
+  let aliases : Array[EvalTypeAliasBinding] = []
+  for declaration in declarations {
+    match declaration {
+      TypeAliasDeclaration(type_alias) =>
+        aliases.push({ name: type_alias.name, target: type_alias.target })
+      ClassDeclaration(_) | FunctionDeclaration(_) => ()
+    }
+  }
+  aliases
+}
+
+///|
+fn eval_constrained_type_source_name_with_depth(
+  name : String,
+  aliases : Array[EvalTypeAliasBinding],
+  depth : Int,
+) -> String? {
+  if depth > 8 {
+    return None
+  }
+  if pkl_constrained_type_annotation_has_supported_constraint(name) {
+    return Some(name)
+  }
+  match lookup_eval_type_alias(aliases, name) {
+    Some(target) =>
+      eval_constrained_type_source_name_with_depth(target, aliases, depth + 1)
+    None => None
+  }
+}
+
+///|
+fn eval_constrained_type_source_name(
+  name : String,
+  aliases : Array[EvalTypeAliasBinding],
+) -> String? {
+  eval_constrained_type_source_name_with_depth(name, aliases, 0)
+}
+
+///|
+fn eval_constrained_type_annotation_value_is_valid(
+  type_name : String?,
+  value : Value,
+  aliases : Array[EvalTypeAliasBinding],
+  diagnostics : Array[Diagnostic],
+) -> Bool {
+  match type_name {
+    Some(display_name) =>
+      match eval_constrained_type_source_name(display_name, aliases) {
+        Some(source_name) =>
+          match
+            pkl_constrained_type_annotation_value_rejection_message_from_source(
+              display_name, source_name, value,
+            ) {
+            Some(message) => {
+              diagnostics.push(Diagnostic::{ message, })
+              false
+            }
+            None => true
+          }
+        None => true
+      }
+    None => true
+  }
 }
 
 ///|
@@ -1274,6 +1363,7 @@ fn eval_program(
 ) -> Value? {
   let env : Array[ValueBinding] = []
   let class_env = collect_class_bindings(program.declarations)
+  let type_aliases = eval_type_alias_bindings(program.declarations)
   let cache : Array[ValueBinding] = []
   let members : Array[ValueMember] = []
   let bindings = all_eval_bindings(program)
@@ -1296,7 +1386,15 @@ fn eval_program(
           diagnostics,
           resolve_import,
         ) {
-        Some(value) => members.push({ name: binding.name, value })
+        Some(value) =>
+          if eval_constrained_type_annotation_value_is_valid(
+              binding.type_name,
+              value,
+              type_aliases,
+              diagnostics,
+            ) {
+            members.push({ name: binding.name, value })
+          }
         None => ()
       }
     }

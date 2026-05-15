@@ -224,22 +224,19 @@ fn pkl_constrained_type_annotation_has_supported_constraint(
 }
 
 ///|
-fn pkl_constrained_int_rejection_message(
-  type_name : String?,
+fn pkl_constrained_int_rejection_message_from_source(
+  display_name : String,
+  source_name : String,
   value : Int,
 ) -> String? {
-  match type_name {
-    Some(name) =>
-      match pkl_constrained_int_range(name) {
-        Some(range) =>
-          if value < range.lower || value > range.upper {
-            Some(
-              "type annotation \{name} constraint isBetween rejects \{value}",
-            )
-          } else {
-            None
-          }
-        None => None
+  match pkl_constrained_int_range(source_name) {
+    Some(range) =>
+      if value < range.lower || value > range.upper {
+        Some(
+          "type annotation \{display_name} constraint isBetween rejects \{value}",
+        )
+      } else {
+        None
       }
     None => None
   }
@@ -255,25 +252,16 @@ fn pkl_int_literal_value(expr : Expr) -> Int? {
 }
 
 ///|
-fn pkl_push_constrained_type_annotation_expr_diagnostic(
-  type_name : String?,
-  expr : Expr,
-  diagnostics : Array[Diagnostic],
-) -> Unit {
-  match
-    pkl_constrained_type_annotation_expr_rejection_message(type_name, expr) {
-    Some(message) => diagnostics.push(Diagnostic::{ message, })
-    None => ()
-  }
-}
-
-///|
-fn pkl_constrained_type_annotation_expr_rejection_message(
-  type_name : String?,
+fn pkl_constrained_type_annotation_expr_rejection_message_from_source(
+  display_name : String,
+  source_name : String,
   expr : Expr,
 ) -> String? {
   match pkl_int_literal_value(expr) {
-    Some(value) => pkl_constrained_int_rejection_message(type_name, value)
+    Some(value) =>
+      pkl_constrained_int_rejection_message_from_source(
+        display_name, source_name, value,
+      )
     None => None
   }
 }
@@ -307,8 +295,26 @@ fn pkl_constrained_type_annotation_value_rejection_message(
   type_name : String?,
   value : Value,
 ) -> String? {
+  match type_name {
+    Some(name) =>
+      pkl_constrained_type_annotation_value_rejection_message_from_source(
+        name, name, value,
+      )
+    None => None
+  }
+}
+
+///|
+fn pkl_constrained_type_annotation_value_rejection_message_from_source(
+  display_name : String,
+  source_name : String,
+  value : Value,
+) -> String? {
   match pkl_value_int(value) {
-    Some(inner) => pkl_constrained_int_rejection_message(type_name, inner)
+    Some(inner) =>
+      pkl_constrained_int_rejection_message_from_source(
+        display_name, source_name, inner,
+      )
     None => None
   }
 }

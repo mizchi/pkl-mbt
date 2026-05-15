@@ -442,6 +442,101 @@ fn type_from_annotation(name : String, type_env : Array[TypeBinding]) -> Type? {
 }
 
 ///|
+fn constrained_type_source_name_with_depth(
+  name : String,
+  type_env : Array[TypeBinding],
+  depth : Int,
+) -> String? {
+  if depth > 8 {
+    return None
+  }
+  if pkl_constrained_type_annotation_has_supported_constraint(name) {
+    return Some(name)
+  }
+  match lookup_type(type_env, name) {
+    Some(ConstrainedType(source_name, _)) =>
+      constrained_type_source_name_with_depth(source_name, type_env, depth + 1)
+    _ => None
+  }
+}
+
+///|
+fn constrained_type_source_name(
+  name : String,
+  type_env : Array[TypeBinding],
+) -> String? {
+  constrained_type_source_name_with_depth(name, type_env, 0)
+}
+
+///|
+fn constrained_type_annotation_expr_rejection_message(
+  type_name : String?,
+  expr : Expr,
+  type_env : Array[TypeBinding],
+) -> String? {
+  match type_name {
+    Some(display_name) =>
+      match constrained_type_source_name(display_name, type_env) {
+        Some(source_name) =>
+          pkl_constrained_type_annotation_expr_rejection_message_from_source(
+            display_name, source_name, expr,
+          )
+        None => None
+      }
+    None => None
+  }
+}
+
+///|
+fn push_constrained_type_annotation_expr_diagnostic(
+  type_name : String?,
+  expr : Expr,
+  type_env : Array[TypeBinding],
+  diagnostics : Array[Diagnostic],
+) -> Unit {
+  match
+    constrained_type_annotation_expr_rejection_message(
+      type_name, expr, type_env,
+    ) {
+    Some(message) => diagnostics.push(Diagnostic::{ message, })
+    None => ()
+  }
+}
+
+///|
+fn type_from_alias_target_annotation(
+  name : String,
+  type_env : Array[TypeBinding],
+) -> Type? {
+  match type_from_annotation(name, type_env) {
+    Some(typ) =>
+      if pkl_constrained_type_annotation_has_supported_constraint(name) {
+        Some(ConstrainedType(name, typ))
+      } else {
+        Some(typ)
+      }
+    None => None
+  }
+}
+
+///|
+fn parameter_type_from_annotation(
+  name : String,
+  type_env : Array[TypeBinding],
+) -> Type? {
+  match type_from_annotation(name, type_env) {
+    Some(typ) =>
+      if pkl_constrained_type_annotation_has_supported_constraint(name) ||
+        typ is ConstrainedType(_, _) {
+        Some(ConstrainedType(name, member_contract_type(typ)))
+      } else {
+        Some(typ)
+      }
+    None => None
+  }
+}
+
+///|
 fn type_accepts(expected : Type, inferred : Type) -> Bool {
   if expected == inferred {
     return true
@@ -609,6 +704,7 @@ fn apply_type_annotation(
             match (expected, inferred) {
               (NullableType(ObjectType([])), ObjectType(_)) =>
                 NullableType(inferred)
+              (ConstrainedType(_, inner), _) => inner
               _ => expected
             }
           } else {
@@ -666,15 +762,8 @@ fn function_parameter_types(
   for parameter in parameters {
     match parameter.type_name {
       Some(type_name) =>
-        match type_from_annotation(type_name, type_env) {
-          Some(typ) =>
-            if pkl_constrained_type_annotation_has_supported_constraint(
-                type_name,
-              ) {
-              types.push(ConstrainedType(type_name, typ))
-            } else {
-              types.push(typ)
-            }
+        match parameter_type_from_annotation(type_name, type_env) {
+          Some(typ) => types.push(typ)
           None => {
             diagnostics.push(Diagnostic::{
               message: "unknown type annotation \{type_name}",
@@ -1467,7 +1556,7 @@ fn collect_declared_types_with_imports(
           ),
         })
       TypeAliasDeclaration(type_alias) =>
-        match type_from_annotation(type_alias.target, type_env) {
+        match type_from_alias_target_annotation(type_alias.target, type_env) {
           Some(typ) => type_env.push({ name: type_alias.name, typ })
           None =>
             diagnostics.push(Diagnostic::{
@@ -1539,9 +1628,10 @@ fn resolve_binding_type(
               type_env,
               diagnostics,
             )
-            pkl_push_constrained_type_annotation_expr_diagnostic(
+            push_constrained_type_annotation_expr_diagnostic(
               binding.type_name,
               binding.value,
+              type_env,
               diagnostics,
             )
             cache.push({ name, typ })
@@ -1603,6 +1693,7 @@ fn validate_higher_order_constrained_call(
   body : Expr,
   argument_types : Array[Type],
   arguments : Array[Expr],
+  type_env : Array[TypeBinding],
   diagnostics : Array[Diagnostic],
 ) -> Bool {
   match body {
@@ -1626,9 +1717,10 @@ fn validate_higher_order_constrained_call(
                           function_parameter_index(parameters, argument_name) {
                           Some(argument_index) =>
                             match
-                              pkl_constrained_type_annotation_expr_rejection_message(
+                              constrained_type_annotation_expr_rejection_message(
                                 Some(type_name),
                                 arguments[argument_index],
+                                type_env,
                               ) {
                               Some(message) => {
                                 diagnostics.push(Diagnostic::{
@@ -1684,13 +1776,14 @@ fn infer_lambda_application(
     let parameter = parameters[i]
     let parameter_type = match parameter.type_name {
       Some(type_name) =>
-        match type_from_annotation(type_name, type_env) {
+        match parameter_type_from_annotation(type_name, type_env) {
           Some(expected) =>
             if type_accepts(expected, argument_types[i]) {
               match
-                pkl_constrained_type_annotation_expr_rejection_message(
+                constrained_type_annotation_expr_rejection_message(
                   parameter.type_name,
                   arguments[i],
+                  type_env,
                 ) {
                 Some(message) => {
                   diagnostics.push(Diagnostic::{
@@ -1719,7 +1812,7 @@ fn infer_lambda_application(
     call_cache.push({ name: parameter.name, typ: parameter_type })
   }
   if !validate_higher_order_constrained_call(
-      label, parameters, body, argument_types, arguments, diagnostics,
+      label, parameters, body, argument_types, arguments, type_env, diagnostics,
     ) {
     return UnknownType
   }
@@ -1793,9 +1886,10 @@ fn infer_function_type_call(
     match constrained_type_annotation_name(expected) {
       Some(type_name) =>
         match
-          pkl_constrained_type_annotation_expr_rejection_message(
+          constrained_type_annotation_expr_rejection_message(
             Some(type_name),
             arguments[i],
+            type_env,
           ) {
           Some(message) => {
             diagnostics.push(Diagnostic::{
@@ -2472,9 +2566,10 @@ fn infer_object_members(
         diagnostics,
       ),
     })
-    pkl_push_constrained_type_annotation_expr_diagnostic(
+    push_constrained_type_annotation_expr_diagnostic(
       field.type_name,
       field.value,
+      type_env,
       diagnostics,
     )
   }

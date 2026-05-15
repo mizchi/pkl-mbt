@@ -995,8 +995,8 @@ local constrainedTypealiasMetadata = new Scenario {
     "Type aliases that target constrained annotations such as `typealias Small = Int(isBetween(0, 10))` preserve enough metadata for annotated values and callable parameters to keep enforcing the constraint."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-050"; "PKL-045"; "PKL-028" }
-  tags { "typechecker"; "evaluator"; "next" }
-  reviewStatus = "draft"
+  tags { "typechecker"; "evaluator" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -1004,6 +1004,26 @@ local constrainedTypealiasMetadata = new Scenario {
       summary = "Carry constrained annotations through aliases"
       rationale =
         "Constraint metadata now survives callable aliases and method calls, but type aliases still resolve primarily to their base type. Alias targets need to preserve supported constraint metadata before more stdlib-style signatures can be checked."
+    }
+  }
+}
+
+local constrainedTypealiasObjectMembers = new Scenario {
+  id = "PKL-052"
+  name = "evaluate Pkl constrained typealias object member annotations"
+  description =
+    "Object member annotations that use constrained type aliases preserve alias metadata during evaluation, so nested object values reject invalid constrained members."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-051"; "PKL-046"; "PKL-017" }
+  tags { "evaluator"; "typechecker"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Move alias metadata into nested object evaluation"
+      rationale =
+        "Constrained type aliases now work for top-level values and callable parameter typechecking. Evaluating nested object member annotations needs alias metadata to flow through object evaluation instead of only the top-level binding loop."
     }
   }
 }
@@ -1062,4 +1082,5 @@ scenarios {
   constrainedHigherOrderCallableMetadata
   constrainedMethodParameterEvaluation
   constrainedTypealiasMetadata
+  constrainedTypealiasObjectMembers
 }
