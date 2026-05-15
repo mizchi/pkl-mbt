@@ -36,6 +36,7 @@ The current slice is intentionally small and executable:
 - runtime constrained return annotation validation, including user-defined numeric predicate factories
 - runtime user-defined numeric predicate factory enforcement for callable and class method parameter annotations
 - typecheck literal-body callable return validation for built-in and user-defined constrained return annotations
+- runtime typealias resolution for callable and class method return annotations
 - native CLI commands: `parse`, `check`, and `eval`
 - common string escape decoding/rendering for `\n`, `\t`, `\r`, `\"`, and `\\`
 - ripple-backed `AnalysisSession` for source-driven typechecking
@@ -46,7 +47,7 @@ The current slice is intentionally small and executable:
 
 ## Current Completion Estimate
 
-As of the `PKL-067` spec slice, this project has 67 implemented pkspec scenarios. The next tracked slice is `PKL-068`, which resolves typealiased callable return annotations through the alias chain at runtime.
+As of the `PKL-068` spec slice, this project has 68 implemented pkspec scenarios. The next tracked slice is `PKL-069`, which mirrors the typealias resolution on the runtime argument side so typealiased callable parameter annotations enforce their predicates.
 
 These are engineering estimates, not formal coverage numbers:
 
@@ -99,4 +100,4 @@ git submodule update --init --recursive
 
 ## Scope
 
-This is not a full Pkl implementation yet. The next compatibility work is `PKL-068` typealiased callable return evaluation, followed by broader Pkl type/stdlib coverage and class/object semantics.
+This is not a full Pkl implementation yet. The next compatibility work is `PKL-069` typealiased callable argument evaluation, followed by broader Pkl type/stdlib coverage and class/object semantics.

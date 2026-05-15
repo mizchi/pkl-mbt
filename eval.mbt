@@ -265,6 +265,30 @@ fn eval_constrained_type_source_name_with_depth(
 }
 
 ///|
+fn eval_resolved_type_alias_with_depth(
+  name : String,
+  aliases : Array[EvalTypeAliasBinding],
+  depth : Int,
+) -> String {
+  if depth > 8 {
+    return name
+  }
+  match lookup_eval_type_alias(aliases, name) {
+    Some(target) =>
+      eval_resolved_type_alias_with_depth(target, aliases, depth + 1)
+    None => name
+  }
+}
+
+///|
+fn eval_resolved_type_alias(
+  name : String,
+  aliases : Array[EvalTypeAliasBinding],
+) -> String {
+  eval_resolved_type_alias_with_depth(name, aliases, 0)
+}
+
+///|
 fn eval_constrained_type_source_name(
   name : String,
   aliases : Array[EvalTypeAliasBinding],
@@ -836,27 +860,30 @@ fn eval_callable_return_rejection_message(
   declarations : Array[Declaration],
 ) -> String? {
   match return_type_name {
-    Some(type_name) =>
-      if !eval_value_accepts_type_annotation(type_name, value) {
+    Some(type_name) => {
+      let aliases = eval_type_alias_bindings(declarations)
+      let resolved_type_name = eval_resolved_type_alias(type_name, aliases)
+      if !eval_value_accepts_type_annotation(resolved_type_name, value) {
         Some(
           "\{label} return type annotation \{type_name} does not accept \{eval_value_type_name(value)}",
         )
       } else {
         match
-          pkl_constrained_type_annotation_value_rejection_message(
-            return_type_name, value,
+          pkl_constrained_type_annotation_value_rejection_message_from_source(
+            type_name, resolved_type_name, value,
           ) {
           Some(message) => Some("\{label} return \{message}")
           None =>
             match
-              pkl_user_defined_constrained_type_annotation_value_rejection_message(
-                return_type_name, value, declarations,
+              pkl_user_defined_constrained_type_annotation_value_rejection_message_from_source(
+                type_name, resolved_type_name, value, declarations,
               ) {
               Some(message) => Some("\{label} return \{message}")
               None => None
             }
         }
       }
+    }
     None => None
   }
 }

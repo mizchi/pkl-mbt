@@ -1100,6 +1100,67 @@ test "evaluate user-defined constrained Pkl class method arguments" {
 }
 
 ///|
+test "evaluate typealiased Pkl callable return annotations" {
+  assert_true(
+    eval_source(
+      "typealias Small = Int\nfunction good(): Small = 1\nvalue = good()",
+    ) ==
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(1) }])),
+  )
+  guard eval_source(
+      "typealias Small = Int\nfunction bad(): Small = \"hawk\"\nvalue = bad()",
+    )
+    is EvalError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="function bad return type annotation Small does not accept String",
+  )
+  assert_true(
+    eval_source(
+      "typealias Small = Int(isBetween(0, 10))\nfunction good(): Small = 6\nvalue = good()",
+    ) ==
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(6) }])),
+  )
+  guard eval_source(
+      "typealias Small = Int(isBetween(0, 10))\nfunction bad(): Small = 11\nvalue = bad()",
+    )
+    is EvalError(constraint_diagnostics) else {
+    panic()
+  }
+  inspect(
+    constraint_diagnostics[0].message,
+    content="function bad return type annotation Small constraint isBetween rejects 11",
+  )
+}
+
+///|
+test "evaluate typealiased Pkl class method return annotations" {
+  assert_true(
+    eval_source(
+      "typealias Small = Int\nclass Counter { function good(): Small = 1 }\ncounter = new Counter {}\nvalue = counter.good()",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "counter", value: ObjectValue([]) },
+        ValueMember::{ name: "value", value: IntValue(1) },
+      ]),
+    ),
+  )
+  guard eval_source(
+      "typealias Small = Int\nclass Counter { function bad(): Small = \"hawk\" }\ncounter = new Counter {}\nvalue = counter.bad()",
+    )
+    is EvalError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="method bad return type annotation Small does not accept String",
+  )
+}
+
+///|
 test "typecheck rejects invalid Pkl calls" {
   guard typecheck_source("function add(x, y) = x + y\nvalue = add(1)")
     is TypeError(arity_diagnostics) else {

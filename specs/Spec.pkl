@@ -1353,8 +1353,8 @@ local typeAliasedCallableReturnEvaluation = new Scenario {
     "Function, lambda, and class method return annotations whose declared type name is a typealias resolve through the alias chain at runtime, accepting alias targets such as Int when the alias is declared as typealias Small = Int."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-065"; "PKL-039" }
-  tags { "evaluator"; "callable"; "typealias"; "next" }
-  reviewStatus = "draft"
+  tags { "evaluator"; "callable"; "typealias" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -1362,6 +1362,32 @@ local typeAliasedCallableReturnEvaluation = new Scenario {
       summary = "Resolve callable return aliases before runtime base-type validation"
       rationale =
         "eval_value_accepts_type_annotation rejects typealiased return annotations because it only matches the literal alias name against the value type. Value bindings already resolve aliases through the type alias environment, and the same resolution should happen for callable returns so user code can name the return through a typealias."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Preserve the alias display name in diagnostics"
+      rationale =
+        "The constraint rejection helpers accept separate display and source names, so the runtime can resolve the alias to drive the base-type and constraint checks while still surfacing the alias in the user-facing diagnostic for parity with constrained value binding messages."
+    }
+  }
+}
+
+local typeAliasedCallableArgumentEvaluation = new Scenario {
+  id = "PKL-069"
+  name = "evaluate typealiased Pkl callable argument annotations"
+  description =
+    "Function, lambda, and class method calls resolve typealiased parameter annotations through the alias chain at runtime so built-in and user-defined constrained predicates fire when the constraint is declared via a typealias such as typealias Small = Int(isBetween(0, 10))."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-066"; "PKL-068" }
+  tags { "evaluator"; "callable"; "typealias"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Mirror the return-side alias resolution on the argument side"
+      rationale =
+        "Callable arguments already enforce constrained annotations declared inline, and return-side alias resolution now works through eval_resolved_type_alias. The argument-side rejection helper should follow the same alias resolution so typealiased parameter annotations are not silently bypassed at runtime."
     }
   }
 }
@@ -1437,4 +1463,5 @@ scenarios {
   userDefinedConstrainedCallableArgumentEvaluation
   constrainedCallableReturnBodyTypechecking
   typeAliasedCallableReturnEvaluation
+  typeAliasedCallableArgumentEvaluation
 }
