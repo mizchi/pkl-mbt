@@ -873,6 +873,39 @@ fn eval_value_accepts_type_annotation(
 }
 
 ///|
+fn eval_type_name_is_type_parameter(
+  type_name : String,
+  declarations : Array[Declaration],
+) -> Bool {
+  // PKL-089 / PKL-090: a function or class type parameter is an
+  // arbitrary user-chosen identifier (T, U, K, V, MyParam) bound at the
+  // declaration site. The evaluator treats it as 'accept any value' —
+  // call-site inference is deferred, so neither runtime parameter
+  // validation nor return-value validation should reject based on the
+  // parameter name. Class type parameters check covers methods on a
+  // generic class; function parameters cover top-level generic
+  // functions.
+  for declaration in declarations {
+    match declaration {
+      FunctionDeclaration(fd) =>
+        for parameter in fd.type_parameters {
+          if parameter == type_name {
+            return true
+          }
+        }
+      ClassDeclaration(cd) =>
+        for parameter in cd.type_parameters {
+          if parameter == type_name {
+            return true
+          }
+        }
+      TypeAliasDeclaration(_) => ()
+    }
+  }
+  false
+}
+
+///|
 fn eval_callable_argument_rejection_message(
   type_name : String?,
   value : Value,
@@ -885,6 +918,9 @@ fn eval_callable_argument_rejection_message(
   // diagnostic while running the resolved constraint against the value.
   match type_name {
     Some(source) => {
+      if eval_type_name_is_type_parameter(source, declarations) {
+        return None
+      }
       let aliases = eval_type_alias_bindings(declarations)
       let resolved = eval_resolved_type_alias(source, aliases)
       match
@@ -911,6 +947,9 @@ fn eval_callable_return_rejection_message(
 ) -> String? {
   match return_type_name {
     Some(type_name) => {
+      if eval_type_name_is_type_parameter(type_name, declarations) {
+        return None
+      }
       let aliases = eval_type_alias_bindings(declarations)
       let resolved_type_name = eval_resolved_type_alias(type_name, aliases)
       if !eval_value_accepts_type_annotation(resolved_type_name, value) {

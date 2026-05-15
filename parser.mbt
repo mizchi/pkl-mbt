@@ -1042,6 +1042,33 @@ fn Parser::parse_function_decl(self : Parser) -> FunctionDecl? {
     Some(tok) => tok.text()
     None => ""
   }
+  // PKL-090: optional type parameter list `<T1, T2, ...>` immediately
+  // after the function name. Same shape and intent as the class
+  // parameter scope: names are recorded on the AST and the typechecker
+  // binds them to UnknownType inside the body.
+  let type_parameters : Array[String] = []
+  self.skip_whitespace()
+  if self.at_text("<") {
+    ignore(self.bump())
+    let mut more = true
+    while more {
+      self.skip_whitespace()
+      match self.expect(identifier(), "type parameter") {
+        Some(tok) => type_parameters.push(tok.text())
+        None => ()
+      }
+      self.skip_whitespace()
+      if self.at_text(",") {
+        ignore(self.bump())
+      } else {
+        more = false
+      }
+    }
+    self.skip_whitespace()
+    if self.at_text(">") {
+      ignore(self.bump())
+    }
+  }
   let parameters : Array[FunctionParameter] = []
   self.skip_whitespace()
   if self.at(lparen()) {
@@ -1079,7 +1106,7 @@ fn Parser::parse_function_decl(self : Parser) -> FunctionDecl? {
   if name == "" {
     None
   } else {
-    Some({ name, parameters, return_type_name, body })
+    Some({ name, type_parameters, parameters, return_type_name, body })
   }
 }
 

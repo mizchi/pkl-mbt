@@ -277,10 +277,11 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **generic function type parameters** [draft] — verifies: PKL-090 — tags: typechecker, generics, callable, next
-  > Function declarations such as `function identity<T>(x: T): T = x` accept a type parameter list; the typechecker infers the binding from the argument types at call sites.
+- [ ] **generic function type parameters** — verifies: PKL-090 — tags: typechecker, evaluator, generics, callable
+  > `function identity<T>(x: T): T = x` and `function pair_first<A, B>(a: A, b: B): A = a` parse, typecheck, and evaluate. The parser captures the optional `<T1, T2, ...>` list immediately after the function name on `FunctionDecl.type_parameters`. The module-level `collect_declared_types_with_imports` flattens each function's parameters into the shared `type_env` as `UnknownType` bindings so body uses of `T` resolve without the 'unknown type annotation' diagnostic. The evaluator gains a `eval_type_name_is_type_parameter` short-circuit on both the callable-argument and callable-return validators: when the declared `type_name` matches any class or function type parameter, runtime annotation rejection is skipped wholesale (the parameter accepts any value). Call-site inference of T from the argument type stays deferred — `identity(42)` evaluates to `IntValue(42)` because the body is a literal pass-through, not because the typechecker propagated `Int` through `T`.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-089
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **hidden and local object members** — verifies: PKL-087 — tags: evaluator, renderer, object
@@ -703,8 +704,8 @@
   > The native CLI evaluates a Float-heavy fixture, exercising Float literals, mixed Int / Float arithmetic, `Int / Int` widening to Float, and `Float(isPositive)` / `Float(isBetween(...))` / `Number(isPositive)` constraint predicates.
   - body: `cmd` (exit 0 expected)
 
-- [x] **cli generic class declarations** — verifies: PKL-089 — tags: moonbit, cli, generics, contract
-  > The native CLI evaluates a fixture that declares `class Box<T>` and `class Pair<A, B>`, instantiates each with `new`, and renders the resulting Object values.
+- [x] **cli generic class and function declarations** — verifies: PKL-089, PKL-090 — tags: moonbit, cli, generics, contract
+  > The native CLI evaluates a fixture that declares `class Box<T>`, `class Pair<A, B>`, `function identity<T>(x: T): T`, and `function pair_first<A, B>(a: A, b: B): A`, then instantiates and calls each. Type parameters are tolerated as UnknownType in the typechecker and accept-any in the evaluator's runtime annotation validators.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli reflect minimal stub** — verifies: PKL-080 — tags: moonbit, cli, pkl-reflect, stdlib, contract
@@ -723,7 +724,7 @@
   > The native CLI evaluates a fixture where `trace(value)` wraps its argument; the rendered output shows the inner values unchanged, confirming the builtin pass-through semantics ship as part of PKL-084.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-080, PKL-081, PKL-082, PKL-083, PKL-084, PKL-085, PKL-086, PKL-087, PKL-088, PKL-089, PKL-091, PKL-092, PKL-093, PKL-098 — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-080, PKL-081, PKL-082, PKL-083, PKL-084, PKL-085, PKL-086, PKL-087, PKL-088, PKL-089, PKL-090, PKL-091, PKL-092, PKL-093, PKL-098 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 

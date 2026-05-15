@@ -1571,6 +1571,48 @@ test "pkl:math exposes Int abs, min, max functions" {
 }
 
 ///|
+test "generic function declaration parses and evaluates" {
+  // PKL-090: `function identity<T>(x: T): T = x` parses with the type
+  // parameter list, typechecks (T binds to UnknownType inside the body),
+  // and evaluates as a normal function. Call-site inference of T from
+  // the argument type stays deferred.
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "function identity<T>(x: T): T = x\nres = identity(42)",
+  )
+  guard session.typecheck_path("main.pkl") is TypeOk(_) else { panic() }
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut res_value : Value? = None
+  for entry in members {
+    if entry.name == "res" {
+      res_value = Some(entry.value)
+    }
+  }
+  assert_true(res_value == Some(IntValue(42)))
+}
+
+///|
+test "generic function with two type parameters" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "function pair_first<A, B>(a: A, b: B): A = a\nres = pair_first(7, \"x\")",
+  )
+  guard session.typecheck_path("main.pkl") is TypeOk(_) else { panic() }
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut res_value : Value? = None
+  for entry in members {
+    if entry.name == "res" {
+      res_value = Some(entry.value)
+    }
+  }
+  assert_true(res_value == Some(IntValue(7)))
+}
+
+///|
 test "generic class declaration parses without error" {
   // PKL-089: `class Box<T>` parses, captures `T` as a type parameter on
   // the ClassDecl, and typechecks (T binds to UnknownType inside the

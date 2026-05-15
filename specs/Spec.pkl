@@ -1503,6 +1503,38 @@ local durationAndDataSizeLiterals = new Scenario {
   }
 }
 
+local genericFunctionTypeParameters = new Scenario {
+  id = "PKL-090"
+  name = "generic function type parameters"
+  description =
+    "`function identity<T>(x: T): T = x` and `function pair_first<A, B>(a: A, b: B): A = a` parse, typecheck, and evaluate. The parser captures the optional `<T1, T2, ...>` list immediately after the function name on `FunctionDecl.type_parameters`. The module-level `collect_declared_types_with_imports` flattens each function's parameters into the shared `type_env` as `UnknownType` bindings so body uses of `T` resolve without the 'unknown type annotation' diagnostic. The evaluator gains a `eval_type_name_is_type_parameter` short-circuit on both the callable-argument and callable-return validators: when the declared `type_name` matches any class or function type parameter, runtime annotation rejection is skipped wholesale (the parameter accepts any value). Call-site inference of T from the argument type stays deferred — `identity(42)` evaluates to `IntValue(42)` because the body is a literal pass-through, not because the typechecker propagated `Int` through `T`."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-089" }
+  tags { "typechecker"; "evaluator"; "generics"; "callable" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Flatten function parameters into the module-level `type_env`"
+      rationale =
+        "Pkl exposes no nested function definitions in user-visible syntax, so all function declarations share a single module scope. A flat injection costs nothing compared with threading a per-function scope through every typechecker helper that touches a body. Name collisions across functions collapse to a single `UnknownType` binding, which is correct under the deferred-inference model — both T's are 'tolerated unknown' until call-site inference arrives."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Short-circuit runtime annotation validators on type parameter names"
+      rationale =
+        "The runtime callable-argument and callable-return validators reject when `eval_value_accepts_type_annotation` says no. Without an instantiation-time binding, `T` simply is not a concrete type — saying 'accept anything' (matching the deferred-inference posture) is more honest than rejecting all calls to a generic function. The check walks all declarations once per call, which is fine at our declaration counts and cacheable later."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Defer call-site inference of T to a follow-up slice"
+      rationale =
+        "True generic inference (propagating the argument type into the body and the return) needs a substitution table that the typechecker can thread through every expression node. That is a substantial refactor and is not on the critical path for fixtures that just need to declare generic functions and have them parse / typecheck / evaluate."
+    }
+  }
+}
+
 local genericClassDeclarations = new Scenario {
   id = "PKL-089"
   name = "generic class declarations"
@@ -2447,5 +2479,6 @@ scenarios {
   readSandboxedBuiltin
   floatNumericsAndConstraints
   genericClassDeclarations
+  genericFunctionTypeParameters
   ...roadmap.entries
 }

@@ -93,6 +93,7 @@ local moonUnit = new Test {
     "PKL-087"
     "PKL-088"
     "PKL-089"
+    "PKL-090"
     "PKL-091"
     "PKL-092"
     "PKL-093"
@@ -171,11 +172,11 @@ local cliEvalProperties = new Test {
 }
 
 local cliGenerics = new Test {
-  name = "cli generic class declarations"
+  name = "cli generic class and function declarations"
   description =
-    "The native CLI evaluates a fixture that declares `class Box<T>` and `class Pair<A, B>`, instantiates each with `new`, and renders the resulting Object values."
+    "The native CLI evaluates a fixture that declares `class Box<T>`, `class Pair<A, B>`, `function identity<T>(x: T): T`, and `function pair_first<A, B>(a: A, b: B): A`, then instantiates and calls each. Type parameters are tolerated as UnknownType in the typechecker and accept-any in the evaluator's runtime annotation validators."
   tags { "moonbit"; "cli"; "generics"; "contract" }
-  specRef { "PKL-089" }
+  specRef { "PKL-089"; "PKL-090" }
   cmd = "moon run cmd/main --target native -- eval fixtures/cli_generics.pkl"
   workdir = ".."
   expectStdoutContains {
@@ -186,6 +187,8 @@ local cliGenerics = new Test {
     "mixedPair {"
     "first = 1"
     "second = \"two\""
+    "identityInt = 7"
+    "firstPair = 1"
   }
   timeoutSec = 120
 }

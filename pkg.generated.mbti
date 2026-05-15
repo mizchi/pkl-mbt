@@ -318,6 +318,7 @@ pub(all) enum Expr {
 
 pub(all) struct FunctionDecl {
   name : String
+  type_parameters : Array[String]
   parameters : Array[FunctionParameter]
   return_type_name : String?
   body : Expr?

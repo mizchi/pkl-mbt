@@ -27,20 +27,6 @@ import "../pkspec/Spec.pkl"
 
 // ── type system expansion ───────────────────────────────────────────────────
 
-local genericFunctionTypeParameters: Spec.Scenario = new {
-  id = "PKL-090"
-  name = "generic function type parameters"
-  description =
-    "Function declarations such as `function identity<T>(x: T): T = x` accept a type parameter list; the typechecker infers the binding from the argument types at call sites."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-089" }
-  tags { "typechecker"; "generics"; "callable"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 // ── CLI surface and upstream compatibility ──────────────────────────────────
 
-entries: Listing<Spec.Scenario> = new {
-  genericFunctionTypeParameters
-}
+entries: Listing<Spec.Scenario> = new {}

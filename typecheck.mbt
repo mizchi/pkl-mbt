@@ -1893,7 +1893,17 @@ fn collect_declared_types_with_imports(
           Some(typ) => type_env.push({ name: type_alias.name, typ })
           None => ()
         }
-      FunctionDeclaration(_) => ()
+      // PKL-090: function-level type parameters are flattened into the
+      // module-level type_env as UnknownType bindings. Functions in Pkl
+      // share a single module scope (no nested function definitions in
+      // user-visible syntax), and call-site inference is deferred, so
+      // global injection is the simplest faithful approximation. If two
+      // declarations introduce the same parameter name, the later one
+      // shadows — the typechecker treats both as UnknownType anyway.
+      FunctionDeclaration(function_decl) =>
+        for parameter in function_decl.type_parameters {
+          type_env.push({ name: parameter, typ: UnknownType })
+        }
     }
   }
   for decl in declarations {

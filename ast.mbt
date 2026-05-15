@@ -138,6 +138,11 @@ pub(all) struct ClassProperty {
 ///|
 pub(all) struct FunctionDecl {
   name : String
+  // PKL-090: optional list of type parameter names (`function id<T>(...)` →
+  // `["T"]`). Empty for non-generic functions. Names bind to UnknownType
+  // inside the function body via the same scope-injection pattern PKL-089
+  // uses for class declarations; call-site inference is deferred.
+  type_parameters : Array[String]
   parameters : Array[FunctionParameter]
   return_type_name : String?
   body : Expr?

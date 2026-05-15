@@ -7,6 +7,12 @@ class Pair<A, B> {
   second: B
 }
 
+function identity<T>(x: T): T = x
+
+function pair_first<A, B>(a: A, b: B): A = a
+
 intBox = new Box { value = 42 }
 stringBox = new Box { value = "hello" }
 mixedPair = new Pair { first = 1; second = "two" }
+identityInt = identity(7)
+firstPair = pair_first(1, "two")
