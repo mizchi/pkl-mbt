@@ -45,7 +45,7 @@ fn push_stack(stack : Array[String], path : String) -> Array[String] {
 }
 
 ///|
-fn load_expr_imports(
+async fn load_expr_imports(
   session : @pkl.AnalysisSession,
   from : String,
   expr : @pkl.Expr,
@@ -111,7 +111,7 @@ fn load_expr_imports(
 }
 
 ///|
-fn load_path(
+async fn load_path(
   session : @pkl.AnalysisSession,
   path : String,
   stack : Array[String],
@@ -122,10 +122,34 @@ fn load_path(
   if stack_contains(stack, path) {
     fail("cyclic import \{path}")
   }
-  let source = @fs.read_file_to_string(path) catch {
-    _ => {
-      fail("failed to read \{path}")
-      ""
+  // PKL-129: route URI-shaped paths through the HTTP fetch helper.
+  // - `https://` / `http://`: fetched through `mizchi/x/http.get`
+  //   under a `moonbitlang/async` event loop. Native target ships
+  //   the working fetcher; JS / WASM print a diagnostic and exit
+  //   pending WASI support.
+  // - `package://`: not yet implemented. Apple Pkl's package
+  //   registry protocol (zipball metadata + per-file path
+  //   fragments) is a separate slice. Surface the gap clearly so
+  //   the user knows the URI form was recognised.
+  let source = if path.has_prefix("https://") || path.has_prefix("http://") {
+    match fetch_uri(path) {
+      Some(body) => body
+      None => {
+        fail("failed to fetch \{path}")
+        ""
+      }
+    }
+  } else if path.has_prefix("package://") {
+    fail(
+      "package:// imports not yet implemented — use the raw https:// URL of the .pkl file instead: \{path}",
+    )
+    ""
+  } else {
+    @fs.read_file_to_string(path) catch {
+      _ => {
+        fail("failed to read \{path}")
+        ""
+      }
     }
   }
   session.set_source(path, source)
@@ -181,7 +205,7 @@ fn parse_file(path : String) -> Bool {
 }
 
 ///|
-fn main {
+async fn main {
   let args = @sys.get_cli_args()
   if args.length() < 3 {
     usage()
@@ -242,10 +266,28 @@ fn main {
     @sys.exit(1)
   }
   let path = positional[0]
-  let source = @fs.read_file_to_string(path) catch {
-    _ => {
-      fail("failed to read \{path}")
-      ""
+  // PKL-129: entry-point paths may themselves be URIs. Route them
+  // through the same dispatcher `load_path` uses so the top-level
+  // module can live on a remote URL.
+  let source = if path.has_prefix("https://") || path.has_prefix("http://") {
+    match fetch_uri(path) {
+      Some(body) => body
+      None => {
+        fail("failed to fetch \{path}")
+        ""
+      }
+    }
+  } else if path.has_prefix("package://") {
+    fail(
+      "package:// imports not yet implemented — use the raw https:// URL of the .pkl file instead: \{path}",
+    )
+    ""
+  } else {
+    @fs.read_file_to_string(path) catch {
+      _ => {
+        fail("failed to read \{path}")
+        ""
+      }
     }
   }
   match command {

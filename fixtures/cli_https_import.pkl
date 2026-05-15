@@ -1,0 +1,7 @@
+// PKL-129: import a remote pkl file over HTTPS. The fetched body is
+// parsed and typechecked as if it had been read from disk; the
+// reference here just imports it for the side effect of touching the
+// fetch path end to end.
+import "https://raw.githubusercontent.com/mizchi/pkl-mbt/main/fixtures/cli_any_type.pkl" as remote
+
+result = "ok"

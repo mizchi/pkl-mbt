@@ -1,6 +1,6 @@
 # Test SPEC
 
-170 tests across 2 module(s) — 139 pending, 31 active
+172 tests across 2 module(s) — 140 pending, 32 active
 
 ## `specs/`
 
@@ -119,6 +119,13 @@
   > `String.codePoints`, `String.normalize`, `String.toRunes`, surrogate-pair aware `length`, and case-folding methods. Today `length` and indexing operate on UTF-16 code units.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-077
+  - body: _not yet implemented_
+
+- [ ] **URI imports via https with mizchi/x/http** — verifies: PKL-129 — tags: parser, imports, sandbox, pkf-pkspec
+  > `import "https://..."` and the entry-point path resolve through `mizchi/x/http.get` running under a `moonbitlang/async` event loop. The CLI's `main` is now `async fn main`, so `load_path` can await the fetch directly — no `run_async_main` wrapper / Ref-capture dance. Both native and JS targets ship a working fetcher (mizchi/x supplies a socket-backed implementation on native and a `fetch`-backed one on JS, both behind the same `@http.get` surface). The WASM target prints a clear diagnostic — WASI support is the follow-up. `package://` URIs (Apple Pkl's registry protocol — zipball metadata + per-file path fragments) are recognised by the dispatcher but always raise; pointing the import at the raw GitHub URL is the workaround until that slice lands.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-006
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **YAML block scalars** (minor) [draft] — verifies: PKL-125 — tags: renderer, yaml
@@ -510,10 +517,10 @@
   - depends on: PKL-097
   - body: _not yet implemented_
 
-- [ ] **package and https URI imports** [draft] — verifies: PKL-129 — tags: parser, imports, sandbox, pkf-pkspec
-  > `import "package://pkg.pkl-lang.org/..."` and `import "https://example.com/foo.pkl"` resolve through a sandbox-aware fetcher with checksum verification. Today only `pkl:`, file-relative, and absolute paths are recognized.
+- [ ] **package:// registry resolution** [draft] — verifies: PKL-129b — tags: parser, imports, sandbox, pkf-pkspec
+  > `import "package://pkg.pkl-lang.org/..."` resolves through Apple Pkl's registry protocol: fetch the package metadata JSON, locate the zipball URL, fetch + extract the zipball, then look up the path fragment inside. Today the CLI recognises the URI scheme but always errors with a clear diagnostic; PKL-129 lands the underlying `https://` fetch path. The registry resolution is the follow-up that adds a zip unpacker, fragment routing, and (later) checksum / signature verification.
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-006
+  - depends on: PKL-129
   - body: _not yet implemented_
 
 - [ ] **parse Pkl call lambda and operator expressions** — verifies: PKL-018 — tags: parser
@@ -995,6 +1002,10 @@
 
 - [x] **cli generic typealias** — verifies: PKL-115 — tags: moonbit, cli, typealias, generics, contract
   > The native CLI evaluates a fixture that declares `typealias Box<T> = Listing<T>` and `typealias Pair<K, V> = Mapping<K, V>`, then instantiates `Box<Int>`, `Box<String>`, and `Pair<String, Int>`. Each declaration resolves through `try_generic_alias_substitution`, the listing / mapping elements typecheck against the substituted element types, and the evaluator emits the same PCF as the equivalent non-aliased annotation.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli https URI import** — verifies: PKL-129 — tags: moonbit, cli, imports, pkf-pkspec, contract
+  > The native CLI evaluates a fixture whose `import` declaration points at a raw GitHub URL of another fixture in this repo. The HTTP fetch goes through `mizchi/x/http.get` under a `moonbitlang/async` event loop, and the imported module's bindings become available in the importing module's typecheck / evaluation pipeline.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli is operator runtime** — verifies: PKL-114 — tags: moonbit, cli, evaluator, is-operator, contract

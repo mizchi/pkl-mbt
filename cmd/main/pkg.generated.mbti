@@ -2,6 +2,7 @@
 package "mizchi/pkl/cmd/main"
 
 // Values
+pub async fn fetch_uri(String) -> String?
 
 // Errors
 

@@ -288,13 +288,13 @@ local parserSurfaceExpansion: Spec.Scenario = new {
   severity = "major"
 }
 
-local packageHttpsImports: Spec.Scenario = new {
-  id = "PKL-129"
-  name = "package and https URI imports"
+local packagePklRegistry: Spec.Scenario = new {
+  id = "PKL-129b"
+  name = "package:// registry resolution"
   description =
-    "`import \"package://pkg.pkl-lang.org/...\"` and `import \"https://example.com/foo.pkl\"` resolve through a sandbox-aware fetcher with checksum verification. Today only `pkl:`, file-relative, and absolute paths are recognized."
+    "`import \"package://pkg.pkl-lang.org/...\"` resolves through Apple Pkl's registry protocol: fetch the package metadata JSON, locate the zipball URL, fetch + extract the zipball, then look up the path fragment inside. Today the CLI recognises the URI scheme but always errors with a clear diagnostic; PKL-129 lands the underlying `https://` fetch path. The registry resolution is the follow-up that adds a zip unpacker, fragment routing, and (later) checksum / signature verification."
   contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-006" }
+  dependsOn { "PKL-129" }
   tags { "parser"; "imports"; "sandbox"; "pkf-pkspec" }
   reviewStatus = "draft"
   severity = "major"
@@ -388,7 +388,7 @@ entries: Listing<Spec.Scenario> = new {
   plistXmlProtobufRenderers
   rendererConverters
   parserSurfaceExpansion
-  packageHttpsImports
+  packagePklRegistry
   pkldoc
   codegenBridge
   lspServer

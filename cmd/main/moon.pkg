@@ -1,9 +1,16 @@
 import {
   "mizchi/pkl" @pkl,
+  "mizchi/x/http" @http,
+  "moonbitlang/async",
   "moonbitlang/x/fs" @fs,
   "moonbitlang/x/sys" @sys,
 }
 
 options(
   "is-main": true,
+  targets: {
+    "fetch_native.mbt": [ "native" ],
+    "fetch_js.mbt": [ "js" ],
+    "fetch_wasm.mbt": [ "wasm", "wasm-gc" ],
+  },
 )

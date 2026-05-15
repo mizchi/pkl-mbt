@@ -354,6 +354,18 @@ local cliListingMappingStdlib = new Test {
   timeoutSec = 120
 }
 
+local cliHttpsImports = new Test {
+  name = "cli https URI import"
+  description =
+    "The native CLI evaluates a fixture whose `import` declaration points at a raw GitHub URL of another fixture in this repo. The HTTP fetch goes through `mizchi/x/http.get` under a `moonbitlang/async` event loop, and the imported module's bindings become available in the importing module's typecheck / evaluation pipeline."
+  tags { "moonbit"; "cli"; "imports"; "pkf-pkspec"; "contract" }
+  specRef { "PKL-129" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_https_import.pkl"
+  workdir = ".."
+  expectStdoutContains { "result = \"ok\"" }
+  timeoutSec = 120
+}
+
 local cliPkspecPolish = new Test {
   name = "cli pkspec polish"
   description =
@@ -650,6 +662,7 @@ tests {
   cliWhenConditional
   cliNewBodyInference
   cliPkspecPolish
+  cliHttpsImports
   cliFormat
   cliTestExamplesPass
   cliTestExamplesFail

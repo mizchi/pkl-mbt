@@ -1785,6 +1785,39 @@ local listingMappingStdlibCore = new Scenario {
   }
 }
 
+local httpsImports = new Scenario {
+  id = "PKL-129"
+  name = "URI imports via https with mizchi/x/http"
+  description =
+    "`import \"https://...\"` and the entry-point path resolve through `mizchi/x/http.get` running under a `moonbitlang/async` event loop. The CLI's `main` is now `async fn main`, so `load_path` can await the fetch directly — no `run_async_main` wrapper / Ref-capture dance. Both native and JS targets ship a working fetcher (mizchi/x supplies a socket-backed implementation on native and a `fetch`-backed one on JS, both behind the same `@http.get` surface). The WASM target prints a clear diagnostic — WASI support is the follow-up. `package://` URIs (Apple Pkl's registry protocol — zipball metadata + per-file path fragments) are recognised by the dispatcher but always raise; pointing the import at the raw GitHub URL is the workaround until that slice lands."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-006" }
+  tags { "parser"; "imports"; "sandbox"; "pkf-pkspec" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary =
+        "Convert the CLI `main` to `async fn main` rather than wrapping each fetch in a sync trampoline"
+      rationale =
+        "The first cut used `@async.run_async_main(() => { ... })` to capture the fetch result into a `Ref` from a sync `fn main`. That works on native (the native event loop blocks until the closure returns), but on JS `run_async_main` only schedules — the result `Ref` is still `None` when control returns to the caller. Promoting `fn main` to `async fn main` lets the call site `await` the fetch directly under both target's event loops without a target-specific trampoline. The downside is `load_path` and `load_expr_imports` become async too, but they were already in a single call tree with no real recursion-vs-async incompatibility."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Defer `package://` URI resolution to a follow-up"
+      rationale =
+        "Apple Pkl's `package://` scheme resolves through `pkg.pkl-lang.org`'s registry protocol: fetch package metadata JSON, locate the zipball URL, fetch + extract the zipball, then look up the path fragment inside. That's a separate slice in its own right (zip unpacker, path-fragment routing, signature checking). Shipping the recognition + clear diagnostic now keeps imports honest: `import \"package://...\"` no longer falls through to the filesystem reader (which would emit `failed to read package://...` — meaningless), and the diagnostic points at the workaround (use the raw https URL of the .pkl file)."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "WASM target prints the unsupported message instead of falling back to JS"
+      rationale =
+        "WASM doesn't have a native HTTP client today; the bundled WASI variant of fetch is still in flux upstream. mizchi/x ships a `NotSupported` stub on WASM, and propagating that to the CLI as a clear message lets users see what's missing rather than fighting an opaque error. When WASI sockets stabilise, the WASM stub extends to wrap a WASI-backed fetcher."
+    }
+  }
+}
+
 local pkspecPolish = new Scenario {
   id = "PKL-139"
   name = "parser and evaluator polish for pkspec"
@@ -3043,5 +3076,6 @@ scenarios {
   whenConditionalProperty
   newBodyInference
   pkspecPolish
+  httpsImports
   ...roadmap.entries
 }
