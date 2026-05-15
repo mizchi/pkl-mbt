@@ -39,8 +39,15 @@ fn Parser::peek(self : Parser) -> Token {
 }
 
 ///|
+/// Cheap peek that avoids materialising a Token struct copy for the
+/// common case (`self.pos` inside bounds). Called from hot dispatch
+/// loops in the parser where the Token's text is not needed.
 fn Parser::peek_kind(self : Parser) -> @cst.SyntaxKind {
-  self.peek().kind()
+  if self.pos >= self.len {
+    eof()
+  } else {
+    self.tokens[self.pos].kind()
+  }
 }
 
 ///|
@@ -49,8 +56,19 @@ fn Parser::at(self : Parser, kind : @cst.SyntaxKind) -> Bool {
 }
 
 ///|
+/// Compare the peeked token's text against a literal. Short-circuits on
+/// text length so the common case of mismatched-length keywords (e.g.
+/// `at_text("class")` when the peek is `function`) is rejected without
+/// touching the underlying character data.
 fn Parser::at_text(self : Parser, text : String) -> Bool {
-  self.peek().text() == text
+  if self.pos >= self.len {
+    return false
+  }
+  let tok_text = self.tokens[self.pos].text()
+  if tok_text.length() != text.length() {
+    return false
+  }
+  tok_text == text
 }
 
 ///|
@@ -552,14 +570,19 @@ fn Parser::parse(self : Parser) -> ParseResult {
     if self.at(eof()) {
       break
     }
-    if self.at(import_kw()) {
+    // Single peek + kind/text dispatch for the module member.
+    // Previously this was a chain of `at_text` calls (each doing a String
+    // compare) plus separate `at(kind)` checks; consolidating into one
+    // switch removes the redundant peeks and lets the kind check fire
+    // first so non-identifier tokens don't pay any string compares.
+    let kind = self.peek_kind()
+    let text = if kind == identifier() { self.peek().text() } else { "" }
+    if kind == import_kw() {
       match self.parse_import_decl() {
         Some(decl) => imports.push(decl)
         None => ()
       }
-    } else if self.at(module_kw()) ||
-      self.at_text("amends") ||
-      self.at_text("extends") {
+    } else if kind == module_kw() || text == "amends" || text == "extends" {
       match self.parse_module_decl() {
         Some(decl) => {
           match decl.module_name {
@@ -573,7 +596,7 @@ fn Parser::parse(self : Parser) -> ParseResult {
         }
         None => ()
       }
-    } else if self.at(let_kw()) {
+    } else if kind == let_kw() {
       if self.peek_non_trivia_kind(self.pos + 1) == lparen() {
         if body is None {
           body = Some(self.parse_expr())
@@ -586,7 +609,7 @@ fn Parser::parse(self : Parser) -> ParseResult {
           None => ()
         }
       }
-    } else if self.at(local_kw()) {
+    } else if kind == local_kw() {
       if is_decl_text(self.peek_non_trivia_text(self.pos + 1)) {
         self.skip_unknown_member()
       } else {
@@ -594,6 +617,21 @@ fn Parser::parse(self : Parser) -> ParseResult {
           Some(binding) => bindings.push(binding)
           None => ()
         }
+      }
+    } else if text == "class" {
+      match self.parse_class_decl() {
+        Some(decl) => declarations.push(ClassDeclaration(decl))
+        None => ()
+      }
+    } else if text == "typealias" {
+      match self.parse_typealias_decl() {
+        Some(decl) => declarations.push(TypeAliasDeclaration(decl))
+        None => ()
+      }
+    } else if text == "function" {
+      match self.parse_function_decl() {
+        Some(decl) => declarations.push(FunctionDeclaration(decl))
+        None => ()
       }
     } else if self.at_property_decl() {
       match self.parse_property_decl() {
@@ -611,22 +649,7 @@ fn Parser::parse(self : Parser) -> ParseResult {
           }
         None => ()
       }
-    } else if self.at_text("class") {
-      match self.parse_class_decl() {
-        Some(decl) => declarations.push(ClassDeclaration(decl))
-        None => ()
-      }
-    } else if self.at_text("typealias") {
-      match self.parse_typealias_decl() {
-        Some(decl) => declarations.push(TypeAliasDeclaration(decl))
-        None => ()
-      }
-    } else if self.at_text("function") {
-      match self.parse_function_decl() {
-        Some(decl) => declarations.push(FunctionDeclaration(decl))
-        None => ()
-      }
-    } else if is_decl_text(self.peek().text()) {
+    } else if is_decl_text(text) {
       self.skip_unknown_member()
     } else if body is None {
       body = Some(self.parse_expr())

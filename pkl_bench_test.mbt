@@ -132,3 +132,4 @@ test "bench typecheck/pkspec-test-schema" (b : @bench.T) {
     b.keep(typecheck_source(bench_pkspec_test_schema))
   })
 }
+

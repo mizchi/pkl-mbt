@@ -12,3 +12,8 @@ import {
   "moonbitlang/core/bench",
   "moonbitlang/x/fs",
 } for "test"
+
+import {
+  "moonbitlang/core/bench",
+  "moonbitlang/x/fs",
+} for "wbtest"
