@@ -319,6 +319,162 @@ fn eval_user_defined_constrained_type_annotation_value_is_valid(
 }
 
 ///|
+fn eval_lookup_class_decl(
+  declarations : Array[Declaration],
+  name : String,
+) -> ClassDecl? {
+  let mut found : ClassDecl? = None
+  for declaration in declarations {
+    match declaration {
+      ClassDeclaration(class_decl) =>
+        if class_decl.name == name {
+          found = Some(class_decl)
+        }
+      FunctionDeclaration(_) | TypeAliasDeclaration(_) => ()
+    }
+  }
+  found
+}
+
+///|
+fn eval_class_property_annotation_with_depth(
+  declarations : Array[Declaration],
+  class_name : String,
+  property_name : String,
+  depth : Int,
+) -> String? {
+  if depth > 8 {
+    return None
+  }
+  match eval_lookup_class_decl(declarations, class_name) {
+    Some(class_decl) => {
+      let mut found = false
+      let mut annotation : String? = None
+      for property in class_decl.properties {
+        if property.name == property_name {
+          found = true
+          annotation = property.type_name
+        }
+      }
+      if found {
+        annotation
+      } else {
+        match class_decl.parent_name {
+          Some(parent_name) =>
+            eval_class_property_annotation_with_depth(
+              declarations,
+              parent_name,
+              property_name,
+              depth + 1,
+            )
+          None => None
+        }
+      }
+    }
+    None => None
+  }
+}
+
+///|
+fn eval_class_property_annotation(
+  declarations : Array[Declaration],
+  class_name : String,
+  property_name : String,
+) -> String? {
+  eval_class_property_annotation_with_depth(
+    declarations, class_name, property_name, 0,
+  )
+}
+
+///|
+fn eval_class_property_constraint_value_rejection_message(
+  class_name : String,
+  property_name : String,
+  value : Value,
+  declarations : Array[Declaration],
+) -> String? {
+  match
+    eval_class_property_annotation(declarations, class_name, property_name) {
+    Some(source_name) => {
+      let display_name = "\{class_name} member \{property_name}"
+      match
+        pkl_constrained_type_annotation_value_rejection_message_from_source(
+          display_name, source_name, value,
+        ) {
+        Some(message) => Some(message)
+        None =>
+          pkl_user_defined_constrained_type_annotation_value_rejection_message_from_source(
+            display_name, source_name, value, declarations,
+          )
+      }
+    }
+    None => None
+  }
+}
+
+///|
+fn eval_expr_class_property_constraints_are_valid(
+  expr : Expr,
+  value : Value,
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+) -> Bool {
+  match (expr, value) {
+    (TypedObjectLiteral(class_name, members), ObjectValue(values)) => {
+      let mut ok = true
+      for field in members {
+        match lookup_member(values, field.name) {
+          Some(member_value) => {
+            match
+              eval_class_property_constraint_value_rejection_message(
+                class_name,
+                field.name,
+                member_value,
+                declarations,
+              ) {
+              Some(message) => {
+                diagnostics.push(Diagnostic::{ message, })
+                ok = false
+              }
+              None => ()
+            }
+            if !eval_expr_class_property_constraints_are_valid(
+                field.value,
+                member_value,
+                declarations,
+                diagnostics,
+              ) {
+              ok = false
+            }
+          }
+          None => ()
+        }
+      }
+      ok
+    }
+    (ObjectLiteral(members), ObjectValue(values)) => {
+      let mut ok = true
+      for field in members {
+        match lookup_member(values, field.name) {
+          Some(member_value) =>
+            if !eval_expr_class_property_constraints_are_valid(
+                field.value,
+                member_value,
+                declarations,
+                diagnostics,
+              ) {
+              ok = false
+            }
+          None => ()
+        }
+      }
+      ok
+    }
+    _ => true
+  }
+}
+
+///|
 fn eval_object_member_alias_constraints_are_valid(
   members : Array[ObjectMember],
   values : Array[ValueMember],
@@ -1468,6 +1624,12 @@ fn eval_program(
             ) &&
             eval_user_defined_constrained_type_annotation_value_is_valid(
               binding.type_name,
+              value,
+              program.declarations,
+              diagnostics,
+            ) &&
+            eval_expr_class_property_constraints_are_valid(
+              binding.value,
               value,
               program.declarations,
               diagnostics,

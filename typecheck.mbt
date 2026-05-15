@@ -520,6 +520,205 @@ fn push_user_defined_constrained_type_annotation_expr_diagnostic(
 }
 
 ///|
+fn typecheck_lookup_class_decl(
+  declarations : Array[Declaration],
+  name : String,
+) -> ClassDecl? {
+  let mut found : ClassDecl? = None
+  for declaration in declarations {
+    match declaration {
+      ClassDeclaration(class_decl) =>
+        if class_decl.name == name {
+          found = Some(class_decl)
+        }
+      FunctionDeclaration(_) | TypeAliasDeclaration(_) => ()
+    }
+  }
+  found
+}
+
+///|
+fn typecheck_class_property_annotation_with_depth(
+  declarations : Array[Declaration],
+  class_name : String,
+  property_name : String,
+  depth : Int,
+) -> String? {
+  if depth > 8 {
+    return None
+  }
+  match typecheck_lookup_class_decl(declarations, class_name) {
+    Some(class_decl) => {
+      let mut found = false
+      let mut annotation : String? = None
+      for property in class_decl.properties {
+        if property.name == property_name {
+          found = true
+          annotation = property.type_name
+        }
+      }
+      if found {
+        annotation
+      } else {
+        match class_decl.parent_name {
+          Some(parent_name) =>
+            typecheck_class_property_annotation_with_depth(
+              declarations,
+              parent_name,
+              property_name,
+              depth + 1,
+            )
+          None => None
+        }
+      }
+    }
+    None => None
+  }
+}
+
+///|
+fn typecheck_class_property_annotation(
+  declarations : Array[Declaration],
+  class_name : String,
+  property_name : String,
+) -> String? {
+  typecheck_class_property_annotation_with_depth(
+    declarations, class_name, property_name, 0,
+  )
+}
+
+///|
+fn typecheck_class_property_constraint_expr_rejection_message(
+  class_name : String,
+  property_name : String,
+  expr : Expr,
+  declarations : Array[Declaration],
+) -> String? {
+  match
+    typecheck_class_property_annotation(declarations, class_name, property_name) {
+    Some(source_name) => {
+      let display_name = "\{class_name} member \{property_name}"
+      match
+        pkl_constrained_type_annotation_expr_rejection_message_from_source(
+          display_name, source_name, expr,
+        ) {
+        Some(message) => Some(message)
+        None =>
+          pkl_user_defined_constrained_type_annotation_expr_rejection_message_from_source(
+            display_name, source_name, expr, declarations,
+          )
+      }
+    }
+    None => None
+  }
+}
+
+///|
+fn push_constrained_class_property_expr_diagnostics(
+  expr : Expr,
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+) -> Unit {
+  match expr {
+    TypedObjectLiteral(class_name, members) =>
+      for field in members {
+        match
+          typecheck_class_property_constraint_expr_rejection_message(
+            class_name,
+            field.name,
+            field.value,
+            declarations,
+          ) {
+          Some(message) => diagnostics.push(Diagnostic::{ message, })
+          None => ()
+        }
+        push_constrained_class_property_expr_diagnostics(
+          field.value,
+          declarations,
+          diagnostics,
+        )
+      }
+    ObjectLiteral(members) =>
+      for field in members {
+        push_constrained_class_property_expr_diagnostics(
+          field.value,
+          declarations,
+          diagnostics,
+        )
+      }
+    AmendExpr(base, members) => {
+      push_constrained_class_property_expr_diagnostics(
+        base, declarations, diagnostics,
+      )
+      for field in members {
+        push_constrained_class_property_expr_diagnostics(
+          field.value,
+          declarations,
+          diagnostics,
+        )
+      }
+    }
+    ListingLiteral(elements) =>
+      for element in elements {
+        push_constrained_class_property_expr_diagnostics(
+          element, declarations, diagnostics,
+        )
+      }
+    MappingLiteral(entries) =>
+      for entry in entries {
+        push_constrained_class_property_expr_diagnostics(
+          entry.key,
+          declarations,
+          diagnostics,
+        )
+        push_constrained_class_property_expr_diagnostics(
+          entry.value,
+          declarations,
+          diagnostics,
+        )
+      }
+    CallExpr(callee, arguments) => {
+      push_constrained_class_property_expr_diagnostics(
+        callee, declarations, diagnostics,
+      )
+      for argument in arguments {
+        push_constrained_class_property_expr_diagnostics(
+          argument, declarations, diagnostics,
+        )
+      }
+    }
+    NonNullExpr(inner) | UnaryExpr(_, inner) =>
+      push_constrained_class_property_expr_diagnostics(
+        inner, declarations, diagnostics,
+      )
+    BinaryExpr(_, left, right) => {
+      push_constrained_class_property_expr_diagnostics(
+        left, declarations, diagnostics,
+      )
+      push_constrained_class_property_expr_diagnostics(
+        right, declarations, diagnostics,
+      )
+    }
+    ConditionalExpr(condition, truthy, falsy) => {
+      push_constrained_class_property_expr_diagnostics(
+        condition, declarations, diagnostics,
+      )
+      push_constrained_class_property_expr_diagnostics(
+        truthy, declarations, diagnostics,
+      )
+      push_constrained_class_property_expr_diagnostics(
+        falsy, declarations, diagnostics,
+      )
+    }
+    LambdaExpr(_, body, _) =>
+      push_constrained_class_property_expr_diagnostics(
+        body, declarations, diagnostics,
+      )
+    _ => ()
+  }
+}
+
+///|
 fn type_from_alias_target_annotation(
   name : String,
   type_env : Array[TypeBinding],
@@ -2689,6 +2888,11 @@ fn infer_program(
       Some(typ) => {
         push_user_defined_constrained_type_annotation_expr_diagnostic(
           binding.type_name,
+          binding.value,
+          program.declarations,
+          diagnostics,
+        )
+        push_constrained_class_property_expr_diagnostics(
           binding.value,
           program.declarations,
           diagnostics,

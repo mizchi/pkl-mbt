@@ -622,6 +622,38 @@ test "evaluate Pkl typed object class defaults" {
 }
 
 ///|
+test "evaluate Pkl constrained class property annotations" {
+  let valid = "const function above(n) = (x) -> x > n\nclass X { a: Int(above(5)) }\nx = new X { a = 6 }"
+  guard typecheck_source(valid) is TypeOk(ObjectType(fields)) else { panic() }
+  inspect(render_type(fields[0].typ), content="X")
+  assert_true(
+    eval_source(valid) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "x",
+          value: ObjectValue([ValueMember::{ name: "a", value: IntValue(6) }]),
+        },
+      ]),
+    ),
+  )
+
+  let invalid = "const function above(n) = (x) -> x > n\nclass X { a: Int(above(5)) }\nx = new X { a = 5 }"
+  guard typecheck_source(invalid) is TypeError(type_diagnostics) else {
+    panic()
+  }
+  inspect(
+    type_diagnostics[0].message,
+    content="type annotation X member a constraint above rejects 5",
+  )
+  guard eval_source(invalid) is EvalError(eval_diagnostics) else { panic() }
+  inspect(
+    eval_diagnostics[0].message,
+    content="type annotation X member a constraint above rejects 5",
+  )
+}
+
+///|
 test "support Pkl class inheritance defaults" {
   let parsed = parse_source(
     "class Animal { name = \"animal\" }\nclass Bird extends Animal { wing = \"wide\" }",

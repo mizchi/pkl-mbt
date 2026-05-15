@@ -1135,8 +1135,8 @@ local constrainedClassProperties = new Scenario {
     "Typed object values enforce constrained class property annotations, including user-defined numeric constraint factories from top-level function declarations."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-057"; "PKL-056"; "PKL-035" }
-  tags { "evaluator"; "typechecker"; "next" }
-  reviewStatus = "draft"
+  tags { "evaluator"; "typechecker" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -1144,6 +1144,26 @@ local constrainedClassProperties = new Scenario {
       summary = "Move constraint checks into class property materialization"
       rationale =
         "Upstream constraints fixtures combine `const function` predicate factories with class property annotations. The parser can now keep those declarations, so typed object evaluation and checking need to enforce the constrained property contracts."
+    }
+  }
+}
+
+local constrainedClassPropertyDefaults = new Scenario {
+  id = "PKL-059"
+  name = "evaluate Pkl constrained class property default values"
+  description =
+    "Class property default expressions enforce their constrained annotations during typechecking and evaluation, including user-defined numeric constraint factories."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-058"; "PKL-057"; "PKL-056" }
+  tags { "evaluator"; "typechecker"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Apply class property constraints to defaults as well as overrides"
+      rationale =
+        "Typed object overrides now honor constrained class property annotations. Class defaults are materialized through a separate path, so the same annotation checks need to run for default expressions before class constraints are complete."
     }
   }
 }
@@ -1209,4 +1229,5 @@ scenarios {
   userDefinedConstraintFunctions
   constFunctionDeclarations
   constrainedClassProperties
+  constrainedClassPropertyDefaults
 }

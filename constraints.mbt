@@ -687,10 +687,52 @@ fn pkl_user_defined_constrained_type_annotation_expr_rejection_message(
 }
 
 ///|
+fn pkl_user_defined_constrained_type_annotation_expr_rejection_message_from_source(
+  display_name : String,
+  source_name : String,
+  expr : Expr,
+  declarations : Array[Declaration],
+) -> String? {
+  match
+    pkl_user_defined_constrained_type_source_name(source_name, declarations) {
+    Some(resolved_source_name) =>
+      match pkl_int_literal_value(expr) {
+        Some(value) =>
+          pkl_user_defined_constrained_int_rejection_message_from_source(
+            display_name, resolved_source_name, value, declarations,
+          )
+        None => None
+      }
+    None => None
+  }
+}
+
+///|
 fn pkl_value_int(value : Value) -> Int? {
   match value {
     IntValue(inner) => Some(inner)
     _ => None
+  }
+}
+
+///|
+fn pkl_user_defined_constrained_type_annotation_value_rejection_message_from_source(
+  display_name : String,
+  source_name : String,
+  value : Value,
+  declarations : Array[Declaration],
+) -> String? {
+  match
+    pkl_user_defined_constrained_type_source_name(source_name, declarations) {
+    Some(resolved_source_name) =>
+      match pkl_value_int(value) {
+        Some(inner) =>
+          pkl_user_defined_constrained_int_rejection_message_from_source(
+            display_name, resolved_source_name, inner, declarations,
+          )
+        None => None
+      }
+    None => None
   }
 }
 
