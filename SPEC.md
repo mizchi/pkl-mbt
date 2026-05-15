@@ -1,6 +1,6 @@
 # Test SPEC
 
-54 tests across 2 module(s) — 50 pending, 4 active
+55 tests across 2 module(s) — 51 pending, 4 active
 
 ## `specs/`
 
@@ -20,7 +20,7 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **enforce Pkl constrained method parameter annotations** [draft] — verifies: PKL-050 — tags: typechecker, evaluator, next
+- [ ] **enforce Pkl constrained method parameter annotations** — verifies: PKL-050 — tags: typechecker, evaluator
   > Class method calls validate constrained method parameter annotations in the typechecker and evaluator, so typed object method calls reject invalid constrained arguments.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-049, PKL-041, PKL-046
@@ -146,6 +146,13 @@
   > Callable values retain constrained parameter annotations through aliases and stored callable values so the typechecker can reject invalid calls after functions are assigned to other names.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-047, PKL-044, PKL-028
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **preserve Pkl constrained typealias metadata** [draft] — verifies: PKL-051 — tags: typechecker, evaluator, next
+  > Type aliases that target constrained annotations such as `typealias Small = Int(isBetween(0, 10))` preserve enough metadata for annotated values and callable parameters to keep enforcing the constraint.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-050, PKL-045, PKL-028
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
@@ -344,7 +351,7 @@
   > The native CLI evaluates a Pkl file and prints module object properties.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049 — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 

@@ -18,6 +18,7 @@ The current slice is intentionally small and executable:
 - constrained function/lambda parameter annotations at direct call and runtime callable boundaries
 - constrained callable signature metadata through simple aliases
 - constrained callable metadata through simple higher-order calls
+- constrained class method parameter annotations
 - native CLI commands: `parse`, `check`, and `eval`
 - common string escape decoding/rendering for `\n`, `\t`, `\r`, `\"`, and `\\`
 - ripple-backed `AnalysisSession` for source-driven typechecking
@@ -28,15 +29,15 @@ The current slice is intentionally small and executable:
 
 ## Current Completion Estimate
 
-As of the `PKL-049` spec slice, this project has 49 implemented pkspec scenarios. The next tracked slice is `PKL-050`, which enforces constrained method parameter annotations.
+As of the `PKL-050` spec slice, this project has 50 implemented pkspec scenarios. The next tracked slice is `PKL-051`, which preserves constrained typealias metadata.
 
 These are engineering estimates, not formal coverage numbers:
 
 | Area | Estimate | Notes |
 | --- | ---: | --- |
 | Parser | 60-70% | The upstream parser snippet corpus is accepted in parse-only mode, but some constructs are still tolerant parse output or reduced to unsupported expression placeholders instead of full semantic AST coverage. |
-| Interpreter | 35-45% | Arithmetic, objects, imports, module amends/extends, collections, class defaults/inheritance, method calls, direct function/lambda calls, callable runtime values, simple constrained value annotations, and constrained callable arguments work. Broad stdlib behavior, generators, renderers, the full constraint system, and many external functions are still incomplete. |
-| Typechecker | 40-50% | Primitive, nullable, generic collection, union, narrowing, call, typed object, class inheritance, imported class, constrained annotation base types, simple `isBetween` predicate checks, direct constrained function/lambda arguments, constrained callable aliases, simple higher-order constrained callable flow, and class method body checks exist. Type parameters, stdlib types, constrained method parameters, and deeper module/class semantics are still incomplete. |
+| Interpreter | 35-45% | Arithmetic, objects, imports, module amends/extends, collections, class defaults/inheritance, method calls, direct function/lambda calls, callable runtime values, simple constrained value annotations, constrained callable arguments, and constrained method arguments work. Broad stdlib behavior, generators, renderers, the full constraint system, and many external functions are still incomplete. |
+| Typechecker | 40-50% | Primitive, nullable, generic collection, union, narrowing, call, typed object, class inheritance, imported class, constrained annotation base types, simple `isBetween` predicate checks, direct constrained function/lambda arguments, constrained callable aliases, simple higher-order constrained callable flow, constrained method arguments, and class method body checks exist. Type parameters, stdlib types, constrained typealias metadata, and deeper module/class semantics are still incomplete. |
 
 Overall, this is roughly 40%+ complete as a pure MoonBit Pkl core, or closer to the 30% range if measured as a replacement for Apple Pkl compatibility.
 
@@ -81,4 +82,4 @@ git submodule update --init --recursive
 
 ## Scope
 
-This is not a full Pkl implementation yet. The next compatibility work is `PKL-050` constrained method parameter enforcement, followed by broader Pkl type/stdlib coverage and class/object semantics.
+This is not a full Pkl implementation yet. The next compatibility work is `PKL-051` constrained typealias metadata, followed by broader Pkl type/stdlib coverage and class/object semantics.

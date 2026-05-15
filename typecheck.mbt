@@ -1761,6 +1761,7 @@ fn constrained_type_annotation_name(typ : Type) -> String? {
 
 ///|
 fn infer_function_type_call(
+  label : String,
   parameter_types : Array[Type],
   return_type : Type,
   arguments : Array[Expr],
@@ -1774,7 +1775,7 @@ fn infer_function_type_call(
 ) -> Type {
   if parameter_types.length() != arguments.length() {
     diagnostics.push(Diagnostic::{
-      message: "function expects \{parameter_types.length()} arguments, got \{arguments.length()}",
+      message: "\{label} expects \{parameter_types.length()} arguments, got \{arguments.length()}",
     })
     return UnknownType
   }
@@ -1785,7 +1786,7 @@ fn infer_function_type_call(
     let expected = parameter_types[i]
     if expected != UnknownType && !type_accepts(expected, argument_types[i]) {
       diagnostics.push(Diagnostic::{
-        message: "function argument \{i + 1} expects \{render_type(expected)}, got \{render_type(argument_types[i])}",
+        message: "\{label} argument \{i + 1} expects \{render_type(expected)}, got \{render_type(argument_types[i])}",
       })
       return UnknownType
     }
@@ -1798,7 +1799,7 @@ fn infer_function_type_call(
           ) {
           Some(message) => {
             diagnostics.push(Diagnostic::{
-              message: "function argument \{i + 1} \{message}",
+              message: "\{label} argument \{i + 1} \{message}",
             })
             return UnknownType
           }
@@ -1808,6 +1809,15 @@ fn infer_function_type_call(
     }
   }
   return_type
+}
+
+///|
+fn function_type_call_label(callee : Expr) -> String {
+  match callee {
+    MemberAccess(_, member_name) | SafeMemberAccess(_, member_name) =>
+      "method \{member_name}"
+    _ => "function"
+  }
 }
 
 ///|
@@ -1859,13 +1869,31 @@ fn infer_call_expr(
     ) {
     FunctionType(parameter_types, return_type) =>
       infer_function_type_call(
-        parameter_types, return_type, arguments, bindings, env, type_env, cache,
-        stack, diagnostics, resolve_import,
+        function_type_call_label(callee),
+        parameter_types,
+        return_type,
+        arguments,
+        bindings,
+        env,
+        type_env,
+        cache,
+        stack,
+        diagnostics,
+        resolve_import,
       )
     NullableType(FunctionType(parameter_types, return_type)) => {
       let inferred_return = infer_function_type_call(
-        parameter_types, return_type, arguments, bindings, env, type_env, cache,
-        stack, diagnostics, resolve_import,
+        function_type_call_label(callee),
+        parameter_types,
+        return_type,
+        arguments,
+        bindings,
+        env,
+        type_env,
+        cache,
+        stack,
+        diagnostics,
+        resolve_import,
       )
       if inferred_return == UnknownType {
         UnknownType

@@ -365,6 +365,35 @@ test "evaluate Pkl class method invocations" {
 }
 
 ///|
+test "enforce Pkl constrained method parameter annotations" {
+  let source = "class Counter { function add(n: Int(isBetween(0, 10))): Int = n }\ncounter = new Counter {}\nvalue = counter.add(3)"
+  assert_true(typecheck_source(source) is TypeOk(_))
+  assert_true(
+    eval_source(source) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "counter", value: ObjectValue([]) },
+        ValueMember::{ name: "value", value: IntValue(3) },
+      ]),
+    ),
+  )
+
+  let invalid = "class Counter { function add(n: Int(isBetween(0, 10))): Int = n }\ncounter = new Counter {}\nvalue = counter.add(11)"
+  guard typecheck_source(invalid) is TypeError(type_diagnostics) else {
+    panic()
+  }
+  inspect(
+    type_diagnostics[0].message,
+    content="method add argument 1 type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+  )
+  guard eval_source(invalid) is EvalError(eval_diagnostics) else { panic() }
+  inspect(
+    eval_diagnostics[0].message,
+    content="method add argument 1 type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+  )
+}
+
+///|
 test "typecheck Pkl class method bodies with receiver bindings" {
   assert_true(
     typecheck_source(
@@ -1411,7 +1440,7 @@ test "typecheck Pkl null-safe invocation chains" {
   }
   inspect(
     diagnostics[0].message,
-    content="function argument 1 expects Int, got Boolean",
+    content="method f argument 1 expects Int, got Boolean",
   )
 }
 

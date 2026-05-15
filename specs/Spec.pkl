@@ -975,8 +975,8 @@ local constrainedMethodParameterEvaluation = new Scenario {
     "Class method calls validate constrained method parameter annotations in the typechecker and evaluator, so typed object method calls reject invalid constrained arguments."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-049"; "PKL-041"; "PKL-046" }
-  tags { "typechecker"; "evaluator"; "next" }
-  reviewStatus = "draft"
+  tags { "typechecker"; "evaluator" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -984,6 +984,26 @@ local constrainedMethodParameterEvaluation = new Scenario {
       summary = "Apply constrained callable checks to method dispatch"
       rationale =
         "Free functions and callable aliases now preserve and check constrained arguments. Class method calls still need the same contract treatment through receiver-based method lookup and member-call typechecking."
+    }
+  }
+}
+
+local constrainedTypealiasMetadata = new Scenario {
+  id = "PKL-051"
+  name = "preserve Pkl constrained typealias metadata"
+  description =
+    "Type aliases that target constrained annotations such as `typealias Small = Int(isBetween(0, 10))` preserve enough metadata for annotated values and callable parameters to keep enforcing the constraint."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-050"; "PKL-045"; "PKL-028" }
+  tags { "typechecker"; "evaluator"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Carry constrained annotations through aliases"
+      rationale =
+        "Constraint metadata now survives callable aliases and method calls, but type aliases still resolve primarily to their base type. Alias targets need to preserve supported constraint metadata before more stdlib-style signatures can be checked."
     }
   }
 }
@@ -1041,4 +1061,5 @@ scenarios {
   constrainedCallableSignatureMetadata
   constrainedHigherOrderCallableMetadata
   constrainedMethodParameterEvaluation
+  constrainedTypealiasMetadata
 }
