@@ -969,6 +969,31 @@ test "evaluate Pkl callable return annotations" {
 }
 
 ///|
+test "evaluate Pkl class method return annotations" {
+  assert_true(
+    eval_source(
+      "class Counter { function good(): Int = 1 }\ncounter = new Counter {}\nvalue = counter.good()",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "counter", value: ObjectValue([]) },
+        ValueMember::{ name: "value", value: IntValue(1) },
+      ]),
+    ),
+  )
+  guard eval_source(
+      "class Counter { function bad(): Int = \"hawk\" }\ncounter = new Counter {}\nvalue = counter.bad()",
+    )
+    is EvalError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="method bad return type annotation Int does not accept String",
+  )
+}
+
+///|
 test "typecheck rejects invalid Pkl calls" {
   guard typecheck_source("function add(x, y) = x + y\nvalue = add(1)")
     is TypeError(arity_diagnostics) else {

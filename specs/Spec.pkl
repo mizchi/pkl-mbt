@@ -1255,8 +1255,8 @@ local classMethodReturnAnnotationEvaluation = new Scenario {
     "Class method calls validate declared return annotations at runtime so method bodies reject incompatible returned values."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-063"; "PKL-036"; "PKL-040" }
-  tags { "evaluator"; "class"; "next" }
-  reviewStatus = "draft"
+  tags { "evaluator"; "class" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -1264,6 +1264,26 @@ local classMethodReturnAnnotationEvaluation = new Scenario {
       summary = "Extend runtime return validation to methods"
       rationale =
         "Function and lambda values now enforce return annotations at call boundaries. Class methods carry the same return annotation metadata but use a separate receiver-aware evaluation path, so they need the same runtime check."
+    }
+  }
+}
+
+local constrainedCallableReturnAnnotationEvaluation = new Scenario {
+  id = "PKL-065"
+  name = "evaluate constrained Pkl callable return annotations"
+  description =
+    "Function, lambda, and class method calls enforce constrained return annotations, including user-defined numeric predicate factories."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-064"; "PKL-063"; "PKL-056" }
+  tags { "evaluator"; "callable"; "typechecker"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Extend return validation to constraint predicates"
+      rationale =
+        "Callable and method return annotations now validate base runtime types. The remaining compatibility gap is applying the same built-in and user-defined constraint predicate machinery that already covers values, parameters, and class properties."
     }
   }
 }
@@ -1335,4 +1355,5 @@ scenarios {
   nonScalarClosureCaptures
   callableReturnAnnotationEvaluation
   classMethodReturnAnnotationEvaluation
+  constrainedCallableReturnAnnotationEvaluation
 }

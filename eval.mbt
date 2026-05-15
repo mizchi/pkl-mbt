@@ -1005,10 +1005,20 @@ fn eval_class_method_call(
                       value: argument_values[i],
                     })
                   }
-                  eval_expr_with_bindings(
-                    body, bindings, env, class_env, method_cache, stack, diagnostics,
-                    resolve_import,
-                  )
+                  match
+                    eval_expr_with_bindings(
+                      body, bindings, env, class_env, method_cache, stack, diagnostics,
+                      resolve_import,
+                    ) {
+                    Some(value) =>
+                      eval_callable_return_value(
+                        "method \{method_name}",
+                        function_decl.return_type_name,
+                        value,
+                        diagnostics,
+                      )
+                    None => None
+                  }
                 }
                 None => {
                   diagnostics.push(Diagnostic::{
