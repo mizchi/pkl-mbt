@@ -133,18 +133,6 @@ local upstreamFixtureSweepExpansion: Spec.Scenario = new {
 
 // ── typechecker rounding ────────────────────────────────────────────────────
 
-local equalityTypecheckOperandMatch: Spec.Scenario = new {
-  id = "PKL-113"
-  name = "equality typecheck operand match"
-  description =
-    "`a == b` and `a != b` reject when the operand types are statically distinct (e.g. `5 == \"hi\"`). Today the typechecker returns BoolType unconditionally."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-004" }
-  tags { "typechecker"; "equality"; "next" }
-  reviewStatus = "draft"
-  severity = "minor"
-}
-
 local guardNarrowingExtension: Spec.Scenario = new {
   id = "PKL-114"
   name = "is-guard narrowing extension"
@@ -152,7 +140,7 @@ local guardNarrowingExtension: Spec.Scenario = new {
     "`is`-guard typecheck narrows for Float / Number / generic-type contexts. Today narrowing covers Int / Bool / String / Null only."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-092" }
-  tags { "typechecker"; "narrowing" }
+  tags { "typechecker"; "narrowing"; "next" }
   reviewStatus = "draft"
   severity = "minor"
 }
@@ -391,7 +379,6 @@ entries: Listing<Spec.Scenario> = new {
   diagnosticSourcePosition
   errorMessageUpstreamAlign
   upstreamFixtureSweepExpansion
-  equalityTypecheckOperandMatch
   guardNarrowingExtension
   genericTypeAliases
   typeParameterBounds

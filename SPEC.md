@@ -1,6 +1,6 @@
 # Test SPEC
 
-153 tests across 2 module(s) — 132 pending, 21 active
+154 tests across 2 module(s) — 132 pending, 22 active
 
 ## `specs/`
 
@@ -160,10 +160,11 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **equality typecheck operand match** (minor) [draft] — verifies: PKL-113 — tags: typechecker, equality, next
-  > `a == b` and `a != b` reject when the operand types are statically distinct (e.g. `5 == "hi"`). Today the typechecker returns BoolType unconditionally.
+- [ ] **equality typecheck operand match** (minor) — verifies: PKL-113 — tags: typechecker, equality
+  > The typechecker rejects `==` and `!=` when the operand types are statically distinct. Today's typechecker returned BoolType unconditionally, so `5 == "hi"` and `true != 3` typechecked clean and only failed at runtime (or rather, silently returned `false`). The new pass routes through a dedicated `equality_compatible(left, right)` helper that admits the wider compatibility relation Apple Pkl exhibits for equality: numeric mix (Int vs Float, e.g. `1 == 1.0` is `true` in upstream), nullable / non-null match (`name: String? = null; name == null`), same-name `ClassType` pairs, structural `ObjectType` / `ListingType` / `MappingType` matches, and any pair where either side is `UnknownType` or a free `TypeVariable(_)`. `ConstrainedType` / `DefaultedType` wrappers are stripped via `equality_unwrap_type` before the case match so `Int(isPositive) == 5` still compares as `Int == Int`. `UnionType` flows through the existing fan-out: a union accepts the other side if any of its options does. The helper is symmetric — both `5 == "hi"` and `"hi" == 5` raise `operator == expects operands of matching types`, and the same wording is reused for `!=`.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-004
+  - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **error message text upstream alignment** [draft] — verifies: PKL-108 — tags: diagnostics, compatibility
@@ -399,7 +400,7 @@
   - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **is-guard narrowing extension** (minor) [draft] — verifies: PKL-114 — tags: typechecker, narrowing
+- [ ] **is-guard narrowing extension** (minor) [draft] — verifies: PKL-114 — tags: typechecker, narrowing, next
   > `is`-guard typecheck narrows for Float / Number / generic-type contexts. Today narrowing covers Int / Bool / String / Null only.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-092
@@ -884,6 +885,10 @@
   - body: _not yet implemented_
 
 ### `Test.pkl`
+
+- [x] **cli equality type match** — verifies: PKL-113 — tags: moonbit, cli, typechecker, equality, contract
+  > The native CLI evaluates a fixture that exercises `==` and `!=` against compatible operand types — Int vs Int, Int vs Float (Apple Pkl admits this), Float vs Float, Bool vs Bool, and a nullable binding against `null`. The evaluation produces the expected booleans without raising a typecheck diagnostic, demonstrating that PKL-113 leaves valid programs untouched.
+  - body: `cmd` (exit 0 expected)
 
 - [x] **cli eval** — verifies: PKL-009 — tags: moonbit, cli, contract
   > The native CLI evaluates a Pkl file and prints module object properties.

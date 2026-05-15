@@ -1580,6 +1580,44 @@ local floatThresholdConstraints = new Scenario {
   }
 }
 
+local equalityTypecheckOperandMatch = new Scenario {
+  id = "PKL-113"
+  name = "equality typecheck operand match"
+  description =
+    "The typechecker rejects `==` and `!=` when the operand types are statically distinct. Today's typechecker returned BoolType unconditionally, so `5 == \"hi\"` and `true != 3` typechecked clean and only failed at runtime (or rather, silently returned `false`). The new pass routes through a dedicated `equality_compatible(left, right)` helper that admits the wider compatibility relation Apple Pkl exhibits for equality: numeric mix (Int vs Float, e.g. `1 == 1.0` is `true` in upstream), nullable / non-null match (`name: String? = null; name == null`), same-name `ClassType` pairs, structural `ObjectType` / `ListingType` / `MappingType` matches, and any pair where either side is `UnknownType` or a free `TypeVariable(_)`. `ConstrainedType` / `DefaultedType` wrappers are stripped via `equality_unwrap_type` before the case match so `Int(isPositive) == 5` still compares as `Int == Int`. `UnionType` flows through the existing fan-out: a union accepts the other side if any of its options does. The helper is symmetric — both `5 == \"hi\"` and `\"hi\" == 5` raise `operator == expects operands of matching types`, and the same wording is reused for `!=`."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-004" }
+  tags { "typechecker"; "equality" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Use a dedicated `equality_compatible` helper rather than reusing `type_accepts`"
+      rationale =
+        "`type_accepts(expected, actual)` is one-directional: it answers `does an actual fit where an expected was declared?`. Equality is symmetric and admits Int / Float as compatible operands, which `type_accepts` deliberately rejects (assigning an Int into a Float-typed binding is a type error). Bolting Int / Float symmetry onto `type_accepts` would weaken assignment checks elsewhere. A separate helper keeps the two concepts cleanly factored — `type_accepts` for assignment / argument flow, `equality_compatible` for the symmetric equality relation."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Mirror Apple Pkl's `1 == 1.0 == true` rather than rejecting Int / Float pairs"
+      rationale =
+        "The upstream snippet at `third_party/apple-pkl/.../basic/float.pcf` evaluates `1 == 1.0` to `true`. Rejecting Int / Float at the typecheck layer would diverge from the established surface — users who write `n: Int = 5; n == 5.0` would suddenly need explicit conversions even though the runtime does the right thing. The helper therefore lists `(IntType, FloatType)` and its symmetric pair as compatible, leaving Int / Float as a numeric-mix admission analogous to `LessThan` / `GreaterThan`."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Accept any `ObjectType` / `ListingType` / `MappingType` pair instead of requiring per-element match"
+      rationale =
+        "Per-element structural equality is the runtime concern (`Object.equals` walks the members at runtime). At the typecheck layer rejecting `{ a = 1 } == { b = 2 }` would surface as a noisy error in valid programs (`map` / `filter` outputs comparing against literals, fixture-style equality checks). The compatibility relation therefore accepts any same-kind structural pair — false positives at this layer mean runtime evaluates to `false`, which matches Apple Pkl's behaviour."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Leave the evaluator untouched"
+      rationale =
+        "The evaluator already returns `false` for cross-type equality (`IntValue(5) == StringValue(\"hi\")` flows through the catch-all `_ => None` branch which surfaces a diagnostic). PKL-113 just lifts that runtime rejection into the static layer; the evaluator's `Int == Float` mixing (via `eval_float_binary` after widening the Int to Double) already matches the upstream `1 == 1.0 == true` semantics."
+    }
+  }
+}
+
 local callSiteGenericInference = new Scenario {
   id = "PKL-110"
   name = "call-site generic inference"
@@ -2660,5 +2698,6 @@ scenarios {
   callSiteGenericInference
   floatPowerAndDivisionSemantics
   floatThresholdConstraints
+  equalityTypecheckOperandMatch
   ...roadmap.entries
 }

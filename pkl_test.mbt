@@ -1896,6 +1896,46 @@ test "PKL-112: Float isLessThan with Float threshold rejects" {
 }
 
 ///|
+test "PKL-113: == rejects Int and String operands" {
+  guard typecheck_source("res = 5 == \"hi\"") is TypeError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="operator == expects operands of matching types",
+  )
+}
+
+///|
+test "PKL-113: != rejects Bool and Int operands" {
+  guard typecheck_source("res = true != 3") is TypeError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="operator != expects operands of matching types",
+  )
+}
+
+///|
+test "PKL-113: == accepts same-type Int operands" {
+  guard typecheck_source("res = 5 == 5") is TypeOk(_) else { panic() }
+}
+
+///|
+test "PKL-113: == accepts Int and Float operands" {
+  guard typecheck_source("res = 5 == 5.5") is TypeOk(_) else { panic() }
+}
+
+///|
+test "PKL-113: == accepts null against nullable binding" {
+  guard typecheck_source("name: String? = null\nres = name == null")
+    is TypeOk(_) else {
+    panic()
+  }
+}
+
+///|
 test "Number constraint predicate accepts both Int and Float" {
   assert_true(
     eval_source("a: Number(isPositive) = 3\nb: Number(isPositive) = 0.5") ==

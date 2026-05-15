@@ -229,6 +229,24 @@ local cliFloatThresholdConstraints = new Test {
   timeoutSec = 120
 }
 
+local cliEqualityTypeMatch = new Test {
+  name = "cli equality type match"
+  description =
+    "The native CLI evaluates a fixture that exercises `==` and `!=` against compatible operand types — Int vs Int, Int vs Float (Apple Pkl admits this), Float vs Float, Bool vs Bool, and a nullable binding against `null`. The evaluation produces the expected booleans without raising a typecheck diagnostic, demonstrating that PKL-113 leaves valid programs untouched."
+  tags { "moonbit"; "cli"; "typechecker"; "equality"; "contract" }
+  specRef { "PKL-113" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_equality_type_match.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "intMatch = true"
+    "intVsFloat = true"
+    "floatMismatch = true"
+    "boolMismatch = true"
+    "nameIsNull = true"
+  }
+  timeoutSec = 120
+}
+
 local cliGenericInference = new Test {
   name = "cli generic call-site inference"
   description =
@@ -426,6 +444,7 @@ tests {
   cliFloat
   cliFloatPower
   cliFloatThresholdConstraints
+  cliEqualityTypeMatch
   cliFormat
   cliTestExamplesPass
   cliTestExamplesFail

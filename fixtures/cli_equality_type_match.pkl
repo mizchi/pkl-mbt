@@ -1,0 +1,12 @@
+// PKL-113: equality typechecks operand types
+intMatch = 3 == 3
+
+intVsFloat = 5 == 5.0
+
+floatMismatch = 1.5 != 1.6
+
+boolMismatch = true != false
+
+name: String? = null
+
+nameIsNull = name == null

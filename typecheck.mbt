@@ -999,6 +999,55 @@ fn type_accepts(expected : Type, inferred : Type) -> Bool {
 }
 
 ///|
+// PKL-113: Equality (`==` / `!=`) admits a wider compatibility relation
+// than `type_accepts`. Two operands typecheck under equality when they
+// share a base shape: same primitive, numeric mix (Int / Float),
+// nullable / non-null with matching base, or any structural pair where
+// runtime equality is meaningful (object / class, listing / listing).
+// The relation stays symmetric — `a == b` and `b == a` must agree —
+// so the helper normalizes wrappers (`ConstrainedType`, `DefaultedType`)
+// before pattern-matching.
+fn equality_compatible(left : Type, right : Type) -> Bool {
+  let l = equality_unwrap_type(left)
+  let r = equality_unwrap_type(right)
+  if l == r {
+    return true
+  }
+  match (l, r) {
+    (UnknownType, _) | (_, UnknownType) => true
+    (TypeVariable(_), _) | (_, TypeVariable(_)) => true
+    (NullType, NullableType(_)) | (NullableType(_), NullType) => true
+    (NullableType(inner), other) | (other, NullableType(inner)) =>
+      equality_compatible(inner, other)
+    (IntType, FloatType) | (FloatType, IntType) => true
+    (ClassType(name_l, _), ClassType(name_r, _)) => name_l == name_r
+    (ClassType(_, _), ObjectType(_)) | (ObjectType(_), ClassType(_, _)) => true
+    (ObjectType(_), ObjectType(_)) => true
+    (ListingType(_), ListingType(_)) => true
+    (MappingType(_), MappingType(_)) => true
+    (UnionType(options), other) | (other, UnionType(options)) => {
+      let mut ok = false
+      for option in options {
+        if equality_compatible(option, other) {
+          ok = true
+        }
+      }
+      ok
+    }
+    _ => false
+  }
+}
+
+///|
+fn equality_unwrap_type(typ : Type) -> Type {
+  match typ {
+    ConstrainedType(_, inner) => equality_unwrap_type(inner)
+    DefaultedType(inner) => equality_unwrap_type(inner)
+    _ => typ
+  }
+}
+
+///|
 // PKL-110: Substitution table for generic type parameters. A pair
 // `(name, typ)` means "every TypeVariable(name) site rewrites to typ".
 // Built incrementally by `unify_for_substitution` and consumed by
@@ -3078,7 +3127,18 @@ fn infer_expr_with_bindings(
             })
             UnknownType
           }
-        Equal | NotEqual => BoolType
+        Equal | NotEqual =>
+          // PKL-113: reject `a == b` / `a != b` when the operand types
+          // are statically distinct. Today's typechecker passed every
+          // pair through as BoolType, hiding `5 == "hi"` until runtime.
+          if equality_compatible(left, right) {
+            BoolType
+          } else {
+            diagnostics.push(Diagnostic::{
+              message: "operator \{operator_name(op)} expects operands of matching types",
+            })
+            UnknownType
+          }
         And | Or => panic()
         NullCoalesce =>
           if left == NullType {
