@@ -11,9 +11,14 @@
 ///   PKL-110 .. PKL-118  typechecker rounding (generics inference, equality, narrowing)
 ///   PKL-119 .. PKL-124  stdlib expansion (Set/Pair/Map, math float, semver/json/yaml/xml)
 ///   PKL-125 .. PKL-127  renderer expansion (block scalars, plist/xml/protobuf, converters)
-///   PKL-128             package / https URI import
-///   PKL-129 .. PKL-130  documentation generation, codegen bridge
-///   PKL-131             LSP server foundation
+///   PKL-128             parser surface expansion
+///   PKL-129             package / https URI import
+///   PKL-130 .. PKL-131  documentation generation, codegen bridge
+///   PKL-132             LSP server foundation
+///   PKL-133 .. PKL-137  pkf / pkspec evaluation blockers (the `Any` type,
+///                       Listing / Mapping stdlib methods, `when` conditional
+///                       property, `amends` semantics). Tagged `pkf-pkspec`
+///                       and ordered ahead of the rest of the roadmap.
 @ModuleInfo { minPklVersion = "0.31.0" }
 module specs.Roadmap
 
@@ -64,7 +69,7 @@ local outputRendererDriver: Spec.Scenario = new {
     "Recognize module-level `output { renderer = new JsonRenderer { ... } }` declarations and dispatch the chosen renderer (with optional converters) instead of relying on the `-f` CLI flag. Requires class-name tagging on `ObjectValue` so the renderer class can be read at runtime."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-097" }
-  tags { "renderer"; "output"; "driver" }
+  tags { "renderer"; "output"; "driver"; "pkf-pkspec" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -140,7 +145,7 @@ local inheritanceDispatchHardening: Spec.Scenario = new {
     "Super method calls (`super.method()`), abstract method enforcement, and override-direction type compatibility. Existing class inheritance handles property defaults but not the full method-dispatch surface."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-040" }
-  tags { "evaluator"; "typechecker"; "inheritance"; "next" }
+  tags { "evaluator"; "typechecker"; "inheritance" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -152,7 +157,7 @@ local crossModuleTypecheckCompleteness: Spec.Scenario = new {
     "Imported modules' class definitions, type aliases, function signatures, and constraint annotations participate in the importing module's typecheck the same way local declarations do. Today some sites lose precision when crossing the import boundary."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-006" }
-  tags { "typechecker"; "imports" }
+  tags { "typechecker"; "imports"; "pkf-pkspec" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -290,7 +295,7 @@ local packageHttpsImports: Spec.Scenario = new {
     "`import \"package://pkg.pkl-lang.org/...\"` and `import \"https://example.com/foo.pkl\"` resolve through a sandbox-aware fetcher with checksum verification. Today only `pkl:`, file-relative, and absolute paths are recognized."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-006" }
-  tags { "parser"; "imports"; "sandbox" }
+  tags { "parser"; "imports"; "sandbox"; "pkf-pkspec" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -333,7 +338,87 @@ local lspServer: Spec.Scenario = new {
   severity = "major"
 }
 
+// ── pkf / pkspec evaluation blockers ───────────────────────────────────────
+// These five slices are what `moon run cmd/main -- eval` is missing today
+// to load and run pkf's `Taskfile.pkl` and pkspec's `specs/*.pkl`. They
+// were derived by running the actual files through the evaluator on
+// 2026-05-15 and collecting the diagnostics:
+//   - `unknown type annotation Any?` / `Mapping<String, Any>` → PKL-133
+//   - `unknown member toList` / `keys` / `values` → PKL-134
+//   - `unknown member map` / `filter` / `flatMap` / `count` / etc. → PKL-135
+//   - parser silently drops `when (cond) { property = value }` blocks
+//     inside Listing / Mapping literals → PKL-136
+//   - `amends "..."` base module's tests / scenarios / output binding
+//     do not flow into the child's evaluation → PKL-137
+// Promote PKL-133 first (smallest, no dependencies); the rest stack on
+// top of it in numerical order.
+
+local pklAnyType: Spec.Scenario = new {
+  id = "PKL-133"
+  name = "Any top type"
+  description =
+    "`Any` is Pkl's top type — every value flows through it (`Mapping<String, Any>`, `bodyJson: Any?` in pkspec's HTTP spec, generic captures in stdlib signatures). Today `type_from_annotation(\"Any\")` returns `None`, so any annotation that mentions `Any` surfaces `unknown type annotation Any` and stops the typecheck. Add `AnyType` to the Type enum (or alias it to `UnknownType` with a dedicated name so renders read as `Any` instead of `Unknown`) and short-circuit `type_accepts(AnyType, _) => true` and `type_accepts(_, AnyType) => true`. Stdlib lookups (`builtin_type_from_annotation`) recognise the literal `Any` text."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-004" }
+  tags { "typechecker"; "pkf-pkspec"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local listingMappingStdlibCore: Spec.Scenario = new {
+  id = "PKL-134"
+  name = "Listing / Mapping stdlib core methods"
+  description =
+    "Implement the core read-only methods on `Listing`, `Mapping`, and `List` that pkf / pkspec rely on for shape inspection: `.toList()`, `.toMap()`, `.keys`, `.values`, `.length`, `.isEmpty`. These are the gateway methods — once `xs.toList()` resolves, the chained functional methods in PKL-135 light up. Today the evaluator surfaces `unknown member toList`. Wire each method into `eval_member_access` against the matching `ListingValue` / `MappingValue` variant; the typechecker side recognises the method on `ListingType` / `MappingType` and returns the correct result type."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-075" }
+  tags { "stdlib"; "evaluator"; "typechecker"; "pkf-pkspec" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local listingMappingFunctional: Spec.Scenario = new {
+  id = "PKL-135"
+  name = "Listing / Mapping / List functional methods"
+  description =
+    "`map((x) -> ...)`, `filter((x) -> ...)`, `flatMap((x) -> ...)`, `count((x) -> ...)`, `every((x) -> ...)`, `distinct`, `join(separator)`, `find((x) -> ...)`, plus the negative forms (`none((x) -> ...)`, `noneMatch`). pkspec uses these inside `Spec.pkl#tagSteps`, the `duplicateNames` check, and the rendered `Mapping` projections. Each method takes a lambda and produces a derived value; the evaluator routes through `apply_lambda(lambda, [arg])` already wired for PKL-110 generic inference."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-134" }
+  tags { "stdlib"; "evaluator"; "typechecker"; "pkf-pkspec" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local whenConditionalProperty: Spec.Scenario = new {
+  id = "PKL-136"
+  name = "when conditional property"
+  description =
+    "Apple Pkl's `when (cond) { property = value }` inside a Listing / Mapping / object body conditionally emits the inner properties. pkspec uses it in `scenarioToTest` to populate `specRef` only when the scenario carries an id: `specRef = new Listing<String> { when (s.id != null) { s.id } }`. Today the parser does not recognise the `when` form, so the surrounding listing silently misses the conditional entries; the evaluator gets nothing to fire on. Adds parser support (CST node) plus an `evaluate_when_clause` step in the object / listing / mapping evaluator that gates the inner properties on the condition's boolean result."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-001"; "PKL-002" }
+  tags { "parser"; "evaluator"; "pkf-pkspec" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local amendsBaseMerge: Spec.Scenario = new {
+  id = "PKL-137"
+  name = "amends base module property merge"
+  description =
+    "When a module declares `amends \"...base.pkl\"`, the child module inherits the base module's properties (including `tests`, `defaults`, `output`, `renderedScenarios`, etc.). pkspec's `Spec.pkl amends Test.pkl`, and project `specs/Spec.pkl amends pkspec/Spec.pkl`. Today the evaluator parses `amends` but does not merge the base's evaluated bindings into the child; the child sees `unknown type annotation Test` and never resolves the base's `tests: Listing<Test>` field. Reuse the existing import path to evaluate the base, then merge the child's overrides into the base's property map, mirroring Apple Pkl's child-wins semantics."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-006" }
+  tags { "evaluator"; "amends"; "pkf-pkspec" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
 entries: Listing<Spec.Scenario> = new {
+  pklAnyType
+  listingMappingStdlibCore
+  listingMappingFunctional
+  whenConditionalProperty
+  amendsBaseMerge
   pklRepl
   pklAnalyzeLint
   readNullableParserForm

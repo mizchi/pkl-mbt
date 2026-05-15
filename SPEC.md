@@ -1,10 +1,16 @@
 # Test SPEC
 
-157 tests across 2 module(s) — 132 pending, 25 active
+162 tests across 2 module(s) — 137 pending, 25 active
 
 ## `specs/`
 
 ### `Spec.pkl`
+
+- [ ] **Any top type** [draft] — verifies: PKL-133 — tags: typechecker, pkf-pkspec, next
+  > `Any` is Pkl's top type — every value flows through it (`Mapping<String, Any>`, `bodyJson: Any?` in pkspec's HTTP spec, generic captures in stdlib signatures). Today `type_from_annotation("Any")` returns `None`, so any annotation that mentions `Any` surfaces `unknown type annotation Any` and stops the typecheck. Add `AnyType` to the Type enum (or alias it to `UnknownType` with a dedicated name so renders read as `Any` instead of `Unknown`) and short-circuit `type_accepts(AnyType, _) => true` and `type_accepts(_, AnyType) => true`. Stdlib lookups (`builtin_type_from_annotation`) recognise the literal `Any` text.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-004
+  - body: _not yet implemented_
 
 - [ ] **Bytes literal and Bytes methods** (minor) — verifies: PKL-083 — tags: evaluator, renderer, bytes, stdlib
   > `Bytes(<Listing of Int>)` is recognized as a constructor form ahead of the generic call path; each Listing element must be an Int in 0..=255 and the resulting `BytesValue` wraps a MoonBit `Bytes` instance. `Bytes.fromBase64("<base64>")` is the static-style decoder counterpart, surfacing malformed base64 input as a diagnostic rather than a raise. The `.length` and `.base64` properties expose the byte count and the base64 encoding of the underlying bytes; `.getOrNull(i)` returns the byte at index `i` (as `IntValue` 0..=255) or `null` when out of range; `.toList()` materializes the bytes back into a `Listing<Int>` so existing list helpers keep working. `String.toBytes()` joins the dispatch table on the String side, encoding the input as UTF-8 via `moonbitlang/core/encoding/utf8`. The PCF renderer round-trips a `BytesValue` back through the constructor (`Bytes(new Listing { 65; 66; 67 })`) so the parser can re-evaluate the literal verbatim; JSON / YAML / Properties project the bytes as their base64 encoding (a quoted string), matching the projection shape used by Apple Pkl for opaque stdlib values.
@@ -67,6 +73,18 @@
   - depends on: PKL-107
   - body: _not yet implemented_
 
+- [ ] **Listing / Mapping / List functional methods** [draft] — verifies: PKL-135 — tags: stdlib, evaluator, typechecker, pkf-pkspec
+  > `map((x) -> ...)`, `filter((x) -> ...)`, `flatMap((x) -> ...)`, `count((x) -> ...)`, `every((x) -> ...)`, `distinct`, `join(separator)`, `find((x) -> ...)`, plus the negative forms (`none((x) -> ...)`, `noneMatch`). pkspec uses these inside `Spec.pkl#tagSteps`, the `duplicateNames` check, and the rendered `Mapping` projections. Each method takes a lambda and produces a derived value; the evaluator routes through `apply_lambda(lambda, [arg])` already wired for PKL-110 generic inference.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-134
+  - body: _not yet implemented_
+
+- [ ] **Listing / Mapping stdlib core methods** [draft] — verifies: PKL-134 — tags: stdlib, evaluator, typechecker, pkf-pkspec
+  > Implement the core read-only methods on `Listing`, `Mapping`, and `List` that pkf / pkspec rely on for shape inspection: `.toList()`, `.toMap()`, `.keys`, `.values`, `.length`, `.isEmpty`. These are the gateway methods — once `xs.toList()` resolves, the chained functional methods in PKL-135 light up. Today the evaluator surfaces `unknown member toList`. Wire each method into `eval_member_access` against the matching `ListingValue` / `MappingValue` variant; the typechecker side recognises the method on `ListingType` / `MappingType` and returns the correct result type.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-075
+  - body: _not yet implemented_
+
 - [ ] **Listing and Mapping element constraint propagation** — verifies: PKL-093 — tags: evaluator, typechecker, constraint, collection
   > `pkl_constrained_type_annotation_has_supported_constraint` recurses into the `Listing<T>` and `Mapping<K, V>` wrappers so element-level constraint annotations register as supported. The value-rejection cascade gains a collection branch after the Int / String branches: for a `Listing<T>` annotation on a `ListingValue`, every element re-enters the cascade with `T` as both display and source name; for a `Mapping<K, V>` annotation on a `MappingValue`, each entry's key is checked against `K` and each entry's value against `V`. The first rejecting element produces the diagnostic and short-circuits the cascade so error messages name a single failing predicate rather than a list. Nested wrappers (`Listing<Listing<Int(isPositive)>>`, `Mapping<String, Listing<Int(isBetween(0, 9))>>`) compose naturally because each recursion uses the same entry point; depth is capped at 8 to keep cycle-like aliases bounded.
   - contributes to: GOAL-PKL-PURE
@@ -113,6 +131,12 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **amends base module property merge** [draft] — verifies: PKL-137 — tags: evaluator, amends, pkf-pkspec
+  > When a module declares `amends "...base.pkl"`, the child module inherits the base module's properties (including `tests`, `defaults`, `output`, `renderedScenarios`, etc.). pkspec's `Spec.pkl amends Test.pkl`, and project `specs/Spec.pkl amends pkspec/Spec.pkl`. Today the evaluator parses `amends` but does not merge the base's evaluated bindings into the child; the child sees `unknown type annotation Test` and never resolves the base's `tests: Listing<Test>` field. Reuse the existing import path to evaluate the base, then merge the child's overrides into the base's property map, mirroring Apple Pkl's child-wins semantics.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-006
+  - body: _not yet implemented_
+
 - [ ] **call-site generic inference** — verifies: PKL-110 — tags: typechecker, generics, inference
   > The typechecker propagates concrete types through generic function calls and class literals. Each `ClassDecl.type_parameters` / `FunctionDecl.type_parameters` entry binds to a new `TypeVariable(name)` variant in the typecheck `Type` enum (previously `UnknownType`). At every call site (`infer_lambda_application` and `infer_function_type_call`) the typechecker walks parameter / argument pairs through `unify_for_substitution`, building a `TypeSubstitution` table that records `TypeVariable("T") := <concrete>` bindings. `substitute_type` then rewrites the inferred return type, the parameter cache entries, and the declared return annotation so the call's result has the concrete type — `identity(7)` typechecks as `Int`, so `identity(7) + 1` succeeds while `identity("hi") + 1` rejects with `operator + expects Int operands`. The class literal path in `apply_type_annotation` does the symmetric move: when the expected `ClassType` still carries TypeVariable members and the inferred `ObjectType` carries concrete member types, `substitute_class_type_variables` unifies and rewrites the class type before returning, so downstream field accesses (`intBox.value`) resolve to the substituted member type. `type_accepts` treats `TypeVariable(_)` on either side as accept-any during the structural pass so unification can run without false rejection; the substitution table is the diagnostic surface. Generic class declarations whose body uses are exhausted at scope exit (e.g. a function body that references T but is never called) still typecheck — the variable simply stays free and renders as its parameter name.
   - contributes to: GOAL-PKL-PURE
@@ -133,7 +157,7 @@
   - depends on: PKL-098
   - body: _not yet implemented_
 
-- [ ] **cross-module typecheck round-trip completeness** [draft] — verifies: PKL-118 — tags: typechecker, imports
+- [ ] **cross-module typecheck round-trip completeness** [draft] — verifies: PKL-118 — tags: typechecker, imports, pkf-pkspec
   > Imported modules' class definitions, type aliases, function signatures, and constraint annotations participate in the importing module's typecheck the same way local declarations do. Today some sites lose precision when crossing the import boundary.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-006
@@ -388,7 +412,7 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **inheritance dispatch hardening** [draft] — verifies: PKL-117 — tags: evaluator, typechecker, inheritance, next
+- [ ] **inheritance dispatch hardening** [draft] — verifies: PKL-117 — tags: evaluator, typechecker, inheritance
   > Super method calls (`super.method()`), abstract method enforcement, and override-direction type compatibility. Existing class inheritance handles property defaults but not the full method-dispatch surface.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-040
@@ -470,13 +494,13 @@
   - depends on: PKL-098
   - body: _not yet implemented_
 
-- [ ] **output renderer driver path** [draft] — verifies: PKL-104 — tags: renderer, output, driver
+- [ ] **output renderer driver path** [draft] — verifies: PKL-104 — tags: renderer, output, driver, pkf-pkspec
   > Recognize module-level `output { renderer = new JsonRenderer { ... } }` declarations and dispatch the chosen renderer (with optional converters) instead of relying on the `-f` CLI flag. Requires class-name tagging on `ObjectValue` so the renderer class can be read at runtime.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-097
   - body: _not yet implemented_
 
-- [ ] **package and https URI imports** [draft] — verifies: PKL-129 — tags: parser, imports, sandbox
+- [ ] **package and https URI imports** [draft] — verifies: PKL-129 — tags: parser, imports, sandbox, pkf-pkspec
   > `import "package://pkg.pkl-lang.org/..."` and `import "https://example.com/foo.pkl"` resolve through a sandbox-aware fetcher with checksum verification. Today only `pkl:`, file-relative, and absolute paths are recognized.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-006
@@ -885,6 +909,12 @@
   > The contract suite references Apple's Pkl repository as a git submodule and runs selected upstream LanguageSnippetTests fixtures through the pure MoonBit CLI.
   - contributes to: GOAL-PKL-PURE
   - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **when conditional property** [draft] — verifies: PKL-136 — tags: parser, evaluator, pkf-pkspec
+  > Apple Pkl's `when (cond) { property = value }` inside a Listing / Mapping / object body conditionally emits the inner properties. pkspec uses it in `scenarioToTest` to populate `specRef` only when the scenario carries an id: `specRef = new Listing<String> { when (s.id != null) { s.id } }`. Today the parser does not recognise the `when` form, so the surrounding listing silently misses the conditional entries; the evaluator gets nothing to fire on. Adds parser support (CST node) plus an `evaluate_when_clause` step in the object / listing / mapping evaluator that gates the inner properties on the condition's boolean result.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-001, PKL-002
   - body: _not yet implemented_
 
 ### `Test.pkl`
