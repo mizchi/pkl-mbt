@@ -763,10 +763,100 @@ fn push_receiver_method_bindings(
 }
 
 ///|
+fn eval_value_type_name(value : Value) -> String {
+  match value {
+    IntValue(_) => "Int"
+    BoolValue(_) => "Boolean"
+    StringValue(_) => "String"
+    NullValue => "Null"
+    ObjectValue(_) => "Object"
+    ListingValue(_) => "Listing"
+    MappingValue(_) => "Mapping"
+    FunctionValue(_, _, _, _) => "Function"
+  }
+}
+
+///|
+fn eval_value_accepts_type_annotation(
+  type_name : String,
+  value : Value,
+) -> Bool {
+  match pkl_constrained_type_base_name(type_name) {
+    Some(base_name) =>
+      return eval_value_accepts_type_annotation(base_name, value)
+    None => ()
+  }
+  if type_name.has_suffix("?") {
+    if value is NullValue {
+      return true
+    }
+    let inner_name = String::unsafe_substring(
+      type_name,
+      start=0,
+      end=type_name.length() - 1,
+    )
+    return eval_value_accepts_type_annotation(inner_name, value)
+  }
+  match (type_name, value) {
+    ("Int", IntValue(_)) => true
+    ("String", StringValue(_)) => true
+    ("Boolean", BoolValue(_)) | ("Bool", BoolValue(_)) => true
+    ("Null", NullValue) => true
+    ("Object", ObjectValue(_)) => true
+    ("Listing", ListingValue(_)) => true
+    ("Mapping", MappingValue(_)) => true
+    ("Function", FunctionValue(_, _, _, _)) => true
+    _ => false
+  }
+}
+
+///|
+fn eval_callable_return_rejection_message(
+  label : String,
+  return_type_name : String?,
+  value : Value,
+) -> String? {
+  match return_type_name {
+    Some(type_name) =>
+      if !eval_value_accepts_type_annotation(type_name, value) {
+        Some(
+          "\{label} return type annotation \{type_name} does not accept \{eval_value_type_name(value)}",
+        )
+      } else {
+        match
+          pkl_constrained_type_annotation_value_rejection_message(
+            return_type_name, value,
+          ) {
+          Some(message) => Some("\{label} return \{message}")
+          None => None
+        }
+      }
+    None => None
+  }
+}
+
+///|
+fn eval_callable_return_value(
+  label : String,
+  return_type_name : String?,
+  value : Value,
+  diagnostics : Array[Diagnostic],
+) -> Value? {
+  match eval_callable_return_rejection_message(label, return_type_name, value) {
+    Some(message) => {
+      diagnostics.push(Diagnostic::{ message, })
+      None
+    }
+    None => Some(value)
+  }
+}
+
+///|
 fn eval_lambda_application(
   label : String,
   parameters : Array[FunctionParameter],
   body : Expr,
+  return_type_name : String?,
   captured_env : Array[ValueBinding],
   arguments : Array[Expr],
   bindings : Array[Binding],
@@ -815,19 +905,29 @@ fn eval_lambda_application(
     call_cache.push({ name: parameters[i].name, value: argument_values[i] })
   }
   match body {
-    LambdaExpr(lambda_parameters, lambda_body, return_type_name) =>
-      Some(
+    LambdaExpr(lambda_parameters, lambda_body, lambda_return_type_name) =>
+      eval_callable_return_value(
+        label,
+        return_type_name,
         FunctionValue(
           lambda_parameters,
           lambda_body,
-          return_type_name,
+          lambda_return_type_name,
           copy_value_bindings(call_cache),
         ),
+        diagnostics,
       )
     _ =>
-      eval_expr_with_bindings(
-        body, bindings, env, class_env, call_cache, stack, diagnostics, resolve_import,
-      )
+      match
+        eval_expr_with_bindings(
+          body, bindings, env, class_env, call_cache, stack, diagnostics, resolve_import,
+        ) {
+        Some(value) =>
+          eval_callable_return_value(
+            label, return_type_name, value, diagnostics,
+          )
+        None => None
+      }
   }
 }
 
@@ -978,11 +1078,12 @@ fn eval_callable_call(
     eval_expr_with_bindings(
       callee, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
     ) {
-    Some(FunctionValue(parameters, body, _, captured_env)) =>
+    Some(FunctionValue(parameters, body, return_type_name, captured_env)) =>
       eval_lambda_application(
         callee_label(callee),
         parameters,
         body,
+        return_type_name,
         captured_env,
         arguments,
         bindings,

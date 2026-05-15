@@ -953,6 +953,22 @@ test "evaluate non-scalar Pkl callable closure captures" {
 }
 
 ///|
+test "evaluate Pkl callable return annotations" {
+  assert_true(
+    eval_source("function good(): Int = 1\nvalue = good()") ==
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(1) }])),
+  )
+  guard eval_source("function bad(): Int = \"hawk\"\nvalue = bad()")
+    is EvalError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="function bad return type annotation Int does not accept String",
+  )
+}
+
+///|
 test "typecheck rejects invalid Pkl calls" {
   guard typecheck_source("function add(x, y) = x + y\nvalue = add(1)")
     is TypeError(arity_diagnostics) else {

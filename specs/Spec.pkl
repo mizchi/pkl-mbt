@@ -1235,8 +1235,8 @@ local callableReturnAnnotationEvaluation = new Scenario {
     "Function and lambda calls validate declared return annotations at runtime so callable values reject bodies that return incompatible values."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-062"; "PKL-044"; "PKL-023" }
-  tags { "evaluator"; "callable"; "next" }
-  reviewStatus = "draft"
+  tags { "evaluator"; "callable" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -1244,6 +1244,26 @@ local callableReturnAnnotationEvaluation = new Scenario {
       summary = "Use preserved callable metadata for runtime return checks"
       rationale =
         "Callable values now carry lexical environments and still preserve return annotation text. The evaluator should enforce those annotations at call boundaries instead of leaving return validation only to the typechecker."
+    }
+  }
+}
+
+local classMethodReturnAnnotationEvaluation = new Scenario {
+  id = "PKL-064"
+  name = "evaluate Pkl class method return annotations"
+  description =
+    "Class method calls validate declared return annotations at runtime so method bodies reject incompatible returned values."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-063"; "PKL-036"; "PKL-040" }
+  tags { "evaluator"; "class"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Extend runtime return validation to methods"
+      rationale =
+        "Function and lambda values now enforce return annotations at call boundaries. Class methods carry the same return annotation metadata but use a separate receiver-aware evaluation path, so they need the same runtime check."
     }
   }
 }
@@ -1314,4 +1334,5 @@ scenarios {
   callableClosureCaptures
   nonScalarClosureCaptures
   callableReturnAnnotationEvaluation
+  classMethodReturnAnnotationEvaluation
 }
