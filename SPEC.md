@@ -1,6 +1,6 @@
 # Test SPEC
 
-64 tests across 2 module(s) — 60 pending, 4 active
+65 tests across 2 module(s) — 61 pending, 4 active
 
 ## `specs/`
 
@@ -24,6 +24,13 @@
   > Class method calls validate constrained method parameter annotations in the typechecker and evaluator, so typed object method calls reject invalid constrained arguments.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-049, PKL-041, PKL-046
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **evaluate Pkl callable closure captures** [draft] — verifies: PKL-061 — tags: evaluator, callable, next
+  > Function and lambda values preserve captured lexical bindings so returned lambdas and higher-order callables can evaluate variables from their defining scope.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-044, PKL-060
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
@@ -88,7 +95,7 @@
   - contributes to: GOAL-PKL-PURE
   - body: _not yet implemented_
 
-- [ ] **evaluate upstream Pkl constraint fixture catch flow** [draft] — verifies: PKL-060 — tags: evaluator, stdlib, upstream, next
+- [ ] **evaluate upstream Pkl constraint fixture catch flow** — verifies: PKL-060 — tags: evaluator, stdlib, upstream
   > The evaluator supports enough of `pkl:test.catch` and lazy lambda invocation to run upstream constraint fixtures that capture failed constrained object construction.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-059, PKL-058, PKL-011
@@ -414,11 +421,11 @@
   > The native CLI evaluates a Pkl file and prints module object properties.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059 — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
-- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014 — tags: moonbit, upstream, compatibility, contract
+- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060 — tags: moonbit, upstream, compatibility, contract
   > Selected fixtures from the apple/pkl submodule parse and evaluate through the native CLI.
   - body: `cmd` (exit 0 expected)
 

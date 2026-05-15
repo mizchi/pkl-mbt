@@ -99,6 +99,31 @@ test "analysis session resolves selected pkl standard library modules" {
 }
 
 ///|
+test "evaluate pkl test catch for upstream constraint fixtures" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:test\"\nconst function isGreaterThan(n) = (x) -> x > n\nclass X { a: Int(isGreaterThan(5)) }\nres1 = new X { a = 6 }\nres2 = test.catch(() -> new X { a = 5 }.a)",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "res1",
+          value: ObjectValue([ValueMember::{ name: "a", value: IntValue(6) }]),
+        },
+        ValueMember::{
+          name: "res2",
+          value: StringValue(
+            "type annotation X member a constraint isGreaterThan rejects 5",
+          ),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
 test "typecheck accepts matching Pkl property annotations" {
   guard typecheck_source("name: String = \"hawk\"")
     is TypeOk(ObjectType(fields)) else {

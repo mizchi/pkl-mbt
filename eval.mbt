@@ -1672,6 +1672,69 @@ fn eval_module_relation(
 }
 
 ///|
+fn pkl_test_catch_lambda_body(expr : Expr) -> Expr? {
+  match expr {
+    CallExpr(MemberAccess(Identifier("test"), "catch"), arguments) =>
+      if arguments.length() == 1 {
+        match arguments[0] {
+          LambdaExpr(parameters, body, _) =>
+            if parameters.length() == 0 {
+              Some(body)
+            } else {
+              None
+            }
+          _ => None
+        }
+      } else {
+        None
+      }
+    _ => None
+  }
+}
+
+///|
+fn eval_pkl_test_catch_binding_value(
+  expr : Expr,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match pkl_test_catch_lambda_body(expr) {
+    Some(body) => {
+      let caught_diagnostics : Array[Diagnostic] = []
+      push_constrained_class_property_expr_diagnostics(
+        body, declarations, caught_diagnostics,
+      )
+      if caught_diagnostics.length() > 0 {
+        return Some(StringValue(caught_diagnostics[0].message))
+      }
+      match
+        eval_expr_with_bindings(
+          body, bindings, env, class_env, cache, stack, caught_diagnostics, resolve_import,
+        ) {
+        Some(value) =>
+          if caught_diagnostics.length() > 0 {
+            Some(StringValue(caught_diagnostics[0].message))
+          } else {
+            Some(StringValue(render_value(value)))
+          }
+        None =>
+          if caught_diagnostics.length() > 0 {
+            Some(StringValue(caught_diagnostics[0].message))
+          } else {
+            Some(StringValue("caught error"))
+          }
+      }
+    }
+    None => None
+  }
+}
+
+///|
 fn eval_program(
   program : Program,
   diagnostics : Array[Diagnostic],
@@ -1692,17 +1755,34 @@ fn eval_program(
   )
   for binding in program.bindings {
     if binding.exported {
-      match
-        resolve_binding_value(
-          binding.name,
+      let resolved_value = match
+        eval_pkl_test_catch_binding_value(
+          binding.value,
           bindings,
           env,
           class_env,
           cache,
           [],
-          diagnostics,
+          program.declarations,
           resolve_import,
         ) {
+        Some(value) => {
+          cache.push({ name: binding.name, value })
+          Some(value)
+        }
+        None =>
+          resolve_binding_value(
+            binding.name,
+            bindings,
+            env,
+            class_env,
+            cache,
+            [],
+            diagnostics,
+            resolve_import,
+          )
+      }
+      match resolved_value {
         Some(value) =>
           if eval_constrained_type_annotation_value_is_valid(
               binding.type_name,

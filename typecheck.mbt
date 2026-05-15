@@ -687,6 +687,18 @@ fn push_constrained_class_property_expr_diagnostics(
         )
       }
     }
+    MemberAccess(target, _) | SafeMemberAccess(target, _) =>
+      push_constrained_class_property_expr_diagnostics(
+        target, declarations, diagnostics,
+      )
+    SubscriptAccess(target, key) => {
+      push_constrained_class_property_expr_diagnostics(
+        target, declarations, diagnostics,
+      )
+      push_constrained_class_property_expr_diagnostics(
+        key, declarations, diagnostics,
+      )
+    }
     NonNullExpr(inner) | UnaryExpr(_, inner) =>
       push_constrained_class_property_expr_diagnostics(
         inner, declarations, diagnostics,

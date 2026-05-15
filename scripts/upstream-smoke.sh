@@ -43,6 +43,7 @@ parse_ok \
   "modules/filename with spaces 2.pkl" \
   "$UPSTREAM/modules/filename with spaces 2.pkl"
 parse_ok "modules/objects.pkl" "$UPSTREAM/modules/objects.pkl"
+parse_ok "classes/constraints8.pkl" "$UPSTREAM/classes/constraints8.pkl"
 
 eval_contains \
   "basic/parens.pkl" \
@@ -80,3 +81,7 @@ eval_contains \
   "modules/objects.pkl" \
   "$UPSTREAM/modules/objects.pkl" \
   "x = y = z = 1"
+eval_contains \
+  "classes/constraints8.pkl" \
+  "$UPSTREAM/classes/constraints8.pkl" \
+  "res2 = \"type annotation X member a constraint isGreaterThan rejects 5\""

@@ -138,6 +138,7 @@ fn resolve_import_path(from : String, uri : String) -> String {
 fn builtin_stdlib_source(uri : String) -> String? {
   match uri {
     "pkl:math" => Some("maxInt32 = 2147483647")
+    "pkl:test" => Some("catch = null")
     _ => None
   }
 }

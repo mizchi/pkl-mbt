@@ -1175,8 +1175,8 @@ local pklTestCatchConstraintsFixture = new Scenario {
     "The evaluator supports enough of `pkl:test.catch` and lazy lambda invocation to run upstream constraint fixtures that capture failed constrained object construction."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-059"; "PKL-058"; "PKL-011" }
-  tags { "evaluator"; "stdlib"; "upstream"; "next" }
-  reviewStatus = "draft"
+  tags { "evaluator"; "stdlib"; "upstream" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -1184,6 +1184,26 @@ local pklTestCatchConstraintsFixture = new Scenario {
       summary = "Turn class constraint support into an upstream fixture"
       rationale =
         "User-defined class property constraints and defaults now work in direct tests. The next compatibility slice should exercise the upstream `classes/constraints8.pkl` shape, which relies on `pkl:test.catch` to observe a rejected object."
+    }
+  }
+}
+
+local callableClosureCaptures = new Scenario {
+  id = "PKL-061"
+  name = "evaluate Pkl callable closure captures"
+  description =
+    "Function and lambda values preserve captured lexical bindings so returned lambdas and higher-order callables can evaluate variables from their defining scope."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-044"; "PKL-060" }
+  tags { "evaluator"; "callable"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Generalize callable values after catch-specific lazy invocation"
+      rationale =
+        "`pkl:test.catch` now evaluates a lazy lambda in a targeted path, and user-defined constraint factories are still recognized structurally. Full callable compatibility needs function values to retain lexical captures instead of relying on call-site caches."
     }
   }
 }
@@ -1251,4 +1271,5 @@ scenarios {
   constrainedClassProperties
   constrainedClassPropertyDefaults
   pklTestCatchConstraintsFixture
+  callableClosureCaptures
 }

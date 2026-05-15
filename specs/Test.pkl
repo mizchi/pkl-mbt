@@ -63,6 +63,7 @@ local moonUnit = new Test {
     "PKL-057"
     "PKL-058"
     "PKL-059"
+    "PKL-060"
   }
   cmd = "moon test --target js"
   timeoutSec = 120
@@ -84,7 +85,7 @@ local upstreamSmoke = new Test {
   description =
     "Selected fixtures from the apple/pkl submodule parse and evaluate through the native CLI."
   tags { "moonbit"; "upstream"; "compatibility"; "contract" }
-  specRef { "PKL-011"; "PKL-012"; "PKL-013"; "PKL-014" }
+  specRef { "PKL-011"; "PKL-012"; "PKL-013"; "PKL-014"; "PKL-060" }
   cmd = "./scripts/upstream-smoke.sh"
   workdir = ".."
   expectStdoutContains {
@@ -96,6 +97,7 @@ local upstreamSmoke = new Test {
     "upstream eval ok: modules/filename with spaces.pkl"
     "upstream eval ok: modules/filename with spaces 2.pkl"
     "upstream eval ok: modules/objects.pkl"
+    "upstream eval ok: classes/constraints8.pkl"
   }
   timeoutSec = 180
 }
