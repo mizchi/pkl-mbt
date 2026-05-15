@@ -43,26 +43,6 @@ local typeAliasedCallableArgumentEvaluation: Spec.Scenario = new {
 
 // ── stdlib expansion ────────────────────────────────────────────────────────
 
-local pklBaseListOperations: Spec.Scenario = new {
-  id = "PKL-075"
-  name = "expose pkl:base Listing operations"
-  description =
-    "Listing instance methods length, isEmpty, contains, fold, map, filter, take, drop, distinct, join, and reverse evaluate against the implemented Pkl core."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-009" }
-  tags { "stdlib"; "pkl-base"; "listing"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-  decisions {
-    new Spec.Decision {
-      date = "2026-05-15"
-      summary = "Listing operations are the most frequently used stdlib surface"
-      rationale =
-        "Real Pkl configurations almost always project / filter / fold over listings. Implementing this slice unlocks the majority of upstream fixtures that currently fail because they call `.map { ... }`."
-    }
-  }
-}
-
 local pklBaseMapOperations: Spec.Scenario = new {
   id = "PKL-076"
   name = "expose pkl:base Mapping operations"
@@ -70,7 +50,7 @@ local pklBaseMapOperations: Spec.Scenario = new {
     "Mapping instance methods containsKey, keys, values, length, fold, getOrNull, and the entries -> Listing<Pair> projection evaluate."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-075" }
-  tags { "stdlib"; "pkl-base"; "mapping" }
+  tags { "stdlib"; "pkl-base"; "mapping"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -367,7 +347,6 @@ local upstreamGoldOutputDiff: Spec.Scenario = new {
 
 entries: Listing<Spec.Scenario> = new {
   typeAliasedCallableArgumentEvaluation
-  pklBaseListOperations
   pklBaseMapOperations
   pklBaseStringOperations
   pklBaseIntOperations

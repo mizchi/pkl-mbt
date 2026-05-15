@@ -1464,6 +1464,38 @@ local jsonRenderer = new Scenario {
   }
 }
 
+local pklBaseListing = new Scenario {
+  id = "PKL-075"
+  name = "expose pkl:base Listing operations"
+  description =
+    "Listing properties (`length`, `isEmpty`, `first`, `last`, `distinct`) and methods (`contains(x)`, `reverse()`, `take(n)`, `drop(n)`, `join(sep)`, `map(fn)`, `filter(p)`, `fold(init, op)`) dispatch against `ListingValue` receivers in the evaluator. Property-style access (`xs.length`) is handled in the `MemberAccess` arm; method calls (`xs.contains(1)`) are handled in the `CallExpr(MemberAccess(...), args)` arm before falling through to the regular callable path. Higher-order methods (`map` / `filter` / `fold`) accept a `FunctionValue` callback and invoke it per element via a shared `apply_function_value` helper that mirrors `eval_lambda_application` for already-evaluated arguments. Chained calls (`xs.filter(p).map(f).fold(0, g)`) work because each step re-evaluates its receiver as a `ListingValue`."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-009"; "PKL-066" }
+  tags { "stdlib"; "pkl-base"; "listing" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Dispatch builtins on the receiver shape, not via a synthetic class binding"
+      rationale =
+        "Apple Pkl exposes Listing operations through a `pkl:base.Listing<T>` class. Our class lookup is keyed off typed-object class names, and `ListingValue` is not represented as a typed object — synthesizing one just to satisfy the dispatcher would balloon the surface (constructor flow, amend rules, etc.). Intercepting `MemberAccess` / `CallExpr` for `ListingValue` receivers keeps the evaluator changes local and leaves the class system unchanged for PKL-089 generics work later."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Share `apply_function_value` between Listing higher-order builtins"
+      rationale =
+        "`map` / `filter` / `fold` all need to invoke a `FunctionValue` against already-evaluated element values, which differs from the existing `eval_lambda_application` (Expr-based arguments). Extracting `apply_function_value` once means each Listing builtin's body stays focused on its iteration shape and the per-call rejection / return validation lives in one place. The helper is reusable by Mapping (PKL-076) and String (PKL-077) builtins once those land."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Saturate `take` / `drop` instead of erroring on out-of-range counts"
+      rationale =
+        "Apple Pkl's `Listing.take(n)` and `.drop(n)` clamp `n` to the listing's bounds rather than raising — `xs.take(100)` on a 3-element listing returns the whole listing, and `xs.drop(100)` returns the empty listing. Mirroring that policy keeps user-facing behavior intuitive and avoids leaking an internal index-bounds error from data-shape variation."
+    }
+  }
+}
+
 local propertiesRenderer = new Scenario {
   id = "PKL-074"
   name = "render Pkl values as Java Properties"
@@ -1602,5 +1634,6 @@ scenarios {
   jsonRenderer
   yamlRenderer
   propertiesRenderer
+  pklBaseListing
   ...roadmap.entries
 }

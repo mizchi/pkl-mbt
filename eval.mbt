@@ -994,6 +994,397 @@ fn eval_lambda_application(
 }
 
 ///|
+/// Apply a `FunctionValue` to an array of already-evaluated `Value`
+/// arguments. Mirrors `eval_lambda_application` but accepts values instead
+/// of expressions so the stdlib builtins (Listing.map / .filter / .fold)
+/// can invoke user callbacks per element.
+fn apply_function_value(
+  label : String,
+  fn_value : Value,
+  args : Array[Value],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  _cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match fn_value {
+    FunctionValue(parameters, body, return_type_name, captured_env) => {
+      if parameters.length() != args.length() {
+        diagnostics.push(Diagnostic::{
+          message: "\{label} expects \{parameters.length()} arguments, got \{args.length()}",
+        })
+        return None
+      }
+      let call_cache = copy_value_bindings(captured_env)
+      for i = 0; i < parameters.length(); i = i + 1 {
+        match
+          eval_callable_argument_rejection_message(
+            parameters[i].type_name,
+            args[i],
+            declarations,
+          ) {
+          Some(message) => {
+            diagnostics.push(Diagnostic::{
+              message: "\{label} argument \{i + 1} \{message}",
+            })
+            return None
+          }
+          None => ()
+        }
+        call_cache.push({ name: parameters[i].name, value: args[i] })
+      }
+      match
+        eval_expr_with_bindings(
+          body, bindings, env, class_env, call_cache, stack, declarations, diagnostics,
+          resolve_import,
+        ) {
+        Some(value) =>
+          eval_callable_return_value(
+            label, return_type_name, value, declarations, diagnostics,
+          )
+        None => None
+      }
+    }
+    _ => {
+      diagnostics.push(Diagnostic::{ message: "\{label} expects Function" })
+      None
+    }
+  }
+}
+
+///|
+fn is_listing_property_name(name : String) -> Bool {
+  match name {
+    "length" | "isEmpty" | "first" | "last" | "distinct" => true
+    _ => false
+  }
+}
+
+///|
+fn is_listing_method_name(name : String) -> Bool {
+  match name {
+    "contains"
+    | "fold"
+    | "map"
+    | "filter"
+    | "take"
+    | "drop"
+    | "join"
+    | "reverse" => true
+    _ => false
+  }
+}
+
+///|
+fn contains_value(xs : Array[Value], v : Value) -> Bool {
+  for x in xs {
+    if x == v {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn value_to_string_for_join(v : Value) -> String {
+  match v {
+    IntValue(n) => "\{n}"
+    BoolValue(true) => "true"
+    BoolValue(false) => "false"
+    StringValue(s) => s
+    NullValue => "null"
+    _ => {
+      let buf = StringBuilder::new()
+      render_pcf_inline(v, 0, buf)
+      buf.to_string()
+    }
+  }
+}
+
+///|
+fn eval_listing_property(
+  elements : Array[Value],
+  name : String,
+  diagnostics : Array[Diagnostic],
+) -> Value? {
+  match name {
+    "length" => Some(IntValue(elements.length()))
+    "isEmpty" => Some(BoolValue(elements.length() == 0))
+    "first" =>
+      if elements.length() == 0 {
+        diagnostics.push(Diagnostic::{
+          message: "Listing.first on empty Listing",
+        })
+        None
+      } else {
+        Some(elements[0])
+      }
+    "last" =>
+      if elements.length() == 0 {
+        diagnostics.push(Diagnostic::{
+          message: "Listing.last on empty Listing",
+        })
+        None
+      } else {
+        Some(elements[elements.length() - 1])
+      }
+    "distinct" => {
+      let seen : Array[Value] = []
+      for v in elements {
+        if !contains_value(seen, v) {
+          seen.push(v)
+        }
+      }
+      Some(ListingValue(seen))
+    }
+    _ => None
+  }
+}
+
+///|
+fn eval_listing_method(
+  elements : Array[Value],
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let arg_values : Array[Value] = []
+  let mut ok = true
+  for argument in arguments {
+    match
+      eval_expr_with_bindings(
+        argument, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      ) {
+      Some(v) => arg_values.push(v)
+      None => ok = false
+    }
+  }
+  if !ok {
+    return None
+  }
+  match method_name {
+    "contains" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(Diagnostic::{
+          message: "Listing.contains expects 1 argument, got \{arg_values.length()}",
+        })
+        return None
+      }
+      Some(BoolValue(contains_value(elements, arg_values[0])))
+    }
+    "reverse" => {
+      if arg_values.length() != 0 {
+        diagnostics.push(Diagnostic::{
+          message: "Listing.reverse expects 0 arguments, got \{arg_values.length()}",
+        })
+        return None
+      }
+      let reversed : Array[Value] = []
+      let mut i = elements.length() - 1
+      while i >= 0 {
+        reversed.push(elements[i])
+        i = i - 1
+      }
+      Some(ListingValue(reversed))
+    }
+    "take" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(Diagnostic::{
+          message: "Listing.take expects 1 argument, got \{arg_values.length()}",
+        })
+        return None
+      }
+      match arg_values[0] {
+        IntValue(raw) => {
+          let n = if raw < 0 {
+            0
+          } else if raw > elements.length() {
+            elements.length()
+          } else {
+            raw
+          }
+          let result : Array[Value] = []
+          for i = 0; i < n; i = i + 1 {
+            result.push(elements[i])
+          }
+          Some(ListingValue(result))
+        }
+        _ => {
+          diagnostics.push(Diagnostic::{
+            message: "Listing.take expects Int argument",
+          })
+          None
+        }
+      }
+    }
+    "drop" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(Diagnostic::{
+          message: "Listing.drop expects 1 argument, got \{arg_values.length()}",
+        })
+        return None
+      }
+      match arg_values[0] {
+        IntValue(raw) => {
+          let n = if raw < 0 {
+            0
+          } else if raw > elements.length() {
+            elements.length()
+          } else {
+            raw
+          }
+          let result : Array[Value] = []
+          for i = n; i < elements.length(); i = i + 1 {
+            result.push(elements[i])
+          }
+          Some(ListingValue(result))
+        }
+        _ => {
+          diagnostics.push(Diagnostic::{
+            message: "Listing.drop expects Int argument",
+          })
+          None
+        }
+      }
+    }
+    "join" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(Diagnostic::{
+          message: "Listing.join expects 1 argument, got \{arg_values.length()}",
+        })
+        return None
+      }
+      match arg_values[0] {
+        StringValue(sep) => {
+          let buf = StringBuilder::new()
+          for i = 0; i < elements.length(); i = i + 1 {
+            if i > 0 {
+              buf.write_string(sep)
+            }
+            buf.write_string(value_to_string_for_join(elements[i]))
+          }
+          Some(StringValue(buf.to_string()))
+        }
+        _ => {
+          diagnostics.push(Diagnostic::{
+            message: "Listing.join expects String separator",
+          })
+          None
+        }
+      }
+    }
+    "map" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(Diagnostic::{
+          message: "Listing.map expects 1 argument, got \{arg_values.length()}",
+        })
+        return None
+      }
+      let result : Array[Value] = []
+      for element in elements {
+        match
+          apply_function_value(
+            "Listing.map callback",
+            arg_values[0],
+            [element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(v) => result.push(v)
+          None => return None
+        }
+      }
+      Some(ListingValue(result))
+    }
+    "filter" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(Diagnostic::{
+          message: "Listing.filter expects 1 argument, got \{arg_values.length()}",
+        })
+        return None
+      }
+      let result : Array[Value] = []
+      for element in elements {
+        match
+          apply_function_value(
+            "Listing.filter predicate",
+            arg_values[0],
+            [element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(BoolValue(true)) => result.push(element)
+          Some(BoolValue(false)) => ()
+          Some(_) => {
+            diagnostics.push(Diagnostic::{
+              message: "Listing.filter predicate must return Boolean",
+            })
+            return None
+          }
+          None => return None
+        }
+      }
+      Some(ListingValue(result))
+    }
+    "fold" => {
+      if arg_values.length() != 2 {
+        diagnostics.push(Diagnostic::{
+          message: "Listing.fold expects 2 arguments, got \{arg_values.length()}",
+        })
+        return None
+      }
+      let mut acc = arg_values[0]
+      let callback = arg_values[1]
+      for element in elements {
+        match
+          apply_function_value(
+            "Listing.fold combine",
+            callback,
+            [acc, element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(v) => acc = v
+          None => return None
+        }
+      }
+      Some(acc)
+    }
+    _ => None
+  }
+}
+
+///|
 fn eval_class_method_call(
   target_expr : Expr,
   method_name : String,
@@ -1306,6 +1697,15 @@ fn eval_expr_with_bindings(
               None
             }
           }
+        Some(ListingValue(elements)) =>
+          if is_listing_property_name(member_name) {
+            eval_listing_property(elements, member_name, diagnostics)
+          } else {
+            diagnostics.push(Diagnostic::{
+              message: "unknown Listing property \{member_name}",
+            })
+            None
+          }
         Some(_) => {
           diagnostics.push(Diagnostic::{
             message: "member access expects Object",
@@ -1330,6 +1730,15 @@ fn eval_expr_with_bindings(
               })
               None
             }
+          }
+        Some(ListingValue(elements)) =>
+          if is_listing_property_name(member_name) {
+            eval_listing_property(elements, member_name, diagnostics)
+          } else {
+            diagnostics.push(Diagnostic::{
+              message: "unknown Listing property \{member_name}",
+            })
+            None
           }
         Some(_) => {
           diagnostics.push(Diagnostic::{
@@ -1427,6 +1836,23 @@ fn eval_expr_with_bindings(
               target_expr, method_name, arguments, false, bindings, env, class_env,
               cache, stack, declarations, diagnostics, resolve_import,
             )
+          } else if is_listing_method_name(method_name) {
+            match
+              eval_expr_with_bindings(
+                target_expr, bindings, env, class_env, cache, stack, declarations,
+                diagnostics, resolve_import,
+              ) {
+              Some(ListingValue(elements)) =>
+                eval_listing_method(
+                  elements, method_name, arguments, bindings, env, class_env, cache,
+                  stack, declarations, diagnostics, resolve_import,
+                )
+              _ =>
+                eval_callable_call(
+                  callee, arguments, bindings, env, class_env, cache, stack, declarations,
+                  diagnostics, resolve_import,
+                )
+            }
           } else {
             eval_callable_call(
               callee, arguments, bindings, env, class_env, cache, stack, declarations,
@@ -1441,6 +1867,24 @@ fn eval_expr_with_bindings(
               target_expr, method_name, arguments, true, bindings, env, class_env,
               cache, stack, declarations, diagnostics, resolve_import,
             )
+          } else if is_listing_method_name(method_name) {
+            match
+              eval_expr_with_bindings(
+                target_expr, bindings, env, class_env, cache, stack, declarations,
+                diagnostics, resolve_import,
+              ) {
+              Some(NullValue) => Some(NullValue)
+              Some(ListingValue(elements)) =>
+                eval_listing_method(
+                  elements, method_name, arguments, bindings, env, class_env, cache,
+                  stack, declarations, diagnostics, resolve_import,
+                )
+              _ =>
+                eval_callable_call(
+                  callee, arguments, bindings, env, class_env, cache, stack, declarations,
+                  diagnostics, resolve_import,
+                )
+            }
           } else {
             eval_callable_call(
               callee, arguments, bindings, env, class_env, cache, stack, declarations,

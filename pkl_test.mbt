@@ -771,6 +771,306 @@ test "YAML rendered top-level Pkl matches the yamlRenderer1 fixture shape" {
 }
 
 ///|
+test "Listing.length and isEmpty are properties" {
+  // `xs.length` and `xs.isEmpty` are property-style on Apple Pkl Listings.
+  assert_true(
+    eval_source("xs = new Listing { 1; 2; 3 }\nlen = xs.length") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+        },
+        ValueMember::{ name: "len", value: IntValue(3) },
+      ]),
+    ),
+  )
+  assert_true(
+    eval_source("xs = new Listing {}\nempty = xs.isEmpty") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "xs", value: ListingValue([]) },
+        ValueMember::{ name: "empty", value: BoolValue(true) },
+      ]),
+    ),
+  )
+  assert_true(
+    eval_source("xs = new Listing { 1 }\nempty = xs.isEmpty") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "xs", value: ListingValue([IntValue(1)]) },
+        ValueMember::{ name: "empty", value: BoolValue(false) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Listing.first / last / distinct properties" {
+  assert_true(
+    eval_source("xs = new Listing { 10; 20; 30 }\nf = xs.first\nl = xs.last") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([IntValue(10), IntValue(20), IntValue(30)]),
+        },
+        ValueMember::{ name: "f", value: IntValue(10) },
+        ValueMember::{ name: "l", value: IntValue(30) },
+      ]),
+    ),
+  )
+  assert_true(
+    eval_source("xs = new Listing { 1; 2; 2; 3; 1 }\nd = xs.distinct") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([
+            IntValue(1),
+            IntValue(2),
+            IntValue(2),
+            IntValue(3),
+            IntValue(1),
+          ]),
+        },
+        ValueMember::{
+          name: "d",
+          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Listing.contains and reverse methods" {
+  assert_true(
+    eval_source(
+      "xs = new Listing { 1; 2; 3 }\nhas = xs.contains(2)\nmissing = xs.contains(99)",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+        },
+        ValueMember::{ name: "has", value: BoolValue(true) },
+        ValueMember::{ name: "missing", value: BoolValue(false) },
+      ]),
+    ),
+  )
+  assert_true(
+    eval_source("xs = new Listing { 1; 2; 3 }\nr = xs.reverse()") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+        },
+        ValueMember::{
+          name: "r",
+          value: ListingValue([IntValue(3), IntValue(2), IntValue(1)]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Listing.take and drop methods" {
+  assert_true(
+    eval_source(
+      "xs = new Listing { 1; 2; 3; 4; 5 }\nt = xs.take(2)\nd = xs.drop(3)",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([
+            IntValue(1),
+            IntValue(2),
+            IntValue(3),
+            IntValue(4),
+            IntValue(5),
+          ]),
+        },
+        ValueMember::{
+          name: "t",
+          value: ListingValue([IntValue(1), IntValue(2)]),
+        },
+        ValueMember::{
+          name: "d",
+          value: ListingValue([IntValue(4), IntValue(5)]),
+        },
+      ]),
+    ),
+  )
+  // take more than length / drop more than length saturate at length.
+  assert_true(
+    eval_source("xs = new Listing { 1; 2 }\nt = xs.take(10)\nd = xs.drop(10)") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([IntValue(1), IntValue(2)]),
+        },
+        ValueMember::{
+          name: "t",
+          value: ListingValue([IntValue(1), IntValue(2)]),
+        },
+        ValueMember::{ name: "d", value: ListingValue([]) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Listing.join method" {
+  assert_true(
+    eval_source("xs = new Listing { \"a\"; \"b\"; \"c\" }\nj = xs.join(\", \")") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([
+            StringValue("a"),
+            StringValue("b"),
+            StringValue("c"),
+          ]),
+        },
+        ValueMember::{ name: "j", value: StringValue("a, b, c") },
+      ]),
+    ),
+  )
+  assert_true(
+    eval_source("xs = new Listing { 1; 2; 3 }\nj = xs.join(\"-\")") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+        },
+        ValueMember::{ name: "j", value: StringValue("1-2-3") },
+      ]),
+    ),
+  )
+  assert_true(
+    eval_source("xs = new Listing {}\nj = xs.join(\"-\")") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "xs", value: ListingValue([]) },
+        ValueMember::{ name: "j", value: StringValue("") },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Listing.map applies a callable to each element" {
+  assert_true(
+    eval_source("xs = new Listing { 1; 2; 3 }\nys = xs.map((x) -> x * 10)") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+        },
+        ValueMember::{
+          name: "ys",
+          value: ListingValue([IntValue(10), IntValue(20), IntValue(30)]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Listing.filter keeps elements that pass the predicate" {
+  assert_true(
+    eval_source(
+      "xs = new Listing { 1; 2; 3; 4; 5 }\nys = xs.filter((x) -> x > 2)",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([
+            IntValue(1),
+            IntValue(2),
+            IntValue(3),
+            IntValue(4),
+            IntValue(5),
+          ]),
+        },
+        ValueMember::{
+          name: "ys",
+          value: ListingValue([IntValue(3), IntValue(4), IntValue(5)]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Listing.fold reduces to a single accumulated value" {
+  assert_true(
+    eval_source(
+      "xs = new Listing { 1; 2; 3; 4 }\nsum = xs.fold(0, (acc, x) -> acc + x)",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([
+            IntValue(1),
+            IntValue(2),
+            IntValue(3),
+            IntValue(4),
+          ]),
+        },
+        ValueMember::{ name: "sum", value: IntValue(10) },
+      ]),
+    ),
+  )
+  assert_true(
+    eval_source("xs = new Listing {}\nsum = xs.fold(42, (acc, x) -> acc + x)") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "xs", value: ListingValue([]) },
+        ValueMember::{ name: "sum", value: IntValue(42) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Listing builtins compose through higher-order callable chains" {
+  // Stack a map / filter / fold pipeline to confirm the dispatcher handles
+  // method results being passed back into other listing methods.
+  assert_true(
+    eval_source(
+      "xs = new Listing { 1; 2; 3; 4; 5 }\nresult = xs.filter((x) -> x > 1).map((x) -> x * x).fold(0, (acc, x) -> acc + x)",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([
+            IntValue(1),
+            IntValue(2),
+            IntValue(3),
+            IntValue(4),
+            IntValue(5),
+          ]),
+        },
+        ValueMember::{ name: "result", value: IntValue(54) },
+      ]),
+    ),
+  )
+}
+
+///|
 test "render Pkl module bindings as Java Properties" {
   let value : Value = ObjectValue([
     ValueMember::{ name: "name", value: StringValue("pigeon") },
