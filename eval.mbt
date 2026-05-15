@@ -18,6 +18,11 @@ pub(all) enum Value {
   // source pattern so methods can recompile via `moonbitlang/regexp`
   // and renderers can round-trip the value through `Regex("...")`.
   RegexValue(String)
+  // PKL-083: Bytes value backed by MoonBit's `Bytes`. Constructed via
+  // `Bytes(<Listing of Int>)` or `Bytes.fromBase64("...")`; PCF
+  // round-trips through the Listing constructor and JSON / YAML /
+  // Properties project the base64 string.
+  BytesValue(Bytes)
 } derive(Eq, Debug)
 
 ///|
@@ -816,6 +821,7 @@ fn eval_value_type_name(value : Value) -> String {
     DurationValue(_, _) => "Duration"
     DataSizeValue(_, _) => "DataSize"
     RegexValue(_) => "Regex"
+    BytesValue(_) => "Bytes"
   }
 }
 
@@ -852,6 +858,7 @@ fn eval_value_accepts_type_annotation(
     ("Duration", DurationValue(_, _)) => true
     ("DataSize", DataSizeValue(_, _)) => true
     ("Regex", RegexValue(_)) => true
+    ("Bytes", BytesValue(_)) => true
     _ => false
   }
 }
@@ -1152,7 +1159,8 @@ fn is_string_method_name(name : String) -> Bool {
     | "drop"
     | "split"
     | "padStart"
-    | "padEnd" => true
+    | "padEnd"
+    | "toBytes" => true
     _ => false
   }
 }
@@ -1339,6 +1347,137 @@ fn is_regex_method_name(name : String) -> Bool {
   match name {
     "matches" | "find" | "findAll" | "replace" | "replaceAll" => true
     _ => false
+  }
+}
+
+///|
+fn is_bytes_method_name(name : String) -> Bool {
+  match name {
+    "getOrNull" | "toList" => true
+    _ => false
+  }
+}
+
+///|
+/// Build a `BytesValue` from a Listing of Int byte values. Each entry
+/// must be in the 0..=255 range; an out-of-range or non-Int element
+/// records a diagnostic and bails. The resulting `Bytes` is owned by
+/// the new `BytesValue` and shared by reference for the lifetime of
+/// the value (MoonBit `Bytes` is immutable).
+fn build_bytes_from_int_listing(
+  elements : Array[Value],
+  diagnostics : Array[Diagnostic],
+) -> Value? {
+  let buf : Array[Byte] = []
+  for element in elements {
+    match element {
+      IntValue(n) =>
+        if n < 0 || n > 255 {
+          diagnostics.push(Diagnostic::{
+            message: "Bytes element \{n} is out of range 0..255",
+          })
+          return None
+        } else {
+          buf.push(n.to_byte())
+        }
+      _ => {
+        diagnostics.push(Diagnostic::{
+          message: "Bytes element must be Int, got \{eval_value_type_name(element)}",
+        })
+        return None
+      }
+    }
+  }
+  Some(BytesValue(Bytes::from_array(buf)))
+}
+
+///|
+fn eval_bytes_property(
+  bytes : Bytes,
+  name : String,
+  diagnostics : Array[Diagnostic],
+) -> Value? {
+  match name {
+    "length" => Some(IntValue(bytes.length()))
+    "base64" => Some(StringValue(@base64.encode(bytes[:])))
+    _ => {
+      diagnostics.push(Diagnostic::{ message: "unknown Bytes property \{name}" })
+      None
+    }
+  }
+}
+
+///|
+fn eval_bytes_method(
+  bytes : Bytes,
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let arg_values : Array[Value] = []
+  let mut ok = true
+  for argument in arguments {
+    match
+      eval_expr_with_bindings(
+        argument, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      ) {
+      Some(v) => arg_values.push(v)
+      None => ok = false
+    }
+  }
+  if !ok {
+    return None
+  }
+  match method_name {
+    "getOrNull" =>
+      if arg_values.length() == 1 {
+        match arg_values[0] {
+          IntValue(index) =>
+            if index < 0 || index >= bytes.length() {
+              Some(NullValue)
+            } else {
+              Some(IntValue(bytes[index].to_int()))
+            }
+          _ => {
+            diagnostics.push(Diagnostic::{
+              message: "Bytes.getOrNull expects an Int argument",
+            })
+            None
+          }
+        }
+      } else {
+        diagnostics.push(Diagnostic::{
+          message: "Bytes.getOrNull expects exactly one argument",
+        })
+        None
+      }
+    "toList" =>
+      if arg_values.length() == 0 {
+        let elements : Array[Value] = []
+        for i = 0; i < bytes.length(); i = i + 1 {
+          elements.push(IntValue(bytes[i].to_int()))
+        }
+        Some(ListingValue(elements))
+      } else {
+        diagnostics.push(Diagnostic::{
+          message: "Bytes.toList takes no arguments",
+        })
+        None
+      }
+    _ => {
+      diagnostics.push(Diagnostic::{
+        message: "unknown Bytes method \{method_name}",
+      })
+      None
+    }
   }
 }
 
@@ -2465,6 +2604,15 @@ fn eval_string_method(
       }
       Some(StringValue(s.to_upper()))
     }
+    "toBytes" => {
+      if arg_values.length() != 0 {
+        diagnostics.push(Diagnostic::{
+          message: "String.toBytes expects 0 arguments, got \{arg_values.length()}",
+        })
+        return None
+      }
+      Some(BytesValue(@utf8.encode(s[:])))
+    }
     "toLowerCase" => {
       if arg_values.length() != 0 {
         diagnostics.push(Diagnostic::{
@@ -3014,6 +3162,8 @@ fn eval_expr_with_bindings(
           eval_datasize_property(n, unit, member_name, diagnostics)
         Some(RegexValue(pattern)) =>
           eval_regex_property(pattern, member_name, diagnostics)
+        Some(BytesValue(bytes)) =>
+          eval_bytes_property(bytes, member_name, diagnostics)
         Some(_) => {
           diagnostics.push(Diagnostic::{
             message: "member access expects Object",
@@ -3085,6 +3235,8 @@ fn eval_expr_with_bindings(
           eval_datasize_property(n, unit, member_name, diagnostics)
         Some(RegexValue(pattern)) =>
           eval_regex_property(pattern, member_name, diagnostics)
+        Some(BytesValue(bytes)) =>
+          eval_bytes_property(bytes, member_name, diagnostics)
         Some(_) => {
           diagnostics.push(Diagnostic::{
             message: "safe member access expects Object",
@@ -3172,7 +3324,84 @@ fn eval_expr_with_bindings(
         }
       }
     CallExpr(callee, arguments) =>
-      if callee is Identifier("Regex") &&
+      if callee is Identifier("Bytes") &&
+        !stack_contains_binding(stack, "Bytes") &&
+        find_binding(bindings, "Bytes") is None {
+        // PKL-083: `Bytes(<Listing of Int>)` constructor. Each element
+        // is validated 0..=255 inside `build_bytes_from_int_listing`;
+        // anything else records a diagnostic and bails.
+        if arguments.length() == 1 {
+          match
+            eval_expr_with_bindings(
+              arguments[0],
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ) {
+            Some(ListingValue(elements)) =>
+              build_bytes_from_int_listing(elements, diagnostics)
+            Some(_) => {
+              diagnostics.push(Diagnostic::{
+                message: "Bytes expects a Listing of Int",
+              })
+              None
+            }
+            None => None
+          }
+        } else {
+          diagnostics.push(Diagnostic::{
+            message: "Bytes expects exactly one argument",
+          })
+          None
+        }
+      } else if callee is MemberAccess(Identifier("Bytes"), "fromBase64") &&
+        !stack_contains_binding(stack, "Bytes") &&
+        find_binding(bindings, "Bytes") is None {
+        // PKL-083: `Bytes.fromBase64("<base64>")` static-style decoder.
+        // Decoding errors surface as a diagnostic carrying the base64
+        // engine's own message.
+        if arguments.length() == 1 {
+          match
+            eval_expr_with_bindings(
+              arguments[0],
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ) {
+            Some(StringValue(encoded)) =>
+              Some(BytesValue(@base64.decode(encoded[:]))) catch {
+                _ => {
+                  diagnostics.push(Diagnostic::{
+                    message: "Bytes.fromBase64: malformed base64 input",
+                  })
+                  None
+                }
+              }
+            Some(_) => {
+              diagnostics.push(Diagnostic::{
+                message: "Bytes.fromBase64 expects a String argument",
+              })
+              None
+            }
+            None => None
+          }
+        } else {
+          diagnostics.push(Diagnostic::{
+            message: "Bytes.fromBase64 expects exactly one argument",
+          })
+          None
+        }
+      } else if callee is Identifier("Regex") &&
         !stack_contains_binding(stack, "Regex") &&
         find_binding(bindings, "Regex") is None {
         // PKL-081: `Regex("<pattern>")` is recognized as a constructor
@@ -3225,7 +3454,9 @@ fn eval_expr_with_bindings(
               is_string_method_name(method_name) ||
               is_int_method_name(method_name) ||
               is_regex_method_name(method_name) ||
-              method_name == "toUnit" {
+              is_bytes_method_name(method_name) ||
+              method_name == "toUnit" ||
+              method_name == "toBytes" {
               match
                 eval_expr_with_bindings(
                   target_expr, bindings, env, class_env, cache, stack, declarations,
@@ -3294,6 +3525,11 @@ fn eval_expr_with_bindings(
                     pattern, method_name, arguments, bindings, env, class_env, cache,
                     stack, declarations, diagnostics, resolve_import,
                   )
+                Some(BytesValue(bytes)) =>
+                  eval_bytes_method(
+                    bytes, method_name, arguments, bindings, env, class_env, cache,
+                    stack, declarations, diagnostics, resolve_import,
+                  )
                 _ =>
                   eval_callable_call(
                     callee, arguments, bindings, env, class_env, cache, stack, declarations,
@@ -3319,7 +3555,9 @@ fn eval_expr_with_bindings(
               is_string_method_name(method_name) ||
               is_int_method_name(method_name) ||
               is_regex_method_name(method_name) ||
-              method_name == "toUnit" {
+              is_bytes_method_name(method_name) ||
+              method_name == "toUnit" ||
+              method_name == "toBytes" {
               match
                 eval_expr_with_bindings(
                   target_expr, bindings, env, class_env, cache, stack, declarations,
@@ -3387,6 +3625,11 @@ fn eval_expr_with_bindings(
                 Some(RegexValue(pattern)) =>
                   eval_regex_method(
                     pattern, method_name, arguments, bindings, env, class_env, cache,
+                    stack, declarations, diagnostics, resolve_import,
+                  )
+                Some(BytesValue(bytes)) =>
+                  eval_bytes_method(
+                    bytes, method_name, arguments, bindings, env, class_env, cache,
                     stack, declarations, diagnostics, resolve_import,
                   )
                 _ =>
@@ -4333,6 +4576,20 @@ fn render_pcf_scalar(value : Value, buf : StringBuilder) -> Unit {
       buf.write_string(escape_string(pattern))
       buf.write_string("\")")
     }
+    BytesValue(bytes) => {
+      // PKL-083: PCF round-trips Bytes through the Listing constructor
+      // so the parser can re-evaluate the literal verbatim. Each byte
+      // is emitted as its 0..=255 decimal int.
+      buf.write_string("Bytes(new Listing { ")
+      for i = 0; i < bytes.length(); i = i + 1 {
+        if i > 0 {
+          buf.write_string("; ")
+        }
+        let n = bytes[i].to_int()
+        buf.write_string("\{n}")
+      }
+      buf.write_string(" })")
+    }
     ObjectValue(_) | ListingValue(_) | MappingValue(_) =>
       // Defensive: callers should route block values through
       // render_pcf_inline / render_pcf_block_body. Falling back keeps
@@ -4511,6 +4768,10 @@ fn render_json_value(value : Value, indent : Int, buf : StringBuilder) -> Unit {
     // Properties, mirroring upstream Apple Pkl behavior for opaque
     // stdlib values.
     RegexValue(pattern) => render_json_string(pattern, buf)
+    // PKL-083: Bytes projects as its base64 encoding in non-PCF
+    // formats, since none of these formats have a native bytes type
+    // and base64 is the upstream-compatible representation.
+    BytesValue(bytes) => render_json_string(@base64.encode(bytes[:]), buf)
   }
 }
 
@@ -4854,6 +5115,7 @@ fn render_yaml_scalar(value : Value, buf : StringBuilder) -> Unit {
     DurationValue(n, unit) => render_yaml_string("\{n}.\{unit}", buf)
     DataSizeValue(n, unit) => render_yaml_string("\{n}.\{unit}", buf)
     RegexValue(pattern) => render_yaml_string(pattern, buf)
+    BytesValue(bytes) => render_yaml_string(@base64.encode(bytes[:]), buf)
     _ =>
       // Composite values reach this path only via the same renderer fallback
       // that PCF / JSON use, so produce a deterministic flow form rather than
@@ -5241,6 +5503,7 @@ fn write_compact_json_value(value : Value, buf : StringBuilder) -> Unit {
     DurationValue(n, unit) => render_json_string("\{n}.\{unit}", buf)
     DataSizeValue(n, unit) => render_json_string("\{n}.\{unit}", buf)
     RegexValue(pattern) => render_json_string(pattern, buf)
+    BytesValue(bytes) => render_json_string(@base64.encode(bytes[:]), buf)
   }
 }
 
@@ -5255,6 +5518,7 @@ fn write_properties_scalar(value : Value, buf : StringBuilder) -> Unit {
     DurationValue(n, unit) => write_properties_value("\{n}.\{unit}", buf)
     DataSizeValue(n, unit) => write_properties_value("\{n}.\{unit}", buf)
     RegexValue(pattern) => write_properties_value(pattern, buf)
+    BytesValue(bytes) => write_properties_value(@base64.encode(bytes[:]), buf)
     _ =>
       // Unreachable in practice: render_properties_leaf already dispatches
       // composites through the compact-JSON path.

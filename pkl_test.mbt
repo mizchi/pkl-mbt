@@ -4817,3 +4817,109 @@ test "Pkl Mapping element constraint validates entry keys" {
     EvalOk(_) => assert_true(false)
   }
 }
+
+///|
+test "Pkl Bytes constructor wraps a Listing of byte values" {
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", "data = Bytes(new Listing { 65; 66; 67 })")
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "data", value: BytesValue(b"\x41\x42\x43") },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl Bytes length and base64 properties" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "n = Bytes(new Listing { 65; 66; 67 }).length\nb = Bytes(new Listing { 65; 66; 67 }).base64",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "n", value: IntValue(3) },
+        ValueMember::{ name: "b", value: StringValue("QUJD") },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl Bytes getOrNull returns the byte at an index or null" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "in_bound = Bytes(new Listing { 65; 66; 67 }).getOrNull(1)\nout_bound = Bytes(new Listing { 65; 66; 67 }).getOrNull(7)",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "in_bound", value: IntValue(66) },
+        ValueMember::{ name: "out_bound", value: NullValue },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl Bytes toList returns the underlying ints" {
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", "xs = Bytes(new Listing { 1; 2; 3 }).toList()")
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl Bytes.fromBase64 decodes a base64 string" {
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", "data = Bytes.fromBase64(\"QUJD\")")
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "data", value: BytesValue(b"\x41\x42\x43") },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl String.toBytes encodes the string as UTF-8 bytes" {
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", "data = \"ABC\".toBytes()")
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "data", value: BytesValue(b"\x41\x42\x43") },
+      ]),
+    ),
+  )
+}
+
+///|
+test "render Pkl Bytes values as Bytes(new Listing { ... }) PCF literals" {
+  let value : Value = ObjectValue([
+    ValueMember::{ name: "data", value: BytesValue(b"\x41\x42\x43") },
+  ])
+  inspect(
+    render_value(value),
+    content=(
+      #|data = Bytes(new Listing { 65; 66; 67 })
+    ),
+  )
+}

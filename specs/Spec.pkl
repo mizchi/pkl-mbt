@@ -1502,6 +1502,44 @@ local durationAndDataSizeLiterals = new Scenario {
   }
 }
 
+local bytesLiteralAndMethods = new Scenario {
+  id = "PKL-083"
+  name = "Bytes literal and Bytes methods"
+  description =
+    "`Bytes(<Listing of Int>)` is recognized as a constructor form ahead of the generic call path; each Listing element must be an Int in 0..=255 and the resulting `BytesValue` wraps a MoonBit `Bytes` instance. `Bytes.fromBase64(\"<base64>\")` is the static-style decoder counterpart, surfacing malformed base64 input as a diagnostic rather than a raise. The `.length` and `.base64` properties expose the byte count and the base64 encoding of the underlying bytes; `.getOrNull(i)` returns the byte at index `i` (as `IntValue` 0..=255) or `null` when out of range; `.toList()` materializes the bytes back into a `Listing<Int>` so existing list helpers keep working. `String.toBytes()` joins the dispatch table on the String side, encoding the input as UTF-8 via `moonbitlang/core/encoding/utf8`. The PCF renderer round-trips a `BytesValue` back through the constructor (`Bytes(new Listing { 65; 66; 67 })`) so the parser can re-evaluate the literal verbatim; JSON / YAML / Properties project the bytes as their base64 encoding (a quoted string), matching the projection shape used by Apple Pkl for opaque stdlib values."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-077" }
+  tags { "evaluator"; "renderer"; "bytes"; "stdlib" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Pull in moonbitlang/core/encoding/{base64,utf8} instead of hand-rolling the codecs"
+      rationale =
+        "Both base64 and UTF-8 codecs ship in MoonBit core (`moonbitlang/core/encoding/base64` and `moonbitlang/core/encoding/utf8`). Reimplementing either would double the Bytes-related code without buying compatibility — they already match the upstream Apple Pkl semantics. Adding the imports keeps the slice focused on Pkl-side wiring (value variant, constructor intercepts, method / property dispatch, renderer surface) and inherits the codec semantics from the maintained core packages."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Validate byte values 0..=255 at construction, not at access"
+      rationale =
+        "Out-of-range bytes are a programmer error that almost always originates from the Listing literal that built the Bytes — surfacing the rejection at the constructor (with the offending value in the diagnostic) points to the right line. Validating at access would push the failure to wherever the value happens to be read first, which loses the source location and lets the bad Bytes value flow through other operations (renderers, comparisons) before failing."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Round-trip PCF through the Listing constructor; project base64 in non-PCF formats"
+      rationale =
+        "PCF is the only output format that flows back into our parser, so the Listing-of-Int constructor is the only round-trip-safe form (the parser already understands `Bytes(<Listing>)` because of the constructor intercept). JSON / YAML / Properties do not have a native bytes type and base64 is the upstream-compatible representation — the same opaque-value pattern we use for Duration / DataSize / Regex. The two shapes intentionally differ because the round-trip target differs."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Provide `Bytes.fromBase64` instead of overloading the `Bytes(...)` constructor"
+      rationale =
+        "Overloading `Bytes(\"<base64>\")` to mean \"decode this string\" would conflict with the future `Bytes(<other-shape>)` overload Apple Pkl supports (e.g. raw byte literal syntax, sequence of hex pairs). Keeping the decoder under the explicit `Bytes.fromBase64` name leaves the bare `Bytes(...)` constructor unambiguous as the Listing-of-Int form, and matches the static-method spelling Apple Pkl uses for analogous decoders elsewhere in the stdlib."
+    }
+  }
+}
+
 local cliPklTestRunner = new Scenario {
   id = "PKL-095"
   name = "CLI test runner integrates pkl:test facts"
@@ -2154,5 +2192,6 @@ scenarios {
   collectionElementConstraints
   cliFormatFlag
   cliPklTestRunner
+  bytesLiteralAndMethods
   ...roadmap.entries
 }

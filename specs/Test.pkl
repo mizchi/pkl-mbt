@@ -85,6 +85,7 @@ local moonUnit = new Test {
     "PKL-079"
     "PKL-081"
     "PKL-082"
+    "PKL-083"
     "PKL-085"
     "PKL-086"
     "PKL-087"

@@ -44,18 +44,6 @@ local pklReflectMinimal: Spec.Scenario = new {
   }
 }
 
-local bytesLiterals: Spec.Scenario = new {
-  id = "PKL-083"
-  name = "Bytes literals and conversions"
-  description =
-    "`Bytes` values created via `Bytes(...)` or string conversions, plus length, slice, and base64 encoding / decoding."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-077" }
-  tags { "stdlib"; "bytes"; "next" }
-  reviewStatus = "draft"
-  severity = "minor"
-}
-
 local readTraceThrow: Spec.Scenario = new {
   id = "PKL-084"
   name = "read trace and throw built-ins"
@@ -128,7 +116,7 @@ local upstreamFixtureEvaluation: Spec.Scenario = new {
     "Expand `scripts/upstream-smoke.sh` from the current ~10 fixtures to the bulk of `LanguageSnippetTests/input/basic`, accepting only those that exercise implemented language features and gating new failures via the script."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-075"; "PKL-077"; "PKL-085" }
-  tags { "compatibility"; "upstream" }
+  tags { "compatibility"; "upstream"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -147,7 +135,6 @@ local upstreamGoldOutputDiff: Spec.Scenario = new {
 
 entries: Listing<Spec.Scenario> = new {
   pklReflectMinimal
-  bytesLiterals
   readTraceThrow
   genericClassDeclarations
   genericFunctionTypeParameters

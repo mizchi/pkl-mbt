@@ -432,6 +432,7 @@ pub(all) enum Value {
   DurationValue(Int, String)
   DataSizeValue(Int, String)
   RegexValue(String)
+  BytesValue(Bytes)
 } derive(Eq, @debug.Debug)
 
 pub(all) struct ValueBinding {
