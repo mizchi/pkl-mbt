@@ -1571,6 +1571,122 @@ test "pkl:math exposes Int abs, min, max functions" {
 }
 
 ///|
+test "Float literal evaluates as FloatValue" {
+  // PKL-092: `3.14` lexes into a Float token, parses into `FloatLiteral`,
+  // and evaluates into `FloatValue`. Sanity check before the
+  // mixed-arithmetic and constraint cascade tests stack on top.
+  assert_true(
+    eval_source("res = 3.14") ==
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: FloatValue(3.14) }])),
+  )
+}
+
+///|
+test "Float arithmetic widens Int operands" {
+  guard eval_source("res = 1 + 2.5") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut value : Value? = None
+  for entry in members {
+    if entry.name == "res" {
+      value = Some(entry.value)
+    }
+  }
+  assert_true(value == Some(FloatValue(3.5)))
+}
+
+///|
+test "Float comparison accepts Int / Float mix" {
+  assert_true(
+    eval_source("res = 1.5 < 2") ==
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: BoolValue(true) }])),
+  )
+}
+
+///|
+test "Int division widens to Float" {
+  guard eval_source("res = 5 / 2") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut value : Value? = None
+  for entry in members {
+    if entry.name == "res" {
+      value = Some(entry.value)
+    }
+  }
+  assert_true(value == Some(FloatValue(2.5)))
+}
+
+///|
+test "Float annotation accepts Float value" {
+  assert_true(
+    eval_source("res: Float = 3.14") ==
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: FloatValue(3.14) }])),
+  )
+}
+
+///|
+test "Number annotation accepts Int and Float" {
+  assert_true(
+    eval_source("a: Number = 5\nb: Number = 2.5") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "a", value: IntValue(5) },
+        ValueMember::{ name: "b", value: FloatValue(2.5) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Float constraint predicate accepts in-range Float" {
+  assert_true(
+    eval_source("res: Float(isPositive) = 1.5") ==
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: FloatValue(1.5) }])),
+  )
+}
+
+///|
+test "Float constraint predicate rejects out-of-range Float" {
+  guard eval_source("res: Float(isPositive) = 0.0 - 0.5")
+    is EvalError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="type annotation Float(isPositive) constraint isPositive rejects -0.5",
+  )
+}
+
+///|
+test "Float isBetween accepts inclusive endpoints" {
+  assert_true(
+    eval_source("res: Float(isBetween(0, 10)) = 5.5") ==
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: FloatValue(5.5) }])),
+  )
+}
+
+///|
+test "Number constraint predicate accepts both Int and Float" {
+  assert_true(
+    eval_source("a: Number(isPositive) = 3\nb: Number(isPositive) = 0.5") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "a", value: IntValue(3) },
+        ValueMember::{ name: "b", value: FloatValue(0.5) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "PCF renders Float with trailing .0 when integral" {
+  inspect(render_value(FloatValue(42.0)), content="42.0")
+  inspect(render_value(FloatValue(3.14)), content="3.14")
+  inspect(render_value(FloatValue(0.0 - 1.5)), content="-1.5")
+}
+
+///|
 test "read built-in resolves env: scheme to the host env variable" {
   // PKL-098 minimal slice: `read("env:NAME")` consults the host
   // environment via `moonbitlang/core/env`. Setting the variable first

@@ -34,7 +34,7 @@ local genericClassDeclarations: Spec.Scenario = new {
     "`class Box<T> { value: T }` declares a parameterized class; instances bind T at construction time and the typechecker propagates the binding through property and method accesses."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-040" }
-  tags { "typechecker"; "generics"; "class" }
+  tags { "typechecker"; "generics"; "class"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -51,22 +51,9 @@ local genericFunctionTypeParameters: Spec.Scenario = new {
   severity = "major"
 }
 
-local floatConstraintPredicates: Spec.Scenario = new {
-  id = "PKL-092"
-  name = "Float constraint predicates"
-  description =
-    "Numeric constraint predicates (`isPositive`, `isBetween`, etc.) accept Float values alongside Int, including mixed Int / Float comparisons inside user-defined factories."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-078" }
-  tags { "constraint"; "float"; "next" }
-  reviewStatus = "draft"
-  severity = "minor"
-}
-
 // ── CLI surface and upstream compatibility ──────────────────────────────────
 
 entries: Listing<Spec.Scenario> = new {
-  floatConstraintPredicates
   genericClassDeclarations
   genericFunctionTypeParameters
 }

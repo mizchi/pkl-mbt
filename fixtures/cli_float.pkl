@@ -1,0 +1,6 @@
+pi = 3.14
+half = 5 / 2
+mixed = 1 + 2.5
+positive: Float(isPositive) = 7.5
+between: Float(isBetween(0, 10)) = 4.5
+number: Number(isPositive) = 9

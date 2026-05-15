@@ -51,6 +51,8 @@ pub fn eval_source(String) -> EvalResult
 
 pub fn false_kw() -> @cst.SyntaxKind
 
+pub fn float_token() -> @cst.SyntaxKind
+
 pub fn for_kw() -> @cst.SyntaxKind
 
 pub fn function_decl() -> @cst.SyntaxKind
@@ -288,6 +290,7 @@ pub(all) enum EvalResult {
 
 pub(all) enum Expr {
   IntLiteral(Int)
+  FloatLiteral(Double)
   BoolLiteral(Bool)
   StringLiteral(String)
   NullLiteral
@@ -368,6 +371,7 @@ pub(all) struct Program {
 
 pub(all) enum Type {
   IntType
+  FloatType
   BoolType
   StringType
   NullType
@@ -422,6 +426,7 @@ pub(all) struct UnsupportedSyntax {
 
 pub(all) enum Value {
   IntValue(Int)
+  FloatValue(Double)
   BoolValue(Bool)
   StringValue(String)
   NullValue

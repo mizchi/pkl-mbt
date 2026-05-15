@@ -1,6 +1,10 @@
 ///|
 pub(all) enum Value {
   IntValue(Int)
+  // PKL-092: Float numeric value backed by MoonBit's `Double`. Arithmetic
+  // between `IntValue` and `FloatValue` promotes to `FloatValue`; the
+  // dedicated `Number` type sits above both in the typechecker hierarchy.
+  FloatValue(Double)
   BoolValue(Bool)
   StringValue(String)
   NullValue
@@ -811,6 +815,7 @@ fn push_receiver_method_bindings(
 fn eval_value_type_name(value : Value) -> String {
   match value {
     IntValue(_) => "Int"
+    FloatValue(_) => "Float"
     BoolValue(_) => "Boolean"
     StringValue(_) => "String"
     NullValue => "Null"
@@ -848,6 +853,10 @@ fn eval_value_accepts_type_annotation(
   }
   match (type_name, value) {
     ("Int", IntValue(_)) => true
+    ("Float", FloatValue(_)) => true
+    // PKL-092: `Number` is the type-system union of Int and Float; both
+    // pass the annotation. Float-only contexts use the `Float` name.
+    ("Number", IntValue(_)) | ("Number", FloatValue(_)) => true
     ("String", StringValue(_)) => true
     ("Boolean", BoolValue(_)) | ("Bool", BoolValue(_)) => true
     ("Null", NullValue) => true
@@ -3013,6 +3022,7 @@ fn eval_expr_with_bindings(
 ) -> Value? {
   match expr {
     IntLiteral(value) => Some(IntValue(value))
+    FloatLiteral(value) => Some(FloatValue(value))
     BoolLiteral(value) => Some(BoolValue(value))
     StringLiteral(value) => Some(StringValue(value))
     NullLiteral => Some(NullValue)
@@ -3784,6 +3794,7 @@ fn eval_expr_with_bindings(
       )
       match (op, inner) {
         (Negate, Some(IntValue(value))) => Some(IntValue(0 - value))
+        (Negate, Some(FloatValue(value))) => Some(FloatValue(0.0 - value))
         (Negate, Some(DurationValue(value, unit))) =>
           Some(DurationValue(0 - value, unit))
         (Negate, Some(DataSizeValue(value, unit))) =>
@@ -3791,7 +3802,7 @@ fn eval_expr_with_bindings(
         (Not, Some(BoolValue(value))) => Some(BoolValue(!value))
         (Negate, Some(_)) => {
           diagnostics.push(Diagnostic::{
-            message: "operator - expects Int operand",
+            message: "operator - expects numeric operand",
           })
           None
         }
@@ -3906,11 +3917,13 @@ fn eval_expr_with_bindings(
             Subtract => Some(IntValue(a - b))
             Multiply => Some(IntValue(a * b))
             Divide =>
+              // PKL-092: `/` widens to Float when both operands are Int,
+              // mirroring Apple Pkl's `Int.div` semantics (`5 / 2 = 2.5`).
               if b == 0 {
                 diagnostics.push(Diagnostic::{ message: "division by zero" })
                 None
               } else {
-                Some(IntValue(a / b))
+                Some(FloatValue(a.to_double() / b.to_double()))
               }
             IntDivide =>
               if b == 0 {
@@ -3944,6 +3957,12 @@ fn eval_expr_with_bindings(
             NotEqual => Some(BoolValue(a != b))
             And | Or | NullCoalesce | Is | As | Pipe => panic()
           }
+        (Some(FloatValue(a)), Some(FloatValue(b))) =>
+          eval_float_binary(op, a, b, diagnostics)
+        (Some(IntValue(a)), Some(FloatValue(b))) =>
+          eval_float_binary(op, a.to_double(), b, diagnostics)
+        (Some(FloatValue(a)), Some(IntValue(b))) =>
+          eval_float_binary(op, a, b.to_double(), diagnostics)
         (Some(DurationValue(av, au)), Some(DurationValue(bv, bu))) =>
           // Same-unit arithmetic keeps the magnitudes raw to avoid Int32
           // overflow on the intermediate ns conversion (one `1.s` already
@@ -4699,9 +4718,69 @@ fn write_pcf_indent(buf : StringBuilder, indent : Int) -> Unit {
 }
 
 ///|
+fn eval_float_binary(
+  op : BinaryOp,
+  a : Double,
+  b : Double,
+  diagnostics : Array[Diagnostic],
+) -> Value? {
+  // PKL-092: Float-side arithmetic and comparison. Division-by-zero
+  // surfaces a diagnostic to match the Int-side path; Apple Pkl returns
+  // `Infinity` / `NaN` for floating point zero division, which is
+  // implementable later but a separate slice — staying strict here keeps
+  // the failure mode consistent across numeric types until then.
+  match op {
+    Add => Some(FloatValue(a + b))
+    Subtract => Some(FloatValue(a - b))
+    Multiply => Some(FloatValue(a * b))
+    Divide =>
+      if b == 0.0 {
+        diagnostics.push(Diagnostic::{ message: "division by zero" })
+        None
+      } else {
+        Some(FloatValue(a / b))
+      }
+    LessThan => Some(BoolValue(a < b))
+    LessOrEqual => Some(BoolValue(a <= b))
+    GreaterThan => Some(BoolValue(a > b))
+    GreaterOrEqual => Some(BoolValue(a >= b))
+    Equal => Some(BoolValue(a == b))
+    NotEqual => Some(BoolValue(a != b))
+    IntDivide | Modulo | Power => {
+      diagnostics.push(Diagnostic::{
+        message: "operator \{operator_name(op)} not defined for Float operands",
+      })
+      None
+    }
+    And | Or | NullCoalesce | Is | As | Pipe => panic()
+  }
+}
+
+///|
+fn render_float_text(d : Double) -> String {
+  // PKL-092: render a Float deterministically. Apple Pkl emits Doubles in
+  // the shortest round-trip form (`1.5`, `12.3`, `1.0` — never `1`), so
+  // we anchor on `Double::to_string()` and append `.0` when the result
+  // has no fractional or exponent component (otherwise `42.0` would
+  // round-trip as `42` and pun as an Int).
+  let s = d.to_string()
+  if s.find(".") is None &&
+    s.find("e") is None &&
+    s.find("E") is None &&
+    s != "Infinity" &&
+    s != "-Infinity" &&
+    s != "NaN" {
+    s + ".0"
+  } else {
+    s
+  }
+}
+
+///|
 fn render_pcf_scalar(value : Value, buf : StringBuilder) -> Unit {
   match value {
     IntValue(n) => buf.write_string("\{n}")
+    FloatValue(d) => buf.write_string(render_float_text(d))
     BoolValue(true) => buf.write_string("true")
     BoolValue(false) => buf.write_string("false")
     StringValue(s) => {
@@ -4891,6 +4970,7 @@ pub fn render_value_as_json(value : Value) -> String {
 fn render_json_value(value : Value, indent : Int, buf : StringBuilder) -> Unit {
   match value {
     IntValue(n) => buf.write_string("\{n}")
+    FloatValue(d) => buf.write_string(render_float_text(d))
     BoolValue(true) => buf.write_string("true")
     BoolValue(false) => buf.write_string("false")
     NullValue => buf.write_string("null")
@@ -5250,6 +5330,7 @@ fn render_yaml_seq_item(
 fn render_yaml_scalar(value : Value, buf : StringBuilder) -> Unit {
   match value {
     IntValue(n) => buf.write_string("\{n}")
+    FloatValue(d) => buf.write_string(render_float_text(d))
     BoolValue(true) => buf.write_string("true")
     BoolValue(false) => buf.write_string("false")
     NullValue => buf.write_string("null")
@@ -5602,6 +5683,7 @@ fn render_properties_compact_json(value : Value) -> String {
 fn write_compact_json_value(value : Value, buf : StringBuilder) -> Unit {
   match value {
     IntValue(n) => buf.write_string("\{n}")
+    FloatValue(d) => buf.write_string(render_float_text(d))
     BoolValue(true) => buf.write_string("true")
     BoolValue(false) => buf.write_string("false")
     NullValue => buf.write_string("null")
@@ -5653,6 +5735,7 @@ fn write_compact_json_value(value : Value, buf : StringBuilder) -> Unit {
 fn write_properties_scalar(value : Value, buf : StringBuilder) -> Unit {
   match value {
     IntValue(n) => buf.write_string("\{n}")
+    FloatValue(d) => buf.write_string(render_float_text(d))
     BoolValue(true) => buf.write_string("true")
     BoolValue(false) => buf.write_string("false")
     NullValue => buf.write_string("")

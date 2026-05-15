@@ -1503,6 +1503,44 @@ local durationAndDataSizeLiterals = new Scenario {
   }
 }
 
+local floatNumericsAndConstraints = new Scenario {
+  id = "PKL-092"
+  name = "Float numerics and constraint predicates"
+  description =
+    "Float numeric values flow through the entire stack. The lexer recognizes `<digits>.<digits>` as a Float token (Duration / DataSize `Int.<unit>` shorthand stays Int because `.identifier` is not promoted), the parser produces a new `FloatLiteral(Double)` Expr, and the evaluator carries the new `FloatValue(Double)` variant. Arithmetic widens automatically: `Int + Float` and `Float + Float` produce Float, comparisons (`<`, `<=`, `>`, `>=`, `==`, `!=`) admit any Int / Float mix, and `Int / Int` widens to Float to match Apple Pkl's `5 / 2 == 2.5` semantics. `IntDivide` / `Modulo` / `Power` keep their Int-only contract since their semantics are integer-domain. The typechecker gains a sibling `FloatType` and the `Number` annotation expands to `UnionType([IntType, FloatType])` so existing narrowing logic (union members, is-guards) keeps working. All four renderers (PCF / JSON / YAML / Properties) project Floats via a `render_float_text` helper that appends `.0` when the Double's shortest-round-trip form would otherwise look like an Int. The constraint cascade extends `pkl_constrained_int_predicates` to accept `Int(...)` / `Float(...)` / `Number(...)` as the host annotation, and a new `pkl_constraint_predicate_accepts_float` evaluator runs the existing Int-threshold predicates against Double values (widening thresholds to Double). `Float(isPositive)`, `Float(isBetween(0, 10))`, `Number(isPositive)`, and the negated / custom variants therefore fire on Float values; the rejection message format matches the Int side (`type annotation <name> constraint <p> rejects <v>`)."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-078" }
+  tags { "evaluator"; "typechecker"; "renderer"; "constraint"; "float" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Bring Float numerics into the stack alongside the constraint cascade"
+      rationale =
+        "The slice description nominally focuses on Float constraint predicates, but the only way to exercise them honestly is to first have FloatValue / FloatType / Float arithmetic in place — predicate evaluation needs a Float value to land on. Pulling the numeric base into the same slice keeps the cascade tests meaningful; splitting the base off would have left the constraint side untestable until the numerics shipped, which inverts the dependency."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Reuse the Int-threshold predicate encoding for Float values"
+      rationale =
+        "Apple Pkl's numeric predicates take a number argument (`isBetween(0, 10)` works for both Int and Float). Encoding the threshold as Int and widening it to Double at comparison time keeps a single source of truth for `isPositive` / `isBetween` / `isGreaterThan` / `isLessThan` — the alternative (parallel `ConstraintFloatPredicate` enum) would duplicate the parsing + custom-factory dispatch without adding semantic surface."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Emit `.0` suffix for integral Floats so round-tripping preserves the type"
+      rationale =
+        "`Double::to_string()` renders `42.0` as `42` in MoonBit, which would round-trip through the parser as an Int and silently change the value's type. Appending `.0` when the shortest-round-trip form has no decimal point keeps Float / Int distinguishable on the wire, matching Apple Pkl's projection."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Keep IntDivide / Modulo / Power Int-only for this slice"
+      rationale =
+        "Their semantics are integer-domain by name (`Int.~/`, `Int.%`, `Int.**`). Apple Pkl exposes the floating counterparts through `math.pow` / `math.div` etc. rather than reusing the operator surface, so widening these three would diverge from upstream and complicate the typechecker's promotion table."
+    }
+  }
+}
+
 local readSandboxedBuiltin = new Scenario {
   id = "PKL-098"
   name = "read built-in with sandbox-bounded env: scheme"
@@ -2374,5 +2412,6 @@ scenarios {
   pklReflectMinimal
   traceAndThrowBuiltins
   readSandboxedBuiltin
+  floatNumericsAndConstraints
   ...roadmap.entries
 }

@@ -1418,6 +1418,16 @@ fn Parser::parse_primary_expr(self : Parser) -> Expr {
       self.builder.finish_node()
       IntLiteral(parse_int_text(tok.text()))
     }
+    kind if kind == float_token() => {
+      // PKL-092: Float literal. The decimal form is `<digits>.<digits>`;
+      // exponent forms (`1e10`, `2.5e-3`) are deferred — adding them only
+      // touches the lexer / parser, the evaluator already handles
+      // `Double` arithmetic uniformly.
+      self.builder.start_node(literal_expr())
+      let tok = self.bump()
+      self.builder.finish_node()
+      FloatLiteral(parse_float_text(tok.text()))
+    }
     kind if kind == true_kw() => {
       self.builder.start_node(literal_expr())
       ignore(self.bump())
@@ -2013,6 +2023,34 @@ fn parse_int_text(text : String) -> Int {
     }
   }
   value
+}
+
+///|
+fn parse_float_text(text : String) -> Double {
+  // PKL-092: parse `<int>.<frac>` into a Double by accumulating the
+  // integer and fractional parts separately. Sticking to a hand-rolled
+  // walk keeps the parser self-contained (no extra core dep) and the
+  // lexer guarantees the exact `digit+ . digit+` shape, so there is no
+  // need to defend against malformed input here.
+  let mut int_part = 0.0
+  let mut frac_part = 0.0
+  let mut frac_scale = 1.0
+  let mut in_fraction = false
+  for i = 0; i < text.length(); i = i + 1 {
+    let c = text[i].to_int().unsafe_to_char()
+    if c == '.' {
+      in_fraction = true
+    } else if c >= '0' && c <= '9' {
+      let digit = (c.to_int() - '0'.to_int()).to_double()
+      if in_fraction {
+        frac_scale = frac_scale * 10.0
+        frac_part = frac_part + digit / frac_scale
+      } else {
+        int_part = int_part * 10.0 + digit
+      }
+    }
+  }
+  int_part + frac_part
 }
 
 ///|

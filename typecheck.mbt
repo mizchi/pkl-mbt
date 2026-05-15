@@ -1,6 +1,10 @@
 ///|
 pub(all) enum Type {
   IntType
+  // PKL-092: Float numeric type. Mixed Int / Float arithmetic widens to
+  // Float; constraint predicates accept both via the implicit `Number`
+  // hierarchy.
+  FloatType
   BoolType
   StringType
   NullType
@@ -148,6 +152,7 @@ fn push_type_stack(stack : Array[String], name : String) -> Array[String] {
 pub fn render_type(typ : Type) -> String {
   match typ {
     IntType => "Int"
+    FloatType => "Float"
     BoolType => "Boolean"
     StringType => "String"
     NullType => "Null"
@@ -180,6 +185,11 @@ pub fn render_type(typ : Type) -> String {
 fn builtin_type_from_annotation(name : String) -> Type? {
   match name {
     "Int" => Some(IntType)
+    "Float" => Some(FloatType)
+    // PKL-092: `Number` is the union of `Int` and `Float`. The typechecker
+    // expresses it as a union so existing narrowing logic (UnionType
+    // members, is-guards) keeps working.
+    "Number" => Some(UnionType([IntType, FloatType]))
     "String" => Some(StringType)
     "Boolean" => Some(BoolType)
     "Bool" => Some(BoolType)
@@ -2409,6 +2419,7 @@ fn infer_expr_with_bindings(
 ) -> Type {
   match expr {
     IntLiteral(_) => IntType
+    FloatLiteral(_) => FloatType
     BoolLiteral(_) => BoolType
     StringLiteral(_) => StringType
     NullLiteral => NullType
@@ -2781,21 +2792,44 @@ fn infer_expr_with_bindings(
         right_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
       )
       match op {
-        Add | Subtract | Multiply | Divide | IntDivide | Modulo | Power =>
+        Add | Subtract | Multiply | IntDivide | Modulo | Power =>
+          // PKL-092: Int + Int stays Int; any Float operand widens the
+          // result to Float. IntDivide / Modulo / Power keep the Int-only
+          // contract because their semantics are not extended to Float in
+          // this slice (Power on Float requires a `pow` helper, IntDivide
+          // / Modulo are integer-domain by name).
           if left == IntType && right == IntType {
             IntType
+          } else if (left == IntType || left == FloatType) &&
+            (right == IntType || right == FloatType) &&
+            (op == Add || op == Subtract || op == Multiply) {
+            FloatType
           } else {
             diagnostics.push(Diagnostic::{
               message: "operator \{operator_name(op)} expects Int operands",
             })
             UnknownType
           }
+        Divide =>
+          // PKL-092: `/` widens to Float unconditionally when both sides
+          // are numeric, matching Apple Pkl's `5 / 2 == 2.5` semantics.
+          if (left == IntType || left == FloatType) &&
+            (right == IntType || right == FloatType) {
+            FloatType
+          } else {
+            diagnostics.push(Diagnostic::{
+              message: "operator / expects numeric operands",
+            })
+            UnknownType
+          }
         LessThan | LessOrEqual | GreaterThan | GreaterOrEqual =>
-          if left == IntType && right == IntType {
+          // PKL-092: comparisons admit any Int / Float mix.
+          if (left == IntType || left == FloatType) &&
+            (right == IntType || right == FloatType) {
             BoolType
           } else {
             diagnostics.push(Diagnostic::{
-              message: "operator \{operator_name(op)} expects Int operands",
+              message: "operator \{operator_name(op)} expects numeric operands",
             })
             UnknownType
           }

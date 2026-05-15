@@ -34,6 +34,11 @@ pub fn int_token() -> @cst.SyntaxKind {
 }
 
 ///|
+pub fn float_token() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(126)
+}
+
+///|
 pub fn string_token() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(12)
 }

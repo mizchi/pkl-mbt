@@ -137,6 +137,20 @@ fn Lexer::next_token(self : Lexer) -> Token {
     while self.pos < self.len && is_digit(self.char_at(self.pos)) {
       self.pos += 1
     }
+    // PKL-092: a `.digit` immediately after the integer run promotes the
+    // token to a Float literal. The Duration / DataSize unit shorthand
+    // (`1.h`, `5.min`) stays an Int because the character after `.` is
+    // an identifier, not a digit, so the dispatch below keeps the
+    // existing magnitude-+-unit path intact.
+    if self.pos + 1 < self.len &&
+      self.char_at(self.pos) == '.' &&
+      is_digit(self.char_at(self.pos + 1)) {
+      self.pos += 1
+      while self.pos < self.len && is_digit(self.char_at(self.pos)) {
+        self.pos += 1
+      }
+      return Token::new(float_token(), self.slice_from(start))
+    }
     return Token::new(int_token(), self.slice_from(start))
   }
   if c == '"' {

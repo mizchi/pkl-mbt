@@ -449,8 +449,12 @@ fn pkl_constrained_int_predicates(
   type_name : String,
 ) -> Array[ConstraintIntPredicate] {
   let predicates : Array[ConstraintIntPredicate] = []
+  // PKL-092: accept `Int(...)`, `Float(...)`, and `Number(...)` as the
+  // numeric constraint host. The predicate-side encoding (Int thresholds)
+  // is kept — Float values are widened from those thresholds when the
+  // accepts-float helper runs the comparison.
   match pkl_constrained_type_base_name(type_name) {
-    Some("Int") =>
+    Some("Int") | Some("Float") | Some("Number") =>
       match pkl_constrained_type_constraint_text(type_name) {
         Some(text) => {
           let parts = pkl_split_constraint_arguments(text)
@@ -778,6 +782,52 @@ fn pkl_value_int(value : Value) -> Int? {
 }
 
 ///|
+fn pkl_constraint_predicate_accepts_float(
+  predicate : ConstraintIntPredicate,
+  value : Double,
+) -> Bool {
+  // PKL-092: Int-side thresholds widen to Double for the comparison.
+  // Custom predicate factories that accept an Int threshold (today's
+  // user-defined surface) flow through this path uniformly.
+  match predicate {
+    IsBetween(lower, upper) =>
+      value >= lower.to_double() && value <= upper.to_double()
+    IsPositive => value > 0.0
+    IsGreaterThan(threshold) => value > threshold.to_double()
+    IsLessThan(threshold) => value < threshold.to_double()
+    NotIsBetween(lower, upper) =>
+      !(value >= lower.to_double() && value <= upper.to_double())
+    NotIsPositive => !(value > 0.0)
+    NotIsGreaterThan(threshold) => !(value > threshold.to_double())
+    NotIsLessThan(threshold) => !(value < threshold.to_double())
+    CustomGreaterThan(_, threshold) => value > threshold.to_double()
+    CustomLessThan(_, threshold) => value < threshold.to_double()
+    CustomGreaterOrEqual(_, threshold) => value >= threshold.to_double()
+    CustomLessOrEqual(_, threshold) => value <= threshold.to_double()
+    NotCustomGreaterThan(_, threshold) => !(value > threshold.to_double())
+    NotCustomLessThan(_, threshold) => !(value < threshold.to_double())
+    NotCustomGreaterOrEqual(_, threshold) => !(value >= threshold.to_double())
+    NotCustomLessOrEqual(_, threshold) => !(value <= threshold.to_double())
+  }
+}
+
+///|
+fn pkl_constrained_float_rejection_message_from_source(
+  display_name : String,
+  source_name : String,
+  value : Double,
+) -> String? {
+  for predicate in pkl_constrained_int_predicates(source_name) {
+    if !pkl_constraint_predicate_accepts_float(predicate, value) {
+      return Some(
+        "type annotation \{display_name} constraint \{pkl_constraint_name(predicate)} rejects \{value}",
+      )
+    }
+  }
+  None
+}
+
+///|
 fn pkl_user_defined_constrained_type_annotation_value_rejection_message_from_source(
   display_name : String,
   source_name : String,
@@ -866,6 +916,16 @@ fn pkl_constrained_type_annotation_value_rejection_message_from_source(
         display_name, source_name, inner,
       )
     None => ()
+  }
+  // PKL-092: Float values dispatch through the same predicate set as
+  // Int. The Float branch comes after the Int branch so an `IntValue`
+  // stays in the Int-error format; only true `FloatValue`s reach here.
+  match value {
+    FloatValue(inner) =>
+      return pkl_constrained_float_rejection_message_from_source(
+        display_name, source_name, inner,
+      )
+    _ => ()
   }
   match pkl_value_string(value) {
     Some(inner) =>

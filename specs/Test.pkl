@@ -93,6 +93,7 @@ local moonUnit = new Test {
     "PKL-087"
     "PKL-088"
     "PKL-091"
+    "PKL-092"
     "PKL-093"
     "PKL-098"
   }
@@ -165,6 +166,25 @@ local cliEvalProperties = new Test {
   cmd = "moon run cmd/main --target native -- eval -f properties fixtures/cli.pkl"
   workdir = ".."
   expectStdoutContains { "name = hawk"; "age = 2" }
+  timeoutSec = 120
+}
+
+local cliFloat = new Test {
+  name = "cli float numerics and constraints"
+  description =
+    "The native CLI evaluates a Float-heavy fixture, exercising Float literals, mixed Int / Float arithmetic, `Int / Int` widening to Float, and `Float(isPositive)` / `Float(isBetween(...))` / `Number(isPositive)` constraint predicates."
+  tags { "moonbit"; "cli"; "float"; "constraint"; "contract" }
+  specRef { "PKL-092" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_float.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "pi = 3.14"
+    "half = 2.5"
+    "mixed = 3.5"
+    "positive = 7.5"
+    "between = 4.5"
+    "number = 9"
+  }
   timeoutSec = 120
 }
 
@@ -283,6 +303,7 @@ tests {
   cliEvalFormatPcf
   cliEvalYaml
   cliEvalProperties
+  cliFloat
   cliTrace
   cliReflectStub
   cliTestPass
