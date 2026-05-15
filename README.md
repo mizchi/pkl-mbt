@@ -34,6 +34,7 @@ The current slice is intentionally small and executable:
 - runtime return annotation validation for function and lambda calls
 - runtime return annotation validation for class method calls
 - runtime constrained return annotation validation, including user-defined numeric predicate factories
+- runtime user-defined numeric predicate factory enforcement for callable and class method parameter annotations
 - native CLI commands: `parse`, `check`, and `eval`
 - common string escape decoding/rendering for `\n`, `\t`, `\r`, `\"`, and `\\`
 - ripple-backed `AnalysisSession` for source-driven typechecking
@@ -44,14 +45,14 @@ The current slice is intentionally small and executable:
 
 ## Current Completion Estimate
 
-As of the `PKL-065` spec slice, this project has 65 implemented pkspec scenarios. The next tracked slice is `PKL-066`, which extends the user-defined numeric predicate factory enforcement to callable parameter annotations at runtime.
+As of the `PKL-066` spec slice, this project has 66 implemented pkspec scenarios. The next tracked slice is `PKL-067`, which lifts the constrained return body checks into the typechecker for literal callable return values.
 
 These are engineering estimates, not formal coverage numbers:
 
 | Area | Estimate | Notes |
 | --- | ---: | --- |
 | Parser | 60-70% | The upstream parser snippet corpus is accepted in parse-only mode, and modifier-qualified function declarations such as `const function` are preserved as function declarations. Some constructs are still tolerant parse output or reduced to unsupported expression placeholders instead of full semantic AST coverage. |
-| Interpreter | 35-45% | Arithmetic, objects, imports, module amends/extends, collections, class defaults/inheritance, method calls, direct function/lambda calls, callable runtime values, function/lambda/method return validation including built-in and user-defined constrained return predicates, lexical closure captures for scalar/object/callable values, simple constrained value annotations, constrained callable arguments, constrained method arguments, constrained typealias values/members, selected numeric constraints, multiple constraint lists, negated constraints, plain-function user-defined numeric constraint factories, constrained class property values/defaults, and the upstream `classes/constraints8.pkl` catch flow work. Broad stdlib behavior, generators, renderers, the full constraint system, and many external functions are still incomplete. |
+| Interpreter | 35-45% | Arithmetic, objects, imports, module amends/extends, collections, class defaults/inheritance, method calls, direct function/lambda calls, callable runtime values, function/lambda/method return validation including built-in and user-defined constrained return predicates, callable and method argument validation including built-in and user-defined constrained predicates, lexical closure captures for scalar/object/callable values, simple constrained value annotations, constrained callable arguments, constrained method arguments, constrained typealias values/members, selected numeric constraints, multiple constraint lists, negated constraints, plain-function user-defined numeric constraint factories, constrained class property values/defaults, and the upstream `classes/constraints8.pkl` catch flow work. Broad stdlib behavior, generators, renderers, the full constraint system, and many external functions are still incomplete. |
 | Typechecker | 40-50% | Primitive, nullable, generic collection, union, narrowing, call, typed object, class inheritance, imported class, constrained annotation base types, selected numeric predicate checks, multiple constraint lists, negated constraints, direct constrained function/lambda arguments, constrained callable aliases, simple higher-order constrained callable flow, constrained method arguments, constrained typealias metadata, plain-function user-defined numeric constraint factories, constrained class property values/defaults, and class method body checks exist. Type parameters, broader stdlib types, and deeper module/class semantics are still incomplete. |
 
 Overall, this is roughly 40%+ complete as a pure MoonBit Pkl core, or closer to the 30% range if measured as a replacement for Apple Pkl compatibility.
@@ -97,4 +98,4 @@ git submodule update --init --recursive
 
 ## Scope
 
-This is not a full Pkl implementation yet. The next compatibility work is `PKL-066` user-defined constrained callable argument evaluation, followed by broader Pkl type/stdlib coverage and class/object semantics.
+This is not a full Pkl implementation yet. The next compatibility work is `PKL-067` constrained callable return body typechecking, followed by broader Pkl type/stdlib coverage and class/object semantics.

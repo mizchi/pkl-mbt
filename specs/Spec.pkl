@@ -1301,8 +1301,8 @@ local userDefinedConstrainedCallableArgumentEvaluation = new Scenario {
     "Function, lambda, and class method calls enforce user-defined numeric predicate factories on parameter annotations at runtime, matching the existing built-in numeric predicate behavior."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-065"; "PKL-056" }
-  tags { "evaluator"; "callable"; "next" }
-  reviewStatus = "draft"
+  tags { "evaluator"; "callable" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -1310,6 +1310,32 @@ local userDefinedConstrainedCallableArgumentEvaluation = new Scenario {
       summary = "Extend argument validation to user-defined constraint predicates"
       rationale =
         "Return validation now applies built-in and user-defined predicates, but callable and method parameter checks only run the built-in predicate machinery. Extending the parameter validation to call the user-defined predicate helper closes the symmetry gap."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Share a callable argument rejection helper"
+      rationale =
+        "Both eval_lambda_application and eval_class_method_call needed to combine the built-in and user-defined predicate checks. A shared eval_callable_argument_rejection_message helper keeps the message format aligned with the existing argument diagnostics and avoids duplicating the predicate cascade."
+    }
+  }
+}
+
+local constrainedCallableReturnBodyTypechecking = new Scenario {
+  id = "PKL-067"
+  name = "typecheck constrained Pkl callable return bodies"
+  description =
+    "Function, lambda, and class method declarations whose body is a literal that violates the declared constrained return annotation are rejected by the typechecker, mirroring the existing constrained binding behavior for built-in and user-defined numeric predicates."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-065"; "PKL-066" }
+  tags { "typechecker"; "callable"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Lift literal-body return checks into the typechecker"
+      rationale =
+        "Constrained value bindings already use push_constrained_type_annotation_expr_diagnostic and the user-defined variant to flag literal violations at typecheck time. Callable return bodies currently only run the runtime check, leaving a static-analysis gap when the body is a known literal."
     }
   }
 }
@@ -1383,4 +1409,5 @@ scenarios {
   classMethodReturnAnnotationEvaluation
   constrainedCallableReturnAnnotationEvaluation
   userDefinedConstrainedCallableArgumentEvaluation
+  constrainedCallableReturnBodyTypechecking
 }

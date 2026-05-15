@@ -1055,6 +1055,51 @@ test "evaluate user-defined constrained Pkl class method return annotations" {
 }
 
 ///|
+test "evaluate user-defined constrained Pkl callable arguments" {
+  assert_true(
+    eval_source(
+      "const function above(n) = (x) -> x > n\nfunction check(n: Int(above(5))) = n\nvalue = check(6)",
+    ) ==
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(6) }])),
+  )
+  guard eval_source(
+      "const function above(n) = (x) -> x > n\nfunction check(n: Int(above(5))) = n\nvalue = check(1)",
+    )
+    is EvalError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="function check argument 1 type annotation Int(above(5)) constraint above rejects 1",
+  )
+}
+
+///|
+test "evaluate user-defined constrained Pkl class method arguments" {
+  assert_true(
+    eval_source(
+      "const function above(n) = (x) -> x > n\nclass Counter { function check(n: Int(above(5))) = n }\ncounter = new Counter {}\nvalue = counter.check(6)",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "counter", value: ObjectValue([]) },
+        ValueMember::{ name: "value", value: IntValue(6) },
+      ]),
+    ),
+  )
+  guard eval_source(
+      "const function above(n) = (x) -> x > n\nclass Counter { function check(n: Int(above(5))) = n }\ncounter = new Counter {}\nvalue = counter.check(1)",
+    )
+    is EvalError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="method check argument 1 type annotation Int(above(5)) constraint above rejects 1",
+  )
+}
+
+///|
 test "typecheck rejects invalid Pkl calls" {
   guard typecheck_source("function add(x, y) = x + y\nvalue = add(1)")
     is TypeError(arity_diagnostics) else {

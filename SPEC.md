@@ -1,6 +1,6 @@
 # Test SPEC
 
-70 tests across 2 module(s) — 66 pending, 4 active
+71 tests across 2 module(s) — 67 pending, 4 active
 
 ## `specs/`
 
@@ -130,11 +130,11 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **evaluate user-defined constrained Pkl callable arguments** [draft] — verifies: PKL-066 — tags: evaluator, callable, next
+- [ ] **evaluate user-defined constrained Pkl callable arguments** — verifies: PKL-066 — tags: evaluator, callable
   > Function, lambda, and class method calls enforce user-defined numeric predicate factories on parameter annotations at runtime, matching the existing built-in numeric predicate behavior.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-065, PKL-056
-  - decisions: 1 entry(ies)
+  - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **infer Pkl class property default types** — verifies: PKL-034 — tags: typechecker
@@ -425,6 +425,13 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **typecheck constrained Pkl callable return bodies** [draft] — verifies: PKL-067 — tags: typechecker, callable, next
+  > Function, lambda, and class method declarations whose body is a literal that violates the declared constrained return annotation are rejected by the typechecker, mirroring the existing constrained binding behavior for built-in and user-defined numeric predicates.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-065, PKL-066
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
 - [ ] **typecheck incrementally through ripple dependency graph** (critical) — verifies: PKL-021 — tags: typechecker, incremental, ripple
   > AnalysisSession registers source, parse, and typecheck query nodes with ripple so unrelated source edits do not re-run typechecking, and unchanged dependency type results are backdated.
   - contributes to: GOAL-PKL-PURE
@@ -456,7 +463,7 @@
   > The native CLI evaluates a Pkl file and prints module object properties.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065 — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 

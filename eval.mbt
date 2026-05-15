@@ -813,6 +813,22 @@ fn eval_value_accepts_type_annotation(
 }
 
 ///|
+fn eval_callable_argument_rejection_message(
+  type_name : String?,
+  value : Value,
+  declarations : Array[Declaration],
+) -> String? {
+  match
+    pkl_constrained_type_annotation_value_rejection_message(type_name, value) {
+    Some(message) => Some(message)
+    None =>
+      pkl_user_defined_constrained_type_annotation_value_rejection_message(
+        type_name, value, declarations,
+      )
+  }
+}
+
+///|
 fn eval_callable_return_rejection_message(
   label : String,
   return_type_name : String?,
@@ -906,9 +922,10 @@ fn eval_lambda_application(
   let call_cache = copy_value_bindings(captured_env)
   for i = 0; i < parameters.length(); i = i + 1 {
     match
-      pkl_constrained_type_annotation_value_rejection_message(
+      eval_callable_argument_rejection_message(
         parameters[i].type_name,
         argument_values[i],
+        declarations,
       ) {
       Some(message) => {
         diagnostics.push(Diagnostic::{
@@ -1008,9 +1025,10 @@ fn eval_class_method_call(
                   push_receiver_method_bindings(method_cache, receiver_members)
                   for i = 0; i < function_decl.parameters.length(); i = i + 1 {
                     match
-                      pkl_constrained_type_annotation_value_rejection_message(
+                      eval_callable_argument_rejection_message(
                         function_decl.parameters[i].type_name,
                         argument_values[i],
+                        declarations,
                       ) {
                       Some(message) => {
                         diagnostics.push(Diagnostic::{
