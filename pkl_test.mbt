@@ -1218,6 +1218,214 @@ test "Mapping builtins chain through Listing pipelines" {
 }
 
 ///|
+test "String.length and isEmpty are properties" {
+  assert_true(
+    eval_source("s = \"hello\"\nlen = s.length\nempty = s.isEmpty") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "s", value: StringValue("hello") },
+        ValueMember::{ name: "len", value: IntValue(5) },
+        ValueMember::{ name: "empty", value: BoolValue(false) },
+      ]),
+    ),
+  )
+  assert_true(
+    eval_source("s = \"\"\nlen = s.length\nempty = s.isEmpty") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "s", value: StringValue("") },
+        ValueMember::{ name: "len", value: IntValue(0) },
+        ValueMember::{ name: "empty", value: BoolValue(true) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "String case-conversion methods" {
+  assert_true(
+    eval_source("s = \"Hello\"\nup = s.toUpperCase()\ndown = s.toLowerCase()") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "s", value: StringValue("Hello") },
+        ValueMember::{ name: "up", value: StringValue("HELLO") },
+        ValueMember::{ name: "down", value: StringValue("hello") },
+      ]),
+    ),
+  )
+}
+
+///|
+test "String search predicates" {
+  assert_true(
+    eval_source(
+      "s = \"hello world\"\nhas = s.contains(\"world\")\nstart = s.startsWith(\"hello\")\nend = s.endsWith(\"world\")",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "s", value: StringValue("hello world") },
+        ValueMember::{ name: "has", value: BoolValue(true) },
+        ValueMember::{ name: "start", value: BoolValue(true) },
+        ValueMember::{ name: "end", value: BoolValue(true) },
+      ]),
+    ),
+  )
+  assert_true(
+    eval_source(
+      "s = \"hello\"\nmissing = s.contains(\"xyz\")\nbad_start = s.startsWith(\"world\")\nbad_end = s.endsWith(\"world\")",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "s", value: StringValue("hello") },
+        ValueMember::{ name: "missing", value: BoolValue(false) },
+        ValueMember::{ name: "bad_start", value: BoolValue(false) },
+        ValueMember::{ name: "bad_end", value: BoolValue(false) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "String.indexOf returns position or -1" {
+  // Apple Pkl returns -1 when the substring is absent rather than null.
+  assert_true(
+    eval_source(
+      "s = \"hello world\"\nat = s.indexOf(\"world\")\nmissing = s.indexOf(\"xyz\")",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "s", value: StringValue("hello world") },
+        ValueMember::{ name: "at", value: IntValue(6) },
+        ValueMember::{ name: "missing", value: IntValue(-1) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "String.replaceAll and replaceFirst" {
+  assert_true(
+    eval_source(
+      "s = \"banana\"\nall = s.replaceAll(\"a\", \"o\")\nfirst = s.replaceFirst(\"a\", \"o\")",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "s", value: StringValue("banana") },
+        ValueMember::{ name: "all", value: StringValue("bonono") },
+        ValueMember::{ name: "first", value: StringValue("bonana") },
+      ]),
+    ),
+  )
+}
+
+///|
+test "String.take and drop substring methods" {
+  assert_true(
+    eval_source(
+      "s = \"hello\"\nt = s.take(2)\nd = s.drop(2)\nt0 = s.take(0)\nd0 = s.drop(0)",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "s", value: StringValue("hello") },
+        ValueMember::{ name: "t", value: StringValue("he") },
+        ValueMember::{ name: "d", value: StringValue("llo") },
+        ValueMember::{ name: "t0", value: StringValue("") },
+        ValueMember::{ name: "d0", value: StringValue("hello") },
+      ]),
+    ),
+  )
+  // Out-of-range arguments saturate at the string bounds, mirroring Listing.take/drop.
+  assert_true(
+    eval_source("s = \"ab\"\nt = s.take(99)\nd = s.drop(99)") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "s", value: StringValue("ab") },
+        ValueMember::{ name: "t", value: StringValue("ab") },
+        ValueMember::{ name: "d", value: StringValue("") },
+      ]),
+    ),
+  )
+}
+
+///|
+test "String.split projects to a Listing" {
+  assert_true(
+    eval_source("s = \"a,b,c\"\nparts = s.split(\",\")") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "s", value: StringValue("a,b,c") },
+        ValueMember::{
+          name: "parts",
+          value: ListingValue([
+            StringValue("a"),
+            StringValue("b"),
+            StringValue("c"),
+          ]),
+        },
+      ]),
+    ),
+  )
+  // Split on an absent separator yields a single-element listing.
+  assert_true(
+    eval_source("s = \"abc\"\nparts = s.split(\",\")") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "s", value: StringValue("abc") },
+        ValueMember::{
+          name: "parts",
+          value: ListingValue([StringValue("abc")]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "String.padStart and padEnd reach a target width" {
+  assert_true(
+    eval_source(
+      "s = \"7\"\nleft = s.padStart(3, \"0\")\nright = s.padEnd(3, \"x\")",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "s", value: StringValue("7") },
+        ValueMember::{ name: "left", value: StringValue("007") },
+        ValueMember::{ name: "right", value: StringValue("7xx") },
+      ]),
+    ),
+  )
+  // When the string already meets the width, no padding is added.
+  assert_true(
+    eval_source(
+      "s = \"abcd\"\nleft = s.padStart(2, \"-\")\nright = s.padEnd(2, \"-\")",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "s", value: StringValue("abcd") },
+        ValueMember::{ name: "left", value: StringValue("abcd") },
+        ValueMember::{ name: "right", value: StringValue("abcd") },
+      ]),
+    ),
+  )
+}
+
+///|
+test "String builtins compose through Listing pipelines" {
+  // Split into a Listing then pipe through Listing builtins.
+  assert_true(
+    eval_source(
+      "s = \"alpha,beta,gamma,delta\"\nresult = s.split(\",\").filter((p) -> p.length > 4).map((p) -> p.toUpperCase()).join(\";\")",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "s", value: StringValue("alpha,beta,gamma,delta") },
+        ValueMember::{ name: "result", value: StringValue("ALPHA;GAMMA;DELTA") },
+      ]),
+    ),
+  )
+}
+
+///|
 test "render Pkl module bindings as Java Properties" {
   let value : Value = ObjectValue([
     ValueMember::{ name: "name", value: StringValue("pigeon") },

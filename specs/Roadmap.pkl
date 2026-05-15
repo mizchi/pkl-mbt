@@ -43,26 +43,6 @@ local typeAliasedCallableArgumentEvaluation: Spec.Scenario = new {
 
 // ── stdlib expansion ────────────────────────────────────────────────────────
 
-local pklBaseStringOperations: Spec.Scenario = new {
-  id = "PKL-077"
-  name = "expose pkl:base String operations"
-  description =
-    "String instance methods length, toUpperCase, toLowerCase, split, replaceAll, replaceFirst, padStart, padEnd, take, drop, contains, startsWith, endsWith, and indexOf evaluate."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-009" }
-  tags { "stdlib"; "pkl-base"; "string"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-  decisions {
-    new Spec.Decision {
-      date = "2026-05-15"
-      summary = "String ops unblock secrets / URL / template patterns"
-      rationale =
-        "Configuration code paths that build URLs, secrets, or templated strings depend on the String surface. Without it, even toy Pkl programs need verbose workarounds."
-    }
-  }
-}
-
 local pklBaseIntOperations: Spec.Scenario = new {
   id = "PKL-078"
   name = "expose pkl:base Int operations"
@@ -70,7 +50,7 @@ local pklBaseIntOperations: Spec.Scenario = new {
     "Int instance methods abs, isEven, isOdd, toFloat, toString, toString(radix), and toChar evaluate, along with the matching Float-side projections."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-077" }
-  tags { "stdlib"; "pkl-base"; "numeric" }
+  tags { "stdlib"; "pkl-base"; "numeric"; "next" }
   reviewStatus = "draft"
   severity = "minor"
 }
@@ -335,7 +315,6 @@ local upstreamGoldOutputDiff: Spec.Scenario = new {
 
 entries: Listing<Spec.Scenario> = new {
   typeAliasedCallableArgumentEvaluation
-  pklBaseStringOperations
   pklBaseIntOperations
   pklMathExpansion
   pklReflectMinimal

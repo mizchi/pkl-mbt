@@ -230,7 +230,7 @@
   - depends on: PKL-007
   - body: _not yet implemented_
 
-- [ ] **expose pkl:base Int operations** (minor) [draft] — verifies: PKL-078 — tags: stdlib, pkl-base, numeric
+- [ ] **expose pkl:base Int operations** (minor) [draft] — verifies: PKL-078 — tags: stdlib, pkl-base, numeric, next
   > Int instance methods abs, isEven, isOdd, toFloat, toString, toString(radix), and toChar evaluate, along with the matching Float-side projections.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-077
@@ -250,11 +250,11 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **expose pkl:base String operations** [draft] — verifies: PKL-077 — tags: stdlib, pkl-base, string, next
-  > String instance methods length, toUpperCase, toLowerCase, split, replaceAll, replaceFirst, padStart, padEnd, take, drop, contains, startsWith, endsWith, and indexOf evaluate.
+- [ ] **expose pkl:base String operations** — verifies: PKL-077 — tags: stdlib, pkl-base, string
+  > String properties (`length`, `isEmpty`) and methods (`toUpperCase()`, `toLowerCase()`, `contains(s)`, `startsWith(p)`, `endsWith(s)`, `indexOf(s)`, `replaceAll(old, new)`, `replaceFirst(old, new)`, `take(n)`, `drop(n)`, `split(sep)`, `padStart(width, padStr)`, `padEnd(width, padStr)`) dispatch against `StringValue` receivers via the same `MemberAccess` / `CallExpr` interception as the Listing / Mapping builtins. `indexOf` returns `-1` for missing substrings (matching Apple Pkl rather than returning null). `split` projects to `Listing<String>`, so `s.split(",").map(...).join(...)` pipelines through the Listing builtins. `take` and `drop` saturate at the string bounds. All operations are code-unit-based (matching Apple Pkl's Java-string-derived semantics).
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-009
-  - decisions: 1 entry(ies)
+  - depends on: PKL-076
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **generic class declarations** [draft] — verifies: PKL-089 — tags: typechecker, generics, class
@@ -668,7 +668,7 @@
   > The native CLI emits a YAML document when invoked with `-f yaml`.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076 — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 

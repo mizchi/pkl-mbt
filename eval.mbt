@@ -1096,6 +1096,34 @@ fn is_mapping_method_name(name : String) -> Bool {
 }
 
 ///|
+fn is_string_property_name(name : String) -> Bool {
+  match name {
+    "length" | "isEmpty" => true
+    _ => false
+  }
+}
+
+///|
+fn is_string_method_name(name : String) -> Bool {
+  match name {
+    "toUpperCase"
+    | "toLowerCase"
+    | "contains"
+    | "startsWith"
+    | "endsWith"
+    | "indexOf"
+    | "replaceAll"
+    | "replaceFirst"
+    | "take"
+    | "drop"
+    | "split"
+    | "padStart"
+    | "padEnd" => true
+    _ => false
+  }
+}
+
+///|
 fn contains_entry_key(entries : Array[ValueEntry], key : Value) -> Bool {
   for entry in entries {
     if entry.key == key {
@@ -1528,6 +1556,288 @@ fn eval_mapping_method(
 }
 
 ///|
+fn eval_string_property(
+  s : String,
+  name : String,
+  diagnostics : Array[Diagnostic],
+) -> Value? {
+  match name {
+    "length" => Some(IntValue(s.length()))
+    "isEmpty" => Some(BoolValue(s.length() == 0))
+    _ => {
+      diagnostics.push(Diagnostic::{
+        message: "unknown String property \{name}",
+      })
+      None
+    }
+  }
+}
+
+///|
+fn pad_string(s : String, width : Int, pad : String, at_start : Bool) -> String {
+  let current = s.length()
+  if current >= width || pad.length() == 0 {
+    return s
+  }
+  let buf = StringBuilder::new()
+  if at_start {
+    let mut remaining = width - current
+    while remaining > 0 {
+      let chunk = if remaining >= pad.length() {
+        pad
+      } else {
+        String::unsafe_substring(pad, start=0, end=remaining)
+      }
+      buf.write_string(chunk)
+      remaining = remaining - chunk.length()
+    }
+    buf.write_string(s)
+  } else {
+    buf.write_string(s)
+    let mut remaining = width - current
+    while remaining > 0 {
+      let chunk = if remaining >= pad.length() {
+        pad
+      } else {
+        String::unsafe_substring(pad, start=0, end=remaining)
+      }
+      buf.write_string(chunk)
+      remaining = remaining - chunk.length()
+    }
+  }
+  buf.to_string()
+}
+
+///|
+fn eval_string_method(
+  s : String,
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let arg_values : Array[Value] = []
+  let mut ok = true
+  for argument in arguments {
+    match
+      eval_expr_with_bindings(
+        argument, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      ) {
+      Some(v) => arg_values.push(v)
+      None => ok = false
+    }
+  }
+  if !ok {
+    return None
+  }
+  match method_name {
+    "toUpperCase" => {
+      if arg_values.length() != 0 {
+        diagnostics.push(Diagnostic::{
+          message: "String.toUpperCase expects 0 arguments, got \{arg_values.length()}",
+        })
+        return None
+      }
+      Some(StringValue(s.to_upper()))
+    }
+    "toLowerCase" => {
+      if arg_values.length() != 0 {
+        diagnostics.push(Diagnostic::{
+          message: "String.toLowerCase expects 0 arguments, got \{arg_values.length()}",
+        })
+        return None
+      }
+      Some(StringValue(s.to_lower()))
+    }
+    "contains" =>
+      one_string_arg(arg_values, "String.contains", diagnostics, fn(needle) {
+        Some(BoolValue(s.contains(needle)))
+      })
+    "startsWith" =>
+      one_string_arg(arg_values, "String.startsWith", diagnostics, fn(prefix) {
+        Some(BoolValue(s.has_prefix(prefix)))
+      })
+    "endsWith" =>
+      one_string_arg(arg_values, "String.endsWith", diagnostics, fn(suffix) {
+        Some(BoolValue(s.has_suffix(suffix)))
+      })
+    "indexOf" =>
+      one_string_arg(arg_values, "String.indexOf", diagnostics, fn(needle) {
+        match s.find(needle) {
+          Some(i) => Some(IntValue(i))
+          None => Some(IntValue(-1))
+        }
+      })
+    "replaceAll" => {
+      if arg_values.length() != 2 {
+        diagnostics.push(Diagnostic::{
+          message: "String.replaceAll expects 2 arguments, got \{arg_values.length()}",
+        })
+        return None
+      }
+      match (arg_values[0], arg_values[1]) {
+        (StringValue(old), StringValue(new_value)) =>
+          Some(StringValue(s.replace_all(old~, new=new_value)))
+        _ => {
+          diagnostics.push(Diagnostic::{
+            message: "String.replaceAll expects String arguments",
+          })
+          None
+        }
+      }
+    }
+    "replaceFirst" => {
+      if arg_values.length() != 2 {
+        diagnostics.push(Diagnostic::{
+          message: "String.replaceFirst expects 2 arguments, got \{arg_values.length()}",
+        })
+        return None
+      }
+      match (arg_values[0], arg_values[1]) {
+        (StringValue(old), StringValue(new_value)) =>
+          Some(StringValue(s.replace(old~, new=new_value)))
+        _ => {
+          diagnostics.push(Diagnostic::{
+            message: "String.replaceFirst expects String arguments",
+          })
+          None
+        }
+      }
+    }
+    "take" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(Diagnostic::{
+          message: "String.take expects 1 argument, got \{arg_values.length()}",
+        })
+        return None
+      }
+      match arg_values[0] {
+        IntValue(raw) => {
+          let n = if raw < 0 {
+            0
+          } else if raw > s.length() {
+            s.length()
+          } else {
+            raw
+          }
+          Some(StringValue(String::unsafe_substring(s, start=0, end=n)))
+        }
+        _ => {
+          diagnostics.push(Diagnostic::{
+            message: "String.take expects Int argument",
+          })
+          None
+        }
+      }
+    }
+    "drop" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(Diagnostic::{
+          message: "String.drop expects 1 argument, got \{arg_values.length()}",
+        })
+        return None
+      }
+      match arg_values[0] {
+        IntValue(raw) => {
+          let n = if raw < 0 {
+            0
+          } else if raw > s.length() {
+            s.length()
+          } else {
+            raw
+          }
+          Some(
+            StringValue(String::unsafe_substring(s, start=n, end=s.length())),
+          )
+        }
+        _ => {
+          diagnostics.push(Diagnostic::{
+            message: "String.drop expects Int argument",
+          })
+          None
+        }
+      }
+    }
+    "split" =>
+      one_string_arg(arg_values, "String.split", diagnostics, fn(sep) {
+        let parts : Array[Value] = []
+        for piece in s.split(sep) {
+          parts.push(StringValue(piece.to_owned()))
+        }
+        Some(ListingValue(parts))
+      })
+    "padStart" => {
+      if arg_values.length() != 2 {
+        diagnostics.push(Diagnostic::{
+          message: "String.padStart expects 2 arguments, got \{arg_values.length()}",
+        })
+        return None
+      }
+      match (arg_values[0], arg_values[1]) {
+        (IntValue(width), StringValue(pad)) =>
+          Some(StringValue(pad_string(s, width, pad, true)))
+        _ => {
+          diagnostics.push(Diagnostic::{
+            message: "String.padStart expects (Int, String) arguments",
+          })
+          None
+        }
+      }
+    }
+    "padEnd" => {
+      if arg_values.length() != 2 {
+        diagnostics.push(Diagnostic::{
+          message: "String.padEnd expects 2 arguments, got \{arg_values.length()}",
+        })
+        return None
+      }
+      match (arg_values[0], arg_values[1]) {
+        (IntValue(width), StringValue(pad)) =>
+          Some(StringValue(pad_string(s, width, pad, false)))
+        _ => {
+          diagnostics.push(Diagnostic::{
+            message: "String.padEnd expects (Int, String) arguments",
+          })
+          None
+        }
+      }
+    }
+    _ => None
+  }
+}
+
+///|
+fn one_string_arg(
+  arg_values : Array[Value],
+  label : String,
+  diagnostics : Array[Diagnostic],
+  body : (String) -> Value?,
+) -> Value? {
+  if arg_values.length() != 1 {
+    diagnostics.push(Diagnostic::{
+      message: "\{label} expects 1 argument, got \{arg_values.length()}",
+    })
+    return None
+  }
+  match arg_values[0] {
+    StringValue(s) => body(s)
+    _ => {
+      diagnostics.push(Diagnostic::{
+        message: "\{label} expects String argument",
+      })
+      None
+    }
+  }
+}
+
+///|
 fn eval_class_method_call(
   target_expr : Expr,
   method_name : String,
@@ -1858,6 +2168,15 @@ fn eval_expr_with_bindings(
             })
             None
           }
+        Some(StringValue(s)) =>
+          if is_string_property_name(member_name) {
+            eval_string_property(s, member_name, diagnostics)
+          } else {
+            diagnostics.push(Diagnostic::{
+              message: "unknown String property \{member_name}",
+            })
+            None
+          }
         Some(_) => {
           diagnostics.push(Diagnostic::{
             message: "member access expects Object",
@@ -1898,6 +2217,15 @@ fn eval_expr_with_bindings(
           } else {
             diagnostics.push(Diagnostic::{
               message: "unknown Mapping property \{member_name}",
+            })
+            None
+          }
+        Some(StringValue(s)) =>
+          if is_string_property_name(member_name) {
+            eval_string_property(s, member_name, diagnostics)
+          } else {
+            diagnostics.push(Diagnostic::{
+              message: "unknown String property \{member_name}",
             })
             None
           }
@@ -1998,7 +2326,8 @@ fn eval_expr_with_bindings(
               cache, stack, declarations, diagnostics, resolve_import,
             )
           } else if is_listing_method_name(method_name) ||
-            is_mapping_method_name(method_name) {
+            is_mapping_method_name(method_name) ||
+            is_string_method_name(method_name) {
             match
               eval_expr_with_bindings(
                 target_expr, bindings, env, class_env, cache, stack, declarations,
@@ -2021,6 +2350,18 @@ fn eval_expr_with_bindings(
                   eval_mapping_method(
                     entries, method_name, arguments, bindings, env, class_env, cache,
                     stack, declarations, diagnostics, resolve_import,
+                  )
+                } else {
+                  eval_callable_call(
+                    callee, arguments, bindings, env, class_env, cache, stack, declarations,
+                    diagnostics, resolve_import,
+                  )
+                }
+              Some(StringValue(s)) =>
+                if is_string_method_name(method_name) {
+                  eval_string_method(
+                    s, method_name, arguments, bindings, env, class_env, cache, stack,
+                    declarations, diagnostics, resolve_import,
                   )
                 } else {
                   eval_callable_call(
@@ -2049,7 +2390,8 @@ fn eval_expr_with_bindings(
               cache, stack, declarations, diagnostics, resolve_import,
             )
           } else if is_listing_method_name(method_name) ||
-            is_mapping_method_name(method_name) {
+            is_mapping_method_name(method_name) ||
+            is_string_method_name(method_name) {
             match
               eval_expr_with_bindings(
                 target_expr, bindings, env, class_env, cache, stack, declarations,
@@ -2073,6 +2415,18 @@ fn eval_expr_with_bindings(
                   eval_mapping_method(
                     entries, method_name, arguments, bindings, env, class_env, cache,
                     stack, declarations, diagnostics, resolve_import,
+                  )
+                } else {
+                  eval_callable_call(
+                    callee, arguments, bindings, env, class_env, cache, stack, declarations,
+                    diagnostics, resolve_import,
+                  )
+                }
+              Some(StringValue(s)) =>
+                if is_string_method_name(method_name) {
+                  eval_string_method(
+                    s, method_name, arguments, bindings, env, class_env, cache, stack,
+                    declarations, diagnostics, resolve_import,
                   )
                 } else {
                   eval_callable_call(

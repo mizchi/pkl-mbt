@@ -1464,6 +1464,38 @@ local jsonRenderer = new Scenario {
   }
 }
 
+local pklBaseString = new Scenario {
+  id = "PKL-077"
+  name = "expose pkl:base String operations"
+  description =
+    "String properties (`length`, `isEmpty`) and methods (`toUpperCase()`, `toLowerCase()`, `contains(s)`, `startsWith(p)`, `endsWith(s)`, `indexOf(s)`, `replaceAll(old, new)`, `replaceFirst(old, new)`, `take(n)`, `drop(n)`, `split(sep)`, `padStart(width, padStr)`, `padEnd(width, padStr)`) dispatch against `StringValue` receivers via the same `MemberAccess` / `CallExpr` interception as the Listing / Mapping builtins. `indexOf` returns `-1` for missing substrings (matching Apple Pkl rather than returning null). `split` projects to `Listing<String>`, so `s.split(\",\").map(...).join(...)` pipelines through the Listing builtins. `take` and `drop` saturate at the string bounds. All operations are code-unit-based (matching Apple Pkl's Java-string-derived semantics)."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-076" }
+  tags { "stdlib"; "pkl-base"; "string" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Map `indexOf` absent result to `-1`, not `null`"
+      rationale =
+        "Apple Pkl's `String.indexOf` returns `Int` with `-1` for absent substrings; a separate `indexOfOrNull` returns the nullable form. Mirroring that convention here keeps Pkl source ported from upstream working without rewriting `if (idx == -1)` checks into null guards. The MoonBit primitive (`String::find`) returns `Int?`, so the wrapper applies the `-1` fallback at the dispatch boundary."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Accept `padChar` as a single-character String, not a `Char` value"
+      rationale =
+        "Apple Pkl's `padStart` / `padEnd` take a `Char` parameter, but our value model has no separate `Char` type — character literals evaluate to `StringValue` of length one. Accepting a String and using its full content as the pad sequence is a strict superset of the Apple Pkl behavior for single-character pads and avoids forcing a `Char` value into the model for one builtin. If a future slice introduces `Char`, the pad parameter narrows naturally."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Defer regex-bearing String operations (`matches`, `replaceAllMapped`) to PKL-081"
+      rationale =
+        "Apple Pkl's String surface includes regex-bearing operations (`matches(Regex)`, `replaceAllMapped(Regex, (MatchResult) -> String)`). The regex slice (PKL-081) brings its own value type and constraint integration; folding those into this slice would force premature design choices. PKL-077 ships the non-regex slice — toUpperCase / split / replaceAll etc. — and PKL-081 will extend it without touching the dispatcher."
+    }
+  }
+}
+
 local pklBaseMapping = new Scenario {
   id = "PKL-076"
   name = "expose pkl:base Mapping operations"
@@ -1668,5 +1700,6 @@ scenarios {
   propertiesRenderer
   pklBaseListing
   pklBaseMapping
+  pklBaseString
   ...roadmap.entries
 }
