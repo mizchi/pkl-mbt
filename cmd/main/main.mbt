@@ -1,7 +1,7 @@
 ///|
 fn usage() -> Unit {
   println("usage: pkl <parse|check|eval> <file.pkl>")
-  println("       pkl eval [-f pcf|json|yaml] <file.pkl>")
+  println("       pkl eval [-f pcf|json|yaml|properties] <file.pkl>")
   println("       pkl parse-many <file.pkl>...")
 }
 
@@ -223,7 +223,10 @@ fn main {
       i = i + 1
     }
   }
-  if format != "pcf" && format != "json" && format != "yaml" {
+  if format != "pcf" &&
+    format != "json" &&
+    format != "yaml" &&
+    format != "properties" {
     fail("unsupported format: \{format}")
   }
   if positional.length() != 1 {
@@ -273,6 +276,16 @@ fn main {
               String::unsafe_substring(yaml, start=0, end=yaml.length() - 1)
             } else {
               yaml
+            }
+            println(trimmed)
+          } else if format == "properties" {
+            // Properties output is also line-terminated per entry; strip the
+            // trailing newline so `println` keeps a single final newline.
+            let props = @pkl.render_value_as_properties(value)
+            let trimmed = if props.has_suffix("\n") {
+              String::unsafe_substring(props, start=0, end=props.length() - 1)
+            } else {
+              props
             }
             println(trimmed)
           } else {

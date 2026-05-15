@@ -1,6 +1,6 @@
 # Test SPEC
 
-103 tests across 2 module(s) — 97 pending, 6 active
+104 tests across 2 module(s) — 97 pending, 7 active
 
 ## `specs/`
 
@@ -236,7 +236,7 @@
   - depends on: PKL-077
   - body: _not yet implemented_
 
-- [ ] **expose pkl:base Listing operations** [draft] — verifies: PKL-075 — tags: stdlib, pkl-base, listing
+- [ ] **expose pkl:base Listing operations** [draft] — verifies: PKL-075 — tags: stdlib, pkl-base, listing, next
   > Listing instance methods length, isEmpty, contains, fold, map, filter, take, drop, distinct, join, and reverse evaluate against the implemented Pkl core.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-009
@@ -429,11 +429,11 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **render Pkl values as Java Properties** (minor) [draft] — verifies: PKL-074 — tags: renderer, properties, next
-  > Module rendering emits a `.properties` document with dotted-path keys and escaped values matching `pkl eval -f properties`, including handling of nested objects and listings.
+- [ ] **render Pkl values as Java Properties** — verifies: PKL-074 — tags: renderer, properties, cli
+  > The CLI `eval -f properties` (or `--format properties`) flag emits a Java Properties document matching Apple Pkl's `pkl eval -f properties` shape: ObjectValue and MappingValue members flatten into dotted keys (`a.b.c`), Mapping keys are coerced to strings, scalar values emit as unquoted `key = value` lines with property-style escaping for `\`, `\n`, `\t`, `\r`, `\f`, leading space, `:`, `=`, `!`, and `#`. ListingValue renders as a compact JSON-style single-line value (`[1,2,3]`), with the JSON `:` separators property-escaped to `\:`. NullValue leaves are omitted (mirroring Apple Pkl's `omitNullProperties = true` default), empty Object / Mapping leaves are dropped entirely, and empty Listings emit `key = []`. Top-level non-mapping values produce an empty document.
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-072
-  - decisions: 1 entry(ies)
+  - depends on: PKL-072, PKL-073
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **render Pkl values as PCF primitives** — verifies: PKL-070 — tags: renderer, pcf
@@ -659,11 +659,15 @@
   > The native CLI emits a JSON document when invoked with `-f json`.
   - body: `cmd` (exit 0 expected)
 
+- [x] **cli eval properties** — verifies: PKL-074 — tags: moonbit, cli, renderer, properties, contract
+  > The native CLI emits a Java Properties document when invoked with `-f properties`.
+  - body: `cmd` (exit 0 expected)
+
 - [x] **cli eval yaml** — verifies: PKL-073 — tags: moonbit, cli, renderer, yaml, contract
   > The native CLI emits a YAML document when invoked with `-f yaml`.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-070, PKL-071, PKL-072, PKL-073 — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 

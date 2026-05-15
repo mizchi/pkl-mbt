@@ -41,26 +41,6 @@ local typeAliasedCallableArgumentEvaluation: Spec.Scenario = new {
 
 // ── renderers ───────────────────────────────────────────────────────────────
 
-local propertiesRenderer: Spec.Scenario = new {
-  id = "PKL-074"
-  name = "render Pkl values as Java Properties"
-  description =
-    "Module rendering emits a `.properties` document with dotted-path keys and escaped values matching `pkl eval -f properties`, including handling of nested objects and listings."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-072" }
-  tags { "renderer"; "properties"; "next" }
-  reviewStatus = "draft"
-  severity = "minor"
-  decisions {
-    new Spec.Decision {
-      date = "2026-05-15"
-      summary = "Properties renderer covers Java / Spring use-cases"
-      rationale =
-        "Many existing Apple Pkl deployments emit .properties for legacy JVM consumers. Including it early closes the largest non-cloud-native renderer gap with a relatively small implementation surface."
-    }
-  }
-}
-
 // ── stdlib expansion ────────────────────────────────────────────────────────
 
 local pklBaseListOperations: Spec.Scenario = new {
@@ -70,7 +50,7 @@ local pklBaseListOperations: Spec.Scenario = new {
     "Listing instance methods length, isEmpty, contains, fold, map, filter, take, drop, distinct, join, and reverse evaluate against the implemented Pkl core."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-009" }
-  tags { "stdlib"; "pkl-base"; "listing" }
+  tags { "stdlib"; "pkl-base"; "listing"; "next" }
   reviewStatus = "draft"
   severity = "major"
   decisions {
@@ -387,7 +367,6 @@ local upstreamGoldOutputDiff: Spec.Scenario = new {
 
 entries: Listing<Spec.Scenario> = new {
   typeAliasedCallableArgumentEvaluation
-  propertiesRenderer
   pklBaseListOperations
   pklBaseMapOperations
   pklBaseStringOperations

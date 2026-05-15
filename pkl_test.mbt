@@ -771,6 +771,230 @@ test "YAML rendered top-level Pkl matches the yamlRenderer1 fixture shape" {
 }
 
 ///|
+test "render Pkl module bindings as Java Properties" {
+  let value : Value = ObjectValue([
+    ValueMember::{ name: "name", value: StringValue("pigeon") },
+    ValueMember::{ name: "age", value: IntValue(30) },
+  ])
+  inspect(
+    render_value_as_properties(value),
+    content=(
+      #|name = pigeon
+      #|age = 30
+      #|
+    ),
+  )
+}
+
+///|
+test "Properties renderer flattens nested Pkl objects with dotted keys" {
+  let value : Value = ObjectValue([
+    ValueMember::{ name: "name", value: StringValue("pigeon") },
+    ValueMember::{
+      name: "address",
+      value: ObjectValue([
+        ValueMember::{ name: "street", value: StringValue("Norton St.") },
+        ValueMember::{ name: "zip", value: IntValue(12345) },
+      ]),
+    },
+  ])
+  inspect(
+    render_value_as_properties(value),
+    content=(
+      #|name = pigeon
+      #|address.street = Norton St.
+      #|address.zip = 12345
+      #|
+    ),
+  )
+}
+
+///|
+test "Properties renderer flattens Mapping with coerced keys" {
+  let value : Value = ObjectValue([
+    ValueMember::{
+      name: "map",
+      value: MappingValue([
+        ValueEntry::{ key: StringValue("one"), value: IntValue(1) },
+        ValueEntry::{ key: IntValue(2), value: BoolValue(true) },
+        ValueEntry::{ key: NullValue, value: StringValue("nullish") },
+      ]),
+    },
+  ])
+  inspect(
+    render_value_as_properties(value),
+    content=(
+      #|map.one = 1
+      #|map.2 = true
+      #|map.null = nullish
+      #|
+    ),
+  )
+}
+
+///|
+test "Properties renderer omits null leaves" {
+  let value : Value = ObjectValue([
+    ValueMember::{ name: "name", value: StringValue("pigeon") },
+    ValueMember::{ name: "friend", value: NullValue },
+    ValueMember::{
+      name: "address",
+      value: ObjectValue([
+        ValueMember::{ name: "street", value: StringValue("Norton St.") },
+        ValueMember::{ name: "fax", value: NullValue },
+      ]),
+    },
+  ])
+  inspect(
+    render_value_as_properties(value),
+    content=(
+      #|name = pigeon
+      #|address.street = Norton St.
+      #|
+    ),
+  )
+}
+
+///|
+test "Properties renderer emits Listings as compact JSON values" {
+  let value : Value = ObjectValue([
+    ValueMember::{
+      name: "list",
+      value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+    },
+    ValueMember::{
+      name: "mixed",
+      value: ListingValue([StringValue("string"), BoolValue(true), IntValue(42)]),
+    },
+    ValueMember::{ name: "empty", value: ListingValue([]) },
+  ])
+  // `:` inside the nested object key/value separator is escaped per
+  // Java properties rules. Brackets, braces, commas, and quotes pass
+  // through verbatim.
+  inspect(
+    render_value_as_properties(value),
+    content=(
+      #|list = [1,2,3]
+      #|mixed = ["string",true,42]
+      #|empty = []
+      #|
+    ),
+  )
+}
+
+///|
+test "Properties renderer emits Listing of nested objects" {
+  let value : Value = ObjectValue([
+    ValueMember::{
+      name: "items",
+      value: ListingValue([
+        ObjectValue([ValueMember::{ name: "one", value: IntValue(1) }]),
+        ObjectValue([
+          ValueMember::{ name: "name", value: StringValue("Pigeon") },
+        ]),
+      ]),
+    },
+  ])
+  inspect(
+    render_value_as_properties(value),
+    content=(
+      #|items = [{"one"\:1},{"name"\:"Pigeon"}]
+      #|
+    ),
+  )
+}
+
+///|
+test "Properties renderer escapes special characters in scalar values" {
+  let value : Value = ObjectValue([
+    ValueMember::{ name: "tab", value: StringValue("a\tb") },
+    ValueMember::{ name: "newline", value: StringValue("a\nb") },
+    ValueMember::{ name: "cr", value: StringValue("a\rb") },
+    ValueMember::{ name: "ff", value: StringValue("a\u{0C}b") },
+    ValueMember::{ name: "backslash", value: StringValue("c:\\path") },
+    ValueMember::{ name: "leadingspace", value: StringValue(" lead") },
+    ValueMember::{ name: "bangs", value: StringValue("!hello#world") },
+    ValueMember::{ name: "kvchars", value: StringValue("a:b=c") },
+  ])
+  inspect(
+    render_value_as_properties(value),
+    content=(
+      #|tab = a\tb
+      #|newline = a\nb
+      #|cr = a\rb
+      #|ff = a\fb
+      #|backslash = c\:\\path
+      #|leadingspace = \ lead
+      #|bangs = \!hello\#world
+      #|kvchars = a\:b\=c
+      #|
+    ),
+  )
+}
+
+///|
+test "Properties renderer escapes special characters in keys" {
+  let value : Value = ObjectValue([
+    ValueMember::{ name: "a b", value: IntValue(1) },
+    ValueMember::{ name: "a=b", value: IntValue(2) },
+    ValueMember::{ name: "a:b", value: IntValue(3) },
+    ValueMember::{ name: "a!b", value: IntValue(4) },
+    ValueMember::{ name: "a#b", value: IntValue(5) },
+    ValueMember::{ name: "a\\b", value: IntValue(6) },
+  ])
+  inspect(
+    render_value_as_properties(value),
+    content=(
+      #|a\ b = 1
+      #|a\=b = 2
+      #|a\:b = 3
+      #|a\!b = 4
+      #|a\#b = 5
+      #|a\\b = 6
+      #|
+    ),
+  )
+}
+
+///|
+test "Properties renderer drops empty composites without leaves" {
+  let value : Value = ObjectValue([
+    ValueMember::{ name: "name", value: StringValue("pigeon") },
+    ValueMember::{ name: "emptyObj", value: ObjectValue([]) },
+    ValueMember::{ name: "emptyMap", value: MappingValue([]) },
+    ValueMember::{ name: "emptyList", value: ListingValue([]) },
+  ])
+  // Empty Object/Mapping yield no key (no leaves to attach to); empty
+  // Listing emits the inline `[]` form so the entry is preserved.
+  inspect(
+    render_value_as_properties(value),
+    content=(
+      #|name = pigeon
+      #|emptyList = []
+      #|
+    ),
+  )
+}
+
+///|
+test "Properties rendered top-level Pkl matches the propertiesRenderer1 fixture shape" {
+  // Apple Pkl's `pkl eval -f properties` on the upstream
+  // `propertiesRenderer1.properties.pkl` produces the inner pigeon block;
+  // our pipeline still renders the post-eval module directly, so the
+  // `pigeon` prefix stays on the dotted keys.
+  let source = "pigeon {\n  name = \"pigeon\"\n  age = 30\n}\n"
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  inspect(
+    render_value_as_properties(value),
+    content=(
+      #|pigeon.name = pigeon
+      #|pigeon.age = 30
+      #|
+    ),
+  )
+}
+
+///|
 test "parser treats Pkl comments as trivia" {
   let parsed = parse_source(
     "// leading\nname = \"hawk\" // trailing\nage = 2 /* block */\n",

@@ -76,6 +76,7 @@ local moonUnit = new Test {
     "PKL-071"
     "PKL-072"
     "PKL-073"
+    "PKL-074"
   }
   cmd = "moon test --target js"
   timeoutSec = 120
@@ -111,6 +112,17 @@ local cliEvalYaml = new Test {
   cmd = "moon run cmd/main --target native -- eval -f yaml fixtures/cli.pkl"
   workdir = ".."
   expectStdoutContains { "name: hawk"; "age: 2" }
+  timeoutSec = 120
+}
+
+local cliEvalProperties = new Test {
+  name = "cli eval properties"
+  description = "The native CLI emits a Java Properties document when invoked with `-f properties`."
+  tags { "moonbit"; "cli"; "renderer"; "properties"; "contract" }
+  specRef { "PKL-074" }
+  cmd = "moon run cmd/main --target native -- eval -f properties fixtures/cli.pkl"
+  workdir = ".."
+  expectStdoutContains { "name = hawk"; "age = 2" }
   timeoutSec = 120
 }
 
@@ -153,6 +165,7 @@ tests {
   cliEval
   cliEvalJson
   cliEvalYaml
+  cliEvalProperties
   upstreamSmoke
   upstreamParserSuite
 }

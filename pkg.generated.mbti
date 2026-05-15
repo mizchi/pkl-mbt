@@ -163,6 +163,8 @@ pub fn render_value(Value) -> String
 
 pub fn render_value_as_json(Value) -> String
 
+pub fn render_value_as_properties(Value) -> String
+
 pub fn render_value_as_yaml(Value) -> String
 
 pub fn rparen() -> @cst.SyntaxKind

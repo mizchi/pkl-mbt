@@ -2920,6 +2920,220 @@ fn write_yaml_indent(buf : StringBuilder, indent : Int) -> Unit {
 }
 
 ///|
+/// Render a Value as a Java Properties document, mirroring the shape of
+/// `pkl eval -f properties`.
+///
+/// Top-level Object / Mapping members flatten into dotted keys. Scalars emit
+/// as `key = value` lines (unquoted, with property-style escaping for `\`,
+/// `\n`, `\t`, `\r`, `\f`, leading space, `:`, `=`, `!`, `#`). Null leaves
+/// are omitted (Apple Pkl's `omitNullProperties` default is `true`). Listings
+/// render as a compact JSON-style single-line value (`[1,2,3]`), and the
+/// JSON form's own `:` separators are then property-escaped to `\:`. Empty
+/// Object / Mapping leaves are dropped entirely; empty Listings still emit
+/// `key = []`. Top-level non-mapping values produce an empty document.
+///
+/// Apple Pkl's `restrictCharset = true` mode (emit `\uXXXX` for non-ASCII)
+/// remains a follow-up — the default is `false` here, so unicode passes
+/// through verbatim.
+pub fn render_value_as_properties(value : Value) -> String {
+  let buf = StringBuilder::new()
+  match value {
+    ObjectValue(members) => render_properties_members(members, "", buf)
+    MappingValue(entries) => render_properties_entries(entries, "", buf)
+    _ => ()
+  }
+  buf.to_string()
+}
+
+///|
+fn render_properties_members(
+  members : Array[ValueMember],
+  prefix : String,
+  buf : StringBuilder,
+) -> Unit {
+  for field in members {
+    render_properties_leaf(prefix, field.name, field.value, buf)
+  }
+}
+
+///|
+fn render_properties_entries(
+  entries : Array[ValueEntry],
+  prefix : String,
+  buf : StringBuilder,
+) -> Unit {
+  for entry in entries {
+    let key = properties_coerce_key(entry.key)
+    render_properties_leaf(prefix, key, entry.value, buf)
+  }
+}
+
+///|
+fn render_properties_leaf(
+  prefix : String,
+  name : String,
+  value : Value,
+  buf : StringBuilder,
+) -> Unit {
+  let full_key = if prefix == "" { name } else { prefix + "." + name }
+  match value {
+    NullValue => ()
+    ObjectValue(members) =>
+      if members.length() == 0 {
+        // Empty Object has no leaves, so drop the key entirely.
+      } else {
+        render_properties_members(members, full_key, buf)
+      }
+    MappingValue(entries) =>
+      if entries.length() == 0 {
+        // Empty Mapping likewise has no leaves.
+      } else {
+        render_properties_entries(entries, full_key, buf)
+      }
+    ListingValue(_) | FunctionValue(_, _, _, _) => {
+      let compact = render_properties_compact_json(value)
+      write_properties_key(full_key, buf)
+      buf.write_string(" = ")
+      write_properties_value(compact, buf)
+      buf.write_char('\n')
+    }
+    _ => {
+      write_properties_key(full_key, buf)
+      buf.write_string(" = ")
+      write_properties_scalar(value, buf)
+      buf.write_char('\n')
+    }
+  }
+}
+
+///|
+fn render_properties_compact_json(value : Value) -> String {
+  let buf = StringBuilder::new()
+  write_compact_json_value(value, buf)
+  buf.to_string()
+}
+
+///|
+fn write_compact_json_value(value : Value, buf : StringBuilder) -> Unit {
+  match value {
+    IntValue(n) => buf.write_string("\{n}")
+    BoolValue(true) => buf.write_string("true")
+    BoolValue(false) => buf.write_string("false")
+    NullValue => buf.write_string("null")
+    StringValue(s) => render_json_string(s, buf)
+    ObjectValue(members) => {
+      buf.write_char('{')
+      for i = 0; i < members.length(); i = i + 1 {
+        if i > 0 {
+          buf.write_char(',')
+        }
+        render_json_string(members[i].name, buf)
+        buf.write_char(':')
+        write_compact_json_value(members[i].value, buf)
+      }
+      buf.write_char('}')
+    }
+    MappingValue(entries) => {
+      buf.write_char('{')
+      for i = 0; i < entries.length(); i = i + 1 {
+        if i > 0 {
+          buf.write_char(',')
+        }
+        render_json_string(json_coerce_key(entries[i].key), buf)
+        buf.write_char(':')
+        write_compact_json_value(entries[i].value, buf)
+      }
+      buf.write_char('}')
+    }
+    ListingValue(elements) => {
+      buf.write_char('[')
+      for i = 0; i < elements.length(); i = i + 1 {
+        if i > 0 {
+          buf.write_char(',')
+        }
+        write_compact_json_value(elements[i], buf)
+      }
+      buf.write_char(']')
+    }
+    FunctionValue(_, _, _, _) => buf.write_string("null")
+  }
+}
+
+///|
+fn write_properties_scalar(value : Value, buf : StringBuilder) -> Unit {
+  match value {
+    IntValue(n) => buf.write_string("\{n}")
+    BoolValue(true) => buf.write_string("true")
+    BoolValue(false) => buf.write_string("false")
+    NullValue => buf.write_string("")
+    StringValue(s) => write_properties_value(s, buf)
+    _ =>
+      // Unreachable in practice: render_properties_leaf already dispatches
+      // composites through the compact-JSON path.
+      write_properties_value(render_properties_compact_json(value), buf)
+  }
+}
+
+///|
+fn write_properties_key(key : String, buf : StringBuilder) -> Unit {
+  for c in key {
+    match c {
+      '\\' => buf.write_string("\\\\")
+      '\n' => buf.write_string("\\n")
+      '\r' => buf.write_string("\\r")
+      '\t' => buf.write_string("\\t")
+      '\u{0C}' => buf.write_string("\\f")
+      ' ' => buf.write_string("\\ ")
+      ':' => buf.write_string("\\:")
+      '=' => buf.write_string("\\=")
+      '!' => buf.write_string("\\!")
+      '#' => buf.write_string("\\#")
+      _ => buf.write_char(c)
+    }
+  }
+}
+
+///|
+fn write_properties_value(s : String, buf : StringBuilder) -> Unit {
+  let mut first = true
+  for c in s {
+    if first && c == ' ' {
+      buf.write_string("\\ ")
+    } else {
+      match c {
+        '\\' => buf.write_string("\\\\")
+        '\n' => buf.write_string("\\n")
+        '\r' => buf.write_string("\\r")
+        '\t' => buf.write_string("\\t")
+        '\u{0C}' => buf.write_string("\\f")
+        ':' => buf.write_string("\\:")
+        '=' => buf.write_string("\\=")
+        '!' => buf.write_string("\\!")
+        '#' => buf.write_string("\\#")
+        _ => buf.write_char(c)
+      }
+    }
+    first = false
+  }
+}
+
+///|
+fn properties_coerce_key(value : Value) -> String {
+  match value {
+    StringValue(s) => s
+    IntValue(n) => "\{n}"
+    BoolValue(true) => "true"
+    BoolValue(false) => "false"
+    NullValue => "null"
+    _ => {
+      let buf = StringBuilder::new()
+      render_pcf_inline(value, 0, buf)
+      buf.to_string()
+    }
+  }
+}
+
+///|
 fn eval_source_with_imports(
   source : String,
   resolve_import : (String) -> EvalResult?,

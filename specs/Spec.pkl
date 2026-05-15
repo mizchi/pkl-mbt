@@ -1464,6 +1464,38 @@ local jsonRenderer = new Scenario {
   }
 }
 
+local propertiesRenderer = new Scenario {
+  id = "PKL-074"
+  name = "render Pkl values as Java Properties"
+  description =
+    "The CLI `eval -f properties` (or `--format properties`) flag emits a Java Properties document matching Apple Pkl's `pkl eval -f properties` shape: ObjectValue and MappingValue members flatten into dotted keys (`a.b.c`), Mapping keys are coerced to strings, scalar values emit as unquoted `key = value` lines with property-style escaping for `\\`, `\\n`, `\\t`, `\\r`, `\\f`, leading space, `:`, `=`, `!`, and `#`. ListingValue renders as a compact JSON-style single-line value (`[1,2,3]`), with the JSON `:` separators property-escaped to `\\:`. NullValue leaves are omitted (mirroring Apple Pkl's `omitNullProperties = true` default), empty Object / Mapping leaves are dropped entirely, and empty Listings emit `key = []`. Top-level non-mapping values produce an empty document."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-072"; "PKL-073" }
+  tags { "renderer"; "properties"; "cli" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Mirror Apple Pkl's dotted-flatten Properties projection"
+      rationale =
+        "Apple Pkl's Properties renderer commits to a deterministic projection: nested Object / Mapping flatten into dot-joined keys, ListingValue stays as a single inline JSON-style scalar (so the line count matches the leaf count, not the listing length), and NullValue leaves are dropped by default. Mirroring that projection now means existing Pkl configurations ported here serialize to .properties without divergence, and adding `omitNullProperties = false` / `restrictCharset = true` / converters later remains an opaque extension instead of a re-architecting."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Apply property-style escaping symmetrically to keys and values"
+      rationale =
+        "Java Properties readers strip leading whitespace and use `=`, `:`, ` ` (space), `!`, `#`, and `\\` as syntactic delimiters. Apple Pkl's renderer escapes all of those in both keys and values (with a slight asymmetry: leading space is escaped in values, every space is escaped in keys, trailing space is left alone in values). Following that scheme here keeps round-trip behavior intact for any conforming Java Properties parser."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Defer `restrictCharset = true` Unicode escaping to a stdlib slice"
+      rationale =
+        "Apple Pkl's `restrictCharset = true` mode emits `\\uXXXX` escapes for every non-ASCII code point so the resulting file is safe for legacy ISO-8859-1 .properties readers. That knob lives on the `PropertiesRenderer` stdlib class, which arrives as part of PKL-079 stdlib expansion. Until then, the default `restrictCharset = false` behavior — pass Unicode through verbatim — is enough for modern JVM consumers."
+    }
+  }
+}
+
 local yamlRenderer = new Scenario {
   id = "PKL-073"
   name = "render Pkl values as YAML"
@@ -1569,5 +1601,6 @@ scenarios {
   pcfRendererObjects
   jsonRenderer
   yamlRenderer
+  propertiesRenderer
   ...roadmap.entries
 }
