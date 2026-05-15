@@ -161,6 +161,57 @@ fn builtin_stdlib_source(uri : String) -> String? {
       Some(source)
     }
     "pkl:test" => Some("catch = null")
+    "pkl:reflect" => {
+      // PKL-080 minimal slice. Apple's `pkl:reflect` is ~460 lines and built
+      // around `external` declarations that bind directly to VM internals
+      // (Class / Module / Property / TypeAlias / Type mirrors). A faithful
+      // implementation would require a `ClassValue` variant in the value
+      // model and a way to surface module / class members at runtime — neither
+      // of which exists yet.
+      //
+      // The stub below covers what fixtures actually reach for first:
+      //  - String-tagged mirror constants for the common base types.
+      //    The tag format `"pkl.base#<name>"` is internal to this stub; it is
+      //    intentionally distinct from any user-visible string so a real
+      //    mirror type can replace it later without ambiguity.
+      //  - `Class` / `Module` / `TypeAlias` / `Property` factories that take
+      //    a string identifier and return a container exposing `reflectee`.
+      //    This degrades the upstream "pass the class itself" API to a
+      //    "pass the class name" API, traded for being implementable today.
+      //  - `DeclaredType(referent)` wrapping a mirror so nested `referent`
+      //    walks line up with upstream usage.
+      //  - `isSubclassOf(other)` is intentionally absent from this slice; the
+      //    naive name-equality check it would collapse to is misleading enough
+      //    that a follow-up should add a real subclass relation table.
+      let source =
+        #|anyType = "pkl.base#Any"
+        #|booleanType = "pkl.base#Boolean"
+        #|intType = "pkl.base#Int"
+        #|floatType = "pkl.base#Float"
+        #|numberType = "pkl.base#Number"
+        #|stringType = "pkl.base#String"
+        #|durationType = "pkl.base#Duration"
+        #|dataSizeType = "pkl.base#DataSize"
+        #|bytesType = "pkl.base#Bytes"
+        #|pairType = "pkl.base#Pair"
+        #|listType = "pkl.base#List"
+        #|setType = "pkl.base#Set"
+        #|mapType = "pkl.base#Map"
+        #|listingType = "pkl.base#Listing"
+        #|mappingType = "pkl.base#Mapping"
+        #|objectType = "pkl.base#Object"
+        #|dynamicType = "pkl.base#Dynamic"
+        #|typedType = "pkl.base#Typed"
+        #|moduleType = "pkl.base#Module"
+        #|unknownType = "pkl.base#unknown"
+        #|nothingType = "pkl.base#nothing"
+        #|Class = (name) -> new { reflectee = name }
+        #|Module = (name) -> new { reflectee = name }
+        #|TypeAlias = (name) -> new { reflectee = name }
+        #|Property = (name) -> new { name = name }
+        #|DeclaredType = (referent) -> new { referent = referent }
+      Some(source)
+    }
     _ => None
   }
 }

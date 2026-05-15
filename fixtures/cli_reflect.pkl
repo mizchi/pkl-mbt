@@ -1,0 +1,7 @@
+import "pkl:reflect" as reflect
+
+intMirror = reflect.intType
+stringMirror = reflect.stringType
+fooClass = reflect.Class("Foo")
+fooReflectee = fooClass.reflectee
+declared = reflect.DeclaredType(reflect.Class("Bar")).referent.reflectee

@@ -83,6 +83,7 @@ local moonUnit = new Test {
     "PKL-077"
     "PKL-078"
     "PKL-079"
+    "PKL-080"
     "PKL-081"
     "PKL-082"
     "PKL-083"
@@ -162,6 +163,23 @@ local cliEvalProperties = new Test {
   cmd = "moon run cmd/main --target native -- eval -f properties fixtures/cli.pkl"
   workdir = ".."
   expectStdoutContains { "name = hawk"; "age = 2" }
+  timeoutSec = 120
+}
+
+local cliReflectStub = new Test {
+  name = "cli reflect minimal stub"
+  description =
+    "The native CLI evaluates a fixture that imports `pkl:reflect` and reads mirror constants plus the `Class` factory `reflectee` field, exercising the minimal stub registered in `builtin_stdlib_source`."
+  tags { "moonbit"; "cli"; "pkl-reflect"; "stdlib"; "contract" }
+  specRef { "PKL-080" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_reflect.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "intMirror = \"pkl.base#Int\""
+    "stringMirror = \"pkl.base#String\""
+    "fooReflectee = \"Foo\""
+    "declared = \"Bar\""
+  }
   timeoutSec = 120
 }
 
@@ -251,6 +269,7 @@ tests {
   cliEvalFormatPcf
   cliEvalYaml
   cliEvalProperties
+  cliReflectStub
   cliTestPass
   cliTestFail
   upstreamSmoke

@@ -1495,9 +1495,43 @@ local durationAndDataSizeLiterals = new Scenario {
     }
     new Decision {
       date = "2026-05-15"
-      summary = "Render to PCF as the literal form, project JSON / YAML / Properties as the same string"
+      summary =
+        "Render to PCF as the literal form, project JSON / YAML / Properties as the same string"
       rationale =
         "Apple Pkl rounds the PCF projection of a Duration / DataSize to its original literal form (`5.min`, `3.kib`); reusing that exact lexical shape lets the value round-trip through the parser cleanly. JSON / YAML / Properties do not have a native Duration / DataSize type, so the upstream renderer also emits them as quoted strings (e.g. `\"5.min\"`); matching that shape keeps the output deterministic without requiring a dedicated `pkl:base` projection table this slice."
+    }
+  }
+}
+
+local pklReflectMinimal = new Scenario {
+  id = "PKL-080"
+  name = "minimal pkl:reflect support"
+  description =
+    "`builtin_stdlib_source` resolves `pkl:reflect` to a thin Pkl-source stub that exposes the most-cited type mirror constants as string-tagged placeholders (`anyType`, `booleanType`, `intType`, `floatType`, `numberType`, `stringType`, `durationType`, `dataSizeType`, `bytesType`, `pairType`, `listType`, `setType`, `mapType`, `listingType`, `mappingType`, `objectType`, `dynamicType`, `typedType`, `moduleType`, `unknownType`, `nothingType`), all tagged with the `pkl.base#<name>` prefix that is internal to this stub. The factory bindings `Class`, `Module`, `TypeAlias`, `Property`, and `DeclaredType` are lambdas: each accepts a string identifier (rather than a class value, which the value model cannot yet round-trip) and returns an Object container exposing `reflectee` (for the first four) or `referent` (for `DeclaredType`). Fixtures that only read mirror constants or assert `reflect.Class(name).reflectee == name` now parse, typecheck, and evaluate; upstream `reflect.pkl` fixtures that need a real `ClassValue`, runtime member introspection, or `isSubclassOf` remain out of scope and are picked up by follow-up slices once the value model grows."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-040" }
+  tags { "stdlib"; "pkl-reflect" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary =
+        "Stub `pkl:reflect` as a Pkl-source module, mirroring the `pkl:math` / `pkl:test` pattern"
+      rationale =
+        "Existing stdlib stubs (`pkl:math` exposing Int helpers, `pkl:test` exposing `catch = null`) live as Pkl source strings in `builtin_stdlib_source`; the evaluator already imports and binds them through the regular import path. Adding `pkl:reflect` as a sibling entry keeps the implementation contained to one file and avoids touching the import resolver or value model. The alternative — hooking `reflect.Class(...)` as a special-cased builtin call — would need a new value variant and a privileged call path before any user-visible behaviour shipped."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Factory inputs are strings, not class values"
+      rationale =
+        "Upstream `reflect.Class(Foo)` passes the class itself; our value model has no `ClassValue` variant and the slice graph for one (typecheck integration + runtime member surface) is a major chunk of work that would block this slice indefinitely. Falling back to a string identifier loses static linkage between the call site and the declared class, but keeps the runtime model honest: a stub returning `new { reflectee = name }` is a faithful container for a name-keyed mirror, not a misleading fake-class wrapper. A follow-up slice can lift the API to `ClassValue` once the variant exists."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Omit `isSubclassOf` from the minimal stub"
+      rationale =
+        "Without a real subclass relation table, the only honest implementation is `(other) -> name == other.reflectee` — which silently misreports `Boolean.isSubclassOf(Any)` as `false`. A follow-up slice that introduces a base-type lattice (Any > Number > Int, Object > Typed > Dynamic, etc.) is the right place to add this; emitting it as a misleading stub now would let fixtures pass for the wrong reason. Tag the gap explicitly in the source comment so the next slice picks it up deliberately."
     }
   }
 }
@@ -1515,7 +1549,8 @@ local upstreamJsonGoldDiff = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-15"
-      summary = "Honor `output.value` in the CLI rather than wiring the full Apple Pkl `output { renderer }` driver"
+      summary =
+        "Honor `output.value` in the CLI rather than wiring the full Apple Pkl `output { renderer }` driver"
       rationale =
         "A complete `output {}` driver requires class-name tagging on every ObjectValue (so the CLI can read `output.renderer`'s class to pick a format), plus runtime support for `output.renderer = new JsonRenderer { converters { ... } }` with path / type-keyed converter lambdas. That is several slices of work. The `extract_output_value` helper isolates the smallest piece — `output.value` extraction — that lets a JSON-renderer fixture line up with its gold when the user passes `-f json` explicitly. The `-f` flag remains the source of truth for renderer choice; honoring `output.renderer` lands as a follow-up once class-name tagging exists."
     }
@@ -1617,7 +1652,8 @@ local cliPklTestRunner = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-15"
-      summary = "Require the explicit `facts: Mapping<String, Listing<Boolean>>` shape, not `amends \"pkl:test\"`"
+      summary =
+        "Require the explicit `facts: Mapping<String, Listing<Boolean>>` shape, not `amends \"pkl:test\"`"
       rationale =
         "`amends \"pkl:test\"` relies on the import resolver loading the upstream `pkl:test` module so the `facts { [\"...\"] { ... } }` shorthand picks up its declared shape. Our resolver currently short-circuits `pkl:` URIs to a stub, so the shorthand collapses to an empty mapping when actually evaluated. The slice scope draws the line at the explicit type so the runner can ship today; the shorthand support is a strictly larger lift that needs the full `pkl:test` module to flow through the resolver."
     }
@@ -1629,7 +1665,8 @@ local cliPklTestRunner = new Scenario {
     }
     new Decision {
       date = "2026-05-15"
-      summary = "Report per-fact pass/fail with the failing assertion index, short-circuiting within a fact"
+      summary =
+        "Report per-fact pass/fail with the failing assertion index, short-circuiting within a fact"
       rationale =
         "A fact bundles a small group of related assertions; once one fails the rest of the same fact are no longer evidence — they could trivially pass with a stale value. Naming the first failing assertion's 1-based index plus the total assertion count gives enough information to find the offending line without burying the user in cascading diagnostics. Per-fact (rather than per-assertion) granularity also matches the upstream `pkl test` output shape."
     }
@@ -1687,19 +1724,22 @@ local collectionElementConstraints = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-15"
-      summary = "Recurse through the existing entry points rather than threading a separate per-element checker"
+      summary =
+        "Recurse through the existing entry points rather than threading a separate per-element checker"
       rationale =
         "The constrained-type cascade is already the value-side authority for Int and String predicates. Routing the per-element check back through `pkl_constrained_type_annotation_value_rejection_message_from_source` means any constraint family that lands later (Float, user-defined factories, future types) inherits collection support for free without touching the collection plumbing. The depth bound on the same path keeps recursive aliases (`typealias R = Listing<R>`) from looping the runtime."
     }
     new Decision {
       date = "2026-05-15"
-      summary = "Short-circuit on the first rejecting element instead of reporting every failure at once"
+      summary =
+        "Short-circuit on the first rejecting element instead of reporting every failure at once"
       rationale =
         "Apple Pkl reports the first failing constraint and aborts — listing every failure would multiply the diagnostic count on common typos (missing constraint, wrong predicate). Short-circuiting matches that behavior and keeps the diagnostic vocabulary identical to the scalar path; `length rejects` reads the same whether it fired on a top-level value or the third element of a Listing."
     }
     new Decision {
       date = "2026-05-15"
-      summary = "Reuse `generic_argument_text` / `split_top_level_generic_arguments` from the typechecker"
+      summary =
+        "Reuse `generic_argument_text` / `split_top_level_generic_arguments` from the typechecker"
       rationale =
         "Both helpers already balance angle-bracket and paren nesting correctly for `Listing<Pair<Int, Int>>` / `Mapping<String, Listing<Int>>` shapes. Reusing them keeps a single source of truth for the collection-type grammar and avoids a parallel parser that would drift the moment one side learns a new wrapper type."
     }
@@ -1731,7 +1771,8 @@ local stringConstraintPredicates = new Scenario {
     }
     new Decision {
       date = "2026-05-15"
-      summary = "Reuse the moonbitlang/regexp engine that PKL-081 added rather than caching compiled patterns"
+      summary =
+        "Reuse the moonbitlang/regexp engine that PKL-081 added rather than caching compiled patterns"
       rationale =
         "Patterns inside constraint text are short-lived: the same constrained type is matched against many values, but the regex source is fixed. Compiling on each `matches(...)` predicate evaluation is wasteful but never quadratic — caching the compiled regex would need a constraint-level value store and only matters once a workload uses thousands of constrained values per second. Defer caching until profiling justifies it; for now the predicate compiles inside `pkl_string_predicate_accepts` and treats a malformed pattern as a deterministic rejection so the constraint cascade still produces a stable diagnostic."
     }
@@ -1775,7 +1816,8 @@ local regexLiteralAndMethods = new Scenario {
     }
     new Decision {
       date = "2026-05-15"
-      summary = "Project Regex as the pattern string in JSON / YAML / Properties; round-trip as Regex(\"...\") in PCF"
+      summary =
+        "Project Regex as the pattern string in JSON / YAML / Properties; round-trip as Regex(\"...\") in PCF"
       rationale =
         "JSON / YAML / Properties have no native regex type, so the only deterministic projection is the source pattern as a quoted string — matching the same shape we use for Duration / DataSize. PCF, on the other hand, is the format that flows back into the parser; emitting `Regex(\"<escaped-pattern>\")` lets the same Regex value re-evaluate to itself, which is the property the rest of the renderer surface relies on."
     }
@@ -1827,7 +1869,8 @@ local hiddenAndLocalMembers = new Scenario {
     }
     new Decision {
       date = "2026-05-15"
-      summary = "Resolve bare-name reads against either the bare or prefixed form in `lookup_member`"
+      summary =
+        "Resolve bare-name reads against either the bare or prefixed form in `lookup_member`"
       rationale =
         "Apple Pkl's `hidden` keeps the member reachable from outside the object (renderers drop it; member access still resolves it). The bare-name lookup must therefore match the prefixed entry transparently. Extending `lookup_member` to try both forms keeps the visibility contract intact without forcing every caller to know about the prefix."
     }
@@ -1865,7 +1908,8 @@ local objectBodyForGenerators = new Scenario {
     }
     new Decision {
       date = "2026-05-15"
-      summary = "Add a dedicated `ForGenerator` `Expr` variant instead of reusing a wrapper expression"
+      summary =
+        "Add a dedicated `ForGenerator` `Expr` variant instead of reusing a wrapper expression"
       rationale =
         "The for-generator's payload — loop variable name(s), source expression, and body members — does not fit into any existing `Expr` shape (the body is an `Array[ObjectMember]`, not an `Expr`). Encoding it as `(var1, var2_opt, source, body)` in a new variant keeps the surface explicit at every parser / evaluator / typechecker site. The typechecker treats the variant as `UnknownType` because for-generators only appear inside object bodies via the synthetic `@for` member, never as a free-standing expression."
     }
@@ -1897,7 +1941,8 @@ local objectBodyWhenConditionals = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-15"
-      summary = "Encode `when` as a synthetic `@when` ObjectMember rather than changing the ObjectMember shape"
+      summary =
+        "Encode `when` as a synthetic `@when` ObjectMember rather than changing the ObjectMember shape"
       rationale =
         "Promoting `ObjectMember` from a struct to an enum (with separate `Property` and `WhenBranch` variants) would ripple through every place that constructs or inspects object members — parser, evaluator, typechecker, renderers, four separate match arms. Encoding `when` as a reserved-named ObjectMember whose value is a `ConditionalExpr` between two `ObjectLiteral`s keeps the change local: the parser emits one extra branch in `parse_object_body_members`, and the evaluator spreads on the reserved name. `@` is rejected as an identifier character by the lexer, so the reserved name cannot collide with anything in user source."
     }
@@ -1935,7 +1980,8 @@ local nullCoalescingAndLet = new Scenario {
     }
     new Decision {
       date = "2026-05-15"
-      summary = "Lean on the existing `NullCoalesce` binary operator rather than synthesizing a new short-circuit form"
+      summary =
+        "Lean on the existing `NullCoalesce` binary operator rather than synthesizing a new short-circuit form"
       rationale =
         "The lexer / parser / typechecker / evaluator already wire `??` through `BinaryOp::NullCoalesce` (it lit up the moment the existing slice landed), with `NullCoalesce` evaluating the right-hand side only when the left produces `NullValue`. PKL-088 ships the spec contract that pins down the behavior — right-associativity, short-circuit semantics, type-of-result — without changing the implementation."
     }
@@ -1967,7 +2013,8 @@ local pklMathExpansion = new Scenario {
     }
     new Decision {
       date = "2026-05-15"
-      summary = "Defer Float-bearing math (`sqrt` / `pow` / `log` / `exp` / `ceil` / `floor` / `round`) to PKL-092"
+      summary =
+        "Defer Float-bearing math (`sqrt` / `pow` / `log` / `exp` / `ceil` / `floor` / `round`) to PKL-092"
       rationale =
         "Apple Pkl's `pkl:math` exposes `sqrt(Float)`, `pow(Float, Float)`, `log(Float)`, etc. None of these can be implemented honestly against `IntValue` alone — `sqrt(4) = 2` happens to be integer but `sqrt(2)` cannot be represented. Float-bearing math arrives with `FloatValue` in PKL-092, alongside the Float constraint predicates."
     }
@@ -2259,5 +2306,6 @@ scenarios {
   bytesLiteralAndMethods
   upstreamFixtureSweep
   upstreamJsonGoldDiff
+  pklReflectMinimal
   ...roadmap.entries
 }

@@ -19,30 +19,9 @@ import "../pkspec/Spec.pkl"
 
 // ── constraint-system round-off ─────────────────────────────────────────────
 
-
 // ── renderers ───────────────────────────────────────────────────────────────
 
 // ── stdlib expansion ────────────────────────────────────────────────────────
-
-local pklReflectMinimal: Spec.Scenario = new {
-  id = "PKL-080"
-  name = "minimal pkl:reflect support"
-  description =
-    "`pkl:reflect.Type` / `Class` / `Property` enough for the upstream `reflect.pkl` fixtures: get the runtime type of a value, list class properties, and check whether a type is a subtype of another."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-040" }
-  tags { "stdlib"; "pkl-reflect"; "next" }
-  reviewStatus = "draft"
-  severity = "minor"
-  decisions {
-    new Spec.Decision {
-      date = "2026-05-15"
-      summary = "Reflect is small but enables generator-style fixtures"
-      rationale =
-        "Several non-trivial Apple Pkl fixtures introspect their own module via `pkl:reflect`. Even a partial implementation unlocks a category of fixtures otherwise unreachable."
-    }
-  }
-}
 
 local readTraceThrow: Spec.Scenario = new {
   id = "PKL-084"
@@ -51,7 +30,7 @@ local readTraceThrow: Spec.Scenario = new {
     "Built-in `read(uri)`, `read?(uri)`, `trace(value)`, and `throw(message)`. read covers `env:` / `prop:` / `file:` URIs at minimum, trace stamps a diagnostic without affecting the value, and throw aborts with a localized error."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-009" }
-  tags { "stdlib"; "io"; "diagnostics" }
+  tags { "stdlib"; "io"; "diagnostics"; "next" }
   reviewStatus = "draft"
   severity = "major"
   decisions {
@@ -65,9 +44,6 @@ local readTraceThrow: Spec.Scenario = new {
 }
 
 // ── object expression features ──────────────────────────────────────────────
-
-
-
 
 // ── type system expansion ───────────────────────────────────────────────────
 
@@ -109,9 +85,7 @@ local floatConstraintPredicates: Spec.Scenario = new {
 
 // ── CLI surface and upstream compatibility ──────────────────────────────────
 
-
 entries: Listing<Spec.Scenario> = new {
-  pklReflectMinimal
   readTraceThrow
   genericClassDeclarations
   genericFunctionTypeParameters

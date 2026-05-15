@@ -1571,6 +1571,74 @@ test "pkl:math exposes Int abs, min, max functions" {
 }
 
 ///|
+test "pkl:reflect exposes builtin type mirror constants" {
+  // PKL-080 minimal slice: `pkl:reflect` is implemented as a thin Pkl source
+  // stub (mirror constants + factory lambdas), the same shape `pkl:math` uses.
+  // Apple's full reflect.pkl has ~20 `external` declarations our evaluator
+  // cannot satisfy; the minimal subset here lets fixtures that only inspect
+  // type names round-trip through `import "pkl:reflect"`.
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:reflect\" as reflect\nintMirror = reflect.intType\nstringMirror = reflect.stringType\nbooleanMirror = reflect.booleanType",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "intMirror", value: StringValue("pkl.base#Int") },
+        ValueMember::{
+          name: "stringMirror",
+          value: StringValue("pkl.base#String"),
+        },
+        ValueMember::{
+          name: "booleanMirror",
+          value: StringValue("pkl.base#Boolean"),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "pkl:reflect Class factory returns a reflectee container" {
+  // PKL-080 minimal slice: the `Class` / `Module` / `TypeAlias` / `Property`
+  // factories take a string identifier (rather than a class value) because we
+  // do not yet have a `ClassValue` variant to round-trip a class declaration.
+  // The container returned exposes the `reflectee` field, which is enough for
+  // assertions of the form `reflect.Class("Foo").reflectee == "Foo"`.
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:reflect\" as reflect\nclassMirror = reflect.Class(\"Foo\")\nname = classMirror.reflectee\ndecl = reflect.DeclaredType(reflect.Class(\"Bar\"))\ndeclName = decl.referent.reflectee",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "classMirror",
+          value: ObjectValue([
+            ValueMember::{ name: "reflectee", value: StringValue("Foo") },
+          ]),
+        },
+        ValueMember::{ name: "name", value: StringValue("Foo") },
+        ValueMember::{
+          name: "decl",
+          value: ObjectValue([
+            ValueMember::{
+              name: "referent",
+              value: ObjectValue([
+                ValueMember::{ name: "reflectee", value: StringValue("Bar") },
+              ]),
+            },
+          ]),
+        },
+        ValueMember::{ name: "declName", value: StringValue("Bar") },
+      ]),
+    ),
+  )
+}
+
+///|
 test "pkl:math composes with Listing builtins" {
   // Use math.max as the reducer in Listing.fold to find the maximum element.
   let session = AnalysisSession::new()
