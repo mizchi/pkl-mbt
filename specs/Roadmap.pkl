@@ -51,7 +51,7 @@ local regexSupport: Spec.Scenario = new {
     "`Regex(#\"...\"#)` literal, plus `matches`, `find`, `findAll`, `replace`, and `replaceAll`. Regex-based String constraints (e.g. `String(matches(Regex(...)))`) become typecheckable and runtime-enforceable."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-077" }
-  tags { "stdlib"; "regex"; "constraint" }
+  tags { "stdlib"; "regex"; "constraint"; "next" }
   reviewStatus = "draft"
   severity = "major"
   decisions {
@@ -62,18 +62,6 @@ local regexSupport: Spec.Scenario = new {
         "String constraint predicates lean almost entirely on Regex. Without Regex we can only implement length-based String constraints, leaving the most common real-world constraint shape (pattern match) unimplemented."
     }
   }
-}
-
-local durationAndDataSize: Spec.Scenario = new {
-  id = "PKL-082"
-  name = "Duration and DataSize literals and arithmetic"
-  description =
-    "Numeric literals with `.h` / `.min` / `.s` / `.ms` / `.us` / `.ns` produce `Duration`; `.kb` / `.mb` / `.gb` / `.kib` / `.mib` / `.gib` produce `DataSize`. Both support addition, subtraction, comparison, and conversion to a normalized base unit."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-009" }
-  tags { "stdlib"; "duration"; "datasize"; "next" }
-  reviewStatus = "draft"
-  severity = "minor"
 }
 
 local bytesLiterals: Spec.Scenario = new {
@@ -228,7 +216,6 @@ local upstreamGoldOutputDiff: Spec.Scenario = new {
 entries: Listing<Spec.Scenario> = new {
   pklReflectMinimal
   regexSupport
-  durationAndDataSize
   bytesLiterals
   readTraceThrow
   genericClassDeclarations

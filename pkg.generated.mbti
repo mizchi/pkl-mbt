@@ -429,6 +429,8 @@ pub(all) enum Value {
   ListingValue(Array[Value])
   MappingValue(Array[ValueEntry])
   FunctionValue(Array[FunctionParameter], Expr, String?, Array[ValueBinding])
+  DurationValue(Int, String)
+  DataSizeValue(Int, String)
 } derive(Eq, @debug.Debug)
 
 pub(all) struct ValueBinding {

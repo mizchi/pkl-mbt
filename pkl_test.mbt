@@ -4250,3 +4250,208 @@ test "analysis session resolves module amends and extends" {
   assert_true(fields[1].typ == IntType)
   assert_true(fields[2].typ == StringType)
 }
+
+///|
+test "construct Pkl Duration literals from Int magnitudes" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "a = 1.ns\nb = 2.us\nc = 3.ms\nd = 4.s\ne = 5.min\nf = 6.h\ng = 7.d",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "a", value: DurationValue(1, "ns") },
+        ValueMember::{ name: "b", value: DurationValue(2, "us") },
+        ValueMember::{ name: "c", value: DurationValue(3, "ms") },
+        ValueMember::{ name: "d", value: DurationValue(4, "s") },
+        ValueMember::{ name: "e", value: DurationValue(5, "min") },
+        ValueMember::{ name: "f", value: DurationValue(6, "h") },
+        ValueMember::{ name: "g", value: DurationValue(7, "d") },
+      ]),
+    ),
+  )
+}
+
+///|
+test "construct Pkl DataSize literals from Int magnitudes" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "a = 1.b\nb = 2.kb\nc = 3.kib\nd = 4.mb\ne = 5.mib\nf = 6.gb\ng = 7.gib\nh = 8.tb\ni = 9.tib\nj = 10.pb\nk = 11.pib",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "a", value: DataSizeValue(1, "b") },
+        ValueMember::{ name: "b", value: DataSizeValue(2, "kb") },
+        ValueMember::{ name: "c", value: DataSizeValue(3, "kib") },
+        ValueMember::{ name: "d", value: DataSizeValue(4, "mb") },
+        ValueMember::{ name: "e", value: DataSizeValue(5, "mib") },
+        ValueMember::{ name: "f", value: DataSizeValue(6, "gb") },
+        ValueMember::{ name: "g", value: DataSizeValue(7, "gib") },
+        ValueMember::{ name: "h", value: DataSizeValue(8, "tb") },
+        ValueMember::{ name: "i", value: DataSizeValue(9, "tib") },
+        ValueMember::{ name: "j", value: DataSizeValue(10, "pb") },
+        ValueMember::{ name: "k", value: DataSizeValue(11, "pib") },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl Duration addition keeps the larger unit when units match" {
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", "a = 2.s + 4.s")
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([ValueMember::{ name: "a", value: DurationValue(6, "s") }]),
+    ),
+  )
+}
+
+///|
+test "Pkl Duration mixed-unit addition normalizes to the smaller unit" {
+  let session = AnalysisSession::new()
+  // `2.s + 3.min` chooses the smaller unit (`s`) so we can stay in Int.
+  // The upstream evaluator would emit `3.033333.min` via Float; this slice
+  // intentionally restricts to Int magnitudes (see Spec.pkl decisions).
+  session.set_source("main.pkl", "a = 2.s + 3.min")
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([ValueMember::{ name: "a", value: DurationValue(182, "s") }]),
+    ),
+  )
+}
+
+///|
+test "Pkl Duration subtraction works for same and mixed units" {
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", "a = 5.s - 2.s\nb = 3.min - 30.s")
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "a", value: DurationValue(3, "s") },
+        ValueMember::{ name: "b", value: DurationValue(150, "s") },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl Duration comparison normalizes to the base unit" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "lt = 1.min < 2.min\nle = 60.s <= 1.min\ngt = 1.h > 59.min\nge = 1.h >= 60.min\neq = 1000.ms == 1.s\nne = 1.s != 2.s",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "lt", value: BoolValue(true) },
+        ValueMember::{ name: "le", value: BoolValue(true) },
+        ValueMember::{ name: "gt", value: BoolValue(true) },
+        ValueMember::{ name: "ge", value: BoolValue(true) },
+        ValueMember::{ name: "eq", value: BoolValue(true) },
+        ValueMember::{ name: "ne", value: BoolValue(true) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl DataSize arithmetic and comparison normalize to the smaller unit" {
+  // Mixed-unit DataSize ops pick the smaller of the two as the result
+  // unit (e.g. `1.mb - 100.kb` settles in `kb`). Comparison routes through
+  // the same normalization so the wider unit gets expanded into the
+  // narrower. `kb` / `kib` are intentionally not mixed here because the
+  // 1000 vs 1024 factor pair loses precision under integer arithmetic;
+  // that gap is documented in the slice scope.
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "a = 2.kb + 3.kb\nb = 1.mb - 100.kb\nc = 1.mb > 100.kb\nd = 1024.b == 1.kib",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "a", value: DataSizeValue(5, "kb") },
+        ValueMember::{ name: "b", value: DataSizeValue(900, "kb") },
+        ValueMember::{ name: "c", value: BoolValue(true) },
+        ValueMember::{ name: "d", value: BoolValue(true) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl Duration unary negation flips the magnitude" {
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", "a = -4.s\nb = -(2.min)")
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "a", value: DurationValue(-4, "s") },
+        ValueMember::{ name: "b", value: DurationValue(-2, "min") },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl Duration value and unit accessors" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "v = 3.min.value\nu = 3.min.unit\nm = 2.kb.value\nun = 2.kb.unit",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "v", value: IntValue(3) },
+        ValueMember::{ name: "u", value: StringValue("min") },
+        ValueMember::{ name: "m", value: IntValue(2) },
+        ValueMember::{ name: "un", value: StringValue("kb") },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl Duration toUnit normalizes to the requested unit" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "a = 1.min.toUnit(\"s\")\nb = 1.h.toUnit(\"min\")\nc = 1.kib.toUnit(\"b\")",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "a", value: DurationValue(60, "s") },
+        ValueMember::{ name: "b", value: DurationValue(60, "min") },
+        ValueMember::{ name: "c", value: DataSizeValue(1024, "b") },
+      ]),
+    ),
+  )
+}
+
+///|
+test "render Pkl Duration and DataSize values as PCF literals" {
+  let value : Value = ObjectValue([
+    ValueMember::{ name: "wait", value: DurationValue(5, "min") },
+    ValueMember::{ name: "size", value: DataSizeValue(3, "kib") },
+    ValueMember::{ name: "neg", value: DurationValue(-2, "s") },
+  ])
+  inspect(
+    render_value(value),
+    content=(
+      #|wait = 5.min
+      #|size = 3.kib
+      #|neg = -2.s
+    ),
+  )
+}

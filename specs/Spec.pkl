@@ -1464,6 +1464,44 @@ local jsonRenderer = new Scenario {
   }
 }
 
+local durationAndDataSizeLiterals = new Scenario {
+  id = "PKL-082"
+  name = "Duration and DataSize literals with arithmetic comparison and unit conversion"
+  description =
+    "Member access on an Int literal whose name is a recognised Duration unit (`ns` / `us` / `ms` / `s` / `min` / `h` / `d`) produces a `DurationValue(Int, String)` carrying the original magnitude and unit; the matching DataSize units (`b` / `kb` / `kib` / `mb` / `mib` / `gb` / `gib` / `tb` / `tib` / `pb` / `pib`) produce a `DataSizeValue`. Same-unit `+` / `-` operate on the raw magnitudes and preserve the unit; mixed-unit `+` / `-` and comparison (`<` / `<=` / `>` / `>=` / `==` / `!=`) normalize to the smaller of the two units by stepping along the unit ladder one factor at a time so the running magnitude never overflows Int32. `.value` and `.unit` accessors expose the underlying Int and unit name; `.toUnit(name)` re-expresses the value in another aligned unit (e.g. `1.h.toUnit(\"min\") == 60.min`). Unary negation flips the sign while keeping the unit. The PCF renderer emits the values back as the `<n>.<unit>` literal; JSON / YAML / Properties project them as the same lexical form coerced to a string."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-009" }
+  tags { "evaluator"; "renderer"; "duration"; "datasize" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Restrict the slice to Int magnitudes and document the Float gap"
+      rationale =
+        "Apple Pkl tracks the magnitude as a `Number` (Int or Float) and switches to Float on the first fractional-result mixed-unit operation (e.g. `2.s + 3.min` yields `3.033333333333333.min`). The MoonBit value model has no `FloatValue` yet (that lands with PKL-092), so this slice ships Int-only magnitudes. Same-unit arithmetic is exact; mixed-unit arithmetic rounds toward the smaller unit by integer division when the step is non-aligned (notably the binary↔decimal DataSize crossings `kb ↔ kib`). The decision is documented in the slice scope so callers know which operations are reliable and which are deferred."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Pick the smaller of two units as the result of mixed-unit arithmetic"
+      rationale =
+        "The natural alternative — normalize to the base unit (ns / b) — overflows Int32 immediately: `1.s` is already 1e9 ns and `1.h` is 3.6e12 ns. Picking the smaller of the two operand units keeps the multiplier small (`min → s` is 60, `gb → mb` is 1000) and matches the way most user input flows (people add minutes to a base of seconds, not seconds to a base of nanoseconds). The result type stays exact for aligned-unit ladders (ns..d for Duration; the decimal-only and binary-only paths for DataSize)."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Walk the unit ladder step-by-step instead of multiplying through a flat factor"
+      rationale =
+        "A flat `factor_in_ns(from) * magnitude / factor_in_ns(to)` table already overflows Int32 once `from` is `min` or coarser (1 min = 6e10 ns). Walking the unit ladder one step at a time — `h → min × 60`, `min → s × 60`, `s → ms × 1000`, etc. — keeps every intermediate value as small as possible and lets us defer Int64 to the PKL-092 Float slice. The DataSize side reuses a single-step `byte_factor` lookup capped at `gib` (~1.07e9 b, the last value that fits in Int32); `tb` and coarser construct fine but a `-1` sentinel from `datasize_byte_factor` makes the mixed-unit path bail rather than silently corrupt the result."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Render to PCF as the literal form, project JSON / YAML / Properties as the same string"
+      rationale =
+        "Apple Pkl rounds the PCF projection of a Duration / DataSize to its original literal form (`5.min`, `3.kib`); reusing that exact lexical shape lets the value round-trip through the parser cleanly. JSON / YAML / Properties do not have a native Duration / DataSize type, so the upstream renderer also emits them as quoted strings (e.g. `\"5.min\"`); matching that shape keeps the output deterministic without requiring a dedicated `pkl:base` projection table this slice."
+    }
+  }
+}
+
 local typeAliasedCallableArgumentEvaluation = new Scenario {
   id = "PKL-069"
   name = "evaluate typealiased Pkl callable argument annotations"
@@ -1932,5 +1970,6 @@ scenarios {
   objectBodyForGenerators
   hiddenAndLocalMembers
   typeAliasedCallableArgumentEvaluation
+  durationAndDataSizeLiterals
   ...roadmap.entries
 }

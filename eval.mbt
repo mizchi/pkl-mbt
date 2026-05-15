@@ -8,6 +8,12 @@ pub(all) enum Value {
   ListingValue(Array[Value])
   MappingValue(Array[ValueEntry])
   FunctionValue(Array[FunctionParameter], Expr, String?, Array[ValueBinding])
+  // PKL-082: Int magnitude in the named unit. Mixed-unit arithmetic
+  // normalizes to the smaller of the two units (the base unit of each
+  // family — `ns` for Duration, `b` for DataSize — when no common
+  // larger unit divides both). Float magnitudes are out of scope here.
+  DurationValue(Int, String)
+  DataSizeValue(Int, String)
 } derive(Eq, Debug)
 
 ///|
@@ -803,6 +809,8 @@ fn eval_value_type_name(value : Value) -> String {
     ListingValue(_) => "Listing"
     MappingValue(_) => "Mapping"
     FunctionValue(_, _, _, _) => "Function"
+    DurationValue(_, _) => "Duration"
+    DataSizeValue(_, _) => "DataSize"
   }
 }
 
@@ -836,6 +844,8 @@ fn eval_value_accepts_type_annotation(
     ("Listing", ListingValue(_)) => true
     ("Mapping", MappingValue(_)) => true
     ("Function", FunctionValue(_, _, _, _)) => true
+    ("Duration", DurationValue(_, _)) => true
+    ("DataSize", DataSizeValue(_, _)) => true
     _ => false
   }
 }
@@ -1154,6 +1164,167 @@ fn is_int_method_name(name : String) -> Bool {
   match name {
     "toString" | "toChar" => true
     _ => false
+  }
+}
+
+///|
+fn is_duration_unit_name(name : String) -> Bool {
+  match name {
+    "ns" | "us" | "ms" | "s" | "min" | "h" | "d" => true
+    _ => false
+  }
+}
+
+///|
+fn is_datasize_unit_name(name : String) -> Bool {
+  match name {
+    "b"
+    | "kb"
+    | "kib"
+    | "mb"
+    | "mib"
+    | "gb"
+    | "gib"
+    | "tb"
+    | "tib"
+    | "pb"
+    | "pib" => true
+    _ => false
+  }
+}
+
+///|
+/// Position of a Duration unit on the ns..d ladder. Returned values are
+/// only used for ordering and adjacent-step lookups — the absolute
+/// factor between two units is reconstructed by walking the ladder a
+/// step at a time so the intermediate magnitude never overflows Int32
+/// (a flat `min`-to-ns factor would already need ≥ 6e10).
+fn duration_unit_level(unit : String) -> Int {
+  match unit {
+    "ns" => 0
+    "us" => 1
+    "ms" => 2
+    "s" => 3
+    "min" => 4
+    "h" => 5
+    "d" => 6
+    _ => -1
+  }
+}
+
+///|
+/// Integer factor that scales one unit at `level` to the next-finer unit
+/// at `level - 1` (e.g. `min` → `s` is 60, `s` → `ms` is 1000).
+fn duration_step_factor(level : Int) -> Int {
+  match level {
+    1 => 1000 // us -> ns
+    2 => 1000 // ms -> us
+    3 => 1000 // s  -> ms
+    4 => 60 // min -> s
+    5 => 60 // h   -> min
+    6 => 24 // d   -> h
+    _ => 1
+  }
+}
+
+///|
+/// Factor from a DataSize unit to bytes. Values up to `gib` (≈ 1.07e9)
+/// fit in Int32; `tb` and beyond overflow and return -1 so callers can
+/// detect the gap and skip mixed-unit arithmetic. This is the
+/// documented PKL-082 ceiling — promoting larger units to lossless
+/// arithmetic needs Int64 in the value model.
+fn datasize_byte_factor(unit : String) -> Int {
+  match unit {
+    "b" => 1
+    "kb" => 1000
+    "kib" => 1024
+    "mb" => 1_000_000
+    "mib" => 1_048_576
+    "gb" => 1_000_000_000
+    "gib" => 1_073_741_824
+    "tb" | "tib" | "pb" | "pib" => -1
+    _ => -1
+  }
+}
+
+///|
+/// Pick the unit with the smaller magnitude-per-unit so the resulting
+/// arithmetic always rounds toward the finer side and stays expressible
+/// in Int. For Duration this collapses to the ladder ordering (ns < us <
+/// ms < s < min < h < d). For DataSize the comparison is by direct
+/// byte factor (with the `tb`+ overflow ceiling caveat).
+fn smaller_duration_unit(a : String, b : String) -> String {
+  if duration_unit_level(a) <= duration_unit_level(b) {
+    a
+  } else {
+    b
+  }
+}
+
+///|
+fn smaller_datasize_unit(a : String, b : String) -> String {
+  let fa = datasize_byte_factor(a)
+  let fb = datasize_byte_factor(b)
+  if fa < 0 || fb < 0 {
+    // tb / tib / pb / pib do not participate in mixed-unit arithmetic in
+    // this slice; pick `a` deterministically so callers see a stable
+    // result without a panic. Mixed-unit ops involving these will hit
+    // the overflow-guarded path below.
+    a
+  } else if fa <= fb {
+    a
+  } else {
+    b
+  }
+}
+
+///|
+/// Convert `magnitude` from `from_unit` to `to_unit` by walking one step
+/// along the unit ladder at a time. Coarser→finer multiplies by each
+/// step factor; finer→coarser divides (truncating). Stepping avoids the
+/// overflow that a flat `factor_to_ns / factor_to_target` would hit on
+/// `min`, `h`, or `d`.
+fn duration_in_unit(
+  magnitude : Int,
+  from_unit : String,
+  to_unit : String,
+) -> Int {
+  let from = duration_unit_level(from_unit)
+  let to = duration_unit_level(to_unit)
+  let mut m = magnitude
+  let mut level = from
+  while level > to {
+    m = m * duration_step_factor(level)
+    level = level - 1
+  }
+  while level < to {
+    m = m / duration_step_factor(level + 1)
+    level = level + 1
+  }
+  m
+}
+
+///|
+/// Convert `magnitude` from `from_unit` to `to_unit` for DataSize. Both
+/// units must fit in the Int32 byte-factor range (`b`..`gib`); callers
+/// that mix `tb`+ units guard against the -1 sentinel from
+/// `datasize_byte_factor` first.
+fn datasize_in_unit(
+  magnitude : Int,
+  from_unit : String,
+  to_unit : String,
+) -> Int {
+  let from_f = datasize_byte_factor(from_unit)
+  let to_f = datasize_byte_factor(to_unit)
+  if from_f < 0 || to_f < 0 {
+    return magnitude
+  }
+  if from_f == to_f {
+    magnitude
+  } else if from_f > to_f {
+    magnitude * (from_f / to_f)
+  } else {
+    magnitude / (to_f / from_f)
   }
 }
 
@@ -1607,6 +1778,46 @@ fn eval_int_property(
 }
 
 ///|
+fn eval_duration_property(
+  magnitude : Int,
+  unit : String,
+  name : String,
+  diagnostics : Array[Diagnostic],
+) -> Value? {
+  match name {
+    "value" => Some(IntValue(magnitude))
+    "unit" => Some(StringValue(unit))
+    "isPositive" => Some(BoolValue(magnitude > 0 || magnitude == 0))
+    _ => {
+      diagnostics.push(Diagnostic::{
+        message: "unknown Duration property \{name}",
+      })
+      None
+    }
+  }
+}
+
+///|
+fn eval_datasize_property(
+  magnitude : Int,
+  unit : String,
+  name : String,
+  diagnostics : Array[Diagnostic],
+) -> Value? {
+  match name {
+    "value" => Some(IntValue(magnitude))
+    "unit" => Some(StringValue(unit))
+    "isPositive" => Some(BoolValue(magnitude > 0 || magnitude == 0))
+    _ => {
+      diagnostics.push(Diagnostic::{
+        message: "unknown DataSize property \{name}",
+      })
+      None
+    }
+  }
+}
+
+///|
 fn int_to_string_radix(n : Int, radix : Int) -> String {
   if n == 0 {
     return "0"
@@ -1707,6 +1918,140 @@ fn eval_int_method(
       Some(StringValue(buf.to_string()))
     }
     _ => None
+  }
+}
+
+///|
+fn eval_duration_method(
+  magnitude : Int,
+  unit : String,
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let arg_values : Array[Value] = []
+  let mut ok = true
+  for argument in arguments {
+    match
+      eval_expr_with_bindings(
+        argument, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      ) {
+      Some(v) => arg_values.push(v)
+      None => ok = false
+    }
+  }
+  if !ok {
+    return None
+  }
+  match method_name {
+    "toUnit" =>
+      if arg_values.length() == 1 {
+        match arg_values[0] {
+          StringValue(target) =>
+            if is_duration_unit_name(target) {
+              Some(
+                DurationValue(duration_in_unit(magnitude, unit, target), target),
+              )
+            } else {
+              diagnostics.push(Diagnostic::{
+                message: "Duration.toUnit expects one of ns/us/ms/s/min/h/d, got \{target}",
+              })
+              None
+            }
+          _ => {
+            diagnostics.push(Diagnostic::{
+              message: "Duration.toUnit expects a String argument",
+            })
+            None
+          }
+        }
+      } else {
+        diagnostics.push(Diagnostic::{
+          message: "Duration.toUnit expects exactly one argument",
+        })
+        None
+      }
+    _ => {
+      diagnostics.push(Diagnostic::{
+        message: "unknown Duration method \{method_name}",
+      })
+      None
+    }
+  }
+}
+
+///|
+fn eval_datasize_method(
+  magnitude : Int,
+  unit : String,
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let arg_values : Array[Value] = []
+  let mut ok = true
+  for argument in arguments {
+    match
+      eval_expr_with_bindings(
+        argument, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      ) {
+      Some(v) => arg_values.push(v)
+      None => ok = false
+    }
+  }
+  if !ok {
+    return None
+  }
+  match method_name {
+    "toUnit" =>
+      if arg_values.length() == 1 {
+        match arg_values[0] {
+          StringValue(target) =>
+            if is_datasize_unit_name(target) {
+              Some(
+                DataSizeValue(datasize_in_unit(magnitude, unit, target), target),
+              )
+            } else {
+              diagnostics.push(Diagnostic::{
+                message: "DataSize.toUnit expects one of b/kb/kib/mb/mib/gb/gib/tb/tib/pb/pib, got \{target}",
+              })
+              None
+            }
+          _ => {
+            diagnostics.push(Diagnostic::{
+              message: "DataSize.toUnit expects a String argument",
+            })
+            None
+          }
+        }
+      } else {
+        diagnostics.push(Diagnostic::{
+          message: "DataSize.toUnit expects exactly one argument",
+        })
+        None
+      }
+    _ => {
+      diagnostics.push(Diagnostic::{
+        message: "unknown DataSize method \{method_name}",
+      })
+      None
+    }
   }
 }
 
@@ -2333,7 +2678,11 @@ fn eval_expr_with_bindings(
             None
           }
         Some(IntValue(n)) =>
-          if is_int_property_name(member_name) {
+          if is_duration_unit_name(member_name) {
+            Some(DurationValue(n, member_name))
+          } else if is_datasize_unit_name(member_name) {
+            Some(DataSizeValue(n, member_name))
+          } else if is_int_property_name(member_name) {
             eval_int_property(n, member_name, diagnostics)
           } else {
             diagnostics.push(Diagnostic::{
@@ -2341,6 +2690,10 @@ fn eval_expr_with_bindings(
             })
             None
           }
+        Some(DurationValue(n, unit)) =>
+          eval_duration_property(n, unit, member_name, diagnostics)
+        Some(DataSizeValue(n, unit)) =>
+          eval_datasize_property(n, unit, member_name, diagnostics)
         Some(_) => {
           diagnostics.push(Diagnostic::{
             message: "member access expects Object",
@@ -2394,7 +2747,11 @@ fn eval_expr_with_bindings(
             None
           }
         Some(IntValue(n)) =>
-          if is_int_property_name(member_name) {
+          if is_duration_unit_name(member_name) {
+            Some(DurationValue(n, member_name))
+          } else if is_datasize_unit_name(member_name) {
+            Some(DataSizeValue(n, member_name))
+          } else if is_int_property_name(member_name) {
             eval_int_property(n, member_name, diagnostics)
           } else {
             diagnostics.push(Diagnostic::{
@@ -2402,6 +2759,10 @@ fn eval_expr_with_bindings(
             })
             None
           }
+        Some(DurationValue(n, unit)) =>
+          eval_duration_property(n, unit, member_name, diagnostics)
+        Some(DataSizeValue(n, unit)) =>
+          eval_datasize_property(n, unit, member_name, diagnostics)
         Some(_) => {
           diagnostics.push(Diagnostic::{
             message: "safe member access expects Object",
@@ -2501,7 +2862,8 @@ fn eval_expr_with_bindings(
           } else if is_listing_method_name(method_name) ||
             is_mapping_method_name(method_name) ||
             is_string_method_name(method_name) ||
-            is_int_method_name(method_name) {
+            is_int_method_name(method_name) ||
+            method_name == "toUnit" {
             match
               eval_expr_with_bindings(
                 target_expr, bindings, env, class_env, cache, stack, declarations,
@@ -2555,6 +2917,16 @@ fn eval_expr_with_bindings(
                     diagnostics, resolve_import,
                   )
                 }
+              Some(DurationValue(n, unit)) =>
+                eval_duration_method(
+                  n, unit, method_name, arguments, bindings, env, class_env, cache,
+                  stack, declarations, diagnostics, resolve_import,
+                )
+              Some(DataSizeValue(n, unit)) =>
+                eval_datasize_method(
+                  n, unit, method_name, arguments, bindings, env, class_env, cache,
+                  stack, declarations, diagnostics, resolve_import,
+                )
               _ =>
                 eval_callable_call(
                   callee, arguments, bindings, env, class_env, cache, stack, declarations,
@@ -2578,7 +2950,8 @@ fn eval_expr_with_bindings(
           } else if is_listing_method_name(method_name) ||
             is_mapping_method_name(method_name) ||
             is_string_method_name(method_name) ||
-            is_int_method_name(method_name) {
+            is_int_method_name(method_name) ||
+            method_name == "toUnit" {
             match
               eval_expr_with_bindings(
                 target_expr, bindings, env, class_env, cache, stack, declarations,
@@ -2633,6 +3006,16 @@ fn eval_expr_with_bindings(
                     diagnostics, resolve_import,
                   )
                 }
+              Some(DurationValue(n, unit)) =>
+                eval_duration_method(
+                  n, unit, method_name, arguments, bindings, env, class_env, cache,
+                  stack, declarations, diagnostics, resolve_import,
+                )
+              Some(DataSizeValue(n, unit)) =>
+                eval_datasize_method(
+                  n, unit, method_name, arguments, bindings, env, class_env, cache,
+                  stack, declarations, diagnostics, resolve_import,
+                )
               _ =>
                 eval_callable_call(
                   callee, arguments, bindings, env, class_env, cache, stack, declarations,
@@ -2680,6 +3063,10 @@ fn eval_expr_with_bindings(
       )
       match (op, inner) {
         (Negate, Some(IntValue(value))) => Some(IntValue(0 - value))
+        (Negate, Some(DurationValue(value, unit))) =>
+          Some(DurationValue(0 - value, unit))
+        (Negate, Some(DataSizeValue(value, unit))) =>
+          Some(DataSizeValue(0 - value, unit))
         (Not, Some(BoolValue(value))) => Some(BoolValue(!value))
         (Negate, Some(_)) => {
           diagnostics.push(Diagnostic::{
@@ -2835,6 +3222,90 @@ fn eval_expr_with_bindings(
             Equal => Some(BoolValue(a == b))
             NotEqual => Some(BoolValue(a != b))
             And | Or | NullCoalesce | Is | As | Pipe => panic()
+          }
+        (Some(DurationValue(av, au)), Some(DurationValue(bv, bu))) =>
+          // Same-unit arithmetic keeps the magnitudes raw to avoid Int32
+          // overflow on the intermediate ns conversion (one `1.s` already
+          // grosses 1e9 ns — `4.s` alone overflows). Mixed-unit operations
+          // pick the smaller unit so the result stays expressible as an
+          // Int; the upstream evaluator switches to Float for fractional
+          // mixed-unit cases, which is the documented gap for this slice.
+          if au == bu {
+            match op {
+              Add => Some(DurationValue(av + bv, au))
+              Subtract => Some(DurationValue(av - bv, au))
+              LessThan => Some(BoolValue(av < bv))
+              LessOrEqual => Some(BoolValue(av <= bv))
+              GreaterThan => Some(BoolValue(av > bv))
+              GreaterOrEqual => Some(BoolValue(av >= bv))
+              Equal => Some(BoolValue(av == bv))
+              NotEqual => Some(BoolValue(av != bv))
+              _ => {
+                diagnostics.push(Diagnostic::{
+                  message: "operator \{operator_name(op)} not defined for Duration operands",
+                })
+                None
+              }
+            }
+          } else {
+            let target = smaller_duration_unit(au, bu)
+            let a_in = duration_in_unit(av, au, target)
+            let b_in = duration_in_unit(bv, bu, target)
+            match op {
+              Add => Some(DurationValue(a_in + b_in, target))
+              Subtract => Some(DurationValue(a_in - b_in, target))
+              LessThan => Some(BoolValue(a_in < b_in))
+              LessOrEqual => Some(BoolValue(a_in <= b_in))
+              GreaterThan => Some(BoolValue(a_in > b_in))
+              GreaterOrEqual => Some(BoolValue(a_in >= b_in))
+              Equal => Some(BoolValue(a_in == b_in))
+              NotEqual => Some(BoolValue(a_in != b_in))
+              _ => {
+                diagnostics.push(Diagnostic::{
+                  message: "operator \{operator_name(op)} not defined for Duration operands",
+                })
+                None
+              }
+            }
+          }
+        (Some(DataSizeValue(av, au)), Some(DataSizeValue(bv, bu))) =>
+          if au == bu {
+            match op {
+              Add => Some(DataSizeValue(av + bv, au))
+              Subtract => Some(DataSizeValue(av - bv, au))
+              LessThan => Some(BoolValue(av < bv))
+              LessOrEqual => Some(BoolValue(av <= bv))
+              GreaterThan => Some(BoolValue(av > bv))
+              GreaterOrEqual => Some(BoolValue(av >= bv))
+              Equal => Some(BoolValue(av == bv))
+              NotEqual => Some(BoolValue(av != bv))
+              _ => {
+                diagnostics.push(Diagnostic::{
+                  message: "operator \{operator_name(op)} not defined for DataSize operands",
+                })
+                None
+              }
+            }
+          } else {
+            let target = smaller_datasize_unit(au, bu)
+            let a_in = datasize_in_unit(av, au, target)
+            let b_in = datasize_in_unit(bv, bu, target)
+            match op {
+              Add => Some(DataSizeValue(a_in + b_in, target))
+              Subtract => Some(DataSizeValue(a_in - b_in, target))
+              LessThan => Some(BoolValue(a_in < b_in))
+              LessOrEqual => Some(BoolValue(a_in <= b_in))
+              GreaterThan => Some(BoolValue(a_in > b_in))
+              GreaterOrEqual => Some(BoolValue(a_in >= b_in))
+              Equal => Some(BoolValue(a_in == b_in))
+              NotEqual => Some(BoolValue(a_in != b_in))
+              _ => {
+                diagnostics.push(Diagnostic::{
+                  message: "operator \{operator_name(op)} not defined for DataSize operands",
+                })
+                None
+              }
+            }
           }
         (Some(a), Some(b)) if op == Equal => Some(BoolValue(a == b))
         (Some(a), Some(b)) if op == NotEqual => Some(BoolValue(a != b))
@@ -3481,6 +3952,8 @@ fn render_pcf_scalar(value : Value, buf : StringBuilder) -> Unit {
     }
     NullValue => buf.write_string("null")
     FunctionValue(_, _, _, _) => buf.write_string("<function>")
+    DurationValue(n, unit) => buf.write_string("\{n}.\{unit}")
+    DataSizeValue(n, unit) => buf.write_string("\{n}.\{unit}")
     ObjectValue(_) | ListingValue(_) | MappingValue(_) =>
       // Defensive: callers should route block values through
       // render_pcf_inline / render_pcf_block_body. Falling back keeps
@@ -3650,6 +4123,11 @@ fn render_json_value(value : Value, indent : Int, buf : StringBuilder) -> Unit {
       render_json_object_from_entries(entries, indent, buf)
     ListingValue(elements) => render_json_array(elements, indent, buf)
     FunctionValue(_, _, _, _) => buf.write_string("null")
+    // Upstream Pkl projects Duration / DataSize to a literal-style string
+    // (e.g. `"5.min"`) in JSON / YAML / Properties. Match that shape until
+    // the dedicated projection table from `pkl:base` lands.
+    DurationValue(n, unit) => render_json_string("\{n}.\{unit}", buf)
+    DataSizeValue(n, unit) => render_json_string("\{n}.\{unit}", buf)
   }
 }
 
@@ -3990,6 +4468,8 @@ fn render_yaml_scalar(value : Value, buf : StringBuilder) -> Unit {
     BoolValue(false) => buf.write_string("false")
     NullValue => buf.write_string("null")
     StringValue(s) => render_yaml_string(s, buf)
+    DurationValue(n, unit) => render_yaml_string("\{n}.\{unit}", buf)
+    DataSizeValue(n, unit) => render_yaml_string("\{n}.\{unit}", buf)
     _ =>
       // Composite values reach this path only via the same renderer fallback
       // that PCF / JSON use, so produce a deterministic flow form rather than
@@ -4374,6 +4854,8 @@ fn write_compact_json_value(value : Value, buf : StringBuilder) -> Unit {
       buf.write_char(']')
     }
     FunctionValue(_, _, _, _) => buf.write_string("null")
+    DurationValue(n, unit) => render_json_string("\{n}.\{unit}", buf)
+    DataSizeValue(n, unit) => render_json_string("\{n}.\{unit}", buf)
   }
 }
 
@@ -4385,6 +4867,8 @@ fn write_properties_scalar(value : Value, buf : StringBuilder) -> Unit {
     BoolValue(false) => buf.write_string("false")
     NullValue => buf.write_string("")
     StringValue(s) => write_properties_value(s, buf)
+    DurationValue(n, unit) => write_properties_value("\{n}.\{unit}", buf)
+    DataSizeValue(n, unit) => write_properties_value("\{n}.\{unit}", buf)
     _ =>
       // Unreachable in practice: render_properties_leaf already dispatches
       // composites through the compact-JSON path.
