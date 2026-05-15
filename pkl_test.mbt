@@ -1571,6 +1571,84 @@ test "pkl:math exposes Int abs, min, max functions" {
 }
 
 ///|
+test "read built-in resolves env: scheme to the host env variable" {
+  // PKL-098 minimal slice: `read("env:NAME")` consults the host
+  // environment via `moonbitlang/core/env`. Setting the variable first
+  // pins the assertion regardless of the ambient shell.
+  @env.set_env_var("PKL_MBT_TEST_VAR", "hello")
+  assert_true(
+    eval_source("res = read(\"env:PKL_MBT_TEST_VAR\")") ==
+    EvalOk(
+      ObjectValue([ValueMember::{ name: "res", value: StringValue("hello") }]),
+    ),
+  )
+  @env.unset_env_var("PKL_MBT_TEST_VAR")
+}
+
+///|
+test "read built-in errors on missing env: variable" {
+  @env.unset_env_var("PKL_MBT_TEST_MISSING")
+  guard eval_source("res = read(\"env:PKL_MBT_TEST_MISSING\")")
+    is EvalError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="read: env variable PKL_MBT_TEST_MISSING is not set",
+  )
+}
+
+///|
+test "read built-in rejects unsupported schemes" {
+  guard eval_source("res = read(\"file:/etc/hosts\")") is EvalError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="read: scheme file: is not allowed by the sandbox policy",
+  )
+}
+
+///|
+test "read built-in rejects URIs without a scheme" {
+  guard eval_source("res = read(\"foo\")") is EvalError(diagnostics) else {
+    panic()
+  }
+  inspect(diagnostics[0].message, content="read: missing URI scheme in \"foo\"")
+}
+
+///|
+test "read built-in rejects non-String arguments" {
+  guard eval_source("res = read(7)") is EvalError(diagnostics) else { panic() }
+  inspect(diagnostics[0].message, content="read expects a String argument")
+}
+
+///|
+test "read built-in rejects wrong arity" {
+  guard eval_source("res = read()") is EvalError(diagnostics) else { panic() }
+  inspect(diagnostics[0].message, content="read expects exactly one argument")
+}
+
+///|
+test "read is shadowable by a local binding" {
+  @env.set_env_var("PKL_MBT_TEST_SHADOW", "ambient")
+  guard eval_source(
+      "read = (uri) -> uri\nres = read(\"env:PKL_MBT_TEST_SHADOW\")",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut res_value : Value? = None
+  for entry in members {
+    if entry.name == "res" {
+      res_value = Some(entry.value)
+    }
+  }
+  assert_true(res_value == Some(StringValue("env:PKL_MBT_TEST_SHADOW")))
+  @env.unset_env_var("PKL_MBT_TEST_SHADOW")
+}
+
+///|
 test "throw built-in aborts evaluation with the given message" {
   // PKL-084 split-1: `throw("...")` evaluates the message, pushes a
   // diagnostic carrying the message verbatim, and returns no value. The

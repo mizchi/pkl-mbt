@@ -1503,6 +1503,39 @@ local durationAndDataSizeLiterals = new Scenario {
   }
 }
 
+local readSandboxedBuiltin = new Scenario {
+  id = "PKL-098"
+  name = "read built-in with sandbox-bounded env: scheme"
+  description =
+    "`read(uri)` is recognized at the CallExpr layer ahead of the generic call path. The argument must evaluate to a String; the scheme prefix (text before the first `:`) selects the dispatch. Today the sandbox policy is explicit and conservative: only `env:` is on the allow-list. `read(\"env:NAME\")` consults the host environment via `moonbitlang/core/env.get_env_var`, returning the value as a `StringValue` on success and surfacing `read: env variable <NAME> is not set` as a diagnostic when the variable is missing. The remaining Apple Pkl schemes (`prop:`, `file:`, `https:`, `package:`) all surface `read: scheme <s>: is not allowed by the sandbox policy` rather than silently failing — the diagnostic names the offending scheme so the failure mode points at the policy boundary, not at the call site. URIs without a scheme prefix surface `read: missing URI scheme in \"<uri>\"`. The `read?(uri)` null-returning variant requires parser support for the `?`-suffixed call form and stays deferred to a follow-up slice. Built-in honors user shadowing (`read = (uri) -> uri` takes precedence), mirroring how `Bytes` / `Regex` / `throw` / `trace` honor shadows."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-084" }
+  tags { "stdlib"; "io"; "sandbox" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary =
+        "Default-deny sandbox: only allow `env:` until each additional scheme has an explicit policy"
+      rationale =
+        "The original Roadmap entry for `read()` flagged the sandbox boundary as a precondition for shipping. The simplest honest policy is default-deny: every scheme except the one we have written rules for surfaces a diagnostic naming the rejection. Picking `env:` first matches the canonical fixture pattern (Apple Pkl's own snippets read env variables more than file paths) and keeps the surface area manageable — adding `prop:` and `file:` later only needs an allow-list extension, not a re-architecture. Crucially, the rejection diagnostic must name the offending scheme: an opaque `unsupported uri` message would push the failure away from the policy boundary."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Hook `read` at the CallExpr layer, like `throw` / `trace`"
+      rationale =
+        "`read` is a top-level identifier in Apple Pkl's base scope, not behind an `import`. Placing it next to `throw` / `trace` keeps the shadow-aware dispatch logic localized and avoids touching the import resolver. The helper `eval_read_uri` is split out as a standalone function so the scheme dispatch table (and future allow-list extensions) reads as a flat match rather than nested CallExpr branches."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Defer the `read?(uri)` null-returning variant to a parser-extension slice"
+      rationale =
+        "Apple Pkl's `read?(uri)` is special syntax — a `?`-suffixed call form distinct from a regular nullable member access. Wiring it in would touch the parser, not just the evaluator, and the slice description for this entry deliberately limits scope to the sandbox-aware `read` path. The null-returning variant is straightforward once the parse form lands; the gating decision here is the policy boundary, not the diagnostic-vs-null choice."
+    }
+  }
+}
+
 local traceAndThrowBuiltins = new Scenario {
   id = "PKL-084"
   name = "trace and throw built-ins"
@@ -2340,5 +2373,6 @@ scenarios {
   upstreamJsonGoldDiff
   pklReflectMinimal
   traceAndThrowBuiltins
+  readSandboxedBuiltin
   ...roadmap.entries
 }

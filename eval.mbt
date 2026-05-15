@@ -3440,6 +3440,44 @@ fn eval_expr_with_bindings(
           })
           None
         }
+      } else if callee is Identifier("read") &&
+        !stack_contains_binding(stack, "read") &&
+        find_binding(bindings, "read") is None {
+        // PKL-098: `read(uri)` evaluates the URI string and dispatches by
+        // scheme prefix. The sandbox policy is explicit: only `env:` is
+        // currently on the allow-list, all other schemes (`prop:`,
+        // `file:`, `https:`, etc.) surface a diagnostic naming the
+        // offending scheme rather than silently failing or escaping to
+        // the host. The `read?(uri)` null-returning variant requires
+        // parser support and stays deferred.
+        if arguments.length() == 1 {
+          match
+            eval_expr_with_bindings(
+              arguments[0],
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ) {
+            Some(StringValue(uri)) => eval_read_uri(uri, diagnostics)
+            Some(_) => {
+              diagnostics.push(Diagnostic::{
+                message: "read expects a String argument",
+              })
+              None
+            }
+            None => None
+          }
+        } else {
+          diagnostics.push(Diagnostic::{
+            message: "read expects exactly one argument",
+          })
+          None
+        }
       } else if callee is Identifier("trace") &&
         !stack_contains_binding(stack, "trace") &&
         find_binding(bindings, "trace") is None {
@@ -4353,6 +4391,44 @@ fn eval_module_relation(
         message: "unresolved import \{relation.uri}",
       })
       []
+    }
+  }
+}
+
+///|
+fn eval_read_uri(uri : String, diagnostics : Array[Diagnostic]) -> Value? {
+  // PKL-098 sandbox policy: only `env:` is on the allow-list. The
+  // remaining Apple Pkl schemes (`prop:`, `file:`, `https:`, `package:`)
+  // need an explicit policy decision and a configuration channel
+  // (CLI flags, evaluator options) before any concrete semantics
+  // ship — surfacing them as a diagnostic keeps the failure mode
+  // honest until that follow-up slice.
+  match uri.find(":") {
+    None => {
+      diagnostics.push(Diagnostic::{
+        message: "read: missing URI scheme in \"\{uri}\"",
+      })
+      None
+    }
+    Some(idx) => {
+      let scheme = String::unsafe_substring(uri, start=0, end=idx)
+      let rest = String::unsafe_substring(uri, start=idx + 1, end=uri.length())
+      if scheme == "env" {
+        match @env.get_env_var(rest) {
+          Some(value) => Some(StringValue(value))
+          None => {
+            diagnostics.push(Diagnostic::{
+              message: "read: env variable \{rest} is not set",
+            })
+            None
+          }
+        }
+      } else {
+        diagnostics.push(Diagnostic::{
+          message: "read: scheme \{scheme}: is not allowed by the sandbox policy",
+        })
+        None
+      }
     }
   }
 }
