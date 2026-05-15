@@ -50,6 +50,7 @@ async fn load_expr_imports(
   from : String,
   expr : @pkl.Expr,
   stack : Array[String],
+  loaded : Map[String, Unit],
 ) -> Unit {
   match expr {
     ImportExpr(uri) =>
@@ -57,54 +58,59 @@ async fn load_expr_imports(
         session,
         resolve_import_path(from, uri),
         push_stack(stack, from),
+        loaded,
       )
     ObjectLiteral(members) =>
       for field in members {
-        load_expr_imports(session, from, field.value, stack)
+        load_expr_imports(session, from, field.value, stack, loaded)
       }
     TypedObjectLiteral(_, members) =>
       for field in members {
-        load_expr_imports(session, from, field.value, stack)
+        load_expr_imports(session, from, field.value, stack, loaded)
       }
     ListingLiteral(elements) =>
       for element in elements {
-        load_expr_imports(session, from, element, stack)
+        load_expr_imports(session, from, element, stack, loaded)
       }
     MappingLiteral(entries) =>
       for entry in entries {
-        load_expr_imports(session, from, entry.key, stack)
-        load_expr_imports(session, from, entry.value, stack)
+        load_expr_imports(session, from, entry.key, stack, loaded)
+        load_expr_imports(session, from, entry.value, stack, loaded)
       }
-    MemberAccess(target, _) => load_expr_imports(session, from, target, stack)
+    MemberAccess(target, _) =>
+      load_expr_imports(session, from, target, stack, loaded)
     SafeMemberAccess(target, _) =>
-      load_expr_imports(session, from, target, stack)
+      load_expr_imports(session, from, target, stack, loaded)
     SubscriptAccess(target, key) => {
-      load_expr_imports(session, from, target, stack)
-      load_expr_imports(session, from, key, stack)
+      load_expr_imports(session, from, target, stack, loaded)
+      load_expr_imports(session, from, key, stack, loaded)
     }
     AmendExpr(base, members) => {
-      load_expr_imports(session, from, base, stack)
+      load_expr_imports(session, from, base, stack, loaded)
       for object_member in members {
-        load_expr_imports(session, from, object_member.value, stack)
+        load_expr_imports(session, from, object_member.value, stack, loaded)
       }
     }
     BinaryExpr(_, left, right) => {
-      load_expr_imports(session, from, left, stack)
-      load_expr_imports(session, from, right, stack)
+      load_expr_imports(session, from, left, stack, loaded)
+      load_expr_imports(session, from, right, stack, loaded)
     }
     CallExpr(callee, arguments) => {
-      load_expr_imports(session, from, callee, stack)
+      load_expr_imports(session, from, callee, stack, loaded)
       for argument in arguments {
-        load_expr_imports(session, from, argument, stack)
+        load_expr_imports(session, from, argument, stack, loaded)
       }
     }
-    LambdaExpr(_, body, _) => load_expr_imports(session, from, body, stack)
-    NonNullExpr(inner) => load_expr_imports(session, from, inner, stack)
-    UnaryExpr(_, inner) => load_expr_imports(session, from, inner, stack)
+    LambdaExpr(_, body, _) =>
+      load_expr_imports(session, from, body, stack, loaded)
+    NonNullExpr(inner) =>
+      load_expr_imports(session, from, inner, stack, loaded)
+    UnaryExpr(_, inner) =>
+      load_expr_imports(session, from, inner, stack, loaded)
     ConditionalExpr(condition, then_expr, else_expr) => {
-      load_expr_imports(session, from, condition, stack)
-      load_expr_imports(session, from, then_expr, stack)
-      load_expr_imports(session, from, else_expr, stack)
+      load_expr_imports(session, from, condition, stack, loaded)
+      load_expr_imports(session, from, then_expr, stack, loaded)
+      load_expr_imports(session, from, else_expr, stack, loaded)
     }
     _ => ()
   }
@@ -115,6 +121,7 @@ async fn load_path(
   session : @pkl.AnalysisSession,
   path : String,
   stack : Array[String],
+  loaded : Map[String, Unit],
 ) -> Unit {
   if path.has_prefix("pkl:") {
     return
@@ -122,6 +129,17 @@ async fn load_path(
   if stack_contains(stack, path) {
     fail("cyclic import \{path}")
   }
+  // Skip files that have already been loaded in this run. Without this
+  // guard a module that both `extends` and `import`s the same base
+  // (e.g. pkspec's `Spec.pkl amends Test.pkl` + `import "Test.pkl" as
+  // base`) parses the base twice — the recursion processes each
+  // top-level reference independently. The session's `set_source`
+  // already dedupes, but the redundant parse + recursive walk is what
+  // actually costs time.
+  if loaded.contains(path) {
+    return
+  }
+  loaded[path] = ()
   // PKL-129: route URI-shaped paths through the HTTP fetch helper.
   // - `https://` / `http://`: fetched through `mizchi/x/http.get`
   //   under a `moonbitlang/async` event loop. Native target ships
@@ -159,6 +177,7 @@ async fn load_path(
       session,
       resolve_import_path(path, decl.uri),
       push_stack(stack, path),
+      loaded,
     )
   }
   match parsed.program.module_relation {
@@ -167,14 +186,15 @@ async fn load_path(
         session,
         resolve_import_path(path, relation.uri),
         push_stack(stack, path),
+        loaded,
       )
     None => ()
   }
   for binding in parsed.program.bindings {
-    load_expr_imports(session, path, binding.value, stack)
+    load_expr_imports(session, path, binding.value, stack, loaded)
   }
   match parsed.program.body {
-    Some(expr) => load_expr_imports(session, path, expr, stack)
+    Some(expr) => load_expr_imports(session, path, expr, stack, loaded)
     None => ()
   }
 }
@@ -301,7 +321,7 @@ async fn main {
     }
     "check" => {
       let session = @pkl.AnalysisSession::new()
-      load_path(session, path, [])
+      load_path(session, path, [], Map([], capacity=32))
       match session.typecheck_path(path) {
         TypeOk(typ) => println(@pkl.render_type(typ))
         TypeError(diagnostics) => {
@@ -312,7 +332,7 @@ async fn main {
     }
     "eval" => {
       let session = @pkl.AnalysisSession::new()
-      load_path(session, path, [])
+      load_path(session, path, [], Map([], capacity=32))
       match session.eval_path(path) {
         EvalOk(raw) => {
           // PKL-097: Apple Pkl uses a module-level `output { value =
@@ -365,7 +385,7 @@ async fn main {
     }
     "test" => {
       let session = @pkl.AnalysisSession::new()
-      load_path(session, path, [])
+      load_path(session, path, [], Map([], capacity=32))
       match session.eval_path(path) {
         EvalOk(value) => {
           let facts_summary = run_pkl_test(value)
@@ -407,7 +427,7 @@ async fn main {
         @sys.exit(1)
       }
       let session = @pkl.AnalysisSession::new()
-      load_path(session, path, [])
+      load_path(session, path, [], Map([], capacity=32))
       match session.eval_path(path) {
         EvalOk(value) => println(@pkl.render_value(value))
         EvalError(diagnostics) => {
