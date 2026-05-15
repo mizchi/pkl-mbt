@@ -43,18 +43,6 @@ local typeAliasedCallableArgumentEvaluation: Spec.Scenario = new {
 
 // ── stdlib expansion ────────────────────────────────────────────────────────
 
-local pklBaseMapOperations: Spec.Scenario = new {
-  id = "PKL-076"
-  name = "expose pkl:base Mapping operations"
-  description =
-    "Mapping instance methods containsKey, keys, values, length, fold, getOrNull, and the entries -> Listing<Pair> projection evaluate."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-075" }
-  tags { "stdlib"; "pkl-base"; "mapping"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 local pklBaseStringOperations: Spec.Scenario = new {
   id = "PKL-077"
   name = "expose pkl:base String operations"
@@ -62,7 +50,7 @@ local pklBaseStringOperations: Spec.Scenario = new {
     "String instance methods length, toUpperCase, toLowerCase, split, replaceAll, replaceFirst, padStart, padEnd, take, drop, contains, startsWith, endsWith, and indexOf evaluate."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-009" }
-  tags { "stdlib"; "pkl-base"; "string" }
+  tags { "stdlib"; "pkl-base"; "string"; "next" }
   reviewStatus = "draft"
   severity = "major"
   decisions {
@@ -347,7 +335,6 @@ local upstreamGoldOutputDiff: Spec.Scenario = new {
 
 entries: Listing<Spec.Scenario> = new {
   typeAliasedCallableArgumentEvaluation
-  pklBaseMapOperations
   pklBaseStringOperations
   pklBaseIntOperations
   pklMathExpansion

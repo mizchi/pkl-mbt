@@ -1464,6 +1464,38 @@ local jsonRenderer = new Scenario {
   }
 }
 
+local pklBaseMapping = new Scenario {
+  id = "PKL-076"
+  name = "expose pkl:base Mapping operations"
+  description =
+    "Mapping properties (`length`, `isEmpty`, `keys`, `values`) and methods (`containsKey(k)`, `getOrNull(k)`, `fold(init, op)`) dispatch against `MappingValue` receivers via the same `MemberAccess` / `CallExpr` interception as the Listing builtins. `keys` and `values` project to `ListingValue` in declaration order (Apple Pkl returns `Set<K>` for `keys`, but our value model has no separate Set yet — the deviation is documented in the decisions). `getOrNull(k)` returns `NullValue` when the key is missing. `fold` invokes a 3-argument callback `(acc, key, value)` per entry via the shared `apply_function_value` helper. Listing builtins continue to dispatch on Listing receivers, so `m.values.filter(...).fold(...)` pipelines through both surfaces correctly."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-075" }
+  tags { "stdlib"; "pkl-base"; "mapping" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Project `keys` as `Listing<K>` until a real `Set` value lands"
+      rationale =
+        "Apple Pkl's `Mapping.keys` returns `Set<K>`, which has its own equality / iteration semantics. Our value model represents `Set(...)` literals as `ListingValue` already, so synthesizing a separate `SetValue` just for `keys` would mean either retrofitting Set throughout the evaluator now (large slice) or returning a one-off type the rest of the code can't manipulate. Returning `Listing<K>` matches what `Set(...)` becomes after evaluation today, and the contract upgrades naturally when a real `Set` lands."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Fold callback receives `(acc, key, value)` triple"
+      rationale =
+        "Apple Pkl's `Mapping.fold` exposes both the entry key and value to the accumulator. Reusing the `apply_function_value` helper with a 3-element argument array keeps the per-call validation / return checking consistent with Listing's `fold`, and means the only Mapping-specific code is the per-entry iteration shape."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Defer `entries -> Listing<Pair>` projection to a later slice"
+      rationale =
+        "Apple Pkl's `Mapping.entries` returns a `Listing<Pair<K,V>>`. We do not have a `Pair` value type yet (it depends on the broader `pkl:base` class surface in PKL-080). Implementing `entries` ahead of `Pair` would force an ad-hoc representation we'd need to migrate later, so this slice ships `keys` / `values` instead and `entries` arrives with Pair / reflect."
+    }
+  }
+}
+
 local pklBaseListing = new Scenario {
   id = "PKL-075"
   name = "expose pkl:base Listing operations"
@@ -1635,5 +1667,6 @@ scenarios {
   yamlRenderer
   propertiesRenderer
   pklBaseListing
+  pklBaseMapping
   ...roadmap.entries
 }

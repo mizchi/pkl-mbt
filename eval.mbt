@@ -1080,6 +1080,32 @@ fn is_listing_method_name(name : String) -> Bool {
 }
 
 ///|
+fn is_mapping_property_name(name : String) -> Bool {
+  match name {
+    "length" | "isEmpty" | "keys" | "values" => true
+    _ => false
+  }
+}
+
+///|
+fn is_mapping_method_name(name : String) -> Bool {
+  match name {
+    "containsKey" | "getOrNull" | "fold" => true
+    _ => false
+  }
+}
+
+///|
+fn contains_entry_key(entries : Array[ValueEntry], key : Value) -> Bool {
+  for entry in entries {
+    if entry.key == key {
+      return true
+    }
+  }
+  false
+}
+
+///|
 fn contains_value(xs : Array[Value], v : Value) -> Bool {
   for x in xs {
     if x == v {
@@ -1365,6 +1391,123 @@ fn eval_listing_method(
             "Listing.fold combine",
             callback,
             [acc, element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(v) => acc = v
+          None => return None
+        }
+      }
+      Some(acc)
+    }
+    _ => None
+  }
+}
+
+///|
+fn eval_mapping_property(
+  entries : Array[ValueEntry],
+  name : String,
+  diagnostics : Array[Diagnostic],
+) -> Value? {
+  match name {
+    "length" => Some(IntValue(entries.length()))
+    "isEmpty" => Some(BoolValue(entries.length() == 0))
+    "keys" => {
+      let keys : Array[Value] = []
+      for entry in entries {
+        keys.push(entry.key)
+      }
+      Some(ListingValue(keys))
+    }
+    "values" => {
+      let values : Array[Value] = []
+      for entry in entries {
+        values.push(entry.value)
+      }
+      Some(ListingValue(values))
+    }
+    _ => {
+      diagnostics.push(Diagnostic::{
+        message: "unknown Mapping property \{name}",
+      })
+      None
+    }
+  }
+}
+
+///|
+fn eval_mapping_method(
+  entries : Array[ValueEntry],
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let arg_values : Array[Value] = []
+  let mut ok = true
+  for argument in arguments {
+    match
+      eval_expr_with_bindings(
+        argument, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      ) {
+      Some(v) => arg_values.push(v)
+      None => ok = false
+    }
+  }
+  if !ok {
+    return None
+  }
+  match method_name {
+    "containsKey" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(Diagnostic::{
+          message: "Mapping.containsKey expects 1 argument, got \{arg_values.length()}",
+        })
+        return None
+      }
+      Some(BoolValue(contains_entry_key(entries, arg_values[0])))
+    }
+    "getOrNull" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(Diagnostic::{
+          message: "Mapping.getOrNull expects 1 argument, got \{arg_values.length()}",
+        })
+        return None
+      }
+      match lookup_entry(entries, arg_values[0]) {
+        Some(v) => Some(v)
+        None => Some(NullValue)
+      }
+    }
+    "fold" => {
+      if arg_values.length() != 2 {
+        diagnostics.push(Diagnostic::{
+          message: "Mapping.fold expects 2 arguments, got \{arg_values.length()}",
+        })
+        return None
+      }
+      let mut acc = arg_values[0]
+      let callback = arg_values[1]
+      for entry in entries {
+        match
+          apply_function_value(
+            "Mapping.fold combine",
+            callback,
+            [acc, entry.key, entry.value],
             bindings,
             env,
             class_env,
@@ -1706,6 +1849,15 @@ fn eval_expr_with_bindings(
             })
             None
           }
+        Some(MappingValue(entries)) =>
+          if is_mapping_property_name(member_name) {
+            eval_mapping_property(entries, member_name, diagnostics)
+          } else {
+            diagnostics.push(Diagnostic::{
+              message: "unknown Mapping property \{member_name}",
+            })
+            None
+          }
         Some(_) => {
           diagnostics.push(Diagnostic::{
             message: "member access expects Object",
@@ -1737,6 +1889,15 @@ fn eval_expr_with_bindings(
           } else {
             diagnostics.push(Diagnostic::{
               message: "unknown Listing property \{member_name}",
+            })
+            None
+          }
+        Some(MappingValue(entries)) =>
+          if is_mapping_property_name(member_name) {
+            eval_mapping_property(entries, member_name, diagnostics)
+          } else {
+            diagnostics.push(Diagnostic::{
+              message: "unknown Mapping property \{member_name}",
             })
             None
           }
@@ -1836,17 +1997,37 @@ fn eval_expr_with_bindings(
               target_expr, method_name, arguments, false, bindings, env, class_env,
               cache, stack, declarations, diagnostics, resolve_import,
             )
-          } else if is_listing_method_name(method_name) {
+          } else if is_listing_method_name(method_name) ||
+            is_mapping_method_name(method_name) {
             match
               eval_expr_with_bindings(
                 target_expr, bindings, env, class_env, cache, stack, declarations,
                 diagnostics, resolve_import,
               ) {
               Some(ListingValue(elements)) =>
-                eval_listing_method(
-                  elements, method_name, arguments, bindings, env, class_env, cache,
-                  stack, declarations, diagnostics, resolve_import,
-                )
+                if is_listing_method_name(method_name) {
+                  eval_listing_method(
+                    elements, method_name, arguments, bindings, env, class_env, cache,
+                    stack, declarations, diagnostics, resolve_import,
+                  )
+                } else {
+                  eval_callable_call(
+                    callee, arguments, bindings, env, class_env, cache, stack, declarations,
+                    diagnostics, resolve_import,
+                  )
+                }
+              Some(MappingValue(entries)) =>
+                if is_mapping_method_name(method_name) {
+                  eval_mapping_method(
+                    entries, method_name, arguments, bindings, env, class_env, cache,
+                    stack, declarations, diagnostics, resolve_import,
+                  )
+                } else {
+                  eval_callable_call(
+                    callee, arguments, bindings, env, class_env, cache, stack, declarations,
+                    diagnostics, resolve_import,
+                  )
+                }
               _ =>
                 eval_callable_call(
                   callee, arguments, bindings, env, class_env, cache, stack, declarations,
@@ -1867,7 +2048,8 @@ fn eval_expr_with_bindings(
               target_expr, method_name, arguments, true, bindings, env, class_env,
               cache, stack, declarations, diagnostics, resolve_import,
             )
-          } else if is_listing_method_name(method_name) {
+          } else if is_listing_method_name(method_name) ||
+            is_mapping_method_name(method_name) {
             match
               eval_expr_with_bindings(
                 target_expr, bindings, env, class_env, cache, stack, declarations,
@@ -1875,10 +2057,29 @@ fn eval_expr_with_bindings(
               ) {
               Some(NullValue) => Some(NullValue)
               Some(ListingValue(elements)) =>
-                eval_listing_method(
-                  elements, method_name, arguments, bindings, env, class_env, cache,
-                  stack, declarations, diagnostics, resolve_import,
-                )
+                if is_listing_method_name(method_name) {
+                  eval_listing_method(
+                    elements, method_name, arguments, bindings, env, class_env, cache,
+                    stack, declarations, diagnostics, resolve_import,
+                  )
+                } else {
+                  eval_callable_call(
+                    callee, arguments, bindings, env, class_env, cache, stack, declarations,
+                    diagnostics, resolve_import,
+                  )
+                }
+              Some(MappingValue(entries)) =>
+                if is_mapping_method_name(method_name) {
+                  eval_mapping_method(
+                    entries, method_name, arguments, bindings, env, class_env, cache,
+                    stack, declarations, diagnostics, resolve_import,
+                  )
+                } else {
+                  eval_callable_call(
+                    callee, arguments, bindings, env, class_env, cache, stack, declarations,
+                    diagnostics, resolve_import,
+                  )
+                }
               _ =>
                 eval_callable_call(
                   callee, arguments, bindings, env, class_env, cache, stack, declarations,

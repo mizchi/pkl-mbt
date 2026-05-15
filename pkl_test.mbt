@@ -1071,6 +1071,153 @@ test "Listing builtins compose through higher-order callable chains" {
 }
 
 ///|
+test "Mapping.length and isEmpty are properties" {
+  assert_true(
+    eval_source(
+      "m = new Mapping { [\"a\"] = 1; [\"b\"] = 2 }\nlen = m.length\nempty = m.isEmpty",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "m",
+          value: MappingValue([
+            ValueEntry::{ key: StringValue("a"), value: IntValue(1) },
+            ValueEntry::{ key: StringValue("b"), value: IntValue(2) },
+          ]),
+        },
+        ValueMember::{ name: "len", value: IntValue(2) },
+        ValueMember::{ name: "empty", value: BoolValue(false) },
+      ]),
+    ),
+  )
+  assert_true(
+    eval_source("m = new Mapping {}\nempty = m.isEmpty\nlen = m.length") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "m", value: MappingValue([]) },
+        ValueMember::{ name: "empty", value: BoolValue(true) },
+        ValueMember::{ name: "len", value: IntValue(0) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Mapping.keys and values project to Listings" {
+  // Apple Pkl exposes `keys` as a `Set<K>`; we don't have a distinct Set
+  // value yet, so the projection lands as a `Listing<K>` preserving the
+  // declaration order. `values` returns a `Listing<V>` in declaration order
+  // too.
+  assert_true(
+    eval_source(
+      "m = new Mapping { [\"a\"] = 1; [\"b\"] = 2; [\"c\"] = 3 }\nks = m.keys\nvs = m.values",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "m",
+          value: MappingValue([
+            ValueEntry::{ key: StringValue("a"), value: IntValue(1) },
+            ValueEntry::{ key: StringValue("b"), value: IntValue(2) },
+            ValueEntry::{ key: StringValue("c"), value: IntValue(3) },
+          ]),
+        },
+        ValueMember::{
+          name: "ks",
+          value: ListingValue([
+            StringValue("a"),
+            StringValue("b"),
+            StringValue("c"),
+          ]),
+        },
+        ValueMember::{
+          name: "vs",
+          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Mapping.containsKey and getOrNull methods" {
+  assert_true(
+    eval_source(
+      "m = new Mapping { [\"a\"] = 1; [\"b\"] = 2 }\nhas = m.containsKey(\"a\")\nmissing = m.containsKey(\"x\")\nval = m.getOrNull(\"b\")\nnone = m.getOrNull(\"x\")",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "m",
+          value: MappingValue([
+            ValueEntry::{ key: StringValue("a"), value: IntValue(1) },
+            ValueEntry::{ key: StringValue("b"), value: IntValue(2) },
+          ]),
+        },
+        ValueMember::{ name: "has", value: BoolValue(true) },
+        ValueMember::{ name: "missing", value: BoolValue(false) },
+        ValueMember::{ name: "val", value: IntValue(2) },
+        ValueMember::{ name: "none", value: NullValue },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Mapping.fold reduces with (acc, key, value) callback" {
+  // Apple Pkl's Mapping.fold passes (accumulator, key, value) per entry.
+  assert_true(
+    eval_source(
+      "m = new Mapping { [\"a\"] = 1; [\"b\"] = 2; [\"c\"] = 3 }\nsum = m.fold(0, (acc, k, v) -> acc + v)",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "m",
+          value: MappingValue([
+            ValueEntry::{ key: StringValue("a"), value: IntValue(1) },
+            ValueEntry::{ key: StringValue("b"), value: IntValue(2) },
+            ValueEntry::{ key: StringValue("c"), value: IntValue(3) },
+          ]),
+        },
+        ValueMember::{ name: "sum", value: IntValue(6) },
+      ]),
+    ),
+  )
+  assert_true(
+    eval_source("m = new Mapping {}\nsum = m.fold(42, (acc, k, v) -> acc + v)") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "m", value: MappingValue([]) },
+        ValueMember::{ name: "sum", value: IntValue(42) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Mapping builtins chain through Listing pipelines" {
+  assert_true(
+    eval_source(
+      "m = new Mapping { [\"a\"] = 1; [\"b\"] = 2; [\"c\"] = 3 }\nresult = m.values.filter((v) -> v > 1).fold(0, (acc, v) -> acc + v)",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "m",
+          value: MappingValue([
+            ValueEntry::{ key: StringValue("a"), value: IntValue(1) },
+            ValueEntry::{ key: StringValue("b"), value: IntValue(2) },
+            ValueEntry::{ key: StringValue("c"), value: IntValue(3) },
+          ]),
+        },
+        ValueMember::{ name: "result", value: IntValue(5) },
+      ]),
+    ),
+  )
+}
+
+///|
 test "render Pkl module bindings as Java Properties" {
   let value : Value = ObjectValue([
     ValueMember::{ name: "name", value: StringValue("pigeon") },
