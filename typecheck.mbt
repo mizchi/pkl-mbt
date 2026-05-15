@@ -504,6 +504,22 @@ fn push_constrained_type_annotation_expr_diagnostic(
 }
 
 ///|
+fn push_user_defined_constrained_type_annotation_expr_diagnostic(
+  type_name : String?,
+  expr : Expr,
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+) -> Unit {
+  match
+    pkl_user_defined_constrained_type_annotation_expr_rejection_message(
+      type_name, expr, declarations,
+    ) {
+    Some(message) => diagnostics.push(Diagnostic::{ message, })
+    None => ()
+  }
+}
+
+///|
 fn type_from_alias_target_annotation(
   name : String,
   type_env : Array[TypeBinding],
@@ -2670,10 +2686,17 @@ fn infer_program(
         diagnostics,
         resolve_import,
       ) {
-      Some(typ) =>
+      Some(typ) => {
+        push_user_defined_constrained_type_annotation_expr_diagnostic(
+          binding.type_name,
+          binding.value,
+          program.declarations,
+          diagnostics,
+        )
         if binding.exported {
           fields.push({ name: binding.name, typ })
         }
+      }
       None => ()
     }
   }

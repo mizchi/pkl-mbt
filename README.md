@@ -24,6 +24,7 @@ The current slice is intentionally small and executable:
 - additional numeric constraints: `isPositive`, `isGreaterThan`, and `isLessThan`
 - multiple numeric constraints in a single annotation
 - negated numeric constraints such as `!isPositive`
+- user-defined numeric constraint factories for plain `function` declarations such as `function above(n) = (x) -> x > n`
 - native CLI commands: `parse`, `check`, and `eval`
 - common string escape decoding/rendering for `\n`, `\t`, `\r`, `\"`, and `\\`
 - ripple-backed `AnalysisSession` for source-driven typechecking
@@ -34,15 +35,15 @@ The current slice is intentionally small and executable:
 
 ## Current Completion Estimate
 
-As of the `PKL-055` spec slice, this project has 55 implemented pkspec scenarios. The next tracked slice is `PKL-056`, which evaluates user-defined type constraint functions.
+As of the `PKL-056` spec slice, this project has 56 implemented pkspec scenarios. The next tracked slice is `PKL-057`, which parses modifier-qualified declarations such as `const function`.
 
 These are engineering estimates, not formal coverage numbers:
 
 | Area | Estimate | Notes |
 | --- | ---: | --- |
 | Parser | 60-70% | The upstream parser snippet corpus is accepted in parse-only mode, but some constructs are still tolerant parse output or reduced to unsupported expression placeholders instead of full semantic AST coverage. |
-| Interpreter | 35-45% | Arithmetic, objects, imports, module amends/extends, collections, class defaults/inheritance, method calls, direct function/lambda calls, callable runtime values, simple constrained value annotations, constrained callable arguments, constrained method arguments, constrained typealias values/members, selected numeric constraints, multiple constraint lists, and negated constraints work. Broad stdlib behavior, generators, renderers, the full constraint system, and many external functions are still incomplete. |
-| Typechecker | 40-50% | Primitive, nullable, generic collection, union, narrowing, call, typed object, class inheritance, imported class, constrained annotation base types, selected numeric predicate checks, multiple constraint lists, negated constraints, direct constrained function/lambda arguments, constrained callable aliases, simple higher-order constrained callable flow, constrained method arguments, constrained typealias metadata, and class method body checks exist. Type parameters, stdlib types, user-defined constraint functions, and deeper module/class semantics are still incomplete. |
+| Interpreter | 35-45% | Arithmetic, objects, imports, module amends/extends, collections, class defaults/inheritance, method calls, direct function/lambda calls, callable runtime values, simple constrained value annotations, constrained callable arguments, constrained method arguments, constrained typealias values/members, selected numeric constraints, multiple constraint lists, negated constraints, and plain-function user-defined numeric constraint factories work. Broad stdlib behavior, generators, renderers, the full constraint system, and many external functions are still incomplete. |
+| Typechecker | 40-50% | Primitive, nullable, generic collection, union, narrowing, call, typed object, class inheritance, imported class, constrained annotation base types, selected numeric predicate checks, multiple constraint lists, negated constraints, direct constrained function/lambda arguments, constrained callable aliases, simple higher-order constrained callable flow, constrained method arguments, constrained typealias metadata, plain-function user-defined numeric constraint factories, and class method body checks exist. Type parameters, stdlib types, modifier-qualified declaration parsing, and deeper module/class semantics are still incomplete. |
 
 Overall, this is roughly 40%+ complete as a pure MoonBit Pkl core, or closer to the 30% range if measured as a replacement for Apple Pkl compatibility.
 
@@ -87,4 +88,4 @@ git submodule update --init --recursive
 
 ## Scope
 
-This is not a full Pkl implementation yet. The next compatibility work is `PKL-056` user-defined type constraint functions, followed by broader Pkl type/stdlib coverage and class/object semantics.
+This is not a full Pkl implementation yet. The next compatibility work is `PKL-057` parser support for `const function` declarations, followed by broader Pkl type/stdlib coverage and class/object semantics.

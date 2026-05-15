@@ -5,6 +5,12 @@ priv struct ConstraintIntRange {
 }
 
 ///|
+priv struct ConstraintIntCall {
+  name : String
+  argument : Int
+}
+
+///|
 priv enum ConstraintIntPredicate {
   IsBetween(Int, Int)
   IsPositive
@@ -14,6 +20,14 @@ priv enum ConstraintIntPredicate {
   NotIsPositive
   NotIsGreaterThan(Int)
   NotIsLessThan(Int)
+  CustomGreaterThan(String, Int)
+  CustomLessThan(String, Int)
+  CustomGreaterOrEqual(String, Int)
+  CustomLessOrEqual(String, Int)
+  NotCustomGreaterThan(String, Int)
+  NotCustomLessThan(String, Int)
+  NotCustomGreaterOrEqual(String, Int)
+  NotCustomLessOrEqual(String, Int)
 }
 
 ///|
@@ -234,6 +248,33 @@ fn pkl_single_int_constraint_argument(text : String, name : String) -> Int? {
 }
 
 ///|
+fn pkl_single_int_constraint_call(text : String) -> ConstraintIntCall? {
+  let call_text = if text.has_prefix("this.") && text.length() > 5 {
+    String::unsafe_substring(text, start=5, end=text.length())
+  } else {
+    text
+  }
+  match call_text.find("(") {
+    Some(index) =>
+      if index == 0 || !call_text.has_suffix(")") {
+        None
+      } else {
+        let name = String::unsafe_substring(call_text, start=0, end=index)
+        let inner = String::unsafe_substring(
+          call_text,
+          start=index + 1,
+          end=call_text.length() - 1,
+        )
+        match pkl_parse_constraint_int_text(inner) {
+          Some(argument) => Some({ name, argument })
+          None => None
+        }
+      }
+    None => None
+  }
+}
+
+///|
 fn pkl_int_constraint_predicate(text : String) -> ConstraintIntPredicate? {
   if text.has_prefix("!") && text.length() > 1 {
     let inner = String::unsafe_substring(text, start=1, end=text.length())
@@ -264,6 +305,146 @@ fn pkl_int_constraint_predicate(text : String) -> ConstraintIntPredicate? {
 }
 
 ///|
+fn pkl_user_defined_int_constraint_from_order(
+  function_name : String,
+  threshold : Int,
+  value_on_left : Bool,
+  op : BinaryOp,
+) -> ConstraintIntPredicate? {
+  match op {
+    GreaterThan =>
+      if value_on_left {
+        Some(CustomGreaterThan(function_name, threshold))
+      } else {
+        Some(CustomLessThan(function_name, threshold))
+      }
+    LessThan =>
+      if value_on_left {
+        Some(CustomLessThan(function_name, threshold))
+      } else {
+        Some(CustomGreaterThan(function_name, threshold))
+      }
+    GreaterOrEqual =>
+      if value_on_left {
+        Some(CustomGreaterOrEqual(function_name, threshold))
+      } else {
+        Some(CustomLessOrEqual(function_name, threshold))
+      }
+    LessOrEqual =>
+      if value_on_left {
+        Some(CustomLessOrEqual(function_name, threshold))
+      } else {
+        Some(CustomGreaterOrEqual(function_name, threshold))
+      }
+    _ => None
+  }
+}
+
+///|
+fn pkl_user_defined_int_constraint_from_comparison(
+  function_name : String,
+  factory_parameter : String,
+  threshold : Int,
+  lambda_parameter : String,
+  op : BinaryOp,
+  left : Expr,
+  right : Expr,
+) -> ConstraintIntPredicate? {
+  match (left, right) {
+    (Identifier(left_name), Identifier(right_name)) =>
+      if left_name == lambda_parameter && right_name == factory_parameter {
+        pkl_user_defined_int_constraint_from_order(
+          function_name, threshold, true, op,
+        )
+      } else if left_name == factory_parameter && right_name == lambda_parameter {
+        pkl_user_defined_int_constraint_from_order(
+          function_name, threshold, false, op,
+        )
+      } else {
+        None
+      }
+    _ => None
+  }
+}
+
+///|
+fn pkl_user_defined_int_constraint_from_function_decl(
+  function_decl : FunctionDecl,
+  threshold : Int,
+) -> ConstraintIntPredicate? {
+  if function_decl.parameters.length() != 1 {
+    return None
+  }
+  let factory_parameter = function_decl.parameters[0].name
+  match function_decl.body {
+    Some(LambdaExpr(lambda_parameters, BinaryExpr(op, left, right), _)) =>
+      if lambda_parameters.length() == 1 {
+        pkl_user_defined_int_constraint_from_comparison(
+          function_decl.name,
+          factory_parameter,
+          threshold,
+          lambda_parameters[0].name,
+          op,
+          left,
+          right,
+        )
+      } else {
+        None
+      }
+    _ => None
+  }
+}
+
+///|
+fn pkl_negate_user_defined_int_constraint(
+  predicate : ConstraintIntPredicate,
+) -> ConstraintIntPredicate? {
+  match predicate {
+    CustomGreaterThan(name, threshold) =>
+      Some(NotCustomGreaterThan(name, threshold))
+    CustomLessThan(name, threshold) => Some(NotCustomLessThan(name, threshold))
+    CustomGreaterOrEqual(name, threshold) =>
+      Some(NotCustomGreaterOrEqual(name, threshold))
+    CustomLessOrEqual(name, threshold) =>
+      Some(NotCustomLessOrEqual(name, threshold))
+    _ => None
+  }
+}
+
+///|
+fn pkl_user_defined_int_constraint_predicate(
+  text : String,
+  declarations : Array[Declaration],
+) -> ConstraintIntPredicate? {
+  if text.has_prefix("!") && text.length() > 1 {
+    let inner = String::unsafe_substring(text, start=1, end=text.length())
+    match pkl_user_defined_int_constraint_predicate(inner, declarations) {
+      Some(predicate) =>
+        return pkl_negate_user_defined_int_constraint(predicate)
+      None => return None
+    }
+  }
+  match pkl_single_int_constraint_call(text) {
+    Some(call) => {
+      for declaration in declarations {
+        match declaration {
+          FunctionDeclaration(function_decl) =>
+            if function_decl.name == call.name {
+              return pkl_user_defined_int_constraint_from_function_decl(
+                function_decl,
+                call.argument,
+              )
+            }
+          ClassDeclaration(_) | TypeAliasDeclaration(_) => ()
+        }
+      }
+      None
+    }
+    None => None
+  }
+}
+
+///|
 fn pkl_constrained_int_predicates(
   type_name : String,
 ) -> Array[ConstraintIntPredicate] {
@@ -288,6 +469,84 @@ fn pkl_constrained_int_predicates(
 }
 
 ///|
+fn pkl_user_defined_constrained_int_predicates(
+  type_name : String,
+  declarations : Array[Declaration],
+) -> Array[ConstraintIntPredicate] {
+  let predicates : Array[ConstraintIntPredicate] = []
+  match pkl_constrained_type_base_name(type_name) {
+    Some("Int") =>
+      match pkl_constrained_type_constraint_text(type_name) {
+        Some(text) => {
+          let parts = pkl_split_constraint_arguments(text)
+          for part in parts {
+            match
+              pkl_user_defined_int_constraint_predicate(part, declarations) {
+              Some(predicate) => predicates.push(predicate)
+              None => ()
+            }
+          }
+        }
+        None => ()
+      }
+    _ => ()
+  }
+  predicates
+}
+
+///|
+fn pkl_lookup_type_alias_target(
+  declarations : Array[Declaration],
+  name : String,
+) -> String? {
+  let mut found : String? = None
+  for declaration in declarations {
+    match declaration {
+      TypeAliasDeclaration(type_alias) =>
+        if type_alias.name == name {
+          found = Some(type_alias.target)
+        }
+      ClassDeclaration(_) | FunctionDeclaration(_) => ()
+    }
+  }
+  found
+}
+
+///|
+fn pkl_user_defined_constrained_type_source_name_with_depth(
+  name : String,
+  declarations : Array[Declaration],
+  depth : Int,
+) -> String? {
+  if depth > 8 {
+    return None
+  }
+  if pkl_user_defined_constrained_int_predicates(name, declarations).length() >
+    0 {
+    return Some(name)
+  }
+  match pkl_lookup_type_alias_target(declarations, name) {
+    Some(target) =>
+      pkl_user_defined_constrained_type_source_name_with_depth(
+        target,
+        declarations,
+        depth + 1,
+      )
+    None => None
+  }
+}
+
+///|
+fn pkl_user_defined_constrained_type_source_name(
+  name : String,
+  declarations : Array[Declaration],
+) -> String? {
+  pkl_user_defined_constrained_type_source_name_with_depth(
+    name, declarations, 0,
+  )
+}
+
+///|
 fn pkl_constrained_type_annotation_has_supported_constraint(
   type_name : String,
 ) -> Bool {
@@ -305,6 +564,14 @@ fn pkl_constraint_name(predicate : ConstraintIntPredicate) -> String {
     NotIsPositive => "!isPositive"
     NotIsGreaterThan(_) => "!isGreaterThan"
     NotIsLessThan(_) => "!isLessThan"
+    CustomGreaterThan(name, _) => name
+    CustomLessThan(name, _) => name
+    CustomGreaterOrEqual(name, _) => name
+    CustomLessOrEqual(name, _) => name
+    NotCustomGreaterThan(name, _) => "!" + name
+    NotCustomLessThan(name, _) => "!" + name
+    NotCustomGreaterOrEqual(name, _) => "!" + name
+    NotCustomLessOrEqual(name, _) => "!" + name
   }
 }
 
@@ -322,6 +589,14 @@ fn pkl_constraint_predicate_accepts(
     NotIsPositive => !(value > 0)
     NotIsGreaterThan(threshold) => !(value > threshold)
     NotIsLessThan(threshold) => !(value < threshold)
+    CustomGreaterThan(_, threshold) => value > threshold
+    CustomLessThan(_, threshold) => value < threshold
+    CustomGreaterOrEqual(_, threshold) => value >= threshold
+    CustomLessOrEqual(_, threshold) => value <= threshold
+    NotCustomGreaterThan(_, threshold) => !(value > threshold)
+    NotCustomLessThan(_, threshold) => !(value < threshold)
+    NotCustomGreaterOrEqual(_, threshold) => !(value >= threshold)
+    NotCustomLessOrEqual(_, threshold) => !(value <= threshold)
   }
 }
 
@@ -332,6 +607,26 @@ fn pkl_constrained_int_rejection_message_from_source(
   value : Int,
 ) -> String? {
   for predicate in pkl_constrained_int_predicates(source_name) {
+    if !pkl_constraint_predicate_accepts(predicate, value) {
+      return Some(
+        "type annotation \{display_name} constraint \{pkl_constraint_name(predicate)} rejects \{value}",
+      )
+    }
+  }
+  None
+}
+
+///|
+fn pkl_user_defined_constrained_int_rejection_message_from_source(
+  display_name : String,
+  source_name : String,
+  value : Int,
+  declarations : Array[Declaration],
+) -> String? {
+  for
+    predicate in pkl_user_defined_constrained_int_predicates(
+      source_name, declarations,
+    ) {
     if !pkl_constraint_predicate_accepts(predicate, value) {
       return Some(
         "type annotation \{display_name} constraint \{pkl_constraint_name(predicate)} rejects \{value}",
@@ -366,10 +661,62 @@ fn pkl_constrained_type_annotation_expr_rejection_message_from_source(
 }
 
 ///|
+fn pkl_user_defined_constrained_type_annotation_expr_rejection_message(
+  type_name : String?,
+  expr : Expr,
+  declarations : Array[Declaration],
+) -> String? {
+  match type_name {
+    Some(display_name) =>
+      match
+        pkl_user_defined_constrained_type_source_name(
+          display_name, declarations,
+        ) {
+        Some(source_name) =>
+          match pkl_int_literal_value(expr) {
+            Some(value) =>
+              pkl_user_defined_constrained_int_rejection_message_from_source(
+                display_name, source_name, value, declarations,
+              )
+            None => None
+          }
+        None => None
+      }
+    None => None
+  }
+}
+
+///|
 fn pkl_value_int(value : Value) -> Int? {
   match value {
     IntValue(inner) => Some(inner)
     _ => None
+  }
+}
+
+///|
+fn pkl_user_defined_constrained_type_annotation_value_rejection_message(
+  type_name : String?,
+  value : Value,
+  declarations : Array[Declaration],
+) -> String? {
+  match type_name {
+    Some(display_name) =>
+      match
+        pkl_user_defined_constrained_type_source_name(
+          display_name, declarations,
+        ) {
+        Some(source_name) =>
+          match pkl_value_int(value) {
+            Some(inner) =>
+              pkl_user_defined_constrained_int_rejection_message_from_source(
+                display_name, source_name, inner, declarations,
+              )
+            None => None
+          }
+        None => None
+      }
+    None => None
   }
 }
 

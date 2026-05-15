@@ -1150,6 +1150,62 @@ test "support negated Pkl type constraint predicates" {
 }
 
 ///|
+test "evaluate Pkl user-defined type constraint functions" {
+  assert_true(
+    typecheck_source(
+      "function above(n) = (x) -> x > n\nvalue: Int(above(5)) = 6",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+  assert_true(
+    typecheck_source(
+      "function above(n) = (x) -> x > n\ntypealias Above5 = Int(above(5))\nvalue: Above5 = 6",
+    ) ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+  guard typecheck_source(
+      "function above(n) = (x) -> x > n\nvalue: Int(above(5)) = 5",
+    )
+    is TypeError(type_diagnostics) else {
+    panic()
+  }
+  inspect(
+    type_diagnostics[0].message,
+    content="type annotation Int(above(5)) constraint above rejects 5",
+  )
+  guard typecheck_source(
+      "function above(n) = (x) -> x > n\ntypealias Above5 = Int(above(5))\nvalue: Above5 = 5",
+    )
+    is TypeError(alias_type_diagnostics) else {
+    panic()
+  }
+  inspect(
+    alias_type_diagnostics[0].message,
+    content="type annotation Above5 constraint above rejects 5",
+  )
+  guard eval_source(
+      "function above(n) = (x) -> x > n\nvalue: Int(above(5)) = 5",
+    )
+    is EvalError(eval_diagnostics) else {
+    panic()
+  }
+  inspect(
+    eval_diagnostics[0].message,
+    content="type annotation Int(above(5)) constraint above rejects 5",
+  )
+  guard eval_source(
+      "function above(n) = (x) -> x > n\ntypealias Above5 = Int(above(5))\nvalue: Above5 = 5",
+    )
+    is EvalError(alias_eval_diagnostics) else {
+    panic()
+  }
+  inspect(
+    alias_eval_diagnostics[0].message,
+    content="type annotation Above5 constraint above rejects 5",
+  )
+}
+
+///|
 test "evaluate and typecheck Pkl constrained type annotation predicates" {
   assert_true(
     typecheck_source("value: Int(isBetween(0, 10)) = 3") ==

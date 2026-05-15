@@ -1095,8 +1095,8 @@ local userDefinedConstraintFunctions = new Scenario {
     "Type constraints can call user-defined predicate factories such as `isGreaterThan(5)`, so supported function declarations can participate in annotation checking instead of being matched only by built-in names."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-055"; "PKL-044"; "PKL-046" }
-  tags { "typechecker"; "evaluator"; "next" }
-  reviewStatus = "draft"
+  tags { "typechecker"; "evaluator" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -1104,6 +1104,26 @@ local userDefinedConstraintFunctions = new Scenario {
       summary = "Move from name-matched constraints to callable predicates"
       rationale =
         "Built-in-style numeric predicates and negation are now supported by syntax matching. Upstream fixtures also define custom predicate factories; evaluating those requires connecting type-constraint expressions to callable runtime/typecheck information."
+    }
+  }
+}
+
+local constFunctionDeclarations = new Scenario {
+  id = "PKL-057"
+  name = "parse Pkl const function declarations"
+  description =
+    "Const-qualified function declarations such as `const function isGreaterThan(n) = (x) -> x > n` parse as function declarations, so upstream constraint-factory fixtures can use their original syntax."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-056"; "PKL-015" }
+  tags { "parser"; "typechecker"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Handle declaration modifiers after callable constraints"
+      rationale =
+        "User-defined constraint factories now work for plain function declarations. Upstream fixtures commonly mark these declarations as `const`, so the parser needs to accept modifier-qualified function declarations before those fixtures can run unchanged."
     }
   }
 }
@@ -1167,4 +1187,5 @@ scenarios {
   multipleConstraintPredicates
   negatedConstraintPredicates
   userDefinedConstraintFunctions
+  constFunctionDeclarations
 }

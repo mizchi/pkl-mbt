@@ -300,6 +300,25 @@ fn eval_constrained_type_annotation_value_is_valid(
 }
 
 ///|
+fn eval_user_defined_constrained_type_annotation_value_is_valid(
+  type_name : String?,
+  value : Value,
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+) -> Bool {
+  match
+    pkl_user_defined_constrained_type_annotation_value_rejection_message(
+      type_name, value, declarations,
+    ) {
+    Some(message) => {
+      diagnostics.push(Diagnostic::{ message, })
+      false
+    }
+    None => true
+  }
+}
+
+///|
 fn eval_object_member_alias_constraints_are_valid(
   members : Array[ObjectMember],
   values : Array[ValueMember],
@@ -1445,6 +1464,12 @@ fn eval_program(
               binding.type_name,
               value,
               type_aliases,
+              diagnostics,
+            ) &&
+            eval_user_defined_constrained_type_annotation_value_is_valid(
+              binding.type_name,
+              value,
+              program.declarations,
               diagnostics,
             ) &&
             eval_expr_alias_constraints_are_valid(

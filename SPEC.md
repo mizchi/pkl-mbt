@@ -1,6 +1,6 @@
 # Test SPEC
 
-60 tests across 2 module(s) — 56 pending, 4 active
+61 tests across 2 module(s) — 57 pending, 4 active
 
 ## `specs/`
 
@@ -62,7 +62,7 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **evaluate Pkl user-defined type constraint functions** [draft] — verifies: PKL-056 — tags: typechecker, evaluator, next
+- [ ] **evaluate Pkl user-defined type constraint functions** — verifies: PKL-056 — tags: typechecker, evaluator
   > Type constraints can call user-defined predicate factories such as `isGreaterThan(5)`, so supported function declarations can participate in annotation checking instead of being matched only by built-in names.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-055, PKL-044, PKL-046
@@ -135,6 +135,13 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-016
   - decisions: 2 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **parse Pkl const function declarations** [draft] — verifies: PKL-057 — tags: parser, typechecker, next
+  > Const-qualified function declarations such as `const function isGreaterThan(n) = (x) -> x > n` parse as function declarations, so upstream constraint-factory fixtures can use their original syntax.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-056, PKL-015
+  - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **parse and evaluate Pkl collection expressions** — verifies: PKL-017 — tags: parser, evaluator, typechecker
@@ -386,7 +393,7 @@
   > The native CLI evaluates a Pkl file and prints module object properties.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055 — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
