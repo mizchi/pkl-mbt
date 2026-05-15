@@ -1068,6 +1068,40 @@ test "evaluate Pkl constrained typealias object member annotations" {
 }
 
 ///|
+test "support additional Pkl numeric constraint predicates" {
+  assert_true(
+    typecheck_source("value: Int(isPositive) = 3") ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+  guard typecheck_source("value: Int(isPositive) = 0")
+    is TypeError(positive_diagnostics) else {
+    panic()
+  }
+  inspect(
+    positive_diagnostics[0].message,
+    content="type annotation Int(isPositive) constraint isPositive rejects 0",
+  )
+  guard eval_source("value: Int(this.isGreaterThan(5)) = 5")
+    is EvalError(greater_diagnostics) else {
+    panic()
+  }
+  inspect(
+    greater_diagnostics[0].message,
+    content="type annotation Int(this.isGreaterThan(5)) constraint isGreaterThan rejects 5",
+  )
+  guard typecheck_source(
+      "typealias Small = Int(isLessThan(10))\nvalue = new { n: Small = 10 }",
+    )
+    is TypeError(alias_diagnostics) else {
+    panic()
+  }
+  inspect(
+    alias_diagnostics[0].message,
+    content="type annotation Small constraint isLessThan rejects 10",
+  )
+}
+
+///|
 test "evaluate and typecheck Pkl constrained type annotation predicates" {
   assert_true(
     typecheck_source("value: Int(isBetween(0, 10)) = 3") ==

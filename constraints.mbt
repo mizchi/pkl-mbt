@@ -5,6 +5,14 @@ priv struct ConstraintIntRange {
 }
 
 ///|
+priv enum ConstraintIntPredicate {
+  IsBetween(Int, Int)
+  IsPositive
+  IsGreaterThan(Int)
+  IsLessThan(Int)
+}
+
+///|
 fn pkl_parse_constraint_int_text(text : String) -> Int? {
   if text.length() == 0 {
     return None
@@ -205,11 +213,48 @@ fn pkl_is_between_range(text : String) -> ConstraintIntRange? {
 }
 
 ///|
-fn pkl_constrained_int_range(type_name : String) -> ConstraintIntRange? {
+fn pkl_constraint_property_matches(text : String, name : String) -> Bool {
+  text == name || text == "this." + name
+}
+
+///|
+fn pkl_single_int_constraint_argument(text : String, name : String) -> Int? {
+  match pkl_constraint_call_inner(text, name + "(") {
+    Some(inner) => pkl_parse_constraint_int_text(inner)
+    None =>
+      match pkl_constraint_call_inner(text, "this." + name + "(") {
+        Some(inner) => pkl_parse_constraint_int_text(inner)
+        None => None
+      }
+  }
+}
+
+///|
+fn pkl_int_constraint_predicate(text : String) -> ConstraintIntPredicate? {
+  match pkl_is_between_range(text) {
+    Some(range) => return Some(IsBetween(range.lower, range.upper))
+    None => ()
+  }
+  if pkl_constraint_property_matches(text, "isPositive") {
+    return Some(IsPositive)
+  }
+  match pkl_single_int_constraint_argument(text, "isGreaterThan") {
+    Some(threshold) => return Some(IsGreaterThan(threshold))
+    None => ()
+  }
+  match pkl_single_int_constraint_argument(text, "isLessThan") {
+    Some(threshold) => return Some(IsLessThan(threshold))
+    None => ()
+  }
+  None
+}
+
+///|
+fn pkl_constrained_int_predicate(type_name : String) -> ConstraintIntPredicate? {
   match pkl_constrained_type_base_name(type_name) {
     Some("Int") =>
       match pkl_constrained_type_constraint_text(type_name) {
-        Some(text) => pkl_is_between_range(text)
+        Some(text) => pkl_int_constraint_predicate(text)
         None => None
       }
     _ => None
@@ -220,7 +265,30 @@ fn pkl_constrained_int_range(type_name : String) -> ConstraintIntRange? {
 fn pkl_constrained_type_annotation_has_supported_constraint(
   type_name : String,
 ) -> Bool {
-  pkl_constrained_int_range(type_name) is Some(_)
+  pkl_constrained_int_predicate(type_name) is Some(_)
+}
+
+///|
+fn pkl_constraint_name(predicate : ConstraintIntPredicate) -> String {
+  match predicate {
+    IsBetween(_, _) => "isBetween"
+    IsPositive => "isPositive"
+    IsGreaterThan(_) => "isGreaterThan"
+    IsLessThan(_) => "isLessThan"
+  }
+}
+
+///|
+fn pkl_constraint_predicate_accepts(
+  predicate : ConstraintIntPredicate,
+  value : Int,
+) -> Bool {
+  match predicate {
+    IsBetween(lower, upper) => value >= lower && value <= upper
+    IsPositive => value > 0
+    IsGreaterThan(threshold) => value > threshold
+    IsLessThan(threshold) => value < threshold
+  }
 }
 
 ///|
@@ -229,11 +297,11 @@ fn pkl_constrained_int_rejection_message_from_source(
   source_name : String,
   value : Int,
 ) -> String? {
-  match pkl_constrained_int_range(source_name) {
-    Some(range) =>
-      if value < range.lower || value > range.upper {
+  match pkl_constrained_int_predicate(source_name) {
+    Some(predicate) =>
+      if !pkl_constraint_predicate_accepts(predicate, value) {
         Some(
-          "type annotation \{display_name} constraint isBetween rejects \{value}",
+          "type annotation \{display_name} constraint \{pkl_constraint_name(predicate)} rejects \{value}",
         )
       } else {
         None

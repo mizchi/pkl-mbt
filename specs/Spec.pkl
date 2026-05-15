@@ -1035,8 +1035,8 @@ local numericConstraintPredicates = new Scenario {
     "Constrained integer annotations support common numeric predicate calls beyond `isBetween`, such as greater-than and less-than checks, in both typechecking and evaluation paths."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-052"; "PKL-046"; "PKL-051" }
-  tags { "typechecker"; "evaluator"; "next" }
-  reviewStatus = "draft"
+  tags { "typechecker"; "evaluator" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -1044,6 +1044,26 @@ local numericConstraintPredicates = new Scenario {
       summary = "Broaden constraint predicate coverage after metadata flow"
       rationale =
         "Constraint metadata now survives values, callable boundaries, methods, aliases, and nested object members for `isBetween`. The next compatibility step is expanding the supported numeric predicate set used by real Pkl schemas."
+    }
+  }
+}
+
+local multipleConstraintPredicates = new Scenario {
+  id = "PKL-054"
+  name = "support multiple Pkl type constraint predicates"
+  description =
+    "Type annotations with multiple constraints, such as `Int(isPositive, isBetween(0, 10))`, evaluate each supported predicate and reject values that violate any predicate."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-053"; "PKL-046"; "PKL-052" }
+  tags { "typechecker"; "evaluator"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Evaluate constraint lists after individual predicates"
+      rationale =
+        "The parser already preserves comma-separated constraint text from upstream fixtures. Once individual numeric predicates are supported, the next step is splitting top-level constraint lists and checking each supported predicate."
     }
   }
 }
@@ -1104,4 +1124,5 @@ scenarios {
   constrainedTypealiasMetadata
   constrainedTypealiasObjectMembers
   numericConstraintPredicates
+  multipleConstraintPredicates
 }
