@@ -413,6 +413,89 @@ fn eval_class_property_constraint_value_rejection_message(
 }
 
 ///|
+fn eval_object_member_expr_is_provided(
+  members : Array[ObjectMember],
+  name : String,
+) -> Bool {
+  for field in members {
+    if field.name == name {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn eval_class_property_default_constraints_are_valid_with_depth(
+  class_name : String,
+  provided_members : Array[ObjectMember],
+  values : Array[ValueMember],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  depth : Int,
+) -> Bool {
+  if depth > 8 {
+    return true
+  }
+  match eval_lookup_class_decl(declarations, class_name) {
+    Some(class_decl) => {
+      let mut ok = true
+      match class_decl.parent_name {
+        Some(parent_name) =>
+          if !eval_class_property_default_constraints_are_valid_with_depth(
+              parent_name,
+              provided_members,
+              values,
+              declarations,
+              diagnostics,
+              depth + 1,
+            ) {
+            ok = false
+          }
+        None => ()
+      }
+      for property in class_decl.properties {
+        if property.value is Some(_) &&
+          !eval_object_member_expr_is_provided(provided_members, property.name) {
+          match lookup_member(values, property.name) {
+            Some(default_value) =>
+              match
+                eval_class_property_constraint_value_rejection_message(
+                  class_name,
+                  property.name,
+                  default_value,
+                  declarations,
+                ) {
+                Some(message) => {
+                  diagnostics.push(Diagnostic::{ message, })
+                  ok = false
+                }
+                None => ()
+              }
+            None => ()
+          }
+        }
+      }
+      ok
+    }
+    None => true
+  }
+}
+
+///|
+fn eval_class_property_default_constraints_are_valid(
+  class_name : String,
+  provided_members : Array[ObjectMember],
+  values : Array[ValueMember],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+) -> Bool {
+  eval_class_property_default_constraints_are_valid_with_depth(
+    class_name, provided_members, values, declarations, diagnostics, 0,
+  )
+}
+
+///|
 fn eval_expr_class_property_constraints_are_valid(
   expr : Expr,
   value : Value,
@@ -449,6 +532,11 @@ fn eval_expr_class_property_constraints_are_valid(
           }
           None => ()
         }
+      }
+      if !eval_class_property_default_constraints_are_valid(
+          class_name, members, values, declarations, diagnostics,
+        ) {
+        ok = false
       }
       ok
     }

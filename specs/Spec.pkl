@@ -1155,8 +1155,8 @@ local constrainedClassPropertyDefaults = new Scenario {
     "Class property default expressions enforce their constrained annotations during typechecking and evaluation, including user-defined numeric constraint factories."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-058"; "PKL-057"; "PKL-056" }
-  tags { "evaluator"; "typechecker"; "next" }
-  reviewStatus = "draft"
+  tags { "evaluator"; "typechecker" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -1164,6 +1164,26 @@ local constrainedClassPropertyDefaults = new Scenario {
       summary = "Apply class property constraints to defaults as well as overrides"
       rationale =
         "Typed object overrides now honor constrained class property annotations. Class defaults are materialized through a separate path, so the same annotation checks need to run for default expressions before class constraints are complete."
+    }
+  }
+}
+
+local pklTestCatchConstraintsFixture = new Scenario {
+  id = "PKL-060"
+  name = "evaluate upstream Pkl constraint fixture catch flow"
+  description =
+    "The evaluator supports enough of `pkl:test.catch` and lazy lambda invocation to run upstream constraint fixtures that capture failed constrained object construction."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-059"; "PKL-058"; "PKL-011" }
+  tags { "evaluator"; "stdlib"; "upstream"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Turn class constraint support into an upstream fixture"
+      rationale =
+        "User-defined class property constraints and defaults now work in direct tests. The next compatibility slice should exercise the upstream `classes/constraints8.pkl` shape, which relies on `pkl:test.catch` to observe a rejected object."
     }
   }
 }
@@ -1230,4 +1250,5 @@ scenarios {
   constFunctionDeclarations
   constrainedClassProperties
   constrainedClassPropertyDefaults
+  pklTestCatchConstraintsFixture
 }

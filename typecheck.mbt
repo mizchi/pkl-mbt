@@ -719,6 +719,35 @@ fn push_constrained_class_property_expr_diagnostics(
 }
 
 ///|
+fn push_constrained_class_property_default_diagnostics(
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+) -> Unit {
+  for declaration in declarations {
+    match declaration {
+      ClassDeclaration(class_decl) =>
+        for property in class_decl.properties {
+          match property.value {
+            Some(default_expr) =>
+              match
+                typecheck_class_property_constraint_expr_rejection_message(
+                  class_decl.name,
+                  property.name,
+                  default_expr,
+                  declarations,
+                ) {
+                Some(message) => diagnostics.push(Diagnostic::{ message, })
+                None => ()
+              }
+            None => ()
+          }
+        }
+      FunctionDeclaration(_) | TypeAliasDeclaration(_) => ()
+    }
+  }
+}
+
+///|
 fn type_from_alias_target_annotation(
   name : String,
   type_env : Array[TypeBinding],
@@ -2868,6 +2897,10 @@ fn infer_program(
     program.declarations,
     diagnostics,
     imported_types,
+  )
+  push_constrained_class_property_default_diagnostics(
+    program.declarations,
+    diagnostics,
   )
   let cache : Array[TypeBinding] = []
   let fields : Array[TypeMember] = []
