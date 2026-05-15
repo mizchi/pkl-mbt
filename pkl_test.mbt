@@ -1598,6 +1598,88 @@ test "pkl:math composes with Listing builtins" {
 }
 
 ///|
+test "null-coalescing operator returns the left side when non-null" {
+  assert_true(
+    eval_source("a = 7\nb = a ?? 42") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "a", value: IntValue(7) },
+        ValueMember::{ name: "b", value: IntValue(7) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "null-coalescing operator falls through to the right side when null" {
+  assert_true(
+    eval_source("a = null\nb = a ?? 42") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "a", value: NullValue },
+        ValueMember::{ name: "b", value: IntValue(42) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "null-coalescing chains right-associatively" {
+  assert_true(
+    eval_source("a = null\nb = null\nc = a ?? b ?? 99") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "a", value: NullValue },
+        ValueMember::{ name: "b", value: NullValue },
+        ValueMember::{ name: "c", value: IntValue(99) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "let-expression introduces a single scoped binding" {
+  assert_true(
+    eval_source("result = let (x = 5) x * 2") ==
+    EvalOk(ObjectValue([ValueMember::{ name: "result", value: IntValue(10) }])),
+  )
+}
+
+///|
+test "let-expression body can reference outer bindings" {
+  assert_true(
+    eval_source("base = 3\nresult = let (square = base * base) square + 1") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "base", value: IntValue(3) },
+        ValueMember::{ name: "result", value: IntValue(10) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "let-expression nests with inner shadowing" {
+  assert_true(
+    eval_source("result = let (x = 1) let (x = x + 10) let (x = x * 2) x") ==
+    EvalOk(ObjectValue([ValueMember::{ name: "result", value: IntValue(22) }])),
+  )
+}
+
+///|
+test "let-expression composes with null-coalescing" {
+  assert_true(
+    eval_source("raw = null\nresult = let (fallback = 99) raw ?? fallback") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "raw", value: NullValue },
+        ValueMember::{ name: "result", value: IntValue(99) },
+      ]),
+    ),
+  )
+}
+
+///|
 test "render Pkl module bindings as Java Properties" {
   let value : Value = ObjectValue([
     ValueMember::{ name: "name", value: StringValue("pigeon") },

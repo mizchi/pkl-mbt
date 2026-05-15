@@ -1464,6 +1464,32 @@ local jsonRenderer = new Scenario {
   }
 }
 
+local nullCoalescingAndLet = new Scenario {
+  id = "PKL-088"
+  name = "null-coalescing operator and let expressions"
+  description =
+    "The `??` operator picks the right-hand value when the left evaluates to `NullValue`, and is right-associative so `a ?? b ?? fallback` short-circuits left-to-right. `let (name = value) body` introduces a single scoped binding, with the body able to reference outer bindings and inner let-expressions able to shadow the outer name. The two compose: `let (fallback = ...) raw ?? fallback`."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-009" }
+  tags { "evaluator"; "expressions" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Desugar `let (name = value) body` into `((name) -> body)(value)` at parse time"
+      rationale =
+        "Pkl's let-expression is just a single-parameter lambda applied to one value — same scoping rules, same closure capture, same return-validation. Desugaring at the parser level means the rest of the evaluator continues to operate on the existing `LambdaExpr` + `CallExpr` machinery (closure capture, parameter rejection, return validation) without a new AST node or eval arm. The CST node keeps the `let_decl` kind so the source-mapped diagnostic surface stays intact."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Lean on the existing `NullCoalesce` binary operator rather than synthesizing a new short-circuit form"
+      rationale =
+        "The lexer / parser / typechecker / evaluator already wire `??` through `BinaryOp::NullCoalesce` (it lit up the moment the existing slice landed), with `NullCoalesce` evaluating the right-hand side only when the left produces `NullValue`. PKL-088 ships the spec contract that pins down the behavior — right-associativity, short-circuit semantics, type-of-result — without changing the implementation."
+    }
+  }
+}
+
 local pklMathExpansion = new Scenario {
   id = "PKL-079"
   name = "expand pkl:math beyond maxInt32"
@@ -1767,5 +1793,6 @@ scenarios {
   pklBaseString
   pklBaseInt
   pklMathExpansion
+  nullCoalescingAndLet
   ...roadmap.entries
 }

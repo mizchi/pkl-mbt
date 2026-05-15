@@ -50,7 +50,7 @@ local pklReflectMinimal: Spec.Scenario = new {
     "`pkl:reflect.Type` / `Class` / `Property` enough for the upstream `reflect.pkl` fixtures: get the runtime type of a value, list class properties, and check whether a type is a subtype of another."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-040" }
-  tags { "stdlib"; "pkl-reflect"; "next" }
+  tags { "stdlib"; "pkl-reflect" }
   reviewStatus = "draft"
   severity = "minor"
   decisions {
@@ -148,7 +148,7 @@ local objectBodyWhenConditionals: Spec.Scenario = new {
     "`when (cond) { ... } else { ... }` inside an object body conditionally adds members at evaluation time, matching Apple Pkl semantics for both inline and standalone forms."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-009" }
-  tags { "evaluator"; "object" }
+  tags { "evaluator"; "object"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -163,18 +163,6 @@ local hiddenAndLocalMembers: Spec.Scenario = new {
   tags { "evaluator"; "renderer"; "object" }
   reviewStatus = "draft"
   severity = "major"
-}
-
-local nullCoalescingAndLet: Spec.Scenario = new {
-  id = "PKL-088"
-  name = "null-coalescing operator and let expressions"
-  description =
-    "The `??` operator picks the right-hand value when the left is null; `let (name = expr) body` introduces a scoped binding inside an expression."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-009" }
-  tags { "evaluator"; "expressions" }
-  reviewStatus = "draft"
-  severity = "minor"
 }
 
 // ── type system expansion ───────────────────────────────────────────────────
@@ -299,7 +287,6 @@ entries: Listing<Spec.Scenario> = new {
   objectBodyForGenerators
   objectBodyWhenConditionals
   hiddenAndLocalMembers
-  nullCoalescingAndLet
   genericClassDeclarations
   genericFunctionTypeParameters
   stringConstraintPredicates

@@ -1440,6 +1440,7 @@ fn Parser::parse_primary_expr(self : Parser) -> Expr {
     kind if kind == import_kw() => self.parse_import_expr()
     kind if kind == new_kw() => self.parse_object_expr()
     kind if kind == if_kw() => self.parse_if_expr()
+    kind if kind == let_kw() => self.parse_let_expr()
     kind if kind == lparen() => {
       if self.function_literal_at_current() {
         return self.parse_lambda_expr()
@@ -1481,6 +1482,35 @@ fn Parser::parse_lambda_expr(self : Parser) -> Expr {
   let body = self.parse_expr()
   self.builder.finish_node()
   LambdaExpr(parameters, body, return_type_name)
+}
+
+///|
+/// Parse `let (name = value) body` and desugar it into `((name) -> body)(value)`.
+/// Keeping the desugar at the parser level means the rest of the evaluator
+/// continues to operate on the same `LambdaExpr` + `CallExpr` shape that
+/// already implements scoping and closure capture.
+fn Parser::parse_let_expr(self : Parser) -> Expr {
+  self.builder.start_node(let_decl())
+  ignore(self.expect(let_kw(), "let"))
+  self.skip_whitespace()
+  ignore(self.expect(lparen(), "("))
+  self.skip_whitespace()
+  let name = match self.expect(identifier(), "identifier") {
+    Some(tok) => tok.text()
+    None => ""
+  }
+  let type_name = self.parse_type_annotation()
+  self.skip_whitespace()
+  ignore(self.expect(eq(), "="))
+  let value = self.parse_expr()
+  self.skip_whitespace()
+  ignore(self.expect(rparen(), ")"))
+  let body = self.parse_expr()
+  self.builder.finish_node()
+  if name == "" {
+    return UnsupportedExpr
+  }
+  CallExpr(LambdaExpr([{ name, type_name }], body, None), [value])
 }
 
 ///|
