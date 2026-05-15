@@ -1,33 +1,38 @@
 ///|
 priv struct ConstraintIntRange {
-  lower : Int
-  upper : Int
+  lower : Double
+  upper : Double
 }
 
 ///|
 priv struct ConstraintIntCall {
   name : String
-  argument : Int
+  argument : Double
 }
 
 ///|
+// PKL-112: threshold encoding lifted from Int to Double so that
+// `Float(isBetween(0.5, 1.5))` parses and runs without losing precision.
+// Int-side comparisons widen the value to Double before applying the
+// operator (see pkl_constraint_predicate_accepts), so existing Int-only
+// constraint annotations keep working unchanged.
 priv enum ConstraintIntPredicate {
-  IsBetween(Int, Int)
+  IsBetween(Double, Double)
   IsPositive
-  IsGreaterThan(Int)
-  IsLessThan(Int)
-  NotIsBetween(Int, Int)
+  IsGreaterThan(Double)
+  IsLessThan(Double)
+  NotIsBetween(Double, Double)
   NotIsPositive
-  NotIsGreaterThan(Int)
-  NotIsLessThan(Int)
-  CustomGreaterThan(String, Int)
-  CustomLessThan(String, Int)
-  CustomGreaterOrEqual(String, Int)
-  CustomLessOrEqual(String, Int)
-  NotCustomGreaterThan(String, Int)
-  NotCustomLessThan(String, Int)
-  NotCustomGreaterOrEqual(String, Int)
-  NotCustomLessOrEqual(String, Int)
+  NotIsGreaterThan(Double)
+  NotIsLessThan(Double)
+  CustomGreaterThan(String, Double)
+  CustomLessThan(String, Double)
+  CustomGreaterOrEqual(String, Double)
+  CustomLessOrEqual(String, Double)
+  NotCustomGreaterThan(String, Double)
+  NotCustomLessThan(String, Double)
+  NotCustomGreaterOrEqual(String, Double)
+  NotCustomLessOrEqual(String, Double)
 }
 
 ///|
@@ -54,6 +59,65 @@ fn pkl_parse_constraint_int_text(text : String) -> Int? {
     index += 1
   }
   Some(value * sign)
+}
+
+///|
+// PKL-112: parser for Int or Float threshold literals appearing inside
+// constraint predicates (`isBetween(0.5, 1.5)`, `isGreaterThan(-3)`).
+// Accepts an optional leading `-`, a digit-run integer part, and an
+// optional `.<digits>` fractional part. Exponents are not handled — the
+// parser surface (PKL-128) covers `1e10` separately and constraint text
+// never contains scientific literals today.
+fn pkl_parse_constraint_double_text(text : String) -> Double? {
+  let trimmed = pkl_constraint_trim(text)
+  if trimmed.length() == 0 {
+    return None
+  }
+  let mut index = 0
+  let mut sign = 1.0
+  if trimmed[0].to_int().unsafe_to_char() == '-' {
+    sign = -1.0
+    index = 1
+  }
+  if index == trimmed.length() {
+    return None
+  }
+  let mut int_part = 0.0
+  let mut saw_digit = false
+  while index < trimmed.length() {
+    let char = trimmed[index].to_int().unsafe_to_char()
+    if char >= '0' && char <= '9' {
+      int_part = int_part * 10.0 + (char.to_int() - '0'.to_int()).to_double()
+      saw_digit = true
+      index += 1
+    } else {
+      break
+    }
+  }
+  let mut frac_part = 0.0
+  let mut frac_scale = 1.0
+  let mut saw_dot = false
+  if index < trimmed.length() && trimmed[index].to_int().unsafe_to_char() == '.' {
+    saw_dot = true
+    index += 1
+    while index < trimmed.length() {
+      let char = trimmed[index].to_int().unsafe_to_char()
+      if char >= '0' && char <= '9' {
+        frac_scale = frac_scale * 10.0
+        frac_part = frac_part +
+          (char.to_int() - '0'.to_int()).to_double() / frac_scale
+        saw_digit = true
+        index += 1
+      } else {
+        break
+      }
+    }
+  }
+  if index != trimmed.length() || !saw_digit {
+    return None
+  }
+  let _ = saw_dot
+  Some(sign * (int_part + frac_part))
 }
 
 ///|
@@ -219,8 +283,8 @@ fn pkl_is_between_range(text : String) -> ConstraintIntRange? {
       }
       match
         (
-          pkl_parse_constraint_int_text(parts[0]),
-          pkl_parse_constraint_int_text(parts[1]),
+          pkl_parse_constraint_double_text(parts[0]),
+          pkl_parse_constraint_double_text(parts[1]),
         ) {
         (Some(lower), Some(upper)) => Some({ lower, upper })
         _ => None
@@ -236,12 +300,12 @@ fn pkl_constraint_property_matches(text : String, name : String) -> Bool {
 }
 
 ///|
-fn pkl_single_int_constraint_argument(text : String, name : String) -> Int? {
+fn pkl_single_int_constraint_argument(text : String, name : String) -> Double? {
   match pkl_constraint_call_inner(text, name + "(") {
-    Some(inner) => pkl_parse_constraint_int_text(inner)
+    Some(inner) => pkl_parse_constraint_double_text(inner)
     None =>
       match pkl_constraint_call_inner(text, "this." + name + "(") {
-        Some(inner) => pkl_parse_constraint_int_text(inner)
+        Some(inner) => pkl_parse_constraint_double_text(inner)
         None => None
       }
   }
@@ -265,7 +329,7 @@ fn pkl_single_int_constraint_call(text : String) -> ConstraintIntCall? {
           start=index + 1,
           end=call_text.length() - 1,
         )
-        match pkl_parse_constraint_int_text(inner) {
+        match pkl_parse_constraint_double_text(inner) {
           Some(argument) => Some({ name, argument })
           None => None
         }
@@ -307,7 +371,7 @@ fn pkl_int_constraint_predicate(text : String) -> ConstraintIntPredicate? {
 ///|
 fn pkl_user_defined_int_constraint_from_order(
   function_name : String,
-  threshold : Int,
+  threshold : Double,
   value_on_left : Bool,
   op : BinaryOp,
 ) -> ConstraintIntPredicate? {
@@ -344,7 +408,7 @@ fn pkl_user_defined_int_constraint_from_order(
 fn pkl_user_defined_int_constraint_from_comparison(
   function_name : String,
   factory_parameter : String,
-  threshold : Int,
+  threshold : Double,
   lambda_parameter : String,
   op : BinaryOp,
   left : Expr,
@@ -370,7 +434,7 @@ fn pkl_user_defined_int_constraint_from_comparison(
 ///|
 fn pkl_user_defined_int_constraint_from_function_decl(
   function_decl : FunctionDecl,
-  threshold : Int,
+  threshold : Double,
 ) -> ConstraintIntPredicate? {
   if function_decl.parameters.length() != 1 {
     return None
@@ -631,24 +695,10 @@ fn pkl_constraint_predicate_accepts(
   predicate : ConstraintIntPredicate,
   value : Int,
 ) -> Bool {
-  match predicate {
-    IsBetween(lower, upper) => value >= lower && value <= upper
-    IsPositive => value > 0
-    IsGreaterThan(threshold) => value > threshold
-    IsLessThan(threshold) => value < threshold
-    NotIsBetween(lower, upper) => !(value >= lower && value <= upper)
-    NotIsPositive => !(value > 0)
-    NotIsGreaterThan(threshold) => !(value > threshold)
-    NotIsLessThan(threshold) => !(value < threshold)
-    CustomGreaterThan(_, threshold) => value > threshold
-    CustomLessThan(_, threshold) => value < threshold
-    CustomGreaterOrEqual(_, threshold) => value >= threshold
-    CustomLessOrEqual(_, threshold) => value <= threshold
-    NotCustomGreaterThan(_, threshold) => !(value > threshold)
-    NotCustomLessThan(_, threshold) => !(value < threshold)
-    NotCustomGreaterOrEqual(_, threshold) => !(value >= threshold)
-    NotCustomLessOrEqual(_, threshold) => !(value <= threshold)
-  }
+  // PKL-112: thresholds are stored as Double. Widen the Int side to
+  // Double for the comparison so Int(isBetween(0, 10)) keeps working
+  // alongside Float(isBetween(0.5, 1.5)).
+  pkl_constraint_predicate_accepts_float(predicate, value.to_double())
 }
 
 ///|
@@ -786,28 +836,25 @@ fn pkl_constraint_predicate_accepts_float(
   predicate : ConstraintIntPredicate,
   value : Double,
 ) -> Bool {
-  // PKL-092: Int-side thresholds widen to Double for the comparison.
-  // Custom predicate factories that accept an Int threshold (today's
-  // user-defined surface) flow through this path uniformly.
+  // PKL-112: thresholds are encoded as Double, so Float / Int values
+  // can compare against them uniformly without precision loss.
   match predicate {
-    IsBetween(lower, upper) =>
-      value >= lower.to_double() && value <= upper.to_double()
+    IsBetween(lower, upper) => value >= lower && value <= upper
     IsPositive => value > 0.0
-    IsGreaterThan(threshold) => value > threshold.to_double()
-    IsLessThan(threshold) => value < threshold.to_double()
-    NotIsBetween(lower, upper) =>
-      !(value >= lower.to_double() && value <= upper.to_double())
+    IsGreaterThan(threshold) => value > threshold
+    IsLessThan(threshold) => value < threshold
+    NotIsBetween(lower, upper) => !(value >= lower && value <= upper)
     NotIsPositive => !(value > 0.0)
-    NotIsGreaterThan(threshold) => !(value > threshold.to_double())
-    NotIsLessThan(threshold) => !(value < threshold.to_double())
-    CustomGreaterThan(_, threshold) => value > threshold.to_double()
-    CustomLessThan(_, threshold) => value < threshold.to_double()
-    CustomGreaterOrEqual(_, threshold) => value >= threshold.to_double()
-    CustomLessOrEqual(_, threshold) => value <= threshold.to_double()
-    NotCustomGreaterThan(_, threshold) => !(value > threshold.to_double())
-    NotCustomLessThan(_, threshold) => !(value < threshold.to_double())
-    NotCustomGreaterOrEqual(_, threshold) => !(value >= threshold.to_double())
-    NotCustomLessOrEqual(_, threshold) => !(value <= threshold.to_double())
+    NotIsGreaterThan(threshold) => !(value > threshold)
+    NotIsLessThan(threshold) => !(value < threshold)
+    CustomGreaterThan(_, threshold) => value > threshold
+    CustomLessThan(_, threshold) => value < threshold
+    CustomGreaterOrEqual(_, threshold) => value >= threshold
+    CustomLessOrEqual(_, threshold) => value <= threshold
+    NotCustomGreaterThan(_, threshold) => !(value > threshold)
+    NotCustomLessThan(_, threshold) => !(value < threshold)
+    NotCustomGreaterOrEqual(_, threshold) => !(value >= threshold)
+    NotCustomLessOrEqual(_, threshold) => !(value <= threshold)
   }
 }
 
@@ -1139,18 +1186,24 @@ fn pkl_string_length_dot_method_predicate(
       let suffix = String::unsafe_substring(text, start~, end=text.length())
       // Reuse the existing Int predicate parser against the `.length`
       // suffix so length.isBetween / length.isGreaterThan / length.isLessThan
-      // share the numeric grammar.
+      // share the numeric grammar. PKL-112 lifted the threshold encoding
+      // to Double — `length` is always Int so we truncate the threshold
+      // back to Int here. Non-integer thresholds against `length` get
+      // routed back through this branch only when the upstream parser
+      // chose to accept them, which is the same behaviour Apple Pkl
+      // exhibits (truncation toward zero).
       match pkl_int_constraint_predicate(suffix) {
         Some(IsBetween(lower, upper)) =>
-          Some(StringLengthIsBetween(lower, upper))
+          Some(StringLengthIsBetween(lower.to_int(), upper.to_int()))
         Some(IsPositive) => Some(StringLengthIsPositive)
-        Some(IsGreaterThan(n)) => Some(StringLengthIsGreaterThan(n))
-        Some(IsLessThan(n)) => Some(StringLengthIsLessThan(n))
+        Some(IsGreaterThan(n)) => Some(StringLengthIsGreaterThan(n.to_int()))
+        Some(IsLessThan(n)) => Some(StringLengthIsLessThan(n.to_int()))
         Some(NotIsBetween(lower, upper)) =>
-          Some(NotStringLengthIsBetween(lower, upper))
+          Some(NotStringLengthIsBetween(lower.to_int(), upper.to_int()))
         Some(NotIsPositive) => Some(NotStringLengthIsPositive)
-        Some(NotIsGreaterThan(n)) => Some(NotStringLengthIsGreaterThan(n))
-        Some(NotIsLessThan(n)) => Some(NotStringLengthIsLessThan(n))
+        Some(NotIsGreaterThan(n)) =>
+          Some(NotStringLengthIsGreaterThan(n.to_int()))
+        Some(NotIsLessThan(n)) => Some(NotStringLengthIsLessThan(n.to_int()))
         _ => None
       }
     }

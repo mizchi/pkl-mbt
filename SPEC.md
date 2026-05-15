@@ -1,6 +1,6 @@
 # Test SPEC
 
-152 tests across 2 module(s) — 132 pending, 20 active
+153 tests across 2 module(s) — 132 pending, 21 active
 
 ## `specs/`
 
@@ -54,10 +54,11 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **Float-threshold constraint predicates** (minor) [draft] — verifies: PKL-112 — tags: constraint, float, next
-  > Lift the constraint predicate threshold encoding from Int to Double so `Float(isBetween(0.5, 1.5))` parses and runs without losing precision. Today the constraint parser only accepts Int literals as thresholds.
+- [ ] **Float-threshold constraint predicates** (minor) — verifies: PKL-112 — tags: typechecker, constraint, float
+  > Numeric constraint predicates (`isBetween`, `isGreaterThan`, `isLessThan`, plus the user-defined comparison factories) accept Float literals as thresholds. `Float(isBetween(0.5, 1.5))` now parses and runs without losing precision — previously the threshold parser only accepted Int text, so `0.5` failed to parse and the predicate was silently dropped. The `ConstraintIntPredicate` enum keeps its name (still scoped to the numeric host `Int` / `Float` / `Number`) but its arguments are encoded as `Double` instead of `Int`. The text parser `pkl_parse_constraint_double_text` accepts an optional leading `-`, a digit-run integer part, and an optional `.<digits>` fractional part; the existing `pkl_parse_constraint_int_text` stays in place for `String(length OP N)` paths where `length` is always Int. Int-side value comparison flows through `pkl_constraint_predicate_accepts_float(predicate, value.to_double())` so `Int(isBetween(0, 10))` keeps working uniformly with `Float(isBetween(0.5, 1.5))`. The `length.is*` reuse of the numeric grammar truncates the Double threshold back to Int with `Double::to_int` — `length.isBetween(2.5, 3.5)` therefore behaves like `length.isBetween(2, 3)`, matching Apple Pkl's truncation toward zero. Rejection messages format the Double via the existing `\{value}` interpolation, so `Float(isLessThan(1.5))` rejecting `2.0` surfaces as `rejects 2` (the MoonBit `Double::to_string` strips the trailing `.0` for integral Doubles, which the existing PKL-092 fixtures already documented for `rejects -0.5`).
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-092
+  - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **LSP server foundation** [draft] — verifies: PKL-132 — tags: lsp, editor
@@ -159,7 +160,7 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **equality typecheck operand match** (minor) [draft] — verifies: PKL-113 — tags: typechecker, equality
+- [ ] **equality typecheck operand match** (minor) [draft] — verifies: PKL-113 — tags: typechecker, equality, next
   > `a == b` and `a != b` reject when the operand types are statically distinct (e.g. `5 == "hi"`). Today the typechecker returns BoolType unconditionally.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-004
@@ -914,6 +915,10 @@
 
 - [x] **cli float power intdiv modulo** — verifies: PKL-111 — tags: moonbit, cli, float, operator, contract
   > The native CLI evaluates a fixture that exercises `**`, `~/`, and `%` with Float operands, matching Apple Pkl's golden output: `2.0 ** 3 = 8.0`, `5.0 ~/ 3.0 = 1`, `5.5 % 6.5 = 5.5`, `5 % 6.5 = 5.0`.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli float threshold constraint predicates** — verifies: PKL-112 — tags: moonbit, cli, constraint, float, contract
+  > The native CLI evaluates a fixture that exercises Float thresholds in numeric constraint predicates (`isBetween(0.5, 1.5)`, `isGreaterThan(0.5)`, `isLessThan(1.5)`, `isGreaterThan(-1.5)`) and prints the bindings without raising a constraint diagnostic.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli format subcommand** — verifies: PKL-099 — tags: moonbit, cli, format, contract

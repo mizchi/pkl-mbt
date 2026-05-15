@@ -1542,6 +1542,44 @@ local floatPowerAndDivisionSemantics = new Scenario {
   }
 }
 
+local floatThresholdConstraints = new Scenario {
+  id = "PKL-112"
+  name = "Float-threshold constraint predicates"
+  description =
+    "Numeric constraint predicates (`isBetween`, `isGreaterThan`, `isLessThan`, plus the user-defined comparison factories) accept Float literals as thresholds. `Float(isBetween(0.5, 1.5))` now parses and runs without losing precision — previously the threshold parser only accepted Int text, so `0.5` failed to parse and the predicate was silently dropped. The `ConstraintIntPredicate` enum keeps its name (still scoped to the numeric host `Int` / `Float` / `Number`) but its arguments are encoded as `Double` instead of `Int`. The text parser `pkl_parse_constraint_double_text` accepts an optional leading `-`, a digit-run integer part, and an optional `.<digits>` fractional part; the existing `pkl_parse_constraint_int_text` stays in place for `String(length OP N)` paths where `length` is always Int. Int-side value comparison flows through `pkl_constraint_predicate_accepts_float(predicate, value.to_double())` so `Int(isBetween(0, 10))` keeps working uniformly with `Float(isBetween(0.5, 1.5))`. The `length.is*` reuse of the numeric grammar truncates the Double threshold back to Int with `Double::to_int` — `length.isBetween(2.5, 3.5)` therefore behaves like `length.isBetween(2, 3)`, matching Apple Pkl's truncation toward zero. Rejection messages format the Double via the existing `\\{value}` interpolation, so `Float(isLessThan(1.5))` rejecting `2.0` surfaces as `rejects 2` (the MoonBit `Double::to_string` strips the trailing `.0` for integral Doubles, which the existing PKL-092 fixtures already documented for `rejects -0.5`)."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-092" }
+  tags { "typechecker"; "constraint"; "float" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Lift the predicate enum's Int arguments to Double across the board"
+      rationale =
+        "The alternative was to keep `ConstraintIntPredicate` Int-shaped and bolt on a parallel `ConstraintFloatPredicate` enum with the same variant set. That would double the maintenance surface (every variant added in the future needs both copies, every negation / dispatch lookup needs both arms). Promoting the Int arguments to Double once unifies the dispatch — Int values widen via `to_double` at the top of `pkl_constraint_predicate_accepts`, and the Float path drops its previous `lower.to_double()` widenings since both sides are already Double."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Keep `pkl_parse_constraint_int_text` for the String length predicate path"
+      rationale =
+        "`String(length > N)` and `String(length.isBetween(0, 10))` always carry Int thresholds — `length` is itself an Int. Routing those through the Double parser would force a `.to_int` round-trip at every length comparison and risk silently truncating thresholds the user meant to fail. Leaving the Int parser in place keeps the existing String constraint grammar bit-for-bit identical."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Truncate Double thresholds back to Int when they flow into `length.isBetween` style predicates"
+      rationale =
+        "The numeric predicate parser is shared between the `Float(isBetween(...))` host and the `String(length.isBetween(...))` host. The String host's downstream variant `StringLengthIsBetween` still takes Int because `length` is Int. Truncation via `Double::to_int` matches Apple Pkl's `length.isBetween(2.5, 3.5)` reading (round toward zero, identical to writing `length.isBetween(2, 3)`); the alternative (rejecting Float thresholds for length) would require a separate Int-only parser variant and a third error message."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Hand-roll the Double text parser instead of leaning on `@strconv.parse_double`"
+      rationale =
+        "The constraint-text parser sits next to `pkl_parse_constraint_int_text` and follows the same hand-rolled walk style. Pulling in `moonbitlang/core/strconv` for the Double form would add a dependency for one helper, and the surface here is small (`-?<digits>(\\.<digits>)?`) — exponent notation is parser-level (PKL-128) and not reached from constraint text. The hand-rolled walk also returns `None` on trailing garbage, which lets the predicate parser fall through cleanly instead of catching a strconv exception."
+    }
+  }
+}
+
 local callSiteGenericInference = new Scenario {
   id = "PKL-110"
   name = "call-site generic inference"
@@ -2621,5 +2659,6 @@ scenarios {
   pklTestExamples
   callSiteGenericInference
   floatPowerAndDivisionSemantics
+  floatThresholdConstraints
   ...roadmap.entries
 }

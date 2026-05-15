@@ -212,6 +212,23 @@ local cliFloatPower = new Test {
   timeoutSec = 120
 }
 
+local cliFloatThresholdConstraints = new Test {
+  name = "cli float threshold constraint predicates"
+  description =
+    "The native CLI evaluates a fixture that exercises Float thresholds in numeric constraint predicates (`isBetween(0.5, 1.5)`, `isGreaterThan(0.5)`, `isLessThan(1.5)`, `isGreaterThan(-1.5)`) and prints the bindings without raising a constraint diagnostic."
+  tags { "moonbit"; "cli"; "constraint"; "float"; "contract" }
+  specRef { "PKL-112" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_float_threshold_constraints.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "midRange = 1.0"
+    "aboveHalf = 0.75"
+    "belowOne = 1.25"
+    "negativeBound = -1.0"
+  }
+  timeoutSec = 120
+}
+
 local cliGenericInference = new Test {
   name = "cli generic call-site inference"
   description =
@@ -408,6 +425,7 @@ tests {
   cliEvalProperties
   cliFloat
   cliFloatPower
+  cliFloatThresholdConstraints
   cliFormat
   cliTestExamplesPass
   cliTestExamplesFail

@@ -133,18 +133,6 @@ local upstreamFixtureSweepExpansion: Spec.Scenario = new {
 
 // ── typechecker rounding ────────────────────────────────────────────────────
 
-local floatThresholdConstraints: Spec.Scenario = new {
-  id = "PKL-112"
-  name = "Float-threshold constraint predicates"
-  description =
-    "Lift the constraint predicate threshold encoding from Int to Double so `Float(isBetween(0.5, 1.5))` parses and runs without losing precision. Today the constraint parser only accepts Int literals as thresholds."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-092" }
-  tags { "constraint"; "float"; "next" }
-  reviewStatus = "draft"
-  severity = "minor"
-}
-
 local equalityTypecheckOperandMatch: Spec.Scenario = new {
   id = "PKL-113"
   name = "equality typecheck operand match"
@@ -152,7 +140,7 @@ local equalityTypecheckOperandMatch: Spec.Scenario = new {
     "`a == b` and `a != b` reject when the operand types are statically distinct (e.g. `5 == \"hi\"`). Today the typechecker returns BoolType unconditionally."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-004" }
-  tags { "typechecker"; "equality" }
+  tags { "typechecker"; "equality"; "next" }
   reviewStatus = "draft"
   severity = "minor"
 }
@@ -403,7 +391,6 @@ entries: Listing<Spec.Scenario> = new {
   diagnosticSourcePosition
   errorMessageUpstreamAlign
   upstreamFixtureSweepExpansion
-  floatThresholdConstraints
   equalityTypecheckOperandMatch
   guardNarrowingExtension
   genericTypeAliases

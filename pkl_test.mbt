@@ -1856,6 +1856,46 @@ test "Float isBetween accepts inclusive endpoints" {
 }
 
 ///|
+test "PKL-112: Float isBetween accepts Float thresholds in range" {
+  assert_true(
+    eval_source("res: Float(isBetween(0.5, 1.5)) = 1.0") ==
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: FloatValue(1.0) }])),
+  )
+}
+
+///|
+test "PKL-112: Float isBetween with Float thresholds rejects out-of-range" {
+  guard eval_source("res: Float(isBetween(0.5, 1.5)) = 2.0")
+    is EvalError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="type annotation Float(isBetween(0.5,1.5)) constraint isBetween rejects 2",
+  )
+}
+
+///|
+test "PKL-112: Float isGreaterThan accepts Float threshold" {
+  assert_true(
+    eval_source("res: Float(isGreaterThan(0.5)) = 0.75") ==
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: FloatValue(0.75) }])),
+  )
+}
+
+///|
+test "PKL-112: Float isLessThan with Float threshold rejects" {
+  guard eval_source("res: Float(isLessThan(1.5)) = 2.0")
+    is EvalError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="type annotation Float(isLessThan(1.5)) constraint isLessThan rejects 2",
+  )
+}
+
+///|
 test "Number constraint predicate accepts both Int and Float" {
   assert_true(
     eval_source("a: Number(isPositive) = 3\nb: Number(isPositive) = 0.5") ==
