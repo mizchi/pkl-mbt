@@ -1785,6 +1785,39 @@ local listingMappingStdlibCore = new Scenario {
   }
 }
 
+local pkspecPolish = new Scenario {
+  id = "PKL-139"
+  name = "parser and evaluator polish for pkspec"
+  description =
+    "Running pkspec's `pkl/Test.pkl` through pkl-mbt surfaced five drive-by parser / evaluator gaps that have nothing to do with one big subsystem but together blocked the file from evaluating. They are bundled here so a single slice unblocks the empirical pkspec round-trip: (1) `@ModuleInfo { ... }` brace-bodied annotations skip the `{ ... }` payload the same way `@Deprecated(\"...\")` skips parens — Apple Pkl's module / class metadata uses the brace form. (2) `typealias Foo =\\n  String(...)` allows the RHS to start on the next line; `parse_typealias_decl` now uses `skip_trivia` after the `=` so newlines are consumed. (3) Postfix dot-chains break across newlines (`xs\\n  .toList()\\n  .map(...)`); `parse_postfix_expr` peeks past trivia and, when the first significant follow-up token is `.` / `?.`, advances the cursor before continuing. (4) `module.foo` is Apple Pkl's self-reference to the current module's `foo` binding; the parser emits `Identifier(\"module\")` and the evaluator short-circuits `MemberAccess(Identifier(\"module\"), name)` to `resolve_binding_value(name, ...)`. (5) The stdlib constructor functions `List(...)`, `Set(...)`, `Map(k1, v1, k2, v2, ...)`, and `Pair(a, b)` are recognised before the generic call-path runs: `List` and `Set` produce `ListingValue` (Set dedupes), `Map` builds a `MappingValue`, `Pair` collapses to a 2-element `ListingValue` until PKL-119 introduces a dedicated `PairValue`."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-001"; "PKL-002"; "PKL-138" }
+  tags { "parser"; "evaluator"; "stdlib"; "pkf-pkspec" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Bundle five independent gaps into one slice rather than five mini-slices"
+      rationale =
+        "The gaps were found by a single empirical exercise (`moon run cmd/main -- eval pkspec/pkl/Test.pkl`) and each one in isolation gates the next: if `@ModuleInfo` isn't skipped, the module never parses; if the typealias RHS doesn't accept newlines, the type system never sees the constraints; if the dot-chain doesn't follow newlines, the body bindings fail; if `module.foo` isn't a self-reference, `output { value.defaults = module.defaults }` errors; if `List(...)` isn't a constructor, every cross-reference check in Test.pkl falls over. Splitting them into individual tickets would require five separate Roadmap entries that each only make sense in the context of the others. The bundle is small enough (one parser arm and four eval arms per gap) to stay reviewable in one commit."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Skip brace-bodied annotations rather than capture metadata"
+      rationale =
+        "Apple Pkl's `@ModuleInfo { ... }` carries metadata (min Pkl version, doc, etc.) that the runtime doesn't enforce inside an evaluator — it's primarily for tooling (`pkldoc`, codegen). pkl-mbt doesn't carry annotation metadata into the AST yet (PKL-128 is the slice that would). Skipping the body is the conservative move: it unblocks the file without storing data that nothing consumes. When the annotation surface lands, the skipper extends to a captured `AnnotationDecl` AST node."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary =
+        "`Pair(a, b)` collapses to a 2-element ListingValue rather than blocking on PairValue"
+      rationale =
+        "Apple Pkl's `Pair` is a structurally distinct stdlib type with `.first` / `.second` accessors. pkl-mbt doesn't have `PairValue` yet (PKL-119 is the future slice that splits Set / Pair / Map / IntSeq into dedicated variants). Until then, returning a 2-element `ListingValue` keeps the constructor call passing without introducing a half-baked third variant. Downstream code that depends on `.first` / `.second` will still error, but the construction itself no longer fails parser-side — which is what unblocks the pkspec evaluation path that just passes Pair values through unchanged."
+    }
+  }
+}
+
 local newBodyInference = new Scenario {
   id = "PKL-138"
   name = "new body inference from first token and binding annotation"
@@ -3009,5 +3042,6 @@ scenarios {
   listingMappingFunctional
   whenConditionalProperty
   newBodyInference
+  pkspecPolish
   ...roadmap.entries
 }

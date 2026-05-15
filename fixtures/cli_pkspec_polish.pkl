@@ -1,0 +1,24 @@
+// PKL-139: parser / evaluator polish uncovered when running pkspec
+// Test.pkl through pkl-mbt — brace-bodied annotation, multi-line
+// typealias RHS, dot-chain across newlines, `module.foo` self-reference,
+// and `List` / `Set` / `Map` / `Pair` constructor functions.
+@ModuleInfo { minPklVersion = "0.31.0" }
+module pkl_mbt.cli_pkspec_polish
+
+typealias DisplayName = String(length > 0 && !startsWith(" "))
+
+names: Listing<String> = new { "alpha"; "beta"; "gamma" }
+
+doubled = names.toList().map((n) -> n.toUpperCase())
+
+selfRef = module.names
+
+ctorList = List(1, 2, 3)
+
+ctorEmpty = List()
+
+ctorSet = Set(1, 2, 2, 3, 3, 3)
+
+ctorMap = Map("a", 1, "b", 2)
+
+ctorPair = Pair("k", "v")

@@ -1,6 +1,6 @@
 # Test SPEC
 
-168 tests across 2 module(s) — 138 pending, 30 active
+170 tests across 2 module(s) — 139 pending, 31 active
 
 ## `specs/`
 
@@ -549,6 +549,13 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **parser and evaluator polish for pkspec** — verifies: PKL-139 — tags: parser, evaluator, stdlib, pkf-pkspec
+  > Running pkspec's `pkl/Test.pkl` through pkl-mbt surfaced five drive-by parser / evaluator gaps that have nothing to do with one big subsystem but together blocked the file from evaluating. They are bundled here so a single slice unblocks the empirical pkspec round-trip: (1) `@ModuleInfo { ... }` brace-bodied annotations skip the `{ ... }` payload the same way `@Deprecated("...")` skips parens — Apple Pkl's module / class metadata uses the brace form. (2) `typealias Foo =\n  String(...)` allows the RHS to start on the next line; `parse_typealias_decl` now uses `skip_trivia` after the `=` so newlines are consumed. (3) Postfix dot-chains break across newlines (`xs\n  .toList()\n  .map(...)`); `parse_postfix_expr` peeks past trivia and, when the first significant follow-up token is `.` / `?.`, advances the cursor before continuing. (4) `module.foo` is Apple Pkl's self-reference to the current module's `foo` binding; the parser emits `Identifier("module")` and the evaluator short-circuits `MemberAccess(Identifier("module"), name)` to `resolve_binding_value(name, ...)`. (5) The stdlib constructor functions `List(...)`, `Set(...)`, `Map(k1, v1, k2, v2, ...)`, and `Pair(a, b)` are recognised before the generic call-path runs: `List` and `Set` produce `ListingValue` (Set dedupes), `Map` builds a `MappingValue`, `Pair` collapses to a 2-element `ListingValue` until PKL-119 introduces a dedicated `PairValue`.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-001, PKL-002, PKL-138
+  - decisions: 3 entry(ies)
+  - body: _not yet implemented_
+
 - [ ] **parser surface expansion** [draft] — verifies: PKL-128 — tags: parser
   > String interpolation `\(expr)`, scientific notation Float (`1e10` / `2.5e-3`), triple-quoted heredoc strings, annotation classes (`@Deprecated`, `@Since`), and constraint predicate composition (`Int(isPositive & isLessThan(10))`). Each is a parser-side extension; downstream stages are mostly ready.
   - contributes to: GOAL-PKL-PURE
@@ -1004,6 +1011,10 @@
 
 - [x] **cli new body inference** — verifies: PKL-138 — tags: moonbit, cli, parser, evaluator, pkf-pkspec, contract
   > The native CLI evaluates a fixture that exercises bare `new { ... }` literals dispatched into listing / mapping / object bodies by the first significant token, plus empty `new {}` literals coerced to ListingValue / MappingValue via the binding's type annotation. Chained methods (`emptyListing.toList().map(...)`, `emptyMapping.keys`) succeed because the coercion runs before the method dispatch.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli pkspec polish** — verifies: PKL-139 — tags: moonbit, cli, parser, evaluator, stdlib, pkf-pkspec, contract
+  > The native CLI evaluates a fixture that exercises the five drive-by gaps that blocked pkspec Test.pkl: brace-bodied `@ModuleInfo` annotation, multi-line typealias RHS, dot-chain across newlines, `module.foo` self-reference, and `List` / `Set` / `Map` / `Pair` constructor functions. The rendered output shows each form producing the expected value.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli reflect minimal stub** — verifies: PKL-080 — tags: moonbit, cli, pkl-reflect, stdlib, contract

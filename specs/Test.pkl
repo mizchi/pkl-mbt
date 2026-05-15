@@ -354,6 +354,27 @@ local cliListingMappingStdlib = new Test {
   timeoutSec = 120
 }
 
+local cliPkspecPolish = new Test {
+  name = "cli pkspec polish"
+  description =
+    "The native CLI evaluates a fixture that exercises the five drive-by gaps that blocked pkspec Test.pkl: brace-bodied `@ModuleInfo` annotation, multi-line typealias RHS, dot-chain across newlines, `module.foo` self-reference, and `List` / `Set` / `Map` / `Pair` constructor functions. The rendered output shows each form producing the expected value."
+  tags { "moonbit"; "cli"; "parser"; "evaluator"; "stdlib"; "pkf-pkspec"; "contract" }
+  specRef { "PKL-139" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_pkspec_polish.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "doubled {"
+    "\"ALPHA\""
+    "selfRef {"
+    "ctorList {"
+    "ctorEmpty {}"
+    "ctorSet {"
+    "ctorMap {"
+    "ctorPair {"
+  }
+  timeoutSec = 120
+}
+
 local cliNewBodyInference = new Test {
   name = "cli new body inference"
   description =
@@ -628,6 +649,7 @@ tests {
   cliListingMappingFunctional
   cliWhenConditional
   cliNewBodyInference
+  cliPkspecPolish
   cliFormat
   cliTestExamplesPass
   cliTestExamplesFail

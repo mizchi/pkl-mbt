@@ -363,8 +363,14 @@ fn Parser::skip_annotation(self : Parser) -> Unit {
       ignore(self.bump())
     }
     self.skip_whitespace()
+    // Apple Pkl annotations carry their argument either in parens
+    // (`@Deprecated("...")`) or as a body literal (`@ModuleInfo { minPklVersion = ... }`).
+    // Both forms are skipped today — we don't carry the metadata into
+    // the AST yet.
     if self.at(lparen()) {
       self.skip_balanced_group(lparen(), rparen())
+    } else if self.at(lbrace()) {
+      self.skip_balanced_group(lbrace(), rbrace())
     }
   }
 }
@@ -1064,7 +1070,11 @@ fn Parser::parse_typealias_decl(self : Parser) -> TypeAliasDecl? {
       self.at(eq())
     }) {
     ignore(self.bump())
-    self.skip_whitespace()
+    // Apple Pkl allows the typealias RHS to start on the next line
+    // (`typealias Foo =\n  String(...)`). Skip trivia (including
+    // newlines) so the type-text parser starts at the first significant
+    // token regardless of formatting.
+    self.skip_trivia()
     self.parse_type_text(stop_at_arrow=false, stop_at_expression_operator=false)
   } else {
     ""
@@ -1456,7 +1466,25 @@ fn Parser::parse_postfix_expr(self : Parser) -> Expr {
   let mut expr = self.parse_primary_expr()
   let mut keep_going = true
   while keep_going {
-    self.skip_whitespace()
+    // Apple Pkl accepts dot-chains broken across lines:
+    //   xs
+    //     .toList()
+    //     .map((x) -> x + 1)
+    // Peek past trivia (whitespace + newline + comment) — if the next
+    // significant token is `.` / `?.`, advance the cursor past the trivia
+    // and continue the chain. Otherwise stay put so the newline keeps its
+    // role as a statement separator.
+    let trivia_end = self.skip_trivia_from(self.pos)
+    let next_kind = if trivia_end >= self.len {
+      eof()
+    } else {
+      self.tokens[trivia_end].kind()
+    }
+    if next_kind == dot() || next_kind == qdot() {
+      self.pos = trivia_end
+    } else {
+      self.skip_whitespace()
+    }
     if self.at(dot()) || self.at(qdot()) {
       let unsupported_start = self.current_offset()
       let safe = self.at(qdot())
@@ -1592,6 +1620,16 @@ fn Parser::parse_primary_expr(self : Parser) -> Expr {
       let tok = self.bump()
       self.builder.finish_node()
       Identifier(tok.text())
+    }
+    // Apple Pkl: `module.foo` is a self-reference to the current module's
+    // `foo` binding. Parse as `Identifier("module")` so the postfix `.foo`
+    // chain attaches; the evaluator special-cases lookups on the
+    // `module` identifier to resolve from the module-level binding set.
+    kind if kind == module_kw() => {
+      self.builder.start_node(name_ref())
+      ignore(self.bump())
+      self.builder.finish_node()
+      Identifier("module")
     }
     kind if kind == import_kw() => self.parse_import_expr()
     kind if kind == new_kw() => self.parse_object_expr()

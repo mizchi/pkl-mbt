@@ -2454,6 +2454,96 @@ test "PKL-138: bare new { ident = ... } still parses as object body" {
 }
 
 ///|
+test "PKL-139: brace-bodied annotation skipped" {
+  guard typecheck_source("@ModuleInfo { minPklVersion = \"0.31.0\" }\nx = 5")
+    is TypeOk(_) else {
+    panic()
+  }
+}
+
+///|
+test "PKL-139: multi-line typealias RHS" {
+  guard typecheck_source(
+      "typealias DisplayName =\n  String(length > 0)\nx: DisplayName = \"hi\"",
+    )
+    is TypeOk(_) else {
+    panic()
+  }
+}
+
+///|
+test "PKL-139: dot-chain across newlines" {
+  guard eval_source(
+      "xs = new Listing { 1; 2; 3 }\nresult = xs\n  .toList()\n  .map((x) -> x + 1)",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[1].value is ListingValue(items) else { panic() }
+  inspect(items.length(), content="3")
+}
+
+///|
+test "PKL-139: module.foo self-reference resolves" {
+  guard eval_source(
+      "defaults: Mapping<String, String> = new { [\"a\"] = \"1\" }\nresult = module.defaults",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[1].value is MappingValue(entries) else { panic() }
+  inspect(entries.length(), content="1")
+}
+
+///|
+test "PKL-139: List(...) constructor produces Listing" {
+  guard eval_source("xs = List(1, 2, 3)") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is ListingValue(items) else { panic() }
+  inspect(items.length(), content="3")
+}
+
+///|
+test "PKL-139: List() with no args produces empty Listing" {
+  guard eval_source("xs = List()") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is ListingValue(items) else { panic() }
+  inspect(items.length(), content="0")
+}
+
+///|
+test "PKL-139: Set(...) deduplicates arguments" {
+  guard eval_source("xs = Set(1, 2, 2, 3, 3, 3)")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is ListingValue(items) else { panic() }
+  inspect(items.length(), content="3")
+}
+
+///|
+test "PKL-139: Map(...) builds Mapping from alternating args" {
+  guard eval_source("m = Map(\"a\", 1, \"b\", 2)")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is MappingValue(entries) else { panic() }
+  inspect(entries.length(), content="2")
+}
+
+///|
+test "PKL-139: Pair(a, b) collapses to 2-element Listing" {
+  guard eval_source("p = Pair(\"first\", \"second\")")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is ListingValue(items) else { panic() }
+  inspect(items.length(), content="2")
+}
+
+///|
 test "Number constraint predicate accepts both Int and Float" {
   assert_true(
     eval_source("a: Number(isPositive) = 3\nb: Number(isPositive) = 0.5") ==

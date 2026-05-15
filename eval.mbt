@@ -3721,76 +3721,88 @@ fn eval_expr_with_bindings(
       Some(MappingValue(values))
     }
     MemberAccess(target_expr, member_name) =>
-      match
-        eval_expr_with_bindings(
-          target_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+      // PKL-139: `module.foo` is Apple Pkl's self-reference to the
+      // current module's `foo` binding. Short-circuit the member access
+      // to a direct binding lookup so the value is resolved through the
+      // module's binding env rather than treating `module` as an
+      // ordinary identifier (which would fail with "unbound identifier").
+      if target_expr is Identifier("module") {
+        resolve_binding_value(
+          member_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
           resolve_import,
-        ) {
-        Some(ObjectValue(members)) =>
-          match lookup_member(members, member_name) {
-            Some(value) => Some(value)
-            None => {
+        )
+      } else {
+        match
+          eval_expr_with_bindings(
+            target_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
+          ) {
+          Some(ObjectValue(members)) =>
+            match lookup_member(members, member_name) {
+              Some(value) => Some(value)
+              None => {
+                diagnostics.push(Diagnostic::{
+                  message: "unknown member \{member_name}",
+                })
+                None
+              }
+            }
+          Some(ListingValue(elements)) =>
+            if is_listing_property_name(member_name) {
+              eval_listing_property(elements, member_name, diagnostics)
+            } else {
               diagnostics.push(Diagnostic::{
-                message: "unknown member \{member_name}",
+                message: "unknown Listing property \{member_name}",
               })
               None
             }
-          }
-        Some(ListingValue(elements)) =>
-          if is_listing_property_name(member_name) {
-            eval_listing_property(elements, member_name, diagnostics)
-          } else {
+          Some(MappingValue(entries)) =>
+            if is_mapping_property_name(member_name) {
+              eval_mapping_property(entries, member_name, diagnostics)
+            } else {
+              diagnostics.push(Diagnostic::{
+                message: "unknown Mapping property \{member_name}",
+              })
+              None
+            }
+          Some(StringValue(s)) =>
+            if is_string_property_name(member_name) {
+              eval_string_property(s, member_name, diagnostics)
+            } else {
+              diagnostics.push(Diagnostic::{
+                message: "unknown String property \{member_name}",
+              })
+              None
+            }
+          Some(IntValue(n)) =>
+            if is_duration_unit_name(member_name) {
+              Some(DurationValue(n, member_name))
+            } else if is_datasize_unit_name(member_name) {
+              Some(DataSizeValue(n, member_name))
+            } else if is_int_property_name(member_name) {
+              eval_int_property(n, member_name, diagnostics)
+            } else {
+              diagnostics.push(Diagnostic::{
+                message: "unknown Int property \{member_name}",
+              })
+              None
+            }
+          Some(DurationValue(n, unit)) =>
+            eval_duration_property(n, unit, member_name, diagnostics)
+          Some(DataSizeValue(n, unit)) =>
+            eval_datasize_property(n, unit, member_name, diagnostics)
+          Some(RegexValue(pattern)) =>
+            eval_regex_property(pattern, member_name, diagnostics)
+          Some(BytesValue(bytes)) =>
+            eval_bytes_property(bytes, member_name, diagnostics)
+          Some(_) => {
             diagnostics.push(Diagnostic::{
-              message: "unknown Listing property \{member_name}",
+              message: "member access expects Object",
             })
             None
           }
-        Some(MappingValue(entries)) =>
-          if is_mapping_property_name(member_name) {
-            eval_mapping_property(entries, member_name, diagnostics)
-          } else {
-            diagnostics.push(Diagnostic::{
-              message: "unknown Mapping property \{member_name}",
-            })
-            None
-          }
-        Some(StringValue(s)) =>
-          if is_string_property_name(member_name) {
-            eval_string_property(s, member_name, diagnostics)
-          } else {
-            diagnostics.push(Diagnostic::{
-              message: "unknown String property \{member_name}",
-            })
-            None
-          }
-        Some(IntValue(n)) =>
-          if is_duration_unit_name(member_name) {
-            Some(DurationValue(n, member_name))
-          } else if is_datasize_unit_name(member_name) {
-            Some(DataSizeValue(n, member_name))
-          } else if is_int_property_name(member_name) {
-            eval_int_property(n, member_name, diagnostics)
-          } else {
-            diagnostics.push(Diagnostic::{
-              message: "unknown Int property \{member_name}",
-            })
-            None
-          }
-        Some(DurationValue(n, unit)) =>
-          eval_duration_property(n, unit, member_name, diagnostics)
-        Some(DataSizeValue(n, unit)) =>
-          eval_datasize_property(n, unit, member_name, diagnostics)
-        Some(RegexValue(pattern)) =>
-          eval_regex_property(pattern, member_name, diagnostics)
-        Some(BytesValue(bytes)) =>
-          eval_bytes_property(bytes, member_name, diagnostics)
-        Some(_) => {
-          diagnostics.push(Diagnostic::{
-            message: "member access expects Object",
-          })
-          None
+          None => None
         }
-        None => None
       }
     SafeMemberAccess(target_expr, member_name) =>
       match
@@ -4124,6 +4136,145 @@ fn eval_expr_with_bindings(
             message: "trace expects exactly one argument",
           })
           None
+        }
+      } else if (callee is Identifier("List") || callee is Identifier("Set")) &&
+        (
+          (
+            callee is Identifier("List") &&
+            !stack_contains_binding(stack, "List") &&
+            find_binding(bindings, "List") is None
+          ) ||
+          (
+            callee is Identifier("Set") &&
+            !stack_contains_binding(stack, "Set") &&
+            find_binding(bindings, "Set") is None
+          )
+        ) {
+        // PKL-139: `List(...)` / `Set(...)` are Apple Pkl's constructor
+        // functions for the immutable indexed collection and the
+        // unordered unique collection. pkl-mbt collapses `List` and
+        // `Listing` into the same `ListingValue` until PKL-119 splits
+        // Set / Pair / Map / IntSeq variants out; both forms produce
+        // `ListingValue` here. The behavioural difference (Set ignores
+        // duplicates) is the only divergence: we project Set's args
+        // through `distinct` so chained operations behave correctly.
+        let arg_values : Array[Value] = []
+        let mut ok = true
+        for argument in arguments {
+          match
+            eval_expr_with_bindings(
+              argument, bindings, env, class_env, cache, stack, declarations, diagnostics,
+              resolve_import,
+            ) {
+            Some(v) => arg_values.push(v)
+            None => ok = false
+          }
+        }
+        if !ok {
+          None
+        } else if callee is Identifier("Set") {
+          let unique : Array[Value] = []
+          for v in arg_values {
+            if !contains_value(unique, v) {
+              unique.push(v)
+            }
+          }
+          Some(ListingValue(unique))
+        } else {
+          Some(ListingValue(arg_values))
+        }
+      } else if callee is Identifier("Map") &&
+        !stack_contains_binding(stack, "Map") &&
+        find_binding(bindings, "Map") is None {
+        // PKL-139: Apple Pkl's `Map(k1, v1, k2, v2, ...)` constructor
+        // builds an immutable key-value mapping. Arguments come in
+        // alternating `key, value` pairs; the result is a `MappingValue`
+        // until PKL-119 introduces a dedicated MapValue.
+        if arguments.length() % 2 != 0 {
+          diagnostics.push(Diagnostic::{
+            message: "Map expects an even number of arguments (alternating key, value)",
+          })
+          None
+        } else {
+          let entries : Array[ValueEntry] = []
+          let mut ok = true
+          let mut i = 0
+          while i < arguments.length() {
+            let key_v = eval_expr_with_bindings(
+              arguments[i],
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            )
+            let value_v = eval_expr_with_bindings(
+              arguments[i + 1],
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            )
+            match (key_v, value_v) {
+              (Some(k), Some(v)) => entries.push({ key: k, value: v })
+              _ => ok = false
+            }
+            i = i + 2
+          }
+          if ok {
+            Some(MappingValue(entries))
+          } else {
+            None
+          }
+        }
+      } else if callee is Identifier("Pair") &&
+        !stack_contains_binding(stack, "Pair") &&
+        find_binding(bindings, "Pair") is None {
+        // PKL-139: Apple Pkl's `Pair(first, second)` constructor. pkl-mbt
+        // doesn't have a dedicated PairValue (deferred to PKL-119), so
+        // model it as a 2-element ListingValue. Downstream code that
+        // accesses `.first` / `.second` will fail until PKL-119 lands;
+        // the constructor itself is at least no longer a hard parser-
+        // surface error.
+        if arguments.length() != 2 {
+          diagnostics.push(Diagnostic::{
+            message: "Pair expects exactly two arguments",
+          })
+          None
+        } else {
+          let first = eval_expr_with_bindings(
+            arguments[0],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          )
+          let second = eval_expr_with_bindings(
+            arguments[1],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          )
+          match (first, second) {
+            (Some(a), Some(b)) => Some(ListingValue([a, b]))
+            _ => None
+          }
         }
       } else if callee is Identifier("Regex") &&
         !stack_contains_binding(stack, "Regex") &&
