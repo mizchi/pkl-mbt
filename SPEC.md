@@ -415,7 +415,7 @@
   - contributes to: GOAL-PKL-PURE
   - body: _not yet implemented_
 
-- [ ] **render Pkl objects and listings as PCF** [draft] — verifies: PKL-071 — tags: renderer, pcf
+- [ ] **render Pkl objects and listings as PCF** [draft] — verifies: PKL-071 — tags: renderer, pcf, next
   > PCF rendering emits nested objects, listings, and mappings with the brace / element conventions Apple Pkl uses, including ordering and indentation, so the upstream fixture gold outputs match byte-for-byte.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-070
@@ -436,11 +436,11 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **render Pkl values as PCF primitives** [draft] — verifies: PKL-070 — tags: renderer, pcf, next
-  > Module rendering as the canonical Pkl Configuration Format (PCF) emits Int, Float, Boolean, String, and Null values with the same lexical form Apple Pkl uses, so a round-trip through render -> parse is stable for primitives.
+- [ ] **render Pkl values as PCF primitives** — verifies: PKL-070 — tags: renderer, pcf
+  > Module rendering as the canonical Pkl Configuration Format (PCF) emits Int, Boolean, String, and Null values with the same lexical form Apple Pkl uses, so module bindings reparse to the same value graph and the basic LanguageSnippetTests fixtures match the upstream gold output byte-for-byte.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-009
-  - decisions: 1 entry(ies)
+  - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **render Pkl values as YAML** (minor) [draft] — verifies: PKL-073 — tags: renderer, yaml
@@ -655,7 +655,7 @@
   > The native CLI evaluates a Pkl file and prints module object properties.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068 — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-070 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 

@@ -159,6 +159,48 @@ test "render string escapes for CLI output" {
 }
 
 ///|
+test "render Pkl values as PCF primitives" {
+  inspect(render_value(IntValue(0)), content="0")
+  inspect(render_value(IntValue(42)), content="42")
+  inspect(render_value(IntValue(-7)), content="-7")
+  inspect(render_value(BoolValue(true)), content="true")
+  inspect(render_value(BoolValue(false)), content="false")
+  inspect(render_value(NullValue), content="null")
+  inspect(render_value(StringValue("")), content="\"\"")
+  inspect(render_value(StringValue("hawk")), content="\"hawk\"")
+  inspect(render_value(StringValue("a\nb")), content="\"a\\nb\"")
+  inspect(render_value(StringValue("a\tb")), content="\"a\\tb\"")
+  inspect(render_value(StringValue("a\rb")), content="\"a\\rb\"")
+  inspect(render_value(StringValue("say \"hi\"")), content="\"say \\\"hi\\\"\"")
+  inspect(render_value(StringValue("c:\\path")), content="\"c:\\\\path\"")
+}
+
+///|
+test "render PCF module bindings as key equals value lines" {
+  guard eval_source("n = 42\nb = true\ns = \"hawk\"\nz = null") is EvalOk(value) else {
+    panic()
+  }
+  inspect(
+    render_value(value),
+    content=(
+      #|n = 42
+      #|b = true
+      #|s = "hawk"
+      #|z = null
+    ),
+  )
+}
+
+///|
+test "PCF render output reparses to the original module" {
+  let source = "n = 42\nb = true\ns = \"a\\tb\"\nz = null"
+  guard eval_source(source) is EvalOk(first_pass) else { panic() }
+  let rendered = render_value(first_pass)
+  guard eval_source(rendered) is EvalOk(second_pass) else { panic() }
+  assert_true(first_pass == second_pass)
+}
+
+///|
 test "parser treats Pkl comments as trivia" {
   let parsed = parse_source(
     "// leading\nname = \"hawk\" // trailing\nage = 2 /* block */\n",

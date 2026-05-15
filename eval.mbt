@@ -2128,7 +2128,18 @@ pub fn eval_source(source : String) -> EvalResult {
   eval_source_with_imports(source, fn(_) { None })
 }
 
+///| Render a runtime value in the canonical Pkl Configuration Format
+
+///| (PCF). Primitives use the same lexical form as Apple Pkl's
+
+///| `pkl eval` default output, so the result can be reparsed by this
+
+///| evaluator and by upstream Pkl. The JSON / YAML / Properties
+
+///| renderers (PKL-072..074) will live alongside this as separate
+
 ///|
+/// entry points.
 pub fn render_value(value : Value) -> String {
   match value {
     IntValue(n) => "\{n}"

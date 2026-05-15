@@ -41,26 +41,6 @@ local typeAliasedCallableArgumentEvaluation: Spec.Scenario = new {
 
 // ── renderers ───────────────────────────────────────────────────────────────
 
-local pcfRendererPrimitives: Spec.Scenario = new {
-  id = "PKL-070"
-  name = "render Pkl values as PCF primitives"
-  description =
-    "Module rendering as the canonical Pkl Configuration Format (PCF) emits Int, Float, Boolean, String, and Null values with the same lexical form Apple Pkl uses, so a round-trip through render -> parse is stable for primitives."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-009" }
-  tags { "renderer"; "pcf"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-  decisions {
-    new Spec.Decision {
-      date = "2026-05-15"
-      summary = "Pick PCF as the first renderer target"
-      rationale =
-        "PCF is Pkl's native output format and the only renderer where round-tripping back through the parser is meaningful. JSON / YAML diverge from PCF for the kinds of values where rendering bugs tend to hide (escapes, numeric formatting), so PCF first gives the strongest correctness signal."
-    }
-  }
-}
-
 local pcfRendererObjects: Spec.Scenario = new {
   id = "PKL-071"
   name = "render Pkl objects and listings as PCF"
@@ -68,7 +48,7 @@ local pcfRendererObjects: Spec.Scenario = new {
     "PCF rendering emits nested objects, listings, and mappings with the brace / element conventions Apple Pkl uses, including ordering and indentation, so the upstream fixture gold outputs match byte-for-byte."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-070" }
-  tags { "renderer"; "pcf" }
+  tags { "renderer"; "pcf"; "next" }
   reviewStatus = "draft"
   severity = "major"
   decisions {
@@ -467,7 +447,6 @@ local upstreamGoldOutputDiff: Spec.Scenario = new {
 
 entries: Listing<Spec.Scenario> = new {
   typeAliasedCallableArgumentEvaluation
-  pcfRendererPrimitives
   pcfRendererObjects
   jsonRenderer
   yamlRenderer

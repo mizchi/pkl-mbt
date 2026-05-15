@@ -1374,6 +1374,32 @@ local typeAliasedCallableReturnEvaluation = new Scenario {
   }
 }
 
+local pcfRendererPrimitives = new Scenario {
+  id = "PKL-070"
+  name = "render Pkl values as PCF primitives"
+  description =
+    "Module rendering as the canonical Pkl Configuration Format (PCF) emits Int, Boolean, String, and Null values with the same lexical form Apple Pkl uses, so module bindings reparse to the same value graph and the basic LanguageSnippetTests fixtures match the upstream gold output byte-for-byte."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-009" }
+  tags { "renderer"; "pcf" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Lock the existing CLI renderer in as the PCF baseline"
+      rationale =
+        "The CLI `eval` command already emits PCF-shaped output for Int, Boolean, String, and Null primitives, and the basic upstream parens / import1 fixtures match the gold .pcf files byte-for-byte. PKL-070 locks that contract with explicit unit tests, a round-trip test, and a doc comment on render_value identifying it as the PCF entry point so future JSON / YAML renderers (PKL-072..074) land alongside without ambiguity."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Defer Float values to a dedicated slice"
+      rationale =
+        "Float values, literals, and the matching FloatType are not yet in the AST, evaluator, or typechecker. Adding them would inflate PKL-070 well beyond a renderer slice, so Float rendering is queued as a follow-up alongside Float constraint predicates (PKL-092)."
+    }
+  }
+}
+
 goals { pureMoonBitCore }
 
 scenarios {
@@ -1445,5 +1471,6 @@ scenarios {
   userDefinedConstrainedCallableArgumentEvaluation
   constrainedCallableReturnBodyTypechecking
   typeAliasedCallableReturnEvaluation
+  pcfRendererPrimitives
   ...roadmap.entries
 }
