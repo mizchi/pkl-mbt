@@ -1055,8 +1055,8 @@ local multipleConstraintPredicates = new Scenario {
     "Type annotations with multiple constraints, such as `Int(isPositive, isBetween(0, 10))`, evaluate each supported predicate and reject values that violate any predicate."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-053"; "PKL-046"; "PKL-052" }
-  tags { "typechecker"; "evaluator"; "next" }
-  reviewStatus = "draft"
+  tags { "typechecker"; "evaluator" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -1064,6 +1064,26 @@ local multipleConstraintPredicates = new Scenario {
       summary = "Evaluate constraint lists after individual predicates"
       rationale =
         "The parser already preserves comma-separated constraint text from upstream fixtures. Once individual numeric predicates are supported, the next step is splitting top-level constraint lists and checking each supported predicate."
+    }
+  }
+}
+
+local negatedConstraintPredicates = new Scenario {
+  id = "PKL-055"
+  name = "support negated Pkl type constraint predicates"
+  description =
+    "Type annotations with negated constraints, such as `Int(!isPositive)`, invert supported predicate results in typechecking and evaluation paths."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-054"; "PKL-053"; "PKL-046" }
+  tags { "typechecker"; "evaluator"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Add constraint negation after list evaluation"
+      rationale =
+        "Upstream fixtures include negated constraints such as `!isPositive`. Once constraint lists are evaluated in order, negation can be represented as a predicate wrapper without changing the surrounding metadata flow."
     }
   }
 }
@@ -1125,4 +1145,5 @@ scenarios {
   constrainedTypealiasObjectMembers
   numericConstraintPredicates
   multipleConstraintPredicates
+  negatedConstraintPredicates
 }

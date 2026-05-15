@@ -250,22 +250,34 @@ fn pkl_int_constraint_predicate(text : String) -> ConstraintIntPredicate? {
 }
 
 ///|
-fn pkl_constrained_int_predicate(type_name : String) -> ConstraintIntPredicate? {
+fn pkl_constrained_int_predicates(
+  type_name : String,
+) -> Array[ConstraintIntPredicate] {
+  let predicates : Array[ConstraintIntPredicate] = []
   match pkl_constrained_type_base_name(type_name) {
     Some("Int") =>
       match pkl_constrained_type_constraint_text(type_name) {
-        Some(text) => pkl_int_constraint_predicate(text)
-        None => None
+        Some(text) => {
+          let parts = pkl_split_constraint_arguments(text)
+          for part in parts {
+            match pkl_int_constraint_predicate(part) {
+              Some(predicate) => predicates.push(predicate)
+              None => ()
+            }
+          }
+        }
+        None => ()
       }
-    _ => None
+    _ => ()
   }
+  predicates
 }
 
 ///|
 fn pkl_constrained_type_annotation_has_supported_constraint(
   type_name : String,
 ) -> Bool {
-  pkl_constrained_int_predicate(type_name) is Some(_)
+  pkl_constrained_int_predicates(type_name).length() > 0
 }
 
 ///|
@@ -297,17 +309,14 @@ fn pkl_constrained_int_rejection_message_from_source(
   source_name : String,
   value : Int,
 ) -> String? {
-  match pkl_constrained_int_predicate(source_name) {
-    Some(predicate) =>
-      if !pkl_constraint_predicate_accepts(predicate, value) {
-        Some(
-          "type annotation \{display_name} constraint \{pkl_constraint_name(predicate)} rejects \{value}",
-        )
-      } else {
-        None
-      }
-    None => None
+  for predicate in pkl_constrained_int_predicates(source_name) {
+    if !pkl_constraint_predicate_accepts(predicate, value) {
+      return Some(
+        "type annotation \{display_name} constraint \{pkl_constraint_name(predicate)} rejects \{value}",
+      )
+    }
   }
+  None
 }
 
 ///|

@@ -1102,6 +1102,30 @@ test "support additional Pkl numeric constraint predicates" {
 }
 
 ///|
+test "support multiple Pkl type constraint predicates" {
+  assert_true(
+    typecheck_source("value: Int(isPositive, isLessThan(10)) = 3") ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
+  )
+  guard typecheck_source("value: Int(isPositive, isLessThan(10)) = 10")
+    is TypeError(type_diagnostics) else {
+    panic()
+  }
+  inspect(
+    type_diagnostics[0].message,
+    content="type annotation Int(isPositive,isLessThan(10)) constraint isLessThan rejects 10",
+  )
+  guard eval_source("value: Int(isPositive, isBetween(1, 10)) = 0")
+    is EvalError(eval_diagnostics) else {
+    panic()
+  }
+  inspect(
+    eval_diagnostics[0].message,
+    content="type annotation Int(isPositive,isBetween(1,10)) constraint isPositive rejects 0",
+  )
+}
+
+///|
 test "evaluate and typecheck Pkl constrained type annotation predicates" {
   assert_true(
     typecheck_source("value: Int(isBetween(0, 10)) = 3") ==
