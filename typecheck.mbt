@@ -53,6 +53,13 @@ priv struct TypeBinding {
   // instantiation site (`Box<Int>` → `Listing<Int>`). `None` for
   // ordinary bindings.
   alias_decl : TypeAliasDecl?
+  // PKL-116: when this binding represents a generic type parameter with
+  // a declared bound (`function pick<T : Number>(...)` or
+  // `class Box<T : Number>`), capture the resolved bound Type so
+  // `unify_for_substitution` can check that the concrete argument flows
+  // through `type_accepts(bound, actual)`. `None` for ordinary
+  // bindings and unbounded type parameters.
+  bound : Type?
 }
 
 ///|
@@ -1264,34 +1271,82 @@ fn unify_for_substitution(
   expected : Type,
   actual : Type,
   subs : Array[TypeSubstitution],
+  type_env : Array[TypeBinding],
+  diagnostics : Array[Diagnostic],
 ) -> Unit {
   match (expected, actual) {
-    (TypeVariable(name), _) => record_substitution(subs, name, actual)
+    (TypeVariable(name), _) => {
+      // PKL-116: when the parameter carries a declared bound, check
+      // that the concrete argument flows through `type_accepts(bound,
+      // actual)`. First-binding-wins still applies to the substitution
+      // table itself; bound rejection is independent of binding
+      // recording so the diagnostic surface stays clear.
+      for binding in type_env {
+        if binding.name == name {
+          match binding.bound {
+            Some(bound_type) =>
+              if !type_accepts(bound_type, actual) {
+                diagnostics.push(Diagnostic::{
+                  message: "type parameter \{name} bound \{render_type(bound_type)} rejects \{render_type(actual)}",
+                })
+              }
+            None => ()
+          }
+        }
+      }
+      record_substitution(subs, name, actual)
+    }
     (ConstrainedType(_, expected_inner), _) =>
-      unify_for_substitution(expected_inner, actual, subs)
+      unify_for_substitution(
+        expected_inner, actual, subs, type_env, diagnostics,
+      )
     (_, ConstrainedType(_, actual_inner)) =>
-      unify_for_substitution(expected, actual_inner, subs)
+      unify_for_substitution(
+        expected, actual_inner, subs, type_env, diagnostics,
+      )
     (DefaultedType(expected_inner), _) =>
-      unify_for_substitution(expected_inner, actual, subs)
+      unify_for_substitution(
+        expected_inner, actual, subs, type_env, diagnostics,
+      )
     (_, DefaultedType(actual_inner)) =>
-      unify_for_substitution(expected, actual_inner, subs)
+      unify_for_substitution(
+        expected, actual_inner, subs, type_env, diagnostics,
+      )
     (NullableType(expected_inner), NullableType(actual_inner)) =>
-      unify_for_substitution(expected_inner, actual_inner, subs)
+      unify_for_substitution(
+        expected_inner, actual_inner, subs, type_env, diagnostics,
+      )
     (NullableType(expected_inner), _) =>
-      unify_for_substitution(expected_inner, actual, subs)
+      unify_for_substitution(
+        expected_inner, actual, subs, type_env, diagnostics,
+      )
     (ListingType(expected_items), ListingType(actual_items)) =>
       if expected_items.length() > 0 && actual_items.length() > 0 {
         let expected_item = expected_items[0]
         for item in actual_items {
-          unify_for_substitution(expected_item, item, subs)
+          unify_for_substitution(
+            expected_item, item, subs, type_env, diagnostics,
+          )
         }
       }
     (MappingType(expected_entries), MappingType(actual_entries)) =>
       if expected_entries.length() > 0 && actual_entries.length() > 0 {
         let expected_entry = expected_entries[0]
         for entry in actual_entries {
-          unify_for_substitution(expected_entry.key, entry.key, subs)
-          unify_for_substitution(expected_entry.value, entry.value, subs)
+          unify_for_substitution(
+            expected_entry.key,
+            entry.key,
+            subs,
+            type_env,
+            diagnostics,
+          )
+          unify_for_substitution(
+            expected_entry.value,
+            entry.value,
+            subs,
+            type_env,
+            diagnostics,
+          )
         }
       }
     (
@@ -1308,9 +1363,13 @@ fn unify_for_substitution(
           expected_parameters[i],
           actual_parameters[i],
           subs,
+          type_env,
+          diagnostics,
         )
       }
-      unify_for_substitution(expected_return, actual_return, subs)
+      unify_for_substitution(
+        expected_return, actual_return, subs, type_env, diagnostics,
+      )
     }
     (ClassType(_, expected_members), ObjectType(actual_members))
     | (ClassType(_, expected_members), ClassType(_, actual_members)) =>
@@ -1321,6 +1380,8 @@ fn unify_for_substitution(
               member_contract_type(expected_member.typ),
               actual,
               subs,
+              type_env,
+              diagnostics,
             )
           None => ()
         }
@@ -1334,6 +1395,8 @@ fn unify_for_substitution(
               member_contract_type(expected_member.typ),
               actual,
               subs,
+              type_env,
+              diagnostics,
             )
           None => ()
         }
@@ -1396,7 +1459,9 @@ fn apply_type_annotation(
             // its members. Unify against the inferred ObjectType members
             // and rewrite the returned ClassType so downstream field
             // access (`b.value`) resolves to the concrete argument type.
-            let expected = substitute_class_type_variables(expected, inferred)
+            let expected = substitute_class_type_variables(
+              expected, inferred, type_env, diagnostics,
+            )
             match (expected, inferred) {
               (NullableType(ObjectType([])), ObjectType(_)) =>
                 NullableType(inferred)
@@ -1424,11 +1489,16 @@ fn apply_type_annotation(
 }
 
 ///|
-fn substitute_class_type_variables(expected : Type, inferred : Type) -> Type {
+fn substitute_class_type_variables(
+  expected : Type,
+  inferred : Type,
+  type_env : Array[TypeBinding],
+  diagnostics : Array[Diagnostic],
+) -> Type {
   match expected {
     ClassType(_, _) => {
       let subs : Array[TypeSubstitution] = []
-      unify_for_substitution(expected, inferred, subs)
+      unify_for_substitution(expected, inferred, subs, type_env, diagnostics)
       if subs.length() == 0 {
         expected
       } else {
@@ -1557,6 +1627,7 @@ fn imported_type_bindings(
             name: "\{decl.import_name}.\{type_export.name}",
             typ: qualify_imported_type(decl.import_name, type_export),
             alias_decl: None,
+            bound: None,
           })
         }
       None => ()
@@ -1831,7 +1902,8 @@ fn push_narrowed_type_binding(
         narrow_negative_is_guard_type(original_type, guard_type)
       }
       match narrowed {
-        Some(typ) => target_cache.push({ name, typ, alias_decl: None })
+        Some(typ) =>
+          target_cache.push({ name, typ, alias_decl: None, bound: None })
         None => ()
       }
     }
@@ -2115,12 +2187,14 @@ fn push_class_method_receiver_bindings(
       name: type_member.name,
       typ: member_contract_type(type_member.typ),
       alias_decl: None,
+      bound: None,
     })
   }
   cache.push({
     name: "this",
     typ: ClassType(class_name, members),
     alias_decl: None,
+    bound: None,
   })
 }
 
@@ -2146,6 +2220,7 @@ fn validate_class_method_body(
           name: function_decl.parameters[i].name,
           typ: parameter_types[i],
           alias_decl: None,
+          bound: None,
         })
       }
       let inferred_return = infer_expr_with_bindings(
@@ -2208,11 +2283,27 @@ fn class_decl_to_members(
     type_env
   } else {
     let next : Array[TypeBinding] = []
-    for parameter in class_decl.type_parameters {
+    // PKL-116: thread declared bounds through the class-scoped type_env
+    // so methods and properties resolved against `T` participate in the
+    // same bound check as standalone functions. Bounds resolve against
+    // the outer `type_env` (the class binding itself is not yet in
+    // scope, matching PKL-110's TypeVariable injection order).
+    for i = 0; i < class_decl.type_parameters.length(); i = i + 1 {
+      let parameter = class_decl.type_parameters[i]
+      let bound_text = if i < class_decl.type_parameter_bounds.length() {
+        class_decl.type_parameter_bounds[i]
+      } else {
+        None
+      }
+      let bound = match bound_text {
+        Some(text) => type_from_annotation(text, type_env)
+        None => None
+      }
       next.push({
         name: parameter,
         typ: TypeVariable(parameter),
         alias_decl: None,
+        bound,
       })
     }
     for binding in type_env {
@@ -2276,6 +2367,7 @@ fn collect_declared_types_with_imports(
           name: class_decl.name,
           typ: ClassType(class_decl.name, []),
           alias_decl: None,
+          bound: None,
         })
       TypeAliasDeclaration(type_alias) =>
         match builtin_type_from_annotation(type_alias.target) {
@@ -2288,6 +2380,7 @@ fn collect_declared_types_with_imports(
               } else {
                 None
               },
+              bound: None,
             })
           None => ()
         }
@@ -2298,11 +2391,27 @@ fn collect_declared_types_with_imports(
       // substitution pass can match on (`identity(7)` binds T = Int and
       // rewrites the return type before it propagates outward).
       FunctionDeclaration(function_decl) =>
-        for parameter in function_decl.type_parameters {
+        // PKL-116: resolve each parameter's optional bound text in the
+        // current type_env so the binding carries a fully resolved
+        // bound Type. `unify_for_substitution` consults `bound` to
+        // reject call sites whose argument does not flow through the
+        // bound. Unbounded parameters keep `bound = None`.
+        for i = 0; i < function_decl.type_parameters.length(); i = i + 1 {
+          let parameter = function_decl.type_parameters[i]
+          let bound_text = if i < function_decl.type_parameter_bounds.length() {
+            function_decl.type_parameter_bounds[i]
+          } else {
+            None
+          }
+          let bound = match bound_text {
+            Some(text) => type_from_annotation(text, type_env)
+            None => None
+          }
           type_env.push({
             name: parameter,
             typ: TypeVariable(parameter),
             alias_decl: None,
+            bound,
           })
         }
     }
@@ -2317,6 +2426,7 @@ fn collect_declared_types_with_imports(
             class_decl_to_members(class_decl, type_env, diagnostics),
           ),
           alias_decl: None,
+          bound: None,
         })
       TypeAliasDeclaration(type_alias) => {
         // PKL-115: capture the original decl on the binding when the
@@ -2332,6 +2442,7 @@ fn collect_declared_types_with_imports(
             name: parameter,
             typ: TypeVariable(parameter),
             alias_decl: None,
+            bound: None,
           })
         }
         match
@@ -2345,6 +2456,7 @@ fn collect_declared_types_with_imports(
               } else {
                 None
               },
+              bound: None,
             })
           None =>
             diagnostics.push(Diagnostic::{
@@ -2423,7 +2535,7 @@ fn resolve_binding_type(
               type_env,
               diagnostics,
             )
-            cache.push({ name, typ, alias_decl: None })
+            cache.push({ name, typ, alias_decl: None, bound: None })
             Some(typ)
           }
         None => lookup_type(env, name)
@@ -2587,7 +2699,13 @@ fn infer_lambda_application(
                 }
                 None => ()
               }
-              unify_for_substitution(expected, argument_types[i], substitutions)
+              unify_for_substitution(
+                expected,
+                argument_types[i],
+                substitutions,
+                type_env,
+                diagnostics,
+              )
               substitute_type(expected, substitutions)
             } else {
               diagnostics.push(Diagnostic::{
@@ -2608,6 +2726,7 @@ fn infer_lambda_application(
       name: parameter.name,
       typ: parameter_type,
       alias_decl: None,
+      bound: None,
     })
   }
   if !validate_higher_order_constrained_call(
@@ -2686,7 +2805,13 @@ fn infer_function_type_call(
       })
       return UnknownType
     }
-    unify_for_substitution(expected, argument_types[i], substitutions)
+    unify_for_substitution(
+      expected,
+      argument_types[i],
+      substitutions,
+      type_env,
+      diagnostics,
+    )
     match constrained_type_annotation_name(expected) {
       Some(type_name) =>
         match
@@ -3434,7 +3559,7 @@ fn infer_imports(
   for decl in imports {
     match resolve_import(decl.uri) {
       Some(TypeOk(typ)) =>
-        env.push({ name: decl.import_name, typ, alias_decl: None })
+        env.push({ name: decl.import_name, typ, alias_decl: None, bound: None })
       Some(TypeError(errors)) =>
         for error in errors {
           diagnostics.push(error)

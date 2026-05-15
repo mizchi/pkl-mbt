@@ -133,18 +133,6 @@ local upstreamFixtureSweepExpansion: Spec.Scenario = new {
 
 // ── typechecker rounding ────────────────────────────────────────────────────
 
-local typeParameterBounds: Spec.Scenario = new {
-  id = "PKL-116"
-  name = "type parameter bounds"
-  description =
-    "`class Box<T : Number>` constrains T to a supertype. Parser accepts the `: <type>` suffix; typechecker checks the bound at call sites once PKL-110 inference exists."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-089"; "PKL-110" }
-  tags { "parser"; "typechecker"; "generics"; "bounds"; "next" }
-  reviewStatus = "draft"
-  severity = "minor"
-}
-
 local inheritanceDispatchHardening: Spec.Scenario = new {
   id = "PKL-117"
   name = "inheritance dispatch hardening"
@@ -152,7 +140,7 @@ local inheritanceDispatchHardening: Spec.Scenario = new {
     "Super method calls (`super.method()`), abstract method enforcement, and override-direction type compatibility. Existing class inheritance handles property defaults but not the full method-dispatch surface."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-040" }
-  tags { "evaluator"; "typechecker"; "inheritance" }
+  tags { "evaluator"; "typechecker"; "inheritance"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -355,7 +343,6 @@ entries: Listing<Spec.Scenario> = new {
   diagnosticSourcePosition
   errorMessageUpstreamAlign
   upstreamFixtureSweepExpansion
-  typeParameterBounds
   inheritanceDispatchHardening
   crossModuleTypecheckCompleteness
   setPairMapIntSeqVariants

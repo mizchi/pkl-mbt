@@ -2066,6 +2066,65 @@ test "PKL-115: generic typealias with two parameters" {
 }
 
 ///|
+test "PKL-116: function type parameter bound parses" {
+  let parsed = parse_source("function pick<T : Number>(x: T): T = x")
+  inspect(parsed.diagnostics.length(), content="0")
+  guard parsed.program.declarations[0] is FunctionDeclaration(decl) else {
+    panic()
+  }
+  inspect(decl.type_parameters.length(), content="1")
+  inspect(decl.type_parameters[0], content="T")
+  inspect(decl.type_parameter_bounds.length(), content="1")
+  guard decl.type_parameter_bounds[0] is Some(bound_text) else { panic() }
+  inspect(bound_text, content="Number")
+}
+
+///|
+test "PKL-116: class type parameter bound parses" {
+  let parsed = parse_source("class Container<T : Number> { value: T }")
+  guard parsed.program.declarations[0] is ClassDeclaration(decl) else {
+    panic()
+  }
+  inspect(decl.type_parameters.length(), content="1")
+  inspect(decl.type_parameters[0], content="T")
+  inspect(decl.type_parameter_bounds.length(), content="1")
+  guard decl.type_parameter_bounds[0] is Some(bound_text) else { panic() }
+  inspect(bound_text, content="Number")
+}
+
+///|
+test "PKL-116: function call accepts argument that satisfies bound" {
+  guard typecheck_source(
+      "function pick<T : Number>(x: T): T = x\nvalue = pick(5)",
+    )
+    is TypeOk(_) else {
+    panic()
+  }
+}
+
+///|
+test "PKL-116: function call rejects argument that violates bound" {
+  guard typecheck_source(
+      "function pick<T : Number>(x: T): T = x\nvalue = pick(\"hi\")",
+    )
+    is TypeError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="type parameter T bound Int|Float rejects String",
+  )
+}
+
+///|
+test "PKL-116: function without bound still accepts any type" {
+  guard typecheck_source("function pick<T>(x: T): T = x\nvalue = pick(\"hi\")")
+    is TypeOk(_) else {
+    panic()
+  }
+}
+
+///|
 test "Number constraint predicate accepts both Int and Float" {
   assert_true(
     eval_source("a: Number(isPositive) = 3\nb: Number(isPositive) = 0.5") ==

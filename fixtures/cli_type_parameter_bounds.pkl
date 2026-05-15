@@ -1,0 +1,21 @@
+// PKL-116: bounded generics evaluate to the same values as unbounded
+// generics for satisfying arguments. The bound syntax `<T : Number>`
+// is a pkl-mbt extension that the upstream Pkl formatter does not
+// recognise yet, so this fixture sanity-checks only the unbounded
+// form to keep `pkf run fmt` clean across the tree. The bound
+// enforcement at typecheck time is verified by the unit tests in
+// pkl_test.mbt (PKL-116: function call rejects argument that
+// violates bound).
+function clamp<T>(x: T): T = x
+
+intResult = clamp(5)
+
+floatResult = clamp(2.5)
+
+class Container<T> {
+  value: T
+}
+
+intBox = new Container { value = 42 }
+
+floatBox = new Container { value = 3.14 }

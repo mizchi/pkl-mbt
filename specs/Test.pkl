@@ -290,6 +290,25 @@ local cliGenericTypealias = new Test {
   timeoutSec = 120
 }
 
+local cliTypeParameterBounds = new Test {
+  name = "cli type parameter bounds"
+  description =
+    "The native CLI evaluates a fixture that exercises `<T : Number>` on a generic function and a generic class: `clamp(5)` returns `5`, `clamp(2.5)` returns `2.5`, and `new Container { value = 42 }` / `{ value = 3.14 }` produce the expected ObjectValue. The fixture intentionally only uses arguments that satisfy the bound; bound rejection is covered by the unit tests."
+  tags { "moonbit"; "cli"; "generics"; "bounds"; "contract" }
+  specRef { "PKL-116" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_type_parameter_bounds.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "intResult = 5"
+    "floatResult = 2.5"
+    "intBox {"
+    "value = 42"
+    "floatBox {"
+    "value = 3.14"
+  }
+  timeoutSec = 120
+}
+
 local cliGenericInference = new Test {
   name = "cli generic call-site inference"
   description =
@@ -490,6 +509,7 @@ tests {
   cliEqualityTypeMatch
   cliIsOperator
   cliGenericTypealias
+  cliTypeParameterBounds
   cliFormat
   cliTestExamplesPass
   cliTestExamplesFail

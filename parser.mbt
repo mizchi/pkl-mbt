@@ -887,7 +887,11 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
   // name (`class Box<T, U>`). The parser collects the parameter names so
   // the AST records them, but downstream stages treat the names as
   // `UnknownType` for now — binding-at-instantiation lands with PKL-090.
+  // PKL-116: each parameter may carry a `: <bound>` suffix
+  // (`class Box<T : Number>`); the bound expression is recorded as a raw
+  // type text and the typechecker enforces it at call sites.
   let type_parameters : Array[String] = []
+  let type_parameter_bounds : Array[String?] = []
   self.skip_whitespace()
   if self.at_text("<") {
     ignore(self.bump())
@@ -896,7 +900,23 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
       self.skip_whitespace()
       match self.expect(identifier(), "type parameter") {
         Some(tok) => type_parameters.push(tok.text())
-        None => ()
+        None => type_parameters.push("")
+      }
+      self.skip_whitespace()
+      if self.at(colon()) {
+        ignore(self.bump())
+        self.skip_whitespace()
+        let bound = self.parse_type_text(
+          stop_at_arrow=true,
+          stop_at_expression_operator=true,
+        )
+        if bound == "" {
+          type_parameter_bounds.push(None)
+        } else {
+          type_parameter_bounds.push(Some(bound))
+        }
+      } else {
+        type_parameter_bounds.push(None)
       }
       self.skip_whitespace()
       if self.at_text(",") {
@@ -959,7 +979,14 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
   if name == "" {
     None
   } else {
-    Some({ name, type_parameters, parent_name, properties, methods })
+    Some({
+      name,
+      type_parameters,
+      type_parameter_bounds,
+      parent_name,
+      properties,
+      methods,
+    })
   }
 }
 
@@ -1072,7 +1099,12 @@ fn Parser::parse_function_decl(self : Parser) -> FunctionDecl? {
   // after the function name. Same shape and intent as the class
   // parameter scope: names are recorded on the AST and the typechecker
   // binds them to UnknownType inside the body.
+  // PKL-116: each parameter may carry a `: <bound>` suffix
+  // (`function pick<T : Number>(x: T) = ...`) recorded in
+  // `type_parameter_bounds`; the typechecker enforces the bound at
+  // call sites.
   let type_parameters : Array[String] = []
+  let type_parameter_bounds : Array[String?] = []
   self.skip_whitespace()
   if self.at_text("<") {
     ignore(self.bump())
@@ -1081,7 +1113,23 @@ fn Parser::parse_function_decl(self : Parser) -> FunctionDecl? {
       self.skip_whitespace()
       match self.expect(identifier(), "type parameter") {
         Some(tok) => type_parameters.push(tok.text())
-        None => ()
+        None => type_parameters.push("")
+      }
+      self.skip_whitespace()
+      if self.at(colon()) {
+        ignore(self.bump())
+        self.skip_whitespace()
+        let bound = self.parse_type_text(
+          stop_at_arrow=true,
+          stop_at_expression_operator=true,
+        )
+        if bound == "" {
+          type_parameter_bounds.push(None)
+        } else {
+          type_parameter_bounds.push(Some(bound))
+        }
+      } else {
+        type_parameter_bounds.push(None)
       }
       self.skip_whitespace()
       if self.at_text(",") {
@@ -1132,7 +1180,14 @@ fn Parser::parse_function_decl(self : Parser) -> FunctionDecl? {
   if name == "" {
     None
   } else {
-    Some({ name, type_parameters, parameters, return_type_name, body })
+    Some({
+      name,
+      type_parameters,
+      type_parameter_bounds,
+      parameters,
+      return_type_name,
+      body,
+    })
   }
 }
 

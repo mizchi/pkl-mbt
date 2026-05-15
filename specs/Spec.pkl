@@ -1661,6 +1661,53 @@ local genericTypealiasInstantiation = new Scenario {
   }
 }
 
+local typeParameterBounds = new Scenario {
+  id = "PKL-116"
+  name = "type parameter bounds"
+  description =
+    "`class Box<T : Number>` and `function pick<T : Number>(x: T): T` constrain T to a supertype. The parser collects the `: <bound>` suffix per type parameter and stores it as a parallel `type_parameter_bounds: Array[String?]` on `ClassDecl` and `FunctionDecl`. `collect_declared_types` resolves each bound text against the surrounding `type_env` and stores the resulting Type on the new `bound: Type?` field of `TypeBinding`. At call sites, `unify_for_substitution` consults `binding.bound` when it records `T := <actual>`; if the bound is set and `type_accepts(bound, actual)` returns false, a diagnostic surfaces as `type parameter T bound <bound> rejects <actual>` (with Number rendered as `Int|Float` since the union form is canonical). Unbounded parameters keep `bound = None` and the existing accept-any behaviour. Class type literal sites flow through the same path via `substitute_class_type_variables`, which now threads `type_env` and `diagnostics` so bound failures inside `new Container { value = \"x\" }` (where `Container<T : Number>`) reach the user."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-089"; "PKL-110" }
+  tags { "parser"; "typechecker"; "generics"; "bounds" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary =
+        "Carry the resolved bound on `TypeBinding` rather than re-walking declarations at use sites"
+      rationale =
+        "Same trade-off as PKL-115's `alias_decl`: threading `Array[Declaration]` through every typecheck signature would touch ~20 functions. Storing the resolved `bound: Type?` on the `TypeBinding` that already exists for each type parameter is local — the binding is constructed once during `collect_declared_types`, then `unify_for_substitution` reads it during call-site unification. The trade-off is that all `TypeBinding` construction sites had to grow another field; sed handled the 13 update again in one shot."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary =
+        "Render the bound through `render_type` instead of preserving the original `: <text>` literal"
+      rationale =
+        "The bound was authored as the text `Number`, but it lives on `TypeBinding` as `UnionType([IntType, FloatType])` after resolution. Reporting `bound Int|Float rejects String` keeps the diagnostic faithful to the typechecker's internal representation; preserving the user-authored text would diverge once the bound is built from a typealias or a union literal. Tests and authoring docs reflect this trade — when a bound is `Number`, the diagnostic surfaces as `Int|Float`."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary =
+        "Apply bound check on every unify_for_substitution descent, not only at the top level"
+      rationale =
+        "Nested TypeVariable references (`function f<T : Number>(xs: Listing<T>) = ...`) need the same bound enforcement when the call site supplies `Listing<String>`. The unifier already recurses into Listing / Mapping / FunctionType / ClassType shapes — adding the bound check inside the `(TypeVariable(name), _) =>` arm guarantees it fires at every nested instantiation site without a separate top-level pass."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Defer typealias parameter bounds to a later slice"
+      rationale =
+        "`typealias Box<T : Number> = ...` would also be useful, but PKL-115 introduced generic typealias substitution only days ago and its substitution path is textual rather than Type-based. Adding bound checks there means either re-resolving the typealias target inside `try_generic_alias_substitution` (a string-level operation) or rewiring the path to operate on Types. Both are bigger changes than the class / function bound work; the typealias case can land as a follow-up once the substitution path settles."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "The `<T : Bound>` suffix is a pkl-mbt extension over upstream Apple Pkl"
+      rationale =
+        "Apple Pkl's type parameter grammar admits only `in T` / `out T` variance modifiers plus an identifier — there is no `: Bound` suffix on the upstream side. PKL-116 adds the bound suffix as a pkl-mbt extension so generic functions and classes can statically reject calls like `pick(\"hi\")` against `function pick<T : Number>(x: T)`. Side effect: the upstream Pkl formatter does not recognise the suffix, so the CLI fixture `fixtures/cli_type_parameter_bounds.pkl` intentionally uses the unbounded form to keep `pkf run fmt` clean across the tree. The bounded form is exercised end-to-end through the unit tests in `pkl_test.mbt`."
+    }
+  }
+}
+
 local equalityTypecheckOperandMatch = new Scenario {
   id = "PKL-113"
   name = "equality typecheck operand match"
@@ -2783,5 +2830,6 @@ scenarios {
   equalityTypecheckOperandMatch
   isOperatorRuntime
   genericTypealiasInstantiation
+  typeParameterBounds
   ...roadmap.entries
 }

@@ -256,6 +256,7 @@ pub(all) struct Binding {
 pub(all) struct ClassDecl {
   name : String
   type_parameters : Array[String]
+  type_parameter_bounds : Array[String?]
   parent_name : String?
   properties : Array[ClassProperty]
   methods : Array[FunctionDecl]
@@ -319,6 +320,7 @@ pub(all) enum Expr {
 pub(all) struct FunctionDecl {
   name : String
   type_parameters : Array[String]
+  type_parameter_bounds : Array[String?]
   parameters : Array[FunctionParameter]
   return_type_name : String?
   body : Expr?

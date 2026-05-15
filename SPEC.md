@@ -1,6 +1,6 @@
 # Test SPEC
 
-156 tests across 2 module(s) — 132 pending, 24 active
+157 tests across 2 module(s) — 132 pending, 25 active
 
 ## `specs/`
 
@@ -388,7 +388,7 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **inheritance dispatch hardening** [draft] — verifies: PKL-117 — tags: evaluator, typechecker, inheritance
+- [ ] **inheritance dispatch hardening** [draft] — verifies: PKL-117 — tags: evaluator, typechecker, inheritance, next
   > Super method calls (`super.method()`), abstract method enforcement, and override-direction type compatibility. Existing class inheritance handles property defaults but not the full method-dispatch surface.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-040
@@ -765,10 +765,11 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **type parameter bounds** (minor) [draft] — verifies: PKL-116 — tags: parser, typechecker, generics, bounds, next
-  > `class Box<T : Number>` constrains T to a supertype. Parser accepts the `: <type>` suffix; typechecker checks the bound at call sites once PKL-110 inference exists.
+- [ ] **type parameter bounds** (minor) — verifies: PKL-116 — tags: parser, typechecker, generics, bounds
+  > `class Box<T : Number>` and `function pick<T : Number>(x: T): T` constrain T to a supertype. The parser collects the `: <bound>` suffix per type parameter and stores it as a parallel `type_parameter_bounds: Array[String?]` on `ClassDecl` and `FunctionDecl`. `collect_declared_types` resolves each bound text against the surrounding `type_env` and stores the resulting Type on the new `bound: Type?` field of `TypeBinding`. At call sites, `unify_for_substitution` consults `binding.bound` when it records `T := <actual>`; if the bound is set and `type_accepts(bound, actual)` returns false, a diagnostic surfaces as `type parameter T bound <bound> rejects <actual>` (with Number rendered as `Int|Float` since the union form is canonical). Unbounded parameters keep `bound = None` and the existing accept-any behaviour. Class type literal sites flow through the same path via `substitute_class_type_variables`, which now threads `type_env` and `diagnostics` so bound failures inside `new Container { value = "x" }` (where `Container<T : Number>`) reach the user.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-089, PKL-110
+  - decisions: 5 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **typecheck Pkl callable parameter and return annotations** (critical) — verifies: PKL-023 — tags: parser, typechecker
@@ -970,6 +971,10 @@
 
 - [x] **cli trace pass-through** — verifies: PKL-084 — tags: moonbit, cli, trace, contract
   > The native CLI evaluates a fixture where `trace(value)` wraps its argument; the rendered output shows the inner values unchanged, confirming the builtin pass-through semantics ship as part of PKL-084.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli type parameter bounds** — verifies: PKL-116 — tags: moonbit, cli, generics, bounds, contract
+  > The native CLI evaluates a fixture that exercises `<T : Number>` on a generic function and a generic class: `clamp(5)` returns `5`, `clamp(2.5)` returns `2.5`, and `new Container { value = 42 }` / `{ value = 3.14 }` produce the expected ObjectValue. The fixture intentionally only uses arguments that satisfy the bound; bound rejection is covered by the unit tests.
   - body: `cmd` (exit 0 expected)
 
 - [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-080, PKL-081, PKL-082, PKL-083, PKL-084, PKL-085, PKL-086, PKL-087, PKL-088, PKL-089, PKL-090, PKL-091, PKL-092, PKL-093, PKL-098 — tags: moonbit, unit, contract

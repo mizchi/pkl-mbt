@@ -123,6 +123,11 @@ pub(all) struct ClassDecl {
   // treats as `UnknownType` until instantiation-time binding (PKL-090)
   // lands; until then the field is purely a parser-side acknowledgement.
   type_parameters : Array[String]
+  // PKL-116: parallel list of optional bounds (`class Box<T : Number>` →
+  // `[Some("Number")]`). Length matches `type_parameters`; entries are
+  // `None` when no bound was declared. The typechecker enforces
+  // `type_accepts(bound, concrete)` when call-site substitution binds T.
+  type_parameter_bounds : Array[String?]
   parent_name : String?
   properties : Array[ClassProperty]
   methods : Array[FunctionDecl]
@@ -143,6 +148,8 @@ pub(all) struct FunctionDecl {
   // inside the function body via the same scope-injection pattern PKL-089
   // uses for class declarations; call-site inference is deferred.
   type_parameters : Array[String]
+  // PKL-116: parallel list of optional bounds (same shape as ClassDecl).
+  type_parameter_bounds : Array[String?]
   parameters : Array[FunctionParameter]
   return_type_name : String?
   body : Expr?
