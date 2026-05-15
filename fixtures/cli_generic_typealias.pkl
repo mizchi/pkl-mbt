@@ -1,0 +1,13 @@
+// PKL-115: generic typealias instantiation
+typealias Box<T> = Listing<T>
+
+typealias Pair<K, V> = Mapping<K, V>
+
+ints: Box<Int> = new Listing { 1; 2; 3 }
+
+words: Box<String> = new Listing { "a"; "b" }
+
+scores: Pair<String, Int> = new Mapping {
+  ["alice"] = 90
+  ["bob"] = 80
+}

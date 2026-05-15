@@ -157,6 +157,11 @@ pub(all) struct FunctionParameter {
 ///|
 pub(all) struct TypeAliasDecl {
   name : String
+  // PKL-115: optional list of type parameter names (`typealias Box<T> = ...` →
+  // `["T"]`). Empty for non-generic aliases. The names introduce free type
+  // variables in `target`; the typechecker substitutes them when an
+  // instantiation site like `Box<Int>` is resolved.
+  type_parameters : Array[String]
   target : String
 } derive(Eq, Debug)
 

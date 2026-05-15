@@ -392,6 +392,7 @@ pub(all) enum Type {
 
 pub(all) struct TypeAliasDecl {
   name : String
+  type_parameters : Array[String]
   target : String
 } derive(Eq, @debug.Debug)
 

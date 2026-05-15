@@ -1621,6 +1621,46 @@ local isOperatorRuntime = new Scenario {
   }
 }
 
+local genericTypealiasInstantiation = new Scenario {
+  id = "PKL-115"
+  name = "generic typealias instantiation"
+  description =
+    "`typealias Box<T> = Listing<T>` parses and binds T in the target text. At an instantiation site like `Box<Int>`, the typechecker looks up the alias binding for `Box`, matches its declared type parameters against the provided arguments, substitutes the parameter names in the recorded target text, and re-evaluates the resulting type. `b: Box<Int> = new Listing { 1; 2; 3 }` typechecks (the target rewrites to `Listing<Int>`), `b: Box<Int> = new Listing { \"a\"; \"b\" }` rejects (Int-element listing expected, String elements found). Multi-parameter aliases (`typealias Pair<K, V> = Mapping<K, V>`) work the same way — parameters substitute positionally. The substitution pass is textual (`is_typealias_identifier_start` / `_continue` walks the target string and replaces full identifier tokens that match a parameter name); generic alias bindings carry the original `TypeAliasDecl` on a new `alias_decl: TypeAliasDecl?` field on `TypeBinding` so the use-site rewriter does not need to re-walk the declarations array. Non-generic aliases keep `alias_decl = None` and the previous resolution path unchanged."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-110" }
+  tags { "parser"; "typechecker"; "typealias"; "generics" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary =
+        "Substitute textually in the alias target instead of representing parameters as a new Type variant"
+      rationale =
+        "Two designs were on the table. (A) Add a new `TypeAlias(name, parameters, target_type)` variant to the Type enum and substitute at use sites via the Type tree. (B) Keep the alias target as a String on `TypeAliasDecl` and substitute textually before re-running `type_from_annotation`. (B) is much smaller — the Type enum and every consumer of it stays untouched, the substitution is a 20-line tokenizer that walks identifier characters, and the resolution path that `Box<Int>` takes is `try_generic_alias_substitution → type_from_annotation`, which reuses every existing case (union / nullable / constrained / generic). (A) would have given better introspection (`render_type` could show `Box<Int>` instead of the substituted form) but at the cost of touching every Type-walking pass."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary =
+        "Inject declared type parameters as scoped TypeVariables when resolving the alias at definition time"
+      rationale =
+        "Without this, `typealias Box<T> = Listing<T>` fails to resolve at definition time — `T` is unknown in the surrounding `type_env`, so `type_from_alias_target_annotation` returns `None` and the typechecker emits `unknown type annotation Listing<T>`. Scoping `T` as `TypeVariable(\"T\")` for the duration of the alias's target resolution mirrors how PKL-090 / PKL-110 already handle generic class / function declarations (parameters bind to TypeVariable inside the body). The resulting binding's `typ` is `ListingType([TypeVariable(\"T\")])` — an unresolved generic, never observed by user code because every use site re-runs through `try_generic_alias_substitution` which produces a fully concrete type."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Carry the decl on TypeBinding rather than maintain a parallel alias table"
+      rationale =
+        "The alternative was to thread `Array[Declaration]` through every call to `type_from_annotation` so the alias resolver could re-walk declarations at use time. That would have grown the signature of ~20 functions for a single new dependency. Embedding the decl on the binding itself keeps `type_from_annotation`'s signature stable; bindings that were never aliases (the vast majority) carry `alias_decl = None` and pay no cost. The trade-off is that all `TypeBinding` construction sites had to update (13 callers, mechanical), which sed handled in one shot."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Tokenize identifiers manually rather than reach for the regex module"
+      rationale =
+        "`@regexp` is available (constraints.mbt uses it), but a regex like `\\bT\\b` over the target text is a recipe for substitution interference when type parameter names share prefixes (`T` vs `TList`). The character-class identifier walk (`is_typealias_identifier_start` / `_continue` + iterate) gives us full identifier boundaries by construction. The walker is ~25 lines and matches Pkl's identifier grammar precisely — `T` does not replace inside `TList` even if both are referenced in the same target text."
+    }
+  }
+}
+
 local equalityTypecheckOperandMatch = new Scenario {
   id = "PKL-113"
   name = "equality typecheck operand match"
@@ -2742,5 +2782,6 @@ scenarios {
   floatThresholdConstraints
   equalityTypecheckOperandMatch
   isOperatorRuntime
+  genericTypealiasInstantiation
   ...roadmap.entries
 }

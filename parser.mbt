@@ -1006,6 +1006,32 @@ fn Parser::parse_typealias_decl(self : Parser) -> TypeAliasDecl? {
     Some(tok) => tok.text()
     None => ""
   }
+  // PKL-115: optional type parameter list `<T1, T2, ...>` immediately
+  // after the alias name. Same shape as the class / function parameter
+  // scope from PKL-089 / PKL-090. Names are recorded on the AST and the
+  // typechecker substitutes them into `target` when an instantiation
+  // site (`Box<Int>`) is resolved.
+  let type_parameters : Array[String] = []
+  self.skip_whitespace()
+  if self.at_text("<") {
+    ignore(self.bump())
+    let mut more = true
+    while more {
+      self.skip_whitespace()
+      match self.expect(identifier(), "type parameter") {
+        Some(tok) => type_parameters.push(tok.text())
+        None => ()
+      }
+      self.skip_whitespace()
+      if self.at_text(",") {
+        ignore(self.bump())
+      } else {
+        more = false
+      }
+    }
+    self.skip_whitespace()
+    self.expect_text(">", "closing >")
+  }
   let target = if ({
       self.skip_whitespace()
       self.at(eq())
@@ -1020,7 +1046,7 @@ fn Parser::parse_typealias_decl(self : Parser) -> TypeAliasDecl? {
   if name == "" || target == "" {
     None
   } else {
-    Some({ name, target })
+    Some({ name, type_parameters, target })
   }
 }
 

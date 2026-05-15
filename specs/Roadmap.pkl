@@ -133,18 +133,6 @@ local upstreamFixtureSweepExpansion: Spec.Scenario = new {
 
 // ── typechecker rounding ────────────────────────────────────────────────────
 
-local genericTypeAliases: Spec.Scenario = new {
-  id = "PKL-115"
-  name = "generic type aliases"
-  description =
-    "`typealias Box<T> = ...` parses and binds T in the target. The current parser does not recognize the `<T>` after the alias name; the typechecker has no substitution logic for alias arguments."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-110" }
-  tags { "parser"; "typechecker"; "typealias"; "generics"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 local typeParameterBounds: Spec.Scenario = new {
   id = "PKL-116"
   name = "type parameter bounds"
@@ -152,7 +140,7 @@ local typeParameterBounds: Spec.Scenario = new {
     "`class Box<T : Number>` constrains T to a supertype. Parser accepts the `: <type>` suffix; typechecker checks the bound at call sites once PKL-110 inference exists."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-089"; "PKL-110" }
-  tags { "parser"; "typechecker"; "generics"; "bounds" }
+  tags { "parser"; "typechecker"; "generics"; "bounds"; "next" }
   reviewStatus = "draft"
   severity = "minor"
 }
@@ -367,7 +355,6 @@ entries: Listing<Spec.Scenario> = new {
   diagnosticSourcePosition
   errorMessageUpstreamAlign
   upstreamFixtureSweepExpansion
-  genericTypeAliases
   typeParameterBounds
   inheritanceDispatchHardening
   crossModuleTypecheckCompleteness

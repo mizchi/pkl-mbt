@@ -267,6 +267,29 @@ local cliIsOperator = new Test {
   timeoutSec = 120
 }
 
+local cliGenericTypealias = new Test {
+  name = "cli generic typealias"
+  description =
+    "The native CLI evaluates a fixture that declares `typealias Box<T> = Listing<T>` and `typealias Pair<K, V> = Mapping<K, V>`, then instantiates `Box<Int>`, `Box<String>`, and `Pair<String, Int>`. Each declaration resolves through `try_generic_alias_substitution`, the listing / mapping elements typecheck against the substituted element types, and the evaluator emits the same PCF as the equivalent non-aliased annotation."
+  tags { "moonbit"; "cli"; "typealias"; "generics"; "contract" }
+  specRef { "PKL-115" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_generic_typealias.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "ints {"
+    "1"
+    "2"
+    "3"
+    "words {"
+    "\"a\""
+    "\"b\""
+    "scores {"
+    "[\"alice\"] = 90"
+    "[\"bob\"] = 80"
+  }
+  timeoutSec = 120
+}
+
 local cliGenericInference = new Test {
   name = "cli generic call-site inference"
   description =
@@ -466,6 +489,7 @@ tests {
   cliFloatThresholdConstraints
   cliEqualityTypeMatch
   cliIsOperator
+  cliGenericTypealias
   cliFormat
   cliTestExamplesPass
   cliTestExamplesFail

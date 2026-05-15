@@ -1,6 +1,6 @@
 # Test SPEC
 
-155 tests across 2 module(s) — 132 pending, 23 active
+156 tests across 2 module(s) — 132 pending, 24 active
 
 ## `specs/`
 
@@ -367,10 +367,11 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **generic type aliases** [draft] — verifies: PKL-115 — tags: parser, typechecker, typealias, generics, next
-  > `typealias Box<T> = ...` parses and binds T in the target. The current parser does not recognize the `<T>` after the alias name; the typechecker has no substitution logic for alias arguments.
+- [ ] **generic typealias instantiation** — verifies: PKL-115 — tags: parser, typechecker, typealias, generics
+  > `typealias Box<T> = Listing<T>` parses and binds T in the target text. At an instantiation site like `Box<Int>`, the typechecker looks up the alias binding for `Box`, matches its declared type parameters against the provided arguments, substitutes the parameter names in the recorded target text, and re-evaluates the resulting type. `b: Box<Int> = new Listing { 1; 2; 3 }` typechecks (the target rewrites to `Listing<Int>`), `b: Box<Int> = new Listing { "a"; "b" }` rejects (Int-element listing expected, String elements found). Multi-parameter aliases (`typealias Pair<K, V> = Mapping<K, V>`) work the same way — parameters substitute positionally. The substitution pass is textual (`is_typealias_identifier_start` / `_continue` walks the target string and replaces full identifier tokens that match a parameter name); generic alias bindings carry the original `TypeAliasDecl` on a new `alias_decl: TypeAliasDecl?` field on `TypeBinding` so the use-site rewriter does not need to re-walk the declarations array. Non-generic aliases keep `alias_decl = None` and the previous resolution path unchanged.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-110
+  - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **hidden and local object members** — verifies: PKL-087 — tags: evaluator, renderer, object
@@ -764,7 +765,7 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **type parameter bounds** (minor) [draft] — verifies: PKL-116 — tags: parser, typechecker, generics, bounds
+- [ ] **type parameter bounds** (minor) [draft] — verifies: PKL-116 — tags: parser, typechecker, generics, bounds, next
   > `class Box<T : Number>` constrains T to a supertype. Parser accepts the `: <type>` suffix; typechecker checks the bound at call sites once PKL-110 inference exists.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-089, PKL-110
@@ -937,6 +938,10 @@
 
 - [x] **cli generic class and function declarations** — verifies: PKL-089, PKL-090 — tags: moonbit, cli, generics, contract
   > The native CLI evaluates a fixture that declares `class Box<T>`, `class Pair<A, B>`, `function identity<T>(x: T): T`, and `function pair_first<A, B>(a: A, b: B): A`, then instantiates and calls each. Type parameters are tolerated as UnknownType in the typechecker and accept-any in the evaluator's runtime annotation validators.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli generic typealias** — verifies: PKL-115 — tags: moonbit, cli, typealias, generics, contract
+  > The native CLI evaluates a fixture that declares `typealias Box<T> = Listing<T>` and `typealias Pair<K, V> = Mapping<K, V>`, then instantiates `Box<Int>`, `Box<String>`, and `Pair<String, Int>`. Each declaration resolves through `try_generic_alias_substitution`, the listing / mapping elements typecheck against the substituted element types, and the evaluator emits the same PCF as the equivalent non-aliased annotation.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli is operator runtime** — verifies: PKL-114 — tags: moonbit, cli, evaluator, is-operator, contract

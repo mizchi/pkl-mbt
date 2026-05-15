@@ -2020,6 +2020,52 @@ test "PKL-114: Number narrows on is Float positive guard (typecheck)" {
 }
 
 ///|
+test "PKL-115: parses typealias with single type parameter" {
+  let parsed = parse_source("typealias Box<T> = Listing<T>")
+  inspect(parsed.diagnostics.length(), content="0")
+  inspect(parsed.program.declarations.length(), content="1")
+  guard parsed.program.declarations[0] is TypeAliasDeclaration(decl) else {
+    panic()
+  }
+  inspect(decl.name, content="Box")
+  inspect(decl.type_parameters.length(), content="1")
+  inspect(decl.type_parameters[0], content="T")
+  inspect(decl.target, content="Listing<T>")
+}
+
+///|
+test "PKL-115: generic typealias accepts matching argument" {
+  guard typecheck_source(
+      "typealias Box<T> = Listing<T>\nb: Box<Int> = new Listing { 1; 2; 3 }",
+    )
+    is TypeOk(_) else {
+    panic()
+  }
+}
+
+///|
+test "PKL-115: generic typealias rejects mismatched argument" {
+  guard typecheck_source(
+      "typealias Box<T> = Listing<T>\nb: Box<Int> = new Listing { \"a\"; \"b\" }",
+    )
+    is TypeError(_) else {
+    panic()
+  }
+}
+
+///|
+test "PKL-115: generic typealias with two parameters" {
+  let parsed = parse_source("typealias Pair<K, V> = Mapping<K, V>")
+  guard parsed.program.declarations[0] is TypeAliasDeclaration(decl) else {
+    panic()
+  }
+  inspect(decl.type_parameters.length(), content="2")
+  inspect(decl.type_parameters[0], content="K")
+  inspect(decl.type_parameters[1], content="V")
+  inspect(decl.target, content="Mapping<K,V>")
+}
+
+///|
 test "Number constraint predicate accepts both Int and Float" {
   assert_true(
     eval_source("a: Number(isPositive) = 3\nb: Number(isPositive) = 0.5") ==

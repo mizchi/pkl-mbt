@@ -47,6 +47,12 @@ pub(all) enum TypecheckResult {
 priv struct TypeBinding {
   name : String
   typ : Type
+  // PKL-115: when this binding came from a generic typealias declaration
+  // (`typealias Box<T> = Listing<T>`), capture the original decl so that
+  // `type_from_annotation` can substitute the parameter list at the
+  // instantiation site (`Box<Int>` → `Listing<Int>`). `None` for
+  // ordinary bindings.
+  alias_decl : TypeAliasDecl?
 }
 
 ///|
@@ -451,10 +457,128 @@ fn type_from_annotation(name : String, type_env : Array[TypeBinding]) -> Type? {
     }
     None => ()
   }
+  // PKL-115: generic typealias instantiation. `Box<Int>` looks up the
+  // alias binding for `Box`, matches its declared type parameters
+  // against the provided arguments, substitutes the parameter names in
+  // the recorded target text, and re-evaluates the resulting type.
+  match try_generic_alias_substitution(name, type_env) {
+    Some(typ) => return Some(typ)
+    None => ()
+  }
   match builtin_type_from_annotation(name) {
     Some(typ) => Some(typ)
     None => lookup_type(type_env, name)
   }
+}
+
+///|
+fn try_generic_alias_substitution(
+  name : String,
+  type_env : Array[TypeBinding],
+) -> Type? {
+  match try_split_generic_name(name) {
+    Some((base, args)) =>
+      for binding in type_env {
+        if binding.name == base {
+          match binding.alias_decl {
+            Some(decl) =>
+              if decl.type_parameters.length() == args.length() {
+                let substituted = substitute_typealias_target_text(
+                  decl.target,
+                  decl.type_parameters,
+                  args,
+                )
+                return type_from_annotation(substituted, type_env)
+              }
+            None => ()
+          }
+        }
+      } nobreak {
+        None
+      }
+    None => None
+  }
+}
+
+///|
+fn try_split_generic_name(name : String) -> (String, Array[String])? {
+  let mut idx = -1
+  let mut parens = 0
+  let mut brackets = 0
+  for i = 0; i < name.length(); i = i + 1 {
+    let c = name[i].to_int().unsafe_to_char()
+    if c == '(' {
+      parens += 1
+    } else if c == ')' && parens > 0 {
+      parens -= 1
+    } else if c == '[' {
+      brackets += 1
+    } else if c == ']' && brackets > 0 {
+      brackets -= 1
+    } else if c == '<' && parens == 0 && brackets == 0 {
+      idx = i
+      break
+    }
+  }
+  if idx <= 0 || !name.has_suffix(">") {
+    return None
+  }
+  let base = String::unsafe_substring(name, start=0, end=idx)
+  let inner = String::unsafe_substring(
+    name,
+    start=idx + 1,
+    end=name.length() - 1,
+  )
+  let args = split_top_level_generic_arguments(inner)
+  Some((base, args))
+}
+
+///|
+fn is_typealias_identifier_start(c : Char) -> Bool {
+  (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+}
+
+///|
+fn is_typealias_identifier_continue(c : Char) -> Bool {
+  is_typealias_identifier_start(c) || (c >= '0' && c <= '9')
+}
+
+///|
+fn substitute_typealias_target_text(
+  target : String,
+  parameters : Array[String],
+  arguments : Array[String],
+) -> String {
+  let buf = StringBuilder::new()
+  let mut i = 0
+  while i < target.length() {
+    let c = target[i].to_int().unsafe_to_char()
+    if is_typealias_identifier_start(c) {
+      let mut end = i + 1
+      while end < target.length() &&
+            is_typealias_identifier_continue(
+              target[end].to_int().unsafe_to_char(),
+            ) {
+        end += 1
+      }
+      let token = String::unsafe_substring(target, start=i, end~)
+      let mut replaced = false
+      for j = 0; j < parameters.length(); j = j + 1 {
+        if !replaced && token == parameters[j] {
+          buf.write_string(arguments[j])
+          replaced = true
+        }
+      }
+      if !replaced {
+        buf.write_string(token)
+      }
+      i = end
+    } else {
+      buf.write_char(c)
+      i += 1
+    }
+  }
+  buf.to_string()
 }
 
 ///|
@@ -1432,6 +1556,7 @@ fn imported_type_bindings(
           bindings.push({
             name: "\{decl.import_name}.\{type_export.name}",
             typ: qualify_imported_type(decl.import_name, type_export),
+            alias_decl: None,
           })
         }
       None => ()
@@ -1706,7 +1831,7 @@ fn push_narrowed_type_binding(
         narrow_negative_is_guard_type(original_type, guard_type)
       }
       match narrowed {
-        Some(typ) => target_cache.push({ name, typ })
+        Some(typ) => target_cache.push({ name, typ, alias_decl: None })
         None => ()
       }
     }
@@ -1989,9 +2114,14 @@ fn push_class_method_receiver_bindings(
     cache.push({
       name: type_member.name,
       typ: member_contract_type(type_member.typ),
+      alias_decl: None,
     })
   }
-  cache.push({ name: "this", typ: ClassType(class_name, members) })
+  cache.push({
+    name: "this",
+    typ: ClassType(class_name, members),
+    alias_decl: None,
+  })
 }
 
 ///|
@@ -2015,6 +2145,7 @@ fn validate_class_method_body(
         method_cache.push({
           name: function_decl.parameters[i].name,
           typ: parameter_types[i],
+          alias_decl: None,
         })
       }
       let inferred_return = infer_expr_with_bindings(
@@ -2078,7 +2209,11 @@ fn class_decl_to_members(
   } else {
     let next : Array[TypeBinding] = []
     for parameter in class_decl.type_parameters {
-      next.push({ name: parameter, typ: TypeVariable(parameter) })
+      next.push({
+        name: parameter,
+        typ: TypeVariable(parameter),
+        alias_decl: None,
+      })
     }
     for binding in type_env {
       next.push(binding)
@@ -2140,10 +2275,20 @@ fn collect_declared_types_with_imports(
         type_env.push({
           name: class_decl.name,
           typ: ClassType(class_decl.name, []),
+          alias_decl: None,
         })
       TypeAliasDeclaration(type_alias) =>
         match builtin_type_from_annotation(type_alias.target) {
-          Some(typ) => type_env.push({ name: type_alias.name, typ })
+          Some(typ) =>
+            type_env.push({
+              name: type_alias.name,
+              typ,
+              alias_decl: if type_alias.type_parameters.length() > 0 {
+                Some(type_alias)
+              } else {
+                None
+              },
+            })
           None => ()
         }
       // PKL-090 flattened function-level type parameters into the
@@ -2154,7 +2299,11 @@ fn collect_declared_types_with_imports(
       // rewrites the return type before it propagates outward).
       FunctionDeclaration(function_decl) =>
         for parameter in function_decl.type_parameters {
-          type_env.push({ name: parameter, typ: TypeVariable(parameter) })
+          type_env.push({
+            name: parameter,
+            typ: TypeVariable(parameter),
+            alias_decl: None,
+          })
         }
     }
   }
@@ -2167,15 +2316,42 @@ fn collect_declared_types_with_imports(
             class_decl.name,
             class_decl_to_members(class_decl, type_env, diagnostics),
           ),
+          alias_decl: None,
         })
-      TypeAliasDeclaration(type_alias) =>
-        match type_from_alias_target_annotation(type_alias.target, type_env) {
-          Some(typ) => type_env.push({ name: type_alias.name, typ })
+      TypeAliasDeclaration(type_alias) => {
+        // PKL-115: capture the original decl on the binding when the
+        // typealias is generic so use-site substitution can rewrite
+        // the target text. For non-generic aliases the previous shape
+        // is preserved by leaving `alias_decl` as `None`. Inject the
+        // declared type parameters as scoped TypeVariables so the
+        // target text can resolve at definition time even before any
+        // instantiation site is seen.
+        let scoped_type_env = copy_type_bindings(type_env)
+        for parameter in type_alias.type_parameters {
+          scoped_type_env.push({
+            name: parameter,
+            typ: TypeVariable(parameter),
+            alias_decl: None,
+          })
+        }
+        match
+          type_from_alias_target_annotation(type_alias.target, scoped_type_env) {
+          Some(typ) =>
+            type_env.push({
+              name: type_alias.name,
+              typ,
+              alias_decl: if type_alias.type_parameters.length() > 0 {
+                Some(type_alias)
+              } else {
+                None
+              },
+            })
           None =>
             diagnostics.push(Diagnostic::{
               message: "unknown type annotation \{type_alias.target}",
             })
         }
+      }
       FunctionDeclaration(_) => ()
     }
   }
@@ -2247,7 +2423,7 @@ fn resolve_binding_type(
               type_env,
               diagnostics,
             )
-            cache.push({ name, typ })
+            cache.push({ name, typ, alias_decl: None })
             Some(typ)
           }
         None => lookup_type(env, name)
@@ -2428,7 +2604,11 @@ fn infer_lambda_application(
         }
       None => argument_types[i]
     }
-    call_cache.push({ name: parameter.name, typ: parameter_type })
+    call_cache.push({
+      name: parameter.name,
+      typ: parameter_type,
+      alias_decl: None,
+    })
   }
   if !validate_higher_order_constrained_call(
       label, parameters, body, argument_types, arguments, type_env, diagnostics,
@@ -3253,7 +3433,8 @@ fn infer_imports(
 ) -> Unit {
   for decl in imports {
     match resolve_import(decl.uri) {
-      Some(TypeOk(typ)) => env.push({ name: decl.import_name, typ })
+      Some(TypeOk(typ)) =>
+        env.push({ name: decl.import_name, typ, alias_decl: None })
       Some(TypeError(errors)) =>
         for error in errors {
           diagnostics.push(error)
