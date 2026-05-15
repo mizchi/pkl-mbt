@@ -994,6 +994,67 @@ test "evaluate Pkl class method return annotations" {
 }
 
 ///|
+test "evaluate constrained Pkl callable return annotations" {
+  assert_true(
+    eval_source("function good(): Int(isBetween(0, 10)) = 1\nvalue = good()") ==
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(1) }])),
+  )
+  guard eval_source("function bad(): Int(isBetween(0, 10)) = 11\nvalue = bad()")
+    is EvalError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="function bad return type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+  )
+}
+
+///|
+test "evaluate user-defined constrained Pkl callable return annotations" {
+  assert_true(
+    eval_source(
+      "const function above(n) = (x) -> x > n\nfunction good(): Int(above(5)) = 6\nvalue = good()",
+    ) ==
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(6) }])),
+  )
+  guard eval_source(
+      "const function above(n) = (x) -> x > n\nfunction bad(): Int(above(5)) = 1\nvalue = bad()",
+    )
+    is EvalError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="function bad return type annotation Int(above(5)) constraint above rejects 1",
+  )
+}
+
+///|
+test "evaluate user-defined constrained Pkl class method return annotations" {
+  assert_true(
+    eval_source(
+      "const function above(n) = (x) -> x > n\nclass Counter { function good(): Int(above(5)) = 6 }\ncounter = new Counter {}\nvalue = counter.good()",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "counter", value: ObjectValue([]) },
+        ValueMember::{ name: "value", value: IntValue(6) },
+      ]),
+    ),
+  )
+  guard eval_source(
+      "const function above(n) = (x) -> x > n\nclass Counter { function bad(): Int(above(5)) = 1 }\ncounter = new Counter {}\nvalue = counter.bad()",
+    )
+    is EvalError(diagnostics) else {
+    panic()
+  }
+  inspect(
+    diagnostics[0].message,
+    content="method bad return type annotation Int(above(5)) constraint above rejects 1",
+  )
+}
+
+///|
 test "typecheck rejects invalid Pkl calls" {
   guard typecheck_source("function add(x, y) = x + y\nvalue = add(1)")
     is TypeError(arity_diagnostics) else {

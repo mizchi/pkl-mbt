@@ -1275,8 +1275,8 @@ local constrainedCallableReturnAnnotationEvaluation = new Scenario {
     "Function, lambda, and class method calls enforce constrained return annotations, including user-defined numeric predicate factories."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-064"; "PKL-063"; "PKL-056" }
-  tags { "evaluator"; "callable"; "typechecker"; "next" }
-  reviewStatus = "draft"
+  tags { "evaluator"; "callable"; "typechecker" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -1284,6 +1284,32 @@ local constrainedCallableReturnAnnotationEvaluation = new Scenario {
       summary = "Extend return validation to constraint predicates"
       rationale =
         "Callable and method return annotations now validate base runtime types. The remaining compatibility gap is applying the same built-in and user-defined constraint predicate machinery that already covers values, parameters, and class properties."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Thread declarations through the call evaluator"
+      rationale =
+        "User-defined numeric predicate factories live in the program declaration list, so the return-validation helper needs the same declaration context that argument and class-property checks already use. The evaluator now threads declarations through eval_expr_with_bindings and the callable/method call paths so the same machinery applies at return time."
+    }
+  }
+}
+
+local userDefinedConstrainedCallableArgumentEvaluation = new Scenario {
+  id = "PKL-066"
+  name = "evaluate user-defined constrained Pkl callable arguments"
+  description =
+    "Function, lambda, and class method calls enforce user-defined numeric predicate factories on parameter annotations at runtime, matching the existing built-in numeric predicate behavior."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-065"; "PKL-056" }
+  tags { "evaluator"; "callable"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Extend argument validation to user-defined constraint predicates"
+      rationale =
+        "Return validation now applies built-in and user-defined predicates, but callable and method parameter checks only run the built-in predicate machinery. Extending the parameter validation to call the user-defined predicate helper closes the symmetry gap."
     }
   }
 }
@@ -1356,4 +1382,5 @@ scenarios {
   callableReturnAnnotationEvaluation
   classMethodReturnAnnotationEvaluation
   constrainedCallableReturnAnnotationEvaluation
+  userDefinedConstrainedCallableArgumentEvaluation
 }

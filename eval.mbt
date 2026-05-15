@@ -707,6 +707,7 @@ fn resolve_binding_value(
   class_env : Array[ClassBinding],
   cache : Array[ValueBinding],
   stack : Array[String],
+  declarations : Array[Declaration],
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value? {
@@ -729,6 +730,7 @@ fn resolve_binding_value(
                 class_env,
                 cache,
                 push_binding_stack(stack, name),
+                declarations,
                 diagnostics,
                 resolve_import,
               ) {
@@ -815,6 +817,7 @@ fn eval_callable_return_rejection_message(
   label : String,
   return_type_name : String?,
   value : Value,
+  declarations : Array[Declaration],
 ) -> String? {
   match return_type_name {
     Some(type_name) =>
@@ -828,7 +831,14 @@ fn eval_callable_return_rejection_message(
             return_type_name, value,
           ) {
           Some(message) => Some("\{label} return \{message}")
-          None => None
+          None =>
+            match
+              pkl_user_defined_constrained_type_annotation_value_rejection_message(
+                return_type_name, value, declarations,
+              ) {
+              Some(message) => Some("\{label} return \{message}")
+              None => None
+            }
         }
       }
     None => None
@@ -840,9 +850,13 @@ fn eval_callable_return_value(
   label : String,
   return_type_name : String?,
   value : Value,
+  declarations : Array[Declaration],
   diagnostics : Array[Diagnostic],
 ) -> Value? {
-  match eval_callable_return_rejection_message(label, return_type_name, value) {
+  match
+    eval_callable_return_rejection_message(
+      label, return_type_name, value, declarations,
+    ) {
     Some(message) => {
       diagnostics.push(Diagnostic::{ message, })
       None
@@ -864,6 +878,7 @@ fn eval_lambda_application(
   class_env : Array[ClassBinding],
   cache : Array[ValueBinding],
   stack : Array[String],
+  declarations : Array[Declaration],
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value? {
@@ -878,7 +893,8 @@ fn eval_lambda_application(
   for argument in arguments {
     match
       eval_expr_with_bindings(
-        argument, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+        argument, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
       ) {
       Some(value) => argument_values.push(value)
       None => arguments_ok = false
@@ -915,16 +931,18 @@ fn eval_lambda_application(
           lambda_return_type_name,
           copy_value_bindings(call_cache),
         ),
+        declarations,
         diagnostics,
       )
     _ =>
       match
         eval_expr_with_bindings(
-          body, bindings, env, class_env, call_cache, stack, diagnostics, resolve_import,
+          body, bindings, env, class_env, call_cache, stack, declarations, diagnostics,
+          resolve_import,
         ) {
         Some(value) =>
           eval_callable_return_value(
-            label, return_type_name, value, diagnostics,
+            label, return_type_name, value, declarations, diagnostics,
           )
         None => None
       }
@@ -942,12 +960,14 @@ fn eval_class_method_call(
   class_env : Array[ClassBinding],
   cache : Array[ValueBinding],
   stack : Array[String],
+  declarations : Array[Declaration],
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value? {
   match
     eval_expr_with_bindings(
-      target_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+      target_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+      resolve_import,
     ) {
     Some(NullValue) =>
       if null_safe {
@@ -972,8 +992,8 @@ fn eval_class_method_call(
               for argument in arguments {
                 match
                   eval_expr_with_bindings(
-                    argument, bindings, env, class_env, cache, stack, diagnostics,
-                    resolve_import,
+                    argument, bindings, env, class_env, cache, stack, declarations,
+                    diagnostics, resolve_import,
                   ) {
                   Some(value) => argument_values.push(value)
                   None => arguments_ok = false
@@ -1007,14 +1027,15 @@ fn eval_class_method_call(
                   }
                   match
                     eval_expr_with_bindings(
-                      body, bindings, env, class_env, method_cache, stack, diagnostics,
-                      resolve_import,
+                      body, bindings, env, class_env, method_cache, stack, declarations,
+                      diagnostics, resolve_import,
                     ) {
                     Some(value) =>
                       eval_callable_return_value(
                         "method \{method_name}",
                         function_decl.return_type_name,
                         value,
+                        declarations,
                         diagnostics,
                       )
                     None => None
@@ -1081,12 +1102,14 @@ fn eval_callable_call(
   class_env : Array[ClassBinding],
   cache : Array[ValueBinding],
   stack : Array[String],
+  declarations : Array[Declaration],
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value? {
   match
     eval_expr_with_bindings(
-      callee, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+      callee, bindings, env, class_env, cache, stack, declarations, diagnostics,
+      resolve_import,
     ) {
     Some(FunctionValue(parameters, body, return_type_name, captured_env)) =>
       eval_lambda_application(
@@ -1101,6 +1124,7 @@ fn eval_callable_call(
         class_env,
         cache,
         stack,
+        declarations,
         diagnostics,
         resolve_import,
       )
@@ -1128,6 +1152,7 @@ fn eval_expr_with_bindings(
   class_env : Array[ClassBinding],
   cache : Array[ValueBinding],
   stack : Array[String],
+  declarations : Array[Declaration],
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value? {
@@ -1154,7 +1179,8 @@ fn eval_expr_with_bindings(
       Some(
         ObjectValue(
           eval_object_members(
-            members, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+            members, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
           ),
         ),
       )
@@ -1163,10 +1189,12 @@ fn eval_expr_with_bindings(
         ObjectValue(
           merge_value_members(
             eval_class_default_members(
-              type_name, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+              type_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
+              resolve_import,
             ),
             eval_object_members(
-              members, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+              members, bindings, env, class_env, cache, stack, declarations, diagnostics,
+              resolve_import,
             ),
           ),
         ),
@@ -1176,7 +1204,8 @@ fn eval_expr_with_bindings(
       for element in elements {
         match
           eval_expr_with_bindings(
-            element, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+            element, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
           ) {
           Some(value) => values.push(value)
           None => ()
@@ -1194,6 +1223,7 @@ fn eval_expr_with_bindings(
           class_env,
           cache,
           stack,
+          declarations,
           diagnostics,
           resolve_import,
         )
@@ -1204,6 +1234,7 @@ fn eval_expr_with_bindings(
           class_env,
           cache,
           stack,
+          declarations,
           diagnostics,
           resolve_import,
         )
@@ -1217,7 +1248,8 @@ fn eval_expr_with_bindings(
     MemberAccess(target_expr, member_name) =>
       match
         eval_expr_with_bindings(
-          target_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+          target_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
         ) {
         Some(ObjectValue(members)) =>
           match lookup_member(members, member_name) {
@@ -1240,7 +1272,8 @@ fn eval_expr_with_bindings(
     SafeMemberAccess(target_expr, member_name) =>
       match
         eval_expr_with_bindings(
-          target_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+          target_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
         ) {
         Some(NullValue) => Some(NullValue)
         Some(ObjectValue(members)) =>
@@ -1263,10 +1296,12 @@ fn eval_expr_with_bindings(
       }
     SubscriptAccess(target_expr, key_expr) => {
       let target = eval_expr_with_bindings(
-        target_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+        target_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
       )
       let key = eval_expr_with_bindings(
-        key_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+        key_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
       )
       match (target, key) {
         (Some(ListingValue(elements)), Some(IntValue(index))) =>
@@ -1302,7 +1337,8 @@ fn eval_expr_with_bindings(
     AmendExpr(base_expr, members) =>
       match
         eval_expr_with_bindings(
-          base_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+          base_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
         ) {
         Some(ObjectValue(base_members)) =>
           Some(
@@ -1310,7 +1346,8 @@ fn eval_expr_with_bindings(
               merge_value_members(
                 base_members,
                 eval_object_members(
-                  members, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+                  members, bindings, env, class_env, cache, stack, declarations,
+                  diagnostics, resolve_import,
                 ),
               ),
             ),
@@ -1326,7 +1363,8 @@ fn eval_expr_with_bindings(
     Identifier(name) =>
       match
         resolve_binding_value(
-          name, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+          name, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
         ) {
         Some(value) => Some(value)
         None => {
@@ -1342,12 +1380,12 @@ fn eval_expr_with_bindings(
             ) {
             eval_class_method_call(
               target_expr, method_name, arguments, false, bindings, env, class_env,
-              cache, stack, diagnostics, resolve_import,
+              cache, stack, declarations, diagnostics, resolve_import,
             )
           } else {
             eval_callable_call(
-              callee, arguments, bindings, env, class_env, cache, stack, diagnostics,
-              resolve_import,
+              callee, arguments, bindings, env, class_env, cache, stack, declarations,
+              diagnostics, resolve_import,
             )
           }
         SafeMemberAccess(target_expr, method_name) =>
@@ -1356,18 +1394,18 @@ fn eval_expr_with_bindings(
             ) {
             eval_class_method_call(
               target_expr, method_name, arguments, true, bindings, env, class_env,
-              cache, stack, diagnostics, resolve_import,
+              cache, stack, declarations, diagnostics, resolve_import,
             )
           } else {
             eval_callable_call(
-              callee, arguments, bindings, env, class_env, cache, stack, diagnostics,
-              resolve_import,
+              callee, arguments, bindings, env, class_env, cache, stack, declarations,
+              diagnostics, resolve_import,
             )
           }
         _ =>
           eval_callable_call(
-            callee, arguments, bindings, env, class_env, cache, stack, diagnostics,
-            resolve_import,
+            callee, arguments, bindings, env, class_env, cache, stack, declarations,
+            diagnostics, resolve_import,
           )
       }
     LambdaExpr(parameters, body, return_type_name) =>
@@ -1382,7 +1420,8 @@ fn eval_expr_with_bindings(
     NonNullExpr(inner_expr) =>
       match
         eval_expr_with_bindings(
-          inner_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+          inner_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
         ) {
         Some(NullValue) => {
           diagnostics.push(Diagnostic::{ message: "non-null assertion failed" })
@@ -1393,7 +1432,8 @@ fn eval_expr_with_bindings(
       }
     UnaryExpr(op, inner_expr) => {
       let inner = eval_expr_with_bindings(
-        inner_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+        inner_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
       )
       match (op, inner) {
         (Negate, Some(IntValue(value))) => Some(IntValue(0 - value))
@@ -1417,7 +1457,8 @@ fn eval_expr_with_bindings(
       match op {
         And => {
           let left = eval_expr_with_bindings(
-            left_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+            left_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
           )
           match left {
             Some(BoolValue(false)) => return Some(BoolValue(false))
@@ -1432,7 +1473,8 @@ fn eval_expr_with_bindings(
           }
           match
             eval_expr_with_bindings(
-              right_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+              right_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+              resolve_import,
             ) {
             Some(BoolValue(value)) => return Some(BoolValue(value))
             Some(_) => {
@@ -1446,7 +1488,8 @@ fn eval_expr_with_bindings(
         }
         Or => {
           let left = eval_expr_with_bindings(
-            left_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+            left_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
           )
           match left {
             Some(BoolValue(true)) => return Some(BoolValue(true))
@@ -1461,7 +1504,8 @@ fn eval_expr_with_bindings(
           }
           match
             eval_expr_with_bindings(
-              right_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+              right_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+              resolve_import,
             ) {
             Some(BoolValue(value)) => return Some(BoolValue(value))
             Some(_) => {
@@ -1475,13 +1519,14 @@ fn eval_expr_with_bindings(
         }
         NullCoalesce => {
           let left = eval_expr_with_bindings(
-            left_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+            left_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
           )
           match left {
             Some(NullValue) =>
               return eval_expr_with_bindings(
-                right_expr, bindings, env, class_env, cache, stack, diagnostics,
-                resolve_import,
+                right_expr, bindings, env, class_env, cache, stack, declarations,
+                diagnostics, resolve_import,
               )
             Some(value) => return Some(value)
             None => return None
@@ -1496,10 +1541,12 @@ fn eval_expr_with_bindings(
         _ => ()
       }
       let left = eval_expr_with_bindings(
-        left_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+        left_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
       )
       let right = eval_expr_with_bindings(
-        right_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+        right_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
       )
       match (left, right) {
         (Some(IntValue(a)), Some(IntValue(b))) =>
@@ -1573,15 +1620,18 @@ fn eval_expr_with_bindings(
     ConditionalExpr(condition_expr, then_expr, else_expr) =>
       match
         eval_expr_with_bindings(
-          condition_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+          condition_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
         ) {
         Some(BoolValue(true)) =>
           eval_expr_with_bindings(
-            then_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+            then_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
           )
         Some(BoolValue(false)) =>
           eval_expr_with_bindings(
-            else_expr, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+            else_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
           )
         Some(_) => {
           diagnostics.push(Diagnostic::{
@@ -1610,6 +1660,7 @@ fn eval_object_members(
   class_env : Array[ClassBinding],
   cache : Array[ValueBinding],
   stack : Array[String],
+  declarations : Array[Declaration],
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Array[ValueMember] {
@@ -1623,6 +1674,7 @@ fn eval_object_members(
         class_env,
         cache,
         stack,
+        declarations,
         diagnostics,
         resolve_import,
       ) {
@@ -1648,6 +1700,7 @@ fn eval_class_default_members(
   class_env : Array[ClassBinding],
   cache : Array[ValueBinding],
   stack : Array[String],
+  declarations : Array[Declaration],
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Array[ValueMember] {
@@ -1659,7 +1712,8 @@ fn eval_class_default_members(
         Some(parent_name) =>
           for
             value_member in eval_class_default_members(
-              parent_name, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+              parent_name, bindings, env, class_env, cache, stack, declarations,
+              diagnostics, resolve_import,
             ) {
             base_values.push(value_member)
           }
@@ -1682,7 +1736,8 @@ fn eval_class_default_members(
   merge_value_members(
     base_values,
     eval_object_members(
-      defaults, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
+      defaults, bindings, env, class_env, cache, stack, declarations, diagnostics,
+      resolve_import,
     ),
   )
 }
@@ -1858,7 +1913,8 @@ fn eval_pkl_test_catch_binding_value(
       }
       match
         eval_expr_with_bindings(
-          body, bindings, env, class_env, cache, stack, caught_diagnostics, resolve_import,
+          body, bindings, env, class_env, cache, stack, declarations, caught_diagnostics,
+          resolve_import,
         ) {
         Some(value) =>
           if caught_diagnostics.length() > 0 {
@@ -1922,6 +1978,7 @@ fn eval_program(
             class_env,
             cache,
             [],
+            program.declarations,
             diagnostics,
             resolve_import,
           )
@@ -1967,6 +2024,7 @@ fn eval_program(
         class_env,
         cache,
         [],
+        program.declarations,
         diagnostics,
         resolve_import,
       )
