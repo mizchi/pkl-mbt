@@ -2866,6 +2866,11 @@ fn eval_expr_with_bindings(
         }
         None => None
       }
+    ForGenerator(var1, var2, source_expr, body_members) =>
+      eval_for_generator(
+        var1, var2, source_expr, body_members, bindings, env, class_env, cache, stack,
+        declarations, diagnostics, resolve_import,
+      )
     ErrorExpr(message) => {
       diagnostics.push(Diagnostic::{ message, })
       None
@@ -2875,6 +2880,75 @@ fn eval_expr_with_bindings(
       None
     }
   }
+}
+
+///|
+fn eval_for_generator(
+  var1 : String,
+  var2 : String?,
+  source_expr : Expr,
+  body_members : Array[ObjectMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let source = eval_expr_with_bindings(
+    source_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+    resolve_import,
+  )
+  let mut accumulated : Array[ValueMember] = []
+  match source {
+    Some(ListingValue(elements)) =>
+      for i = 0; i < elements.length(); i = i + 1 {
+        let iter_cache = copy_value_bindings(cache)
+        match var2 {
+          Some(name2) => {
+            iter_cache.push({ name: var1, value: IntValue(i) })
+            iter_cache.push({ name: name2, value: elements[i] })
+          }
+          None => iter_cache.push({ name: var1, value: elements[i] })
+        }
+        let iter_members = eval_object_members(
+          body_members, bindings, env, class_env, iter_cache, stack, declarations,
+          diagnostics, resolve_import,
+        )
+        accumulated = merge_value_members(accumulated, iter_members)
+      }
+    Some(MappingValue(entries)) =>
+      for entry in entries {
+        let iter_cache = copy_value_bindings(cache)
+        match var2 {
+          Some(name2) => {
+            iter_cache.push({ name: var1, value: entry.key })
+            iter_cache.push({ name: name2, value: entry.value })
+          }
+          None => {
+            diagnostics.push(Diagnostic::{
+              message: "for-generator over Mapping requires two variables (key, value)",
+            })
+            return None
+          }
+        }
+        let iter_members = eval_object_members(
+          body_members, bindings, env, class_env, iter_cache, stack, declarations,
+          diagnostics, resolve_import,
+        )
+        accumulated = merge_value_members(accumulated, iter_members)
+      }
+    Some(_) => {
+      diagnostics.push(Diagnostic::{
+        message: "for-generator source must be Listing or Mapping",
+      })
+      return None
+    }
+    None => return None
+  }
+  Some(ObjectValue(accumulated))
 }
 
 ///|
@@ -2904,11 +2978,12 @@ fn eval_object_members(
         resolve_import,
       ) {
       Some(value) =>
-        if field.name == "@when" {
-          // Synthetic when-conditional emitted by `parse_when_member`. The
-          // value is the picked branch's object literal — spread its
-          // members into the parent so the conditional doesn't surface as a
-          // real property.
+        if field.name == "@when" || field.name == "@for" {
+          // Synthetic when-conditional / for-generator emitted by the
+          // matching parse helper. The value is the picked branch's (or the
+          // accumulated iteration's) object literal — spread its members
+          // into the parent so the generator doesn't surface as a real
+          // property.
           match value {
             ObjectValue(branch_members) =>
               for branch_member in branch_members {
@@ -2916,7 +2991,7 @@ fn eval_object_members(
               }
             _ =>
               diagnostics.push(Diagnostic::{
-                message: "when-conditional branch must produce an object body",
+                message: "object-body generator must produce an object body",
               })
           }
         } else if pkl_constrained_type_annotation_value_is_valid(

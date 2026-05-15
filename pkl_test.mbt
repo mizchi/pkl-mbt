@@ -1798,6 +1798,120 @@ test "object body when-conditional emits multiple members per branch" {
 }
 
 ///|
+test "object body for-generator iterates a Listing with one variable" {
+  // Three iterations each rebind `last` — the latest write wins via the
+  // existing member-merge semantics.
+  assert_true(
+    eval_source(
+      "result {\n  for (x in new Listing { 1; 2; 3 }) {\n    last = x\n  }\n}",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "result",
+          value: ObjectValue([ValueMember::{ name: "last", value: IntValue(3) }]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "object body for-generator binds index and element with two variables" {
+  assert_true(
+    eval_source(
+      "result {\n  for (i, x in new Listing { 10; 20; 30 }) {\n    idx = i\n    val = x\n  }\n}",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "result",
+          value: ObjectValue([
+            ValueMember::{ name: "idx", value: IntValue(2) },
+            ValueMember::{ name: "val", value: IntValue(30) },
+          ]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "object body for-generator binds key and value over a Mapping" {
+  assert_true(
+    eval_source(
+      "result {\n  for (k, v in new Mapping { [\"a\"] = 1; [\"b\"] = 2 }) {\n    lastKey = k\n    lastVal = v\n  }\n}",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "result",
+          value: ObjectValue([
+            ValueMember::{ name: "lastKey", value: StringValue("b") },
+            ValueMember::{ name: "lastVal", value: IntValue(2) },
+          ]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "object body for-generator contributes no members on an empty source" {
+  assert_true(
+    eval_source(
+      "result {\n  base = 1\n  for (x in new Listing {}) {\n    extra = x\n  }\n}",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "result",
+          value: ObjectValue([ValueMember::{ name: "base", value: IntValue(1) }]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "object body for-generator sees outer-scope bindings" {
+  assert_true(
+    eval_source(
+      "scale = 10\nresult {\n  for (x in new Listing { 1; 2; 3 }) {\n    last = x * scale\n  }\n}",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "scale", value: IntValue(10) },
+        ValueMember::{
+          name: "result",
+          value: ObjectValue([
+            ValueMember::{ name: "last", value: IntValue(30) },
+          ]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "object body for-generator composes with when-conditionals" {
+  // Skip iterations where the element fails a predicate.
+  assert_true(
+    eval_source(
+      "result {\n  for (x in new Listing { 1; 2; 3; 4 }) {\n    when (x > 2) {\n      last = x\n    }\n  }\n}",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "result",
+          value: ObjectValue([ValueMember::{ name: "last", value: IntValue(4) }]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
 test "render Pkl module bindings as Java Properties" {
   let value : Value = ObjectValue([
     ValueMember::{ name: "name", value: StringValue("pigeon") },

@@ -62,6 +62,7 @@ pub(all) enum Expr {
   UnaryExpr(UnaryOp, Expr)
   BinaryExpr(BinaryOp, Expr, Expr)
   ConditionalExpr(Expr, Expr, Expr)
+  ForGenerator(String, String?, Expr, Array[ObjectMember])
   UnsupportedExpr
   ErrorExpr(String)
 } derive(Eq, Debug)

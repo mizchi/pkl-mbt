@@ -129,17 +129,6 @@ local readTraceThrow: Spec.Scenario = new {
 
 // ── object expression features ──────────────────────────────────────────────
 
-local objectBodyForGenerators: Spec.Scenario = new {
-  id = "PKL-085"
-  name = "evaluate object body for-generators"
-  description =
-    "`for (k, v in source) { ... }` inside an object body expands into repeated members, with iteration over Listing / Mapping / Set sources matching Apple Pkl semantics."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-075" }
-  tags { "evaluator"; "object"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
 
 
 local hiddenAndLocalMembers: Spec.Scenario = new {
@@ -149,7 +138,7 @@ local hiddenAndLocalMembers: Spec.Scenario = new {
     "Members declared `hidden ` or `local ` are visible inside expressions but absent from rendered output. The interpreter and every renderer respects this distinction."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-070" }
-  tags { "evaluator"; "renderer"; "object" }
+  tags { "evaluator"; "renderer"; "object"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -273,7 +262,6 @@ entries: Listing<Spec.Scenario> = new {
   durationAndDataSize
   bytesLiterals
   readTraceThrow
-  objectBodyForGenerators
   hiddenAndLocalMembers
   genericClassDeclarations
   genericFunctionTypeParameters

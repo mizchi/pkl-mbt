@@ -1720,6 +1720,11 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
         Some(field) => members.push(field)
         None => ()
       }
+    } else if self.at(for_kw()) {
+      match self.parse_for_member() {
+        Some(field) => members.push(field)
+        None => ()
+      }
     } else if self.at_property_decl() {
       match self.parse_object_member() {
         Some(field) => members.push(field)
@@ -1771,6 +1776,104 @@ fn Parser::parse_when_member(self : Parser) -> ObjectMember? {
       ObjectLiteral(then_members),
       ObjectLiteral(else_members),
     ),
+  })
+}
+
+///|
+/// Parse `for (var [, var2] in source) { ... }` inside an object body.
+///
+/// The body's members are kept as `Array[ObjectMember]` so the iteration
+/// step can re-evaluate each member against the per-iteration cache (with
+/// the loop variables bound). The construct is encoded as a synthetic
+/// `@for` object member whose value is a `ForGenerator` expression;
+/// `eval_object_members` recognises the reserved name, iterates the source
+/// via `eval_expr_with_bindings`, and spreads the per-iteration members
+/// into the parent.
+fn Parser::skip_for_binding_type_annotation(self : Parser) -> Unit {
+  self.skip_whitespace()
+  if !self.at(colon()) {
+    return
+  }
+  ignore(self.bump())
+  // Consume tokens up to (but not including) the next `,` / `in` /
+  // `)`, balancing parens / brackets / angles so generic types like
+  // `Listing<Pair<Int, Int>>` don't trip over the inner `,`.
+  let mut parens = 0
+  let mut brackets = 0
+  let mut angles = 0
+  while !self.at(eof()) {
+    if parens == 0 && brackets == 0 && angles == 0 {
+      if self.at(comma()) || self.at(in_kw()) || self.at(rparen()) {
+        break
+      }
+    }
+    if self.at(lparen()) {
+      parens += 1
+    } else if self.at(rparen()) {
+      parens -= 1
+    } else if self.at(lbracket()) {
+      brackets += 1
+    } else if self.at(rbracket()) {
+      brackets -= 1
+    } else if self.at(lt()) {
+      angles += 1
+    } else if self.at(gt()) {
+      angles -= 1
+    }
+    ignore(self.bump())
+  }
+}
+
+///|
+fn Parser::parse_for_member(self : Parser) -> ObjectMember? {
+  self.builder.start_node(object_member())
+  ignore(self.expect(for_kw(), "for"))
+  self.skip_trivia()
+  ignore(self.expect(lparen(), "("))
+  self.skip_trivia()
+  let var1 = match self.expect(identifier(), "for-binding name") {
+    Some(tok) => tok.text()
+    None => ""
+  }
+  // Pkl allows a type annotation after each for-binding (`for (n: Int in ...)`)
+  // — accept and discard it. We can't use `parse_type_annotation` here
+  // because its `parse_type_text` greedily consumes tokens until it sees
+  // `=` / `{` / `}` / `,`, which means it would swallow the `in` keyword
+  // and the source expression. The custom loop below stops at `,` or `in`.
+  self.skip_for_binding_type_annotation()
+  self.skip_trivia()
+  let var2 : String? = if self.at(comma()) {
+    ignore(self.bump())
+    self.skip_trivia()
+    let name = match self.expect(identifier(), "for-binding name") {
+      Some(tok) => tok.text()
+      None => ""
+    }
+    self.skip_for_binding_type_annotation()
+    if name == "" {
+      None
+    } else {
+      Some(name)
+    }
+  } else {
+    None
+  }
+  self.skip_trivia()
+  ignore(self.expect(in_kw(), "in"))
+  self.skip_trivia()
+  let source = self.parse_expr()
+  self.skip_trivia()
+  ignore(self.expect(rparen(), ")"))
+  self.skip_trivia()
+  let body_members = self.parse_object_body_members()
+  self.builder.finish_node()
+  if var1 == "" {
+    return None
+  }
+  Some({
+    name: "@for",
+    type_name: None,
+    value: ForGenerator(var1, var2, source, body_members),
   })
 }
 

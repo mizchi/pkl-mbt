@@ -77,6 +77,8 @@ fn keyword_or_identifier(text : String) -> @cst.SyntaxKind {
     "else" => else_kw()
     "is" => is_kw()
     "when" => when_kw()
+    "for" => for_kw()
+    "in" => in_kw()
     _ => identifier()
   }
 }

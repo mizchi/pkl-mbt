@@ -1464,6 +1464,44 @@ local jsonRenderer = new Scenario {
   }
 }
 
+local objectBodyForGenerators = new Scenario {
+  id = "PKL-085"
+  name = "evaluate object body for-generators"
+  description =
+    "`for (var in source) { ... }` and `for (var1, var2 in source) { ... }` inside an object body iterate the source (Listing or Mapping) and splice each iteration's members into the surrounding object. For Listings, the single-variable form binds the element; the two-variable form binds (index, element). For Mappings, the two-variable form binds (key, value). Per-iteration members are merged via `merge_value_members`, so later iterations overwrite earlier writes to the same name (matching Apple Pkl's `for`-as-property-generator semantics). The construct is encoded as a synthetic `@for` ObjectMember whose value is a new `ForGenerator(var1, var2, source, body)` `Expr` variant; `eval_object_members` recognises the reserved name and spreads the resulting `ObjectValue`'s members into the parent. Composes with `when`-conditionals inside the body — the @when spread per iteration contributes (or skips) members according to the condition."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-075"; "PKL-086" }
+  tags { "evaluator"; "object" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Promote `for` and `in` to reserved keywords"
+      rationale =
+        "Apple Pkl marks both as reserved words — they can never be property names. Adding them to `keyword_or_identifier` lets `parse_object_body_members` dispatch on the keyword's syntax kind directly and lets the binding-form parser look for `in_kw` as the source separator. The upstream parser suite (802 fixtures) still passes after the change, so no fixture uses `for` or `in` as an identifier."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Add a dedicated `ForGenerator` `Expr` variant instead of reusing a wrapper expression"
+      rationale =
+        "The for-generator's payload — loop variable name(s), source expression, and body members — does not fit into any existing `Expr` shape (the body is an `Array[ObjectMember]`, not an `Expr`). Encoding it as `(var1, var2_opt, source, body)` in a new variant keeps the surface explicit at every parser / evaluator / typechecker site. The typechecker treats the variant as `UnknownType` because for-generators only appear inside object bodies via the synthetic `@for` member, never as a free-standing expression."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Merge per-iteration members across iterations rather than appending duplicates"
+      rationale =
+        "Apple Pkl's `for`-as-property-generator semantics are last-write-wins per name — writing `result = x` inside the body for each iteration yields one `result` member set to the final iteration's value, not three duplicates. Our regular object-body evaluation keeps duplicate names (the renderer / amend chain resolves them downstream), but per-iteration spreading is a stronger contract; using `merge_value_members` between iterations matches the user's mental model and prevents the resulting `ObjectValue` from growing without bound for large sources."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Custom in-place skipper for binding-side type annotations"
+      rationale =
+        "Apple Pkl allows `for (n: Int in source)` and `for (n: Listing<Pair<Int, Int>> in source)`. Reusing `parse_type_annotation` here doesn't work because its `parse_type_text` greedily consumes tokens until `=` / `{` / `}` / `,`, which swallows the `in` keyword and the source expression. A small custom loop that stops at `,` / `in` / `)` while balancing parens / brackets / angles keeps the typed-binding contract intact without weakening the existing type-annotation parser."
+    }
+  }
+}
+
 local objectBodyWhenConditionals = new Scenario {
   id = "PKL-086"
   name = "evaluate object body when-conditionals"
@@ -1827,5 +1865,6 @@ scenarios {
   pklMathExpansion
   nullCoalescingAndLet
   objectBodyWhenConditionals
+  objectBodyForGenerators
   ...roadmap.entries
 }

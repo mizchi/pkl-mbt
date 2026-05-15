@@ -49,6 +49,7 @@ The current slice is intentionally small and executable:
 - `pkl:math` module: Int range constants `maxInt32`, `minInt32`, `maxInt`, `minInt` plus Int-side helpers `abs(x)`, `min(a, b)`, `max(a, b)` — reachable via `import "pkl:math" as math`
 - null-coalescing operator `a ?? b` (right-associative, short-circuit) and `let (name = value) body` expression form (single scoped binding desugared at parse time into a single-parameter lambda application)
 - object-body `when (cond) { ... } else { ... }` conditionals that splice the picked branch's members into the surrounding object (the `else` branch is optional)
+- object-body `for (var in source) { ... }` and `for (var1, var2 in source) { ... }` generators that iterate Listings and Mappings; per-iteration members merge with last-write-wins semantics, and `for` composes with `when` inside the body
 - native CLI commands: `parse`, `check`, and `eval`
 - common string escape decoding/rendering for `\n`, `\t`, `\r`, `\"`, and `\\`
 - ripple-backed `AnalysisSession` for source-driven typechecking
@@ -59,7 +60,7 @@ The current slice is intentionally small and executable:
 
 ## Current Completion Estimate
 
-As of the `PKL-086` spec slice, this project has 80 implemented pkspec scenarios and a 17-entry roadmap of draft slices in `specs/Roadmap.pkl`. The next tracked slice is `PKL-085`, which adds object-body `for (k, v in source) { ... }` generators. `PKL-080` (minimal `pkl:reflect`) stays in the roadmap as a deeper follow-up since its API surface requires the full Class / Property / Type object graph. The constraint round-off task `PKL-069` is also kept in the roadmap as a draft.
+As of the `PKL-085` spec slice, this project has 81 implemented pkspec scenarios and a 16-entry roadmap of draft slices in `specs/Roadmap.pkl`. The next tracked slice is `PKL-087`, which makes `hidden` / `local` members invisible to renderers while still reachable inside expressions. `PKL-080` (minimal `pkl:reflect`) stays in the roadmap as a deeper follow-up since its API surface requires the full Class / Property / Type object graph. The constraint round-off task `PKL-069` is also kept in the roadmap as a draft.
 
 These are engineering estimates, not formal coverage numbers:
 
@@ -113,4 +114,4 @@ git submodule update --init --recursive
 
 ## Scope
 
-This is not a full Pkl implementation yet. With the four-renderer surface (PCF / JSON / YAML / Properties), the core `pkl:base` Listing / Mapping / String / Int builtins, the Int-side `pkl:math` constants and helpers, the `??` / `let (...)` expression forms, and the object-body `when` conditional in place, the next compatibility work pivots to `PKL-085` object-body `for` generators; the full draft roadmap lives in `specs/Roadmap.pkl`.
+This is not a full Pkl implementation yet. With the four-renderer surface (PCF / JSON / YAML / Properties), the core `pkl:base` Listing / Mapping / String / Int builtins, the Int-side `pkl:math` constants and helpers, the `??` / `let (...)` expression forms, and the object-body `when` / `for` generators in place, the next compatibility work pivots to `PKL-087` `hidden` / `local` member visibility; the full draft roadmap lives in `specs/Roadmap.pkl`.

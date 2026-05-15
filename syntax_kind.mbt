@@ -129,6 +129,16 @@ pub fn when_kw() -> @cst.SyntaxKind {
 }
 
 ///|
+pub fn for_kw() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(38)
+}
+
+///|
+pub fn in_kw() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(39)
+}
+
+///|
 pub fn lparen() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(40)
 }
@@ -453,6 +463,8 @@ pub fn kind_name(kind : @cst.SyntaxKind) -> String {
     35 => "else"
     36 => "is"
     37 => "when"
+    38 => "for"
+    39 => "in"
     40 => "lparen"
     41 => "rparen"
     42 => "semicolon"
