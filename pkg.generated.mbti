@@ -189,6 +189,8 @@ pub fn unary_expr() -> @cst.SyntaxKind
 
 pub fn unsupported_expr() -> @cst.SyntaxKind
 
+pub fn when_kw() -> @cst.SyntaxKind
+
 pub fn whitespace() -> @cst.SyntaxKind
 
 // Errors

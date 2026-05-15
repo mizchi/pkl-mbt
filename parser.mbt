@@ -1715,7 +1715,12 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
   self.consume_separators()
   while !self.at(eof()) && !self.at(rbrace()) {
     self.skip_member_header()
-    if self.at_property_decl() {
+    if self.at(when_kw()) {
+      match self.parse_when_member() {
+        Some(field) => members.push(field)
+        None => ()
+      }
+    } else if self.at_property_decl() {
       match self.parse_object_member() {
         Some(field) => members.push(field)
         None => ()
@@ -1727,6 +1732,46 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
   }
   ignore(self.expect(rbrace(), "}"))
   members
+}
+
+///|
+/// Parse `when (cond) { ... } [else { ... }]` inside an object body.
+///
+/// The branches are rendered as `ObjectLiteral`s so they share the rest of
+/// the evaluator's object-body machinery (property defaults, nested
+/// when-conditionals, amend expressions, etc.). The whole construct is
+/// encoded as a synthetic `ObjectMember` with the reserved name `@when` and
+/// a `ConditionalExpr` value; `eval_object_members` recognises the reserved
+/// name and spreads the resulting `ObjectValue`'s members into the parent
+/// instead of attaching them under the reserved key.
+fn Parser::parse_when_member(self : Parser) -> ObjectMember? {
+  self.builder.start_node(object_member())
+  ignore(self.expect(when_kw(), "when"))
+  self.skip_whitespace()
+  ignore(self.expect(lparen(), "("))
+  let condition = self.parse_expr()
+  self.skip_whitespace()
+  ignore(self.expect(rparen(), ")"))
+  self.skip_whitespace()
+  let then_members = self.parse_object_body_members()
+  self.consume_separators()
+  let else_members : Array[ObjectMember] = if self.at(else_kw()) {
+    ignore(self.bump())
+    self.skip_whitespace()
+    self.parse_object_body_members()
+  } else {
+    []
+  }
+  self.builder.finish_node()
+  Some({
+    name: "@when",
+    type_name: None,
+    value: ConditionalExpr(
+      condition,
+      ObjectLiteral(then_members),
+      ObjectLiteral(else_members),
+    ),
+  })
 }
 
 ///|

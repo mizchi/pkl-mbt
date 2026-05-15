@@ -1464,6 +1464,38 @@ local jsonRenderer = new Scenario {
   }
 }
 
+local objectBodyWhenConditionals = new Scenario {
+  id = "PKL-086"
+  name = "evaluate object body when-conditionals"
+  description =
+    "`when (cond) { ... } else { ... }` inside an object body picks the then-branch when the condition evaluates to `true` and the else-branch otherwise; the picked branch's members are spliced into the surrounding object body alongside any sibling properties. `else` is optional — a false condition without an `else` contributes no members. The condition expression sees the enclosing module's bindings (so `when (stage == \"prod\")` works), and each branch may declare multiple members. The construct is desugared at parse time into a synthetic `@when` object member whose value is a `ConditionalExpr` between the two branch `ObjectLiteral`s; `eval_object_members` recognises the reserved name and spreads the resulting `ObjectValue`'s members into the parent."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-009" }
+  tags { "evaluator"; "object" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Encode `when` as a synthetic `@when` ObjectMember rather than changing the ObjectMember shape"
+      rationale =
+        "Promoting `ObjectMember` from a struct to an enum (with separate `Property` and `WhenBranch` variants) would ripple through every place that constructs or inspects object members — parser, evaluator, typechecker, renderers, four separate match arms. Encoding `when` as a reserved-named ObjectMember whose value is a `ConditionalExpr` between two `ObjectLiteral`s keeps the change local: the parser emits one extra branch in `parse_object_body_members`, and the evaluator spreads on the reserved name. `@` is rejected as an identifier character by the lexer, so the reserved name cannot collide with anything in user source."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Spread branch members at evaluation time rather than at parse time"
+      rationale =
+        "Apple Pkl evaluates the condition at module-evaluation time and the branches see the surrounding object's bindings (forward references, class defaults, amend chains). Spreading at parse time would require copying the branch's `ObjectMember`s into the surrounding array, which loses the source position for diagnostics and forces the parser to know about evaluation order. Spreading at evaluation time, after `eval_expr_with_bindings` resolves the conditional, keeps the parser oblivious to runtime semantics and lets the existing scoping machinery (`eval_object_members` already iterates in order with forward-reference support) handle the resolution."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Promote `when` from an identifier to a reserved keyword"
+      rationale =
+        "Apple Pkl marks `when` as a reserved word — it can never be a property name. Adding `when` to `keyword_or_identifier` matches that contract and lets `parse_object_body_members` dispatch on the keyword's syntax kind directly. The upstream parser suite (802 fixtures) and smoke tests still pass, so no existing fixture uses `when` as an identifier."
+    }
+  }
+}
+
 local nullCoalescingAndLet = new Scenario {
   id = "PKL-088"
   name = "null-coalescing operator and let expressions"
@@ -1794,5 +1826,6 @@ scenarios {
   pklBaseInt
   pklMathExpansion
   nullCoalescingAndLet
+  objectBodyWhenConditionals
   ...roadmap.entries
 }

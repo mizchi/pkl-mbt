@@ -1680,6 +1680,124 @@ test "let-expression composes with null-coalescing" {
 }
 
 ///|
+test "object body when-conditional picks the then-branch on true" {
+  assert_true(
+    eval_source(
+      "result {\n  always = 1\n  when (true) {\n    flag = \"yes\"\n  } else {\n    flag = \"no\"\n  }\n}",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "result",
+          value: ObjectValue([
+            ValueMember::{ name: "always", value: IntValue(1) },
+            ValueMember::{ name: "flag", value: StringValue("yes") },
+          ]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "object body when-conditional picks the else-branch on false" {
+  assert_true(
+    eval_source(
+      "result {\n  always = 1\n  when (false) {\n    flag = \"yes\"\n  } else {\n    flag = \"no\"\n  }\n}",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "result",
+          value: ObjectValue([
+            ValueMember::{ name: "always", value: IntValue(1) },
+            ValueMember::{ name: "flag", value: StringValue("no") },
+          ]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "object body when-conditional without else drops members on false" {
+  // No else-branch means a false condition contributes nothing.
+  assert_true(
+    eval_source(
+      "result {\n  always = 1\n  when (false) {\n    flag = \"yes\"\n  }\n}",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "result",
+          value: ObjectValue([
+            ValueMember::{ name: "always", value: IntValue(1) },
+          ]),
+        },
+      ]),
+    ),
+  )
+  assert_true(
+    eval_source(
+      "result {\n  always = 1\n  when (true) {\n    flag = \"yes\"\n  }\n}",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "result",
+          value: ObjectValue([
+            ValueMember::{ name: "always", value: IntValue(1) },
+            ValueMember::{ name: "flag", value: StringValue("yes") },
+          ]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "object body when-conditional reads outer bindings" {
+  // The when-condition can refer to bindings declared earlier in the module.
+  assert_true(
+    eval_source(
+      "stage = \"prod\"\nresult {\n  when (stage == \"prod\") {\n    replicas = 3\n  } else {\n    replicas = 1\n  }\n}",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "stage", value: StringValue("prod") },
+        ValueMember::{
+          name: "result",
+          value: ObjectValue([
+            ValueMember::{ name: "replicas", value: IntValue(3) },
+          ]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "object body when-conditional emits multiple members per branch" {
+  assert_true(
+    eval_source(
+      "result {\n  when (true) {\n    a = 1\n    b = 2\n  } else {\n    c = 3\n  }\n  d = 4\n}",
+    ) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "result",
+          value: ObjectValue([
+            ValueMember::{ name: "a", value: IntValue(1) },
+            ValueMember::{ name: "b", value: IntValue(2) },
+            ValueMember::{ name: "d", value: IntValue(4) },
+          ]),
+        },
+      ]),
+    ),
+  )
+}
+
+///|
 test "render Pkl module bindings as Java Properties" {
   let value : Value = ObjectValue([
     ValueMember::{ name: "name", value: StringValue("pigeon") },

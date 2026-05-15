@@ -136,22 +136,11 @@ local objectBodyForGenerators: Spec.Scenario = new {
     "`for (k, v in source) { ... }` inside an object body expands into repeated members, with iteration over Listing / Mapping / Set sources matching Apple Pkl semantics."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-075" }
-  tags { "evaluator"; "object" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
-local objectBodyWhenConditionals: Spec.Scenario = new {
-  id = "PKL-086"
-  name = "evaluate object body when-conditionals"
-  description =
-    "`when (cond) { ... } else { ... }` inside an object body conditionally adds members at evaluation time, matching Apple Pkl semantics for both inline and standalone forms."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-009" }
   tags { "evaluator"; "object"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
+
 
 local hiddenAndLocalMembers: Spec.Scenario = new {
   id = "PKL-087"
@@ -285,7 +274,6 @@ entries: Listing<Spec.Scenario> = new {
   bytesLiterals
   readTraceThrow
   objectBodyForGenerators
-  objectBodyWhenConditionals
   hiddenAndLocalMembers
   genericClassDeclarations
   genericFunctionTypeParameters

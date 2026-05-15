@@ -124,6 +124,11 @@ pub fn is_kw() -> @cst.SyntaxKind {
 }
 
 ///|
+pub fn when_kw() -> @cst.SyntaxKind {
+  @cst.SyntaxKind::new(37)
+}
+
+///|
 pub fn lparen() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(40)
 }
@@ -447,6 +452,7 @@ pub fn kind_name(kind : @cst.SyntaxKind) -> String {
     34 => "slash"
     35 => "else"
     36 => "is"
+    37 => "when"
     40 => "lparen"
     41 => "rparen"
     42 => "semicolon"

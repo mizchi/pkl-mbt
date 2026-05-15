@@ -2904,7 +2904,22 @@ fn eval_object_members(
         resolve_import,
       ) {
       Some(value) =>
-        if pkl_constrained_type_annotation_value_is_valid(
+        if field.name == "@when" {
+          // Synthetic when-conditional emitted by `parse_when_member`. The
+          // value is the picked branch's object literal — spread its
+          // members into the parent so the conditional doesn't surface as a
+          // real property.
+          match value {
+            ObjectValue(branch_members) =>
+              for branch_member in branch_members {
+                values.push(branch_member)
+              }
+            _ =>
+              diagnostics.push(Diagnostic::{
+                message: "when-conditional branch must produce an object body",
+              })
+          }
+        } else if pkl_constrained_type_annotation_value_is_valid(
             field.type_name,
             value,
             diagnostics,
