@@ -61,13 +61,13 @@ The current slice is intentionally small and executable:
 - common string escape decoding/rendering for `\n`, `\t`, `\r`, `\"`, and `\\`
 - ripple-backed `AnalysisSession` for source-driven typechecking
 - pkspec contracts for the implemented behavior
-- byte-for-byte gold-match against the upstream `apple/pkl` smoke suite for 25 hand-curated fixtures across `basic` / `classes` / `modules` / `objects` / `types`, gated by `scripts/upstream-smoke.sh`
+- byte-for-byte gold-match against the upstream `apple/pkl` smoke suite for 25 hand-curated `.pcf` fixtures across `basic` / `classes` / `modules` / `objects` / `types`, plus 1 `.json` gold-match (`api/jsonRenderer1.json`), gated by `scripts/upstream-smoke.sh`. The CLI extracts a top-level `output { value = ... }` envelope before rendering so JSON gold fixtures match Apple Pkl's `output.value`-on-renderer behavior
 - parse-only compatibility with the upstream `LanguageSnippetTests` parser corpus
 - pkfire task graph for local CI
 
 ## Current Completion Estimate
 
-As of the `PKL-096` spec slice, this project has 91 implemented pkspec scenarios and a 6-entry roadmap of draft slices in `specs/Roadmap.pkl`. The next tracked slice is `PKL-097`, which extends the gold-diff coverage from PCF to the JSON renderer so `eval -f json` output is also pinned against `LanguageSnippetTests/output/<dir>/<name>.json`. `PKL-080` (minimal `pkl:reflect`) stays in the roadmap as a deeper follow-up since its API surface requires the full Class / Property / Type object graph.
+As of the `PKL-097` spec slice, this project has 92 implemented pkspec scenarios and a 5-entry roadmap of draft slices in `specs/Roadmap.pkl`. The next tracked slice is `PKL-080`, which lands minimal `pkl:reflect.Type` / `Class` / `Property` support so introspective fixtures (and the upstream `reflect.pkl`) become evaluable. The remaining roadmap entries (`PKL-084` read/trace/throw, `PKL-089`/`PKL-090` generic class & function, `PKL-092` Float constraint predicates) are larger and gated on architectural decisions or prerequisite Float numerics.
 
 These are engineering estimates, not formal coverage numbers:
 
@@ -121,4 +121,4 @@ git submodule update --init --recursive
 
 ## Scope
 
-This is not a full Pkl implementation yet. With the four-renderer surface (PCF / JSON / YAML / Properties), the core `pkl:base` Listing / Mapping / String / Int builtins, the Int-side `pkl:math` constants and helpers, the `??` / `let (...)` expression forms, the object-body `when` / `for` generators, `hidden` / `local` member filtering, typealiased argument resolution, the Int-magnitude `Duration` / `DataSize` literals, the `Regex` literal + method surface, the String constraint predicate cascade, collection element constraint propagation, the CLI `--format` long-form dispatch, the CLI `test` subcommand for `facts`, the `Bytes` literal + base64 / UTF-8 surface, and the broader upstream fixture sweep (25 byte-for-byte gold matches) closed out, the next compatibility work pivots to `PKL-097` (gold-diff for JSON output too); the full draft roadmap lives in `specs/Roadmap.pkl`.
+This is not a full Pkl implementation yet. With the four-renderer surface (PCF / JSON / YAML / Properties), the core `pkl:base` Listing / Mapping / String / Int builtins, the Int-side `pkl:math` constants and helpers, the `??` / `let (...)` expression forms, the object-body `when` / `for` generators, `hidden` / `local` member filtering, typealiased argument resolution, the Int-magnitude `Duration` / `DataSize` literals, the `Regex` literal + method surface, the String constraint predicate cascade, collection element constraint propagation, the CLI `--format` long-form dispatch, the CLI `test` subcommand for `facts`, the `Bytes` literal + base64 / UTF-8 surface, the broader upstream fixture sweep (25 PCF byte-for-byte gold matches), and the JSON gold-diff infrastructure (with `output.value` extraction in the CLI) closed out, the next compatibility work pivots to `PKL-080` (minimal `pkl:reflect`); the full draft roadmap lives in `specs/Roadmap.pkl`.

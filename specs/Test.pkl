@@ -200,9 +200,17 @@ local cliTestFail = new Test {
 local upstreamSmoke = new Test {
   name = "upstream apple pkl fixture smoke"
   description =
-    "Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output."
+    "Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF and JSON)."
   tags { "moonbit"; "upstream"; "compatibility"; "contract" }
-  specRef { "PKL-011"; "PKL-012"; "PKL-013"; "PKL-014"; "PKL-060"; "PKL-096" }
+  specRef {
+    "PKL-011"
+    "PKL-012"
+    "PKL-013"
+    "PKL-014"
+    "PKL-060"
+    "PKL-096"
+    "PKL-097"
+  }
   cmd = "./scripts/upstream-smoke.sh"
   workdir = ".."
   expectStdoutContains {
@@ -216,7 +224,9 @@ local upstreamSmoke = new Test {
     "upstream eval ok: modules/amendModule1 (gold match)"
     "upstream eval ok: types/nothingWithUnions (gold match)"
     "upstream eval ok: classes/constraints8.pkl"
+    "upstream json eval ok: api/jsonRenderer1.json (gold match)"
     "upstream-smoke: 25 gold-match fixtures passed"
+    "upstream-smoke: 1 json gold-match fixtures passed"
   }
   timeoutSec = 240
 }

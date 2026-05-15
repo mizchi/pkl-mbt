@@ -1502,6 +1502,38 @@ local durationAndDataSizeLiterals = new Scenario {
   }
 }
 
+local upstreamJsonGoldDiff = new Scenario {
+  id = "PKL-097"
+  name = "diff JSON evaluation output against apple/pkl gold files"
+  description =
+    "`scripts/upstream-smoke.sh` gains a `JSON_GOLD_FIXTURES` list and an `eval_json_matches_gold` helper that runs the native CLI with `eval -f json`, byte-diffs the output against `LanguageSnippetTests/output/<dir>/<name>.json`, and prints `upstream json eval ok: <label> (gold match)` on success. The CLI's new `extract_output_value` helper unwraps a top-level `output { value = ... }` member before the renderer dispatches, mirroring the `output.value`-on-renderer invocation Apple Pkl uses for its renderer-test fixtures. Fixtures that route their data through `output.value` therefore render only the inner subtree, so `api/jsonRenderer1.json.pkl` matches the gold byte-for-byte. The remaining upstream JSON-renderer fixtures (`jsonRenderer2.json.pkl` / `3.json.pkl` / `6.json.pkl`) all need converters, Float numerics, or stdlib types (List / Set / Map / Pair / IntSeq / Dynamic) outside the implemented slice; those stay off the list and are picked up incrementally as the related slices land."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-071"; "PKL-072"; "PKL-096" }
+  tags { "compatibility"; "upstream"; "renderer" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Honor `output.value` in the CLI rather than wiring the full Apple Pkl `output { renderer }` driver"
+      rationale =
+        "A complete `output {}` driver requires class-name tagging on every ObjectValue (so the CLI can read `output.renderer`'s class to pick a format), plus runtime support for `output.renderer = new JsonRenderer { converters { ... } }` with path / type-keyed converter lambdas. That is several slices of work. The `extract_output_value` helper isolates the smallest piece — `output.value` extraction — that lets a JSON-renderer fixture line up with its gold when the user passes `-f json` explicitly. The `-f` flag remains the source of truth for renderer choice; honoring `output.renderer` lands as a follow-up once class-name tagging exists."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Curate the JSON gold list explicitly, like the PCF list"
+      rationale =
+        "Same gating logic as PKL-096: an explicit list is auditable and a regression makes the script fail noisily, while an auto-discovery sweep would silently mask regressions. Starting with one entry (`api/jsonRenderer1.json`) keeps the diff infrastructure honest — anyone adding a fixture has to first verify it gold-matches manually, and the script catches drift afterwards."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Document the deferred fixtures in the script and the spec, not as TODOs in code"
+      rationale =
+        "The three deferred fixtures (`jsonRenderer2/3/6`) each fail for different concrete reasons (converters, Float, missing stdlib types). Listing them as TODO comments in the script would rot every time we add a feature; tracking them as `dependsOn` notes in the spec narrative keeps the slice graph the source of truth and the script as a pure executable contract."
+    }
+  }
+}
+
 local upstreamFixtureSweep = new Scenario {
   id = "PKL-096"
   name = "evaluate broader upstream Pkl fixtures with gold byte-diff"
@@ -2226,5 +2258,6 @@ scenarios {
   cliPklTestRunner
   bytesLiteralAndMethods
   upstreamFixtureSweep
+  upstreamJsonGoldDiff
   ...roadmap.entries
 }

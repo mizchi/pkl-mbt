@@ -265,7 +265,15 @@ fn main {
       let session = @pkl.AnalysisSession::new()
       load_path(session, path, [])
       match session.eval_path(path) {
-        EvalOk(value) =>
+        EvalOk(raw) => {
+          // PKL-097: Apple Pkl uses a module-level `output { value =
+          // ...; renderer = ... }` block to drive what `pkl eval`
+          // returns. We do not yet honor `output.renderer` (the
+          // explicit `-f` flag stays the source of truth), but we do
+          // extract `output.value` so fixtures that route their data
+          // through `output.value` render only that subtree instead
+          // of the whole module envelope.
+          let value = extract_output_value(raw)
           // The format string is validated up-front, so this match is
           // exhaustive at runtime. The explicit `pcf` arm doubles as
           // documentation: a future renderer added here surfaces as a
@@ -299,6 +307,7 @@ fn main {
             "pcf" => println(@pkl.render_value(value))
             _ => fail("unsupported format: \{format}")
           }
+        }
         EvalError(diagnostics) => {
           print_diagnostics(diagnostics)
           @sys.exit(1)
@@ -403,4 +412,36 @@ fn run_pkl_test(value : @pkl.Value) -> PklTestSummary {
   }
   lines.push("\{passed} passed, \{failed} failed")
   { lines, failed }
+}
+
+///|
+/// PKL-097: If the module exposes an `output { value = ... }` member,
+/// return that subtree so the renderer dispatches on it instead of
+/// the whole module envelope. Modules without an `output.value` chain
+/// fall through unchanged so existing single-binding fixtures keep
+/// rendering the entire module the same way they did before.
+fn extract_output_value(value : @pkl.Value) -> @pkl.Value {
+  match value {
+    @pkl.ObjectValue(members) => {
+      let mut output_value : @pkl.Value? = None
+      for entry in members {
+        if entry.name == "output" {
+          match entry.value {
+            @pkl.ObjectValue(sub_members) =>
+              for sub in sub_members {
+                if sub.name == "value" {
+                  output_value = Some(sub.value)
+                }
+              }
+            _ => ()
+          }
+        }
+      }
+      match output_value {
+        Some(v) => v
+        None => value
+      }
+    }
+    _ => value
+  }
 }

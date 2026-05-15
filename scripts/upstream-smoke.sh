@@ -39,6 +39,17 @@ GOLD_FIXTURES=(
   "types/nothingWithUnions"
 )
 
+# PKL-097: list of upstream fixtures whose `eval -f json` output
+# matches the upstream `<dir>/<name>.json` gold byte-for-byte after
+# `extract_output_value` unwraps the `output { value }` envelope.
+# Most upstream JSON-renderer fixtures additionally need converters,
+# Float numerics, or stdlib types (List / Set / Map / Pair / IntSeq)
+# we have not yet implemented; only fixtures that gold-match through
+# the existing JSON renderer go on the list.
+JSON_GOLD_FIXTURES=(
+  "api/jsonRenderer1.json"
+)
+
 # Files whose `pkl parse` should succeed even when we cannot evaluate
 # them (e.g. they exercise stdlib gaps or runtime semantics outside
 # the implemented slice). Keeping a parse-only check pins the parser
@@ -96,6 +107,27 @@ eval_contains() {
   printf 'upstream eval ok: %s\n' "$label"
 }
 
+# PKL-097: byte-diff `eval -f json` output against the upstream JSON
+# gold file. Same gating shape as `eval_matches_gold` but runs the
+# JSON renderer; the CLI's `extract_output_value` strips the
+# `output {}` envelope so `output.value` matches Apple Pkl's
+# JsonRenderer-on-output.value behavior.
+eval_json_matches_gold() {
+  local label="$1"
+  local input="$2"
+  local gold="$3"
+  local actual
+  actual="$(moon run cmd/main --target native -- eval -f json "$input")"
+  if ! diff -u "$gold" <(printf '%s\n' "$actual") >/tmp/upstream-smoke-json-diff.$$; then
+    printf 'upstream json eval mismatch: %s\n' "$label" >&2
+    cat /tmp/upstream-smoke-json-diff.$$ >&2
+    rm -f /tmp/upstream-smoke-json-diff.$$
+    exit 1
+  fi
+  rm -f /tmp/upstream-smoke-json-diff.$$
+  printf 'upstream json eval ok: %s (gold match)\n' "$label"
+}
+
 # Parse-only sanity for files that exercise the parser even when
 # evaluation depends on unimplemented features.
 for entry in "${PARSE_ONLY[@]}"; do
@@ -109,6 +141,18 @@ for label in "${GOLD_FIXTURES[@]}"; do
   ok_count=$((ok_count + 1))
 done
 
+# JSON gold-match for fixtures that route their output through
+# `output.value`. The CLI's `extract_output_value` strips the
+# `output { value }` envelope before the JSON renderer sees the
+# value, so the diff lines up with Apple Pkl's upstream JSON output.
+# Each label already carries its `.json` suffix because upstream
+# names the input as `<name>.json.pkl` and the gold as `<name>.json`.
+json_ok_count=0
+for label in "${JSON_GOLD_FIXTURES[@]}"; do
+  eval_json_matches_gold "$label" "$UPSTREAM/$label.pkl" "$GOLD/$label"
+  json_ok_count=$((json_ok_count + 1))
+done
+
 # classes/constraints8 carries our project-specific error diagnostic wording
 # rather than Apple Pkl's "Type constraint ... violated. Value: ..." text,
 # so we keep the partial substring check until the diagnostic surface is
@@ -119,3 +163,4 @@ eval_contains \
   "res2 = \"type annotation X member a constraint isGreaterThan rejects 5\""
 
 printf 'upstream-smoke: %d gold-match fixtures passed\n' "$ok_count"
+printf 'upstream-smoke: %d json gold-match fixtures passed\n' "$json_ok_count"

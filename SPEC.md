@@ -68,10 +68,11 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **diff evaluation output against apple/pkl gold files** [draft] — verifies: PKL-097 — tags: compatibility, upstream, renderer, next
-  > For each upstream fixture that evaluates, byte-diff the PCF / JSON output against the `expected` gold files in `LanguageSnippetTests/output`. Mismatches fail the smoke script.
+- [ ] **diff JSON evaluation output against apple/pkl gold files** — verifies: PKL-097 — tags: compatibility, upstream, renderer
+  > `scripts/upstream-smoke.sh` gains a `JSON_GOLD_FIXTURES` list and an `eval_json_matches_gold` helper that runs the native CLI with `eval -f json`, byte-diffs the output against `LanguageSnippetTests/output/<dir>/<name>.json`, and prints `upstream json eval ok: <label> (gold match)` on success. The CLI's new `extract_output_value` helper unwraps a top-level `output { value = ... }` member before the renderer dispatches, mirroring the `output.value`-on-renderer invocation Apple Pkl uses for its renderer-test fixtures. Fixtures that route their data through `output.value` therefore render only the inner subtree, so `api/jsonRenderer1.json.pkl` matches the gold byte-for-byte. The remaining upstream JSON-renderer fixtures (`jsonRenderer2.json.pkl` / `3.json.pkl` / `6.json.pkl`) all need converters, Float numerics, or stdlib types (List / Set / Map / Pair / IntSeq / Dynamic) outside the implemented slice; those stay off the list and are picked up incrementally as the related slices land.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-071, PKL-072, PKL-096
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **enforce Pkl constrained function parameter annotations** — verifies: PKL-047 — tags: typechecker, evaluator
@@ -301,7 +302,7 @@
   - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **minimal pkl:reflect support** (minor) [draft] — verifies: PKL-080 — tags: stdlib, pkl-reflect
+- [ ] **minimal pkl:reflect support** (minor) [draft] — verifies: PKL-080 — tags: stdlib, pkl-reflect, next
   > `pkl:reflect.Type` / `Class` / `Property` enough for the upstream `reflect.pkl` fixtures: get the runtime type of a value, list class properties, and check whether a type is a subtype of another.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-040
@@ -701,8 +702,8 @@
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
-- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096 — tags: moonbit, upstream, compatibility, contract
-  > Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output.
+- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097 — tags: moonbit, upstream, compatibility, contract
+  > Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF and JSON).
   - body: `cmd` (exit 0 expected)
 
 - [x] **upstream apple pkl parser suite** — verifies: PKL-015 — tags: moonbit, upstream, parser, compatibility, contract
