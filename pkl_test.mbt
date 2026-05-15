@@ -935,6 +935,24 @@ test "evaluate Pkl callable closure captures" {
 }
 
 ///|
+test "evaluate non-scalar Pkl callable closure captures" {
+  assert_true(
+    eval_source(
+      "function makeReader(box) = () -> box.name\nlocal reader = makeReader(new { name = \"hawk\" })\nvalue = reader()",
+    ) ==
+    EvalOk(
+      ObjectValue([ValueMember::{ name: "value", value: StringValue("hawk") }]),
+    ),
+  )
+  assert_true(
+    eval_source(
+      "function makeApply(f) = (n) -> f(n)\nlocal inc = (x) -> x + 1\nlocal applyInc = makeApply(inc)\nvalue = applyInc(2)",
+    ) ==
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(3) }])),
+  )
+}
+
+///|
 test "typecheck rejects invalid Pkl calls" {
   guard typecheck_source("function add(x, y) = x + y\nvalue = add(1)")
     is TypeError(arity_diagnostics) else {

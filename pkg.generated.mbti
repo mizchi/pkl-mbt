@@ -409,7 +409,12 @@ pub(all) enum Value {
   ObjectValue(Array[ValueMember])
   ListingValue(Array[Value])
   MappingValue(Array[ValueEntry])
-  FunctionValue(Array[FunctionParameter], Expr, String?)
+  FunctionValue(Array[FunctionParameter], Expr, String?, Array[ValueBinding])
+} derive(Eq, @debug.Debug)
+
+pub(all) struct ValueBinding {
+  name : String
+  value : Value
 } derive(Eq, @debug.Debug)
 
 pub(all) struct ValueEntry {

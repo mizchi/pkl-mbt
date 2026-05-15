@@ -1215,8 +1215,8 @@ local nonScalarClosureCaptures = new Scenario {
     "Function and lambda values preserve captured object and callable bindings instead of only scalar literals."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-061"; "PKL-044" }
-  tags { "evaluator"; "callable"; "next" }
-  reviewStatus = "draft"
+  tags { "evaluator"; "callable" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -1224,6 +1224,26 @@ local nonScalarClosureCaptures = new Scenario {
       summary = "Move closure capture from literal substitution to value environments"
       rationale =
         "Simple scalar captures can be represented by substituting literal AST nodes, but object and callable captures need a real environment-preserving function value representation."
+    }
+  }
+}
+
+local callableReturnAnnotationEvaluation = new Scenario {
+  id = "PKL-063"
+  name = "evaluate Pkl callable return annotations"
+  description =
+    "Function and lambda calls validate declared return annotations at runtime so callable values reject bodies that return incompatible values."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-062"; "PKL-044"; "PKL-023" }
+  tags { "evaluator"; "callable"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Use preserved callable metadata for runtime return checks"
+      rationale =
+        "Callable values now carry lexical environments and still preserve return annotation text. The evaluator should enforce those annotations at call boundaries instead of leaving return validation only to the typechecker."
     }
   }
 }
@@ -1293,4 +1313,5 @@ scenarios {
   pklTestCatchConstraintsFixture
   callableClosureCaptures
   nonScalarClosureCaptures
+  callableReturnAnnotationEvaluation
 }

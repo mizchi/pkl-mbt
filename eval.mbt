@@ -7,7 +7,7 @@ pub(all) enum Value {
   ObjectValue(Array[ValueMember])
   ListingValue(Array[Value])
   MappingValue(Array[ValueEntry])
-  FunctionValue(Array[FunctionParameter], Expr, String?)
+  FunctionValue(Array[FunctionParameter], Expr, String?, Array[ValueBinding])
 } derive(Eq, Debug)
 
 ///|
@@ -29,10 +29,10 @@ pub(all) enum EvalResult {
 } derive(Eq, Debug)
 
 ///|
-priv struct ValueBinding {
+pub(all) struct ValueBinding {
   name : String
   value : Value
-}
+} derive(Eq, Debug)
 
 ///|
 priv struct ClassBinding {
@@ -188,174 +188,6 @@ fn merge_value_members(
     }
   }
   merged
-}
-
-///|
-fn eval_value_to_captured_expr(value : Value) -> Expr? {
-  match value {
-    IntValue(inner) => Some(IntLiteral(inner))
-    BoolValue(inner) => Some(BoolLiteral(inner))
-    StringValue(inner) => Some(StringLiteral(inner))
-    NullValue => Some(NullLiteral)
-    _ => None
-  }
-}
-
-///|
-fn eval_name_is_blocked(names : Array[String], name : String) -> Bool {
-  for blocked in names {
-    if blocked == name {
-      return true
-    }
-  }
-  false
-}
-
-///|
-fn eval_push_parameter_names(
-  names : Array[String],
-  parameters : Array[FunctionParameter],
-) -> Array[String] {
-  let next : Array[String] = []
-  for name in names {
-    next.push(name)
-  }
-  for parameter in parameters {
-    next.push(parameter.name)
-  }
-  next
-}
-
-///|
-fn eval_expr_with_captured_values(
-  expr : Expr,
-  env : Array[ValueBinding],
-  blocked_names : Array[String],
-) -> Expr {
-  match expr {
-    Identifier(name) =>
-      if eval_name_is_blocked(blocked_names, name) {
-        expr
-      } else {
-        match lookup_value(env, name) {
-          Some(value) =>
-            match eval_value_to_captured_expr(value) {
-              Some(captured) => captured
-              None => expr
-            }
-          None => expr
-        }
-      }
-    ObjectLiteral(members) => {
-      let captured_members : Array[ObjectMember] = []
-      for field in members {
-        captured_members.push({
-          name: field.name,
-          type_name: field.type_name,
-          value: eval_expr_with_captured_values(field.value, env, blocked_names),
-        })
-      }
-      ObjectLiteral(captured_members)
-    }
-    TypedObjectLiteral(type_name, members) => {
-      let captured_members : Array[ObjectMember] = []
-      for field in members {
-        captured_members.push({
-          name: field.name,
-          type_name: field.type_name,
-          value: eval_expr_with_captured_values(field.value, env, blocked_names),
-        })
-      }
-      TypedObjectLiteral(type_name, captured_members)
-    }
-    ListingLiteral(elements) => {
-      let captured_elements : Array[Expr] = []
-      for element in elements {
-        captured_elements.push(
-          eval_expr_with_captured_values(element, env, blocked_names),
-        )
-      }
-      ListingLiteral(captured_elements)
-    }
-    MappingLiteral(entries) => {
-      let captured_entries : Array[MappingEntry] = []
-      for entry in entries {
-        captured_entries.push({
-          key: eval_expr_with_captured_values(entry.key, env, blocked_names),
-          value: eval_expr_with_captured_values(entry.value, env, blocked_names),
-        })
-      }
-      MappingLiteral(captured_entries)
-    }
-    MemberAccess(target, name) =>
-      MemberAccess(
-        eval_expr_with_captured_values(target, env, blocked_names),
-        name,
-      )
-    SafeMemberAccess(target, name) =>
-      SafeMemberAccess(
-        eval_expr_with_captured_values(target, env, blocked_names),
-        name,
-      )
-    SubscriptAccess(target, key) =>
-      SubscriptAccess(
-        eval_expr_with_captured_values(target, env, blocked_names),
-        eval_expr_with_captured_values(key, env, blocked_names),
-      )
-    AmendExpr(base, members) => {
-      let captured_members : Array[ObjectMember] = []
-      for field in members {
-        captured_members.push({
-          name: field.name,
-          type_name: field.type_name,
-          value: eval_expr_with_captured_values(field.value, env, blocked_names),
-        })
-      }
-      AmendExpr(
-        eval_expr_with_captured_values(base, env, blocked_names),
-        captured_members,
-      )
-    }
-    CallExpr(callee, arguments) => {
-      let captured_arguments : Array[Expr] = []
-      for argument in arguments {
-        captured_arguments.push(
-          eval_expr_with_captured_values(argument, env, blocked_names),
-        )
-      }
-      CallExpr(
-        eval_expr_with_captured_values(callee, env, blocked_names),
-        captured_arguments,
-      )
-    }
-    LambdaExpr(parameters, body, return_type_name) =>
-      LambdaExpr(
-        parameters,
-        eval_expr_with_captured_values(
-          body,
-          env,
-          eval_push_parameter_names(blocked_names, parameters),
-        ),
-        return_type_name,
-      )
-    NonNullExpr(inner) =>
-      NonNullExpr(eval_expr_with_captured_values(inner, env, blocked_names))
-    UnaryExpr(op, inner) =>
-      UnaryExpr(op, eval_expr_with_captured_values(inner, env, blocked_names))
-    BinaryExpr(op, left, right) =>
-      BinaryExpr(
-        op,
-        eval_expr_with_captured_values(left, env, blocked_names),
-        eval_expr_with_captured_values(right, env, blocked_names),
-      )
-    ConditionalExpr(condition, truthy, falsy) =>
-      ConditionalExpr(
-        eval_expr_with_captured_values(condition, env, blocked_names),
-        eval_expr_with_captured_values(truthy, env, blocked_names),
-        eval_expr_with_captured_values(falsy, env, blocked_names),
-      )
-    _ => expr
-  }
 }
 
 ///|
@@ -842,6 +674,18 @@ fn copy_value_bindings(bindings : Array[ValueBinding]) -> Array[ValueBinding] {
 }
 
 ///|
+fn capture_value_bindings(
+  env : Array[ValueBinding],
+  cache : Array[ValueBinding],
+) -> Array[ValueBinding] {
+  let captured = copy_value_bindings(env)
+  for binding in cache {
+    captured.push(binding)
+  }
+  captured
+}
+
+///|
 fn int_pow(base : Int, exponent : Int) -> Int? {
   if exponent < 0 {
     return None
@@ -923,6 +767,7 @@ fn eval_lambda_application(
   label : String,
   parameters : Array[FunctionParameter],
   body : Expr,
+  captured_env : Array[ValueBinding],
   arguments : Array[Expr],
   bindings : Array[Binding],
   env : Array[ValueBinding],
@@ -952,7 +797,7 @@ fn eval_lambda_application(
   if !arguments_ok {
     return None
   }
-  let call_cache = copy_value_bindings(cache)
+  let call_cache = copy_value_bindings(captured_env)
   for i = 0; i < parameters.length(); i = i + 1 {
     match
       pkl_constrained_type_annotation_value_rejection_message(
@@ -974,12 +819,9 @@ fn eval_lambda_application(
       Some(
         FunctionValue(
           lambda_parameters,
-          eval_expr_with_captured_values(
-            lambda_body,
-            call_cache,
-            eval_push_parameter_names([], lambda_parameters),
-          ),
+          lambda_body,
           return_type_name,
+          copy_value_bindings(call_cache),
         ),
       )
     _ =>
@@ -1136,11 +978,12 @@ fn eval_callable_call(
     eval_expr_with_bindings(
       callee, bindings, env, class_env, cache, stack, diagnostics, resolve_import,
     ) {
-    Some(FunctionValue(parameters, body, _)) =>
+    Some(FunctionValue(parameters, body, _, captured_env)) =>
       eval_lambda_application(
         callee_label(callee),
         parameters,
         body,
+        captured_env,
         arguments,
         bindings,
         env,
@@ -1420,12 +1263,9 @@ fn eval_expr_with_bindings(
       Some(
         FunctionValue(
           parameters,
-          eval_expr_with_captured_values(
-            body,
-            cache,
-            eval_push_parameter_names([], parameters),
-          ),
+          body,
           return_type_name,
+          capture_value_bindings(env, cache),
         ),
       )
     NonNullExpr(inner_expr) =>
@@ -2085,7 +1925,7 @@ pub fn render_value(value : Value) -> String {
     ObjectValue(members) => render_object_members(members)
     ListingValue(elements) => render_listing_elements(elements)
     MappingValue(entries) => render_mapping_entries(entries)
-    FunctionValue(_, _, _) => "<function>"
+    FunctionValue(_, _, _, _) => "<function>"
   }
 }
 
