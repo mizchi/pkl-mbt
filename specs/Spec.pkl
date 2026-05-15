@@ -1464,6 +1464,38 @@ local jsonRenderer = new Scenario {
   }
 }
 
+local pklMathExpansion = new Scenario {
+  id = "PKL-079"
+  name = "expand pkl:math beyond maxInt32"
+  description =
+    "`pkl:math` exposes Int range constants (`maxInt32`, `minInt32`, `maxInt`, `minInt`) and Int-side helpers (`abs(x)`, `min(a, b)`, `max(a, b)`). The helpers are declared as top-level lambda bindings inside the synthetic `pkl:math` source so they round-trip through the regular `exported: true` path and become members of the imported module's `ObjectValue` — `import \"pkl:math\" as math; math.max(a, b)` evaluates without further dispatch work. `maxInt` / `minInt` track the 32-bit `Int` representation; once a 64-bit slot exists they expand to match the Java-derived Apple Pkl bounds."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-007"; "PKL-078" }
+  tags { "stdlib"; "pkl-math" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Declare helpers as lambda bindings, not `function` declarations"
+      rationale =
+        "Our parser marks `function name(...) = body` declarations with `exported: false`, which keeps them out of the imported module's `ObjectValue`. Apple Pkl's `pkl:math` exposes these helpers as plain functions on the module, so to match the reachable-from-an-import contract we declare them as `name = (...) -> body` instead. The semantics are identical (both forms produce a `FunctionValue`), but the binding flag flips the lambda form into the exported set."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Track `maxInt` / `minInt` against the implemented Int width"
+      rationale =
+        "Apple Pkl's `Int` is 64-bit (Java `long`), so its `maxInt` / `minInt` are `+/-2^63`. Our `IntValue` carries a 32-bit MoonBit `Int`. Reporting Apple Pkl's 64-bit limits here would mean lying about what literals will actually round-trip through evaluation (anything beyond 32-bit overflows during parsing today). The constants therefore expose the implementation-actual range; PKL-092 / a follow-up Int-64 slice will widen them once the value model supports the bigger slot."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Defer Float-bearing math (`sqrt` / `pow` / `log` / `exp` / `ceil` / `floor` / `round`) to PKL-092"
+      rationale =
+        "Apple Pkl's `pkl:math` exposes `sqrt(Float)`, `pow(Float, Float)`, `log(Float)`, etc. None of these can be implemented honestly against `IntValue` alone — `sqrt(4) = 2` happens to be integer but `sqrt(2)` cannot be represented. Float-bearing math arrives with `FloatValue` in PKL-092, alongside the Float constraint predicates."
+    }
+  }
+}
+
 local pklBaseInt = new Scenario {
   id = "PKL-078"
   name = "expose pkl:base Int operations"
@@ -1734,5 +1766,6 @@ scenarios {
   pklBaseMapping
   pklBaseString
   pklBaseInt
+  pklMathExpansion
   ...roadmap.entries
 }

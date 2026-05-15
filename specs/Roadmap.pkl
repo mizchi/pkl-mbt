@@ -43,18 +43,6 @@ local typeAliasedCallableArgumentEvaluation: Spec.Scenario = new {
 
 // ── stdlib expansion ────────────────────────────────────────────────────────
 
-local pklMathExpansion: Spec.Scenario = new {
-  id = "PKL-079"
-  name = "expand pkl:math beyond maxInt32"
-  description =
-    "`pkl:math` exposes min, max, abs, sqrt, pow, log, exp, ceil, floor, round, and the maxInt / minInt / maxFloat constants matching Apple Pkl."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-007" }
-  tags { "stdlib"; "pkl-math"; "next" }
-  reviewStatus = "draft"
-  severity = "minor"
-}
-
 local pklReflectMinimal: Spec.Scenario = new {
   id = "PKL-080"
   name = "minimal pkl:reflect support"
@@ -62,7 +50,7 @@ local pklReflectMinimal: Spec.Scenario = new {
     "`pkl:reflect.Type` / `Class` / `Property` enough for the upstream `reflect.pkl` fixtures: get the runtime type of a value, list class properties, and check whether a type is a subtype of another."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-040" }
-  tags { "stdlib"; "pkl-reflect" }
+  tags { "stdlib"; "pkl-reflect"; "next" }
   reviewStatus = "draft"
   severity = "minor"
   decisions {
@@ -303,7 +291,6 @@ local upstreamGoldOutputDiff: Spec.Scenario = new {
 
 entries: Listing<Spec.Scenario> = new {
   typeAliasedCallableArgumentEvaluation
-  pklMathExpansion
   pklReflectMinimal
   regexSupport
   durationAndDataSize

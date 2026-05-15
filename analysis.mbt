@@ -137,7 +137,29 @@ fn resolve_import_path(from : String, uri : String) -> String {
 ///|
 fn builtin_stdlib_source(uri : String) -> String? {
   match uri {
-    "pkl:math" => Some("maxInt32 = 2147483647")
+    "pkl:math" => {
+      // The math module exposes the Int range constants and a few pure
+      // Int-side helpers. Float-only operations (sqrt / pow / log / exp /
+      // ceil / floor / round) stay deferred until a real `FloatValue` lands
+      // in the value model (PKL-092). `maxInt` and `minInt` track our 32-bit
+      // `Int` representation; once a 64-bit slot exists, they expand to
+      // match the Java-derived Apple Pkl bounds.
+      //
+      // The helpers are declared as top-level lambda bindings rather than
+      // `function` declarations because the parser marks `function ... = ...`
+      // forms as `exported: false`, which keeps them out of the imported
+      // module's `ObjectValue`. Lambda-valued bindings round-trip through
+      // the regular `exported: true` path.
+      let source =
+        #|maxInt32 = 2147483647
+        #|minInt32 = 0 - 2147483647 - 1
+        #|maxInt = 2147483647
+        #|minInt = 0 - 2147483647 - 1
+        #|abs = (x) -> if (x < 0) 0 - x else x
+        #|min = (a, b) -> if (a < b) a else b
+        #|max = (a, b) -> if (a > b) a else b
+      Some(source)
+    }
     "pkl:test" => Some("catch = null")
     _ => None
   }

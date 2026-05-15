@@ -1531,6 +1531,73 @@ test "Int builtins compose with String / Listing pipelines" {
 }
 
 ///|
+test "pkl:math exposes Int range constants" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:math\" as math\nmax32 = math.maxInt32\nmin32 = math.minInt32\nmax = math.maxInt\nmin = math.minInt",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "max32", value: IntValue(2147483647) },
+        ValueMember::{ name: "min32", value: IntValue(-2147483648) },
+        ValueMember::{ name: "max", value: IntValue(2147483647) },
+        ValueMember::{ name: "min", value: IntValue(-2147483648) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "pkl:math exposes Int abs, min, max functions" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:math\" as math\nabs_neg = math.abs(-7)\nabs_pos = math.abs(4)\nmn = math.min(3, 8)\nmx = math.max(3, 8)\nmn_eq = math.min(5, 5)\nmx_eq = math.max(5, 5)",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "abs_neg", value: IntValue(7) },
+        ValueMember::{ name: "abs_pos", value: IntValue(4) },
+        ValueMember::{ name: "mn", value: IntValue(3) },
+        ValueMember::{ name: "mx", value: IntValue(8) },
+        ValueMember::{ name: "mn_eq", value: IntValue(5) },
+        ValueMember::{ name: "mx_eq", value: IntValue(5) },
+      ]),
+    ),
+  )
+}
+
+///|
+test "pkl:math composes with Listing builtins" {
+  // Use math.max as the reducer in Listing.fold to find the maximum element.
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:math\" as math\nxs = new Listing { 3; 7; 1; 9; 4 }\nresult = xs.fold(math.minInt, (acc, x) -> math.max(acc, x))",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([
+            IntValue(3),
+            IntValue(7),
+            IntValue(1),
+            IntValue(9),
+            IntValue(4),
+          ]),
+        },
+        ValueMember::{ name: "result", value: IntValue(9) },
+      ]),
+    ),
+  )
+}
+
+///|
 test "render Pkl module bindings as Java Properties" {
   let value : Value = ObjectValue([
     ValueMember::{ name: "name", value: StringValue("pigeon") },
