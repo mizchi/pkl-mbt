@@ -193,6 +193,25 @@ local cliGenerics = new Test {
   timeoutSec = 120
 }
 
+local cliFloatPower = new Test {
+  name = "cli float power intdiv modulo"
+  description =
+    "The native CLI evaluates a fixture that exercises `**`, `~/`, and `%` with Float operands, matching Apple Pkl's golden output: `2.0 ** 3 = 8.0`, `5.0 ~/ 3.0 = 1`, `5.5 % 6.5 = 5.5`, `5 % 6.5 = 5.0`."
+  tags { "moonbit"; "cli"; "float"; "operator"; "contract" }
+  specRef { "PKL-111" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_float_power.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "power_int = 8.0"
+    "power_float = 27.98409999999999"
+    "int_div_float = 1"
+    "int_div_mixed = 1"
+    "mod_float = 5.5"
+    "mod_mixed = 5.0"
+  }
+  timeoutSec = 120
+}
+
 local cliGenericInference = new Test {
   name = "cli generic call-site inference"
   description =
@@ -388,6 +407,7 @@ tests {
   cliEvalYaml
   cliEvalProperties
   cliFloat
+  cliFloatPower
   cliFormat
   cliTestExamplesPass
   cliTestExamplesFail

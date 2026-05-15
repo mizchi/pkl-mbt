@@ -1,0 +1,12 @@
+// PKL-111: Float-aware Power / IntDivide / Modulo
+power_int = 2.0 ** 3
+
+power_float = 2.3 ** 4.0
+
+int_div_float = 5.0 ~/ 3.0
+
+int_div_mixed = 5 ~/ 3.0
+
+mod_float = 5.5 % 6.5
+
+mod_mixed = 5 % 6.5

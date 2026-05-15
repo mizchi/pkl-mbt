@@ -1743,6 +1743,70 @@ test "Int division widens to Float" {
 }
 
 ///|
+test "PKL-111: Float Power widens" {
+  // 2.0 ** 3 = 8.0 (matches Apple Pkl: any Float operand on `**` widens
+  // the result to Float).
+  guard eval_source("res = 2.0 ** 3") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut value : Value? = None
+  for entry in members {
+    if entry.name == "res" {
+      value = Some(entry.value)
+    }
+  }
+  assert_true(value == Some(FloatValue(8.0)))
+}
+
+///|
+test "PKL-111: Float Power Float exponent" {
+  // 2.3 ** 4.0 ≈ 27.984... matches Apple's golden expansion.
+  guard eval_source("res = 2.3 ** 4.0") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut value : Value? = None
+  for entry in members {
+    if entry.name == "res" {
+      value = Some(entry.value)
+    }
+  }
+  match value {
+    Some(FloatValue(d)) => assert_true((d - 27.984099999999998).abs() < 1.0e-9)
+    _ => panic()
+  }
+}
+
+///|
+test "PKL-111: IntDivide on Float operands returns Int" {
+  // Apple Pkl: 5.0 ~/ 3 = 1 (Int), 5.0 ~/ 3.0 = 1, 5.1 ~/ 3.1 = 1.
+  guard eval_source("res = 5.0 ~/ 3.0") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut value : Value? = None
+  for entry in members {
+    if entry.name == "res" {
+      value = Some(entry.value)
+    }
+  }
+  assert_true(value == Some(IntValue(1)))
+}
+
+///|
+test "PKL-111: Modulo widens on Float operands" {
+  // Apple Pkl: 5.5 % 6.5 = 5.5, 5 % 6.5 = 5.0.
+  guard eval_source("res = 5.5 % 6.5") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut value : Value? = None
+  for entry in members {
+    if entry.name == "res" {
+      value = Some(entry.value)
+    }
+  }
+  assert_true(value == Some(FloatValue(5.5)))
+}
+
+///|
 test "Float annotation accepts Float value" {
   assert_true(
     eval_source("res: Float = 3.14") ==

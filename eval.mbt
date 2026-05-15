@@ -4785,13 +4785,41 @@ fn eval_float_binary(
     GreaterOrEqual => Some(BoolValue(a >= b))
     Equal => Some(BoolValue(a == b))
     NotEqual => Some(BoolValue(a != b))
-    IntDivide | Modulo | Power => {
-      diagnostics.push(Diagnostic::{
-        message: "operator \{operator_name(op)} not defined for Float operands",
-      })
-      None
-    }
+    // PKL-111: Apple Pkl widens these Int-domain operators to Float
+    // operands. `**` (Power) returns a Float exponent; `~/` (IntDivide)
+    // truncates toward zero and returns an Int even on Float operands
+    // (matching Apple's `5.1 ~/ 3.1 == 1`); `%` (Modulo) returns the
+    // truncated remainder as a Float so it composes with Float division.
+    Power => Some(FloatValue(@math.pow(a, b)))
+    IntDivide =>
+      if b == 0.0 {
+        diagnostics.push(Diagnostic::{ message: "division by zero" })
+        None
+      } else {
+        Some(IntValue(double_trunc(a / b).to_int()))
+      }
+    Modulo =>
+      if b == 0.0 {
+        diagnostics.push(Diagnostic::{ message: "division by zero" })
+        None
+      } else {
+        Some(FloatValue(a - b * double_trunc(a / b)))
+      }
     And | Or | NullCoalesce | Is | As | Pipe => panic()
+  }
+}
+
+///|
+fn double_trunc(x : Double) -> Double {
+  // PKL-111: truncation toward zero. MoonBit's core does not expose
+  // `Double::trunc` directly across both JS and native targets, so do it
+  // by converting through Int round-trip on finite values; Infinity / NaN
+  // pass through (used only for divisions where `b == 0` short-circuits
+  // before reaching here).
+  if x >= 0.0 {
+    x.to_int64().to_double()
+  } else {
+    -(-x).to_int64().to_double()
   }
 }
 

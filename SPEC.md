@@ -1,6 +1,6 @@
 # Test SPEC
 
-151 tests across 2 module(s) — 132 pending, 19 active
+152 tests across 2 module(s) — 132 pending, 20 active
 
 ## `specs/`
 
@@ -34,10 +34,11 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **Float Power and split float div semantics** (minor) [draft] — verifies: PKL-111 — tags: evaluator, typechecker, float, next
-  > Decide and implement the operator surface for `**` / `~/` / `%` on Float operands: either widen all three (matching JVM Pkl), or surface them as `math.pow` / `math.floorDiv` / `math.remainder` stdlib calls. Today they diagnose with `not defined for Float operands`.
+- [ ] **Float Power IntDivide and Modulo semantics** (minor) — verifies: PKL-111 — tags: evaluator, typechecker, float, operator
+  > Apple Pkl's `**` / `~/` / `%` operators accept Float operands and produce results that match the JVM evaluator's golden output. `**` (Power) widens to Float on any Float operand: `2.0 ** 3 = 8.0`, `2.3 ** 4.0 ≈ 27.984099999999998` (Apple's exact bit pattern). `~/` (IntDivide) always returns an Int even when both operands are Float, using truncation toward zero: `5.0 ~/ 3.0 = 1`, `5 ~/ 3.0 = 1`, `5.1 ~/ 3.1 = 1`. `%` (Modulo) widens to Float on any Float operand and computes the truncated remainder `a - b * trunc(a / b)`: `5.5 % 6.5 = 5.5`, `5 % 6.5 = 5.0`. The evaluator routes these through `eval_float_binary`'s extended branches, using `@math.pow` from `moonbitlang/core/math` for exponentiation and a local `double_trunc` helper that round-trips through Int64 for truncation. Division-by-zero on `~/` and `%` against a zero divisor surfaces the same `division by zero` diagnostic as the Int-side path. The typechecker mirrors the runtime rule: when both operands are numeric and at least one is Float, the result is Float for `**` / `%` and Int for `~/`; Int × Int keeps the existing Int-only result type.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-092
+  - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **Float magnitude Duration / DataSize literals** (minor) [draft] — verifies: PKL-121 — tags: parser, evaluator, duration, datasize, float
@@ -53,7 +54,7 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **Float-threshold constraint predicates** (minor) [draft] — verifies: PKL-112 — tags: constraint, float
+- [ ] **Float-threshold constraint predicates** (minor) [draft] — verifies: PKL-112 — tags: constraint, float, next
   > Lift the constraint predicate threshold encoding from Int to Double so `Float(isBetween(0.5, 1.5))` parses and runs without losing precision. Today the constraint parser only accepts Int literals as thresholds.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-092
@@ -909,6 +910,10 @@
 
 - [x] **cli float numerics and constraints** — verifies: PKL-092 — tags: moonbit, cli, float, constraint, contract
   > The native CLI evaluates a Float-heavy fixture, exercising Float literals, mixed Int / Float arithmetic, `Int / Int` widening to Float, and `Float(isPositive)` / `Float(isBetween(...))` / `Number(isPositive)` constraint predicates.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli float power intdiv modulo** — verifies: PKL-111 — tags: moonbit, cli, float, operator, contract
+  > The native CLI evaluates a fixture that exercises `**`, `~/`, and `%` with Float operands, matching Apple Pkl's golden output: `2.0 ** 3 = 8.0`, `5.0 ~/ 3.0 = 1`, `5.5 % 6.5 = 5.5`, `5 % 6.5 = 5.0`.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli format subcommand** — verifies: PKL-099 — tags: moonbit, cli, format, contract

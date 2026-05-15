@@ -3034,17 +3034,21 @@ fn infer_expr_with_bindings(
       )
       match op {
         Add | Subtract | Multiply | IntDivide | Modulo | Power =>
-          // PKL-092: Int + Int stays Int; any Float operand widens the
-          // result to Float. IntDivide / Modulo / Power keep the Int-only
-          // contract because their semantics are not extended to Float in
-          // this slice (Power on Float requires a `pow` helper, IntDivide
-          // / Modulo are integer-domain by name).
+          // PKL-092: Int×Int stays Int. Add/Sub/Mul widen to Float when
+          // any operand is Float.
+          // PKL-111: Power widens to Float on any Float operand
+          // (`2.0 ** 3 = 8.0`). IntDivide always returns Int but accepts
+          // Float operands (Apple Pkl: `5.0 ~/ 3.0 == 1`). Modulo widens
+          // to Float on any Float operand (Apple Pkl: `5.5 % 6.5 = 5.5`).
           if left == IntType && right == IntType {
             IntType
           } else if (left == IntType || left == FloatType) &&
-            (right == IntType || right == FloatType) &&
-            (op == Add || op == Subtract || op == Multiply) {
-            FloatType
+            (right == IntType || right == FloatType) {
+            if op == IntDivide {
+              IntType
+            } else {
+              FloatType
+            }
           } else {
             diagnostics.push(Diagnostic::{
               message: "operator \{operator_name(op)} expects Int operands",
