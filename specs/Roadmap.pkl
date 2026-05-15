@@ -41,26 +41,6 @@ local typeAliasedCallableArgumentEvaluation: Spec.Scenario = new {
 
 // ── renderers ───────────────────────────────────────────────────────────────
 
-local jsonRenderer: Spec.Scenario = new {
-  id = "PKL-072"
-  name = "render Pkl values as JSON"
-  description =
-    "Module rendering emits a JSON document equivalent to Apple Pkl's `pkl eval -f json` output, including String escapes, Mapping keys coerced to strings, and Listing -> array."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-071" }
-  tags { "renderer"; "json"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-  decisions {
-    new Spec.Decision {
-      date = "2026-05-15"
-      summary = "Match the `-f json` shape, not arbitrary JSON"
-      rationale =
-        "Apple Pkl has specific rules for how Mappings, Listings, hidden members, and Null become JSON. Re-deriving those rules from scratch will diverge; we mirror the upstream behavior so existing Pkl configs ported here serialize identically."
-    }
-  }
-}
-
 local yamlRenderer: Spec.Scenario = new {
   id = "PKL-073"
   name = "render Pkl values as YAML"
@@ -68,7 +48,7 @@ local yamlRenderer: Spec.Scenario = new {
     "Module rendering emits YAML equivalent to `pkl eval -f yaml`, including block-style sequences and mappings, quoted-when-needed strings, and multiline `|` for embedded newlines."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-072" }
-  tags { "renderer"; "yaml" }
+  tags { "renderer"; "yaml"; "next" }
   reviewStatus = "draft"
   severity = "minor"
   decisions {
@@ -427,7 +407,6 @@ local upstreamGoldOutputDiff: Spec.Scenario = new {
 
 entries: Listing<Spec.Scenario> = new {
   typeAliasedCallableArgumentEvaluation
-  jsonRenderer
   yamlRenderer
   propertiesRenderer
   pklBaseListOperations

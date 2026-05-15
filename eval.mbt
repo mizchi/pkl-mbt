@@ -2308,6 +2308,178 @@ fn render_pcf_module(members : Array[ValueMember], buf : StringBuilder) -> Unit 
 }
 
 ///|
+/// Render a Pkl value as JSON matching `pkl eval -f json`.
+///
+/// - ObjectValue / MappingValue → JSON object (Mapping keys are coerced to strings).
+/// - ListingValue → JSON array.
+/// - IntValue / BoolValue / NullValue → JSON scalar.
+/// - StringValue → JSON string with the standard `"`, `\\`, control-character
+///   escapes.
+/// - FunctionValue does not have a JSON projection and renders as `null` so
+///   diagnostics still produce a parseable document; the typechecker rejects
+///   functions earlier on the rendering path.
+///
+/// Indentation is fixed at two spaces, matching the upstream default for
+/// `pkl eval -f json`.
+pub fn render_value_as_json(value : Value) -> String {
+  let buf = StringBuilder::new()
+  render_json_value(value, 0, buf)
+  buf.to_string()
+}
+
+///|
+fn render_json_value(value : Value, indent : Int, buf : StringBuilder) -> Unit {
+  match value {
+    IntValue(n) => buf.write_string("\{n}")
+    BoolValue(true) => buf.write_string("true")
+    BoolValue(false) => buf.write_string("false")
+    NullValue => buf.write_string("null")
+    StringValue(s) => render_json_string(s, buf)
+    ObjectValue(members) =>
+      render_json_object_from_members(members, indent, buf)
+    MappingValue(entries) =>
+      render_json_object_from_entries(entries, indent, buf)
+    ListingValue(elements) => render_json_array(elements, indent, buf)
+    FunctionValue(_, _, _, _) => buf.write_string("null")
+  }
+}
+
+///|
+fn render_json_string(value : String, buf : StringBuilder) -> Unit {
+  buf.write_char('"')
+  for c in value {
+    match c {
+      '"' => buf.write_string("\\\"")
+      '\\' => buf.write_string("\\\\")
+      '\n' => buf.write_string("\\n")
+      '\r' => buf.write_string("\\r")
+      '\t' => buf.write_string("\\t")
+      '\u{08}' => buf.write_string("\\b")
+      '\u{0C}' => buf.write_string("\\f")
+      _ =>
+        if c < ' ' {
+          let code = c.to_int()
+          let hex = json_hex4(code)
+          buf.write_string("\\u")
+          buf.write_string(hex)
+        } else {
+          buf.write_char(c)
+        }
+    }
+  }
+  buf.write_char('"')
+}
+
+///|
+fn json_hex4(code : Int) -> String {
+  let digits = "0123456789abcdef"
+  let buf = StringBuilder::new()
+  let mut i = 12
+  while i >= 0 {
+    let nibble = (code >> i) & 0xF
+    buf.write_char(digits.unsafe_get(nibble).to_int().unsafe_to_char())
+    i = i - 4
+  }
+  buf.to_string()
+}
+
+///|
+fn json_coerce_key(value : Value) -> String {
+  match value {
+    StringValue(s) => s
+    IntValue(n) => "\{n}"
+    BoolValue(true) => "true"
+    BoolValue(false) => "false"
+    NullValue => "null"
+    _ => {
+      let buf = StringBuilder::new()
+      render_pcf_inline(value, 0, buf)
+      buf.to_string()
+    }
+  }
+}
+
+///|
+fn write_json_indent(buf : StringBuilder, indent : Int) -> Unit {
+  for i = 0; i < indent; i = i + 1 {
+    buf.write_char(' ')
+  }
+}
+
+///|
+fn render_json_object_from_members(
+  members : Array[ValueMember],
+  indent : Int,
+  buf : StringBuilder,
+) -> Unit {
+  if members.length() == 0 {
+    buf.write_string("{}")
+    return
+  }
+  buf.write_string("{\n")
+  for i = 0; i < members.length(); i = i + 1 {
+    if i > 0 {
+      buf.write_string(",\n")
+    }
+    write_json_indent(buf, indent + 2)
+    render_json_string(members[i].name, buf)
+    buf.write_string(": ")
+    render_json_value(members[i].value, indent + 2, buf)
+  }
+  buf.write_char('\n')
+  write_json_indent(buf, indent)
+  buf.write_char('}')
+}
+
+///|
+fn render_json_object_from_entries(
+  entries : Array[ValueEntry],
+  indent : Int,
+  buf : StringBuilder,
+) -> Unit {
+  if entries.length() == 0 {
+    buf.write_string("{}")
+    return
+  }
+  buf.write_string("{\n")
+  for i = 0; i < entries.length(); i = i + 1 {
+    if i > 0 {
+      buf.write_string(",\n")
+    }
+    write_json_indent(buf, indent + 2)
+    render_json_string(json_coerce_key(entries[i].key), buf)
+    buf.write_string(": ")
+    render_json_value(entries[i].value, indent + 2, buf)
+  }
+  buf.write_char('\n')
+  write_json_indent(buf, indent)
+  buf.write_char('}')
+}
+
+///|
+fn render_json_array(
+  elements : Array[Value],
+  indent : Int,
+  buf : StringBuilder,
+) -> Unit {
+  if elements.length() == 0 {
+    buf.write_string("[]")
+    return
+  }
+  buf.write_string("[\n")
+  for i = 0; i < elements.length(); i = i + 1 {
+    if i > 0 {
+      buf.write_string(",\n")
+    }
+    write_json_indent(buf, indent + 2)
+    render_json_value(elements[i], indent + 2, buf)
+  }
+  buf.write_char('\n')
+  write_json_indent(buf, indent)
+  buf.write_char(']')
+}
+
+///|
 fn eval_source_with_imports(
   source : String,
   resolve_import : (String) -> EvalResult?,

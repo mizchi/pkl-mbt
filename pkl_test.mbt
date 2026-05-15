@@ -326,6 +326,193 @@ test "PCF rendered object members reparse to the original module" {
 }
 
 ///|
+test "render Pkl values as JSON primitives" {
+  inspect(render_value_as_json(IntValue(0)), content="0")
+  inspect(render_value_as_json(IntValue(42)), content="42")
+  inspect(render_value_as_json(IntValue(-7)), content="-7")
+  inspect(render_value_as_json(BoolValue(true)), content="true")
+  inspect(render_value_as_json(BoolValue(false)), content="false")
+  inspect(render_value_as_json(NullValue), content="null")
+  inspect(render_value_as_json(StringValue("")), content="\"\"")
+  inspect(render_value_as_json(StringValue("hawk")), content="\"hawk\"")
+}
+
+///|
+test "render JSON strings with escapes and control characters" {
+  inspect(render_value_as_json(StringValue("a\nb")), content="\"a\\nb\"")
+  inspect(render_value_as_json(StringValue("a\tb")), content="\"a\\tb\"")
+  inspect(render_value_as_json(StringValue("a\rb")), content="\"a\\rb\"")
+  inspect(
+    render_value_as_json(StringValue("say \"hi\"")),
+    content="\"say \\\"hi\\\"\"",
+  )
+  inspect(
+    render_value_as_json(StringValue("c:\\path")),
+    content="\"c:\\\\path\"",
+  )
+  inspect(render_value_as_json(StringValue("\u{08}")), content="\"\\b\"")
+  inspect(render_value_as_json(StringValue("\u{0C}")), content="\"\\f\"")
+  inspect(render_value_as_json(StringValue("\u{01}")), content="\"\\u0001\"")
+}
+
+///|
+test "render Pkl module bindings as JSON object" {
+  let value : Value = ObjectValue([
+    ValueMember::{ name: "name", value: StringValue("pigeon") },
+    ValueMember::{ name: "age", value: IntValue(30) },
+  ])
+  inspect(
+    render_value_as_json(value),
+    content=(
+      #|{
+      #|  "name": "pigeon",
+      #|  "age": 30
+      #|}
+    ),
+  )
+}
+
+///|
+test "render Pkl listings and mappings as JSON" {
+  inspect(render_value_as_json(ListingValue([])), content="[]")
+  inspect(render_value_as_json(MappingValue([])), content="{}")
+  inspect(
+    render_value_as_json(
+      ListingValue([StringValue("string"), BoolValue(true), IntValue(42)]),
+    ),
+    content=(
+      #|[
+      #|  "string",
+      #|  true,
+      #|  42
+      #|]
+    ),
+  )
+  inspect(
+    render_value_as_json(
+      MappingValue([
+        ValueEntry::{ key: StringValue("name"), value: StringValue("pigeon") },
+        ValueEntry::{ key: StringValue("age"), value: IntValue(30) },
+      ]),
+    ),
+    content=(
+      #|{
+      #|  "name": "pigeon",
+      #|  "age": 30
+      #|}
+    ),
+  )
+}
+
+///|
+test "JSON Mapping keys coerce non-string values to strings" {
+  inspect(
+    render_value_as_json(
+      MappingValue([
+        ValueEntry::{ key: IntValue(1), value: StringValue("a") },
+        ValueEntry::{ key: BoolValue(true), value: StringValue("b") },
+        ValueEntry::{ key: NullValue, value: StringValue("c") },
+      ]),
+    ),
+    content=(
+      #|{
+      #|  "1": "a",
+      #|  "true": "b",
+      #|  "null": "c"
+      #|}
+    ),
+  )
+}
+
+///|
+test "render nested Pkl objects and arrays as JSON" {
+  let value : Value = ObjectValue([
+    ValueMember::{ name: "name", value: StringValue("pigeon") },
+    ValueMember::{
+      name: "friends",
+      value: ListingValue([StringValue("barn owl"), StringValue("parrot")]),
+    },
+    ValueMember::{
+      name: "address",
+      value: ObjectValue([
+        ValueMember::{ name: "street", value: StringValue("Norton St.") },
+        ValueMember::{ name: "zip", value: IntValue(12345) },
+      ]),
+    },
+  ])
+  inspect(
+    render_value_as_json(value),
+    content=(
+      #|{
+      #|  "name": "pigeon",
+      #|  "friends": [
+      #|    "barn owl",
+      #|    "parrot"
+      #|  ],
+      #|  "address": {
+      #|    "street": "Norton St.",
+      #|    "zip": 12345
+      #|  }
+      #|}
+    ),
+  )
+}
+
+///|
+test "render empty composites as JSON" {
+  // Mirrors jsonRendererEmptyComposites: every empty composite serializes
+  // identically regardless of whether it originated as Object, Listing, or
+  // Mapping.
+  let value : Value = ObjectValue([
+    ValueMember::{ name: "a3", value: ListingValue([]) },
+    ValueMember::{ name: "b2", value: MappingValue([]) },
+    ValueMember::{ name: "b3", value: ObjectValue([]) },
+    ValueMember::{
+      name: "nested",
+      value: ObjectValue([
+        ValueMember::{ name: "a3", value: ListingValue([]) },
+        ValueMember::{ name: "b2", value: MappingValue([]) },
+      ]),
+    },
+  ])
+  inspect(
+    render_value_as_json(value),
+    content=(
+      #|{
+      #|  "a3": [],
+      #|  "b2": {},
+      #|  "b3": {},
+      #|  "nested": {
+      #|    "a3": [],
+      #|    "b2": {}
+      #|  }
+      #|}
+    ),
+  )
+}
+
+///|
+test "JSON rendered top-level Pkl matches the jsonRenderer1 fixture shape" {
+  // Apple Pkl's `pkl eval -f json` on the upstream `jsonRenderer1.json.pkl`
+  // produces this exact document, modulo the inability of our pipeline to
+  // honor `output { renderer = ... }` blocks today: we still render the
+  // post-eval module directly.
+  let source = "pigeon {\n  name = \"pigeon\"\n  age = 30\n}\n"
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  inspect(
+    render_value_as_json(value),
+    content=(
+      #|{
+      #|  "pigeon": {
+      #|    "name": "pigeon",
+      #|    "age": 30
+      #|  }
+      #|}
+    ),
+  )
+}
+
+///|
 test "parser treats Pkl comments as trivia" {
   let parsed = parse_source(
     "// leading\nname = \"hawk\" // trailing\nage = 2 /* block */\n",

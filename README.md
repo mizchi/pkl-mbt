@@ -39,6 +39,7 @@ The current slice is intentionally small and executable:
 - runtime typealias resolution for callable and class method return annotations
 - PCF renderer for Int, Boolean, String, and Null primitives (round-trips through the parser, matches upstream `parens.pkl` / `import1.pkl` byte-for-byte)
 - PCF renderer for nested objects, listings, and mappings (2-space indent, type-tag-free `new { ... }` wrappers, matches the `basic` / `modules` / `classes` upstream gold output)
+- JSON renderer behind `eval -f json` (`--format json` accepted as well), matching `pkl eval -f json` projection rules (Mapping keys coerced to strings, control-character escapes, two-space indent)
 - native CLI commands: `parse`, `check`, and `eval`
 - common string escape decoding/rendering for `\n`, `\t`, `\r`, `\"`, and `\\`
 - ripple-backed `AnalysisSession` for source-driven typechecking
@@ -49,7 +50,7 @@ The current slice is intentionally small and executable:
 
 ## Current Completion Estimate
 
-As of the `PKL-071` spec slice, this project has 70 implemented pkspec scenarios and a 27-entry roadmap of draft slices in `specs/Roadmap.pkl`. The next tracked slice is `PKL-072`, which adds a JSON renderer matching Apple Pkl's `pkl eval -f json` shape. The constraint round-off task `PKL-069` is kept in the roadmap as a draft.
+As of the `PKL-072` spec slice, this project has 71 implemented pkspec scenarios and a 26-entry roadmap of draft slices in `specs/Roadmap.pkl`. The next tracked slice is `PKL-073`, which adds a YAML renderer matching Apple Pkl's `pkl eval -f yaml` shape. The constraint round-off task `PKL-069` is kept in the roadmap as a draft.
 
 These are engineering estimates, not formal coverage numbers:
 
@@ -58,7 +59,7 @@ These are engineering estimates, not formal coverage numbers:
 | Parser | 60-70% | The upstream parser snippet corpus is accepted in parse-only mode, and modifier-qualified function declarations such as `const function` are preserved as function declarations. Some constructs are still tolerant parse output or reduced to unsupported expression placeholders instead of full semantic AST coverage. |
 | Interpreter | 40-50% | Arithmetic, objects, imports, module amends/extends, collections, class defaults/inheritance, method calls, direct function/lambda calls, callable runtime values, function/lambda/method return validation including built-in and user-defined constrained return predicates, callable and method argument validation including built-in and user-defined constrained predicates, typealias resolution for callable return annotations, lexical closure captures for scalar/object/callable values, simple constrained value annotations, constrained callable arguments, constrained method arguments, constrained typealias values/members, selected numeric constraints, multiple constraint lists, negated constraints, plain-function user-defined numeric constraint factories, constrained class property values/defaults, and the upstream `classes/constraints8.pkl` catch flow work. Broad stdlib behavior, generators, renderers, non-numeric constraints (String / Float / Boolean / collection element), and many external functions are still incomplete. |
 | Typechecker | 42-52% | Primitive, nullable, generic collection, union, narrowing, call, typed object, class inheritance, imported class, constrained annotation base types, selected numeric predicate checks, multiple constraint lists, negated constraints, direct constrained function/lambda arguments, constrained callable aliases, simple higher-order constrained callable flow, constrained method arguments, constrained typealias metadata, plain-function user-defined numeric constraint factories, constrained class property values/defaults, callable and class method literal-body return predicate checks (built-in and user-defined), and class method body checks exist. Type parameters, broader stdlib types, non-numeric constraint predicates, and deeper module/class semantics are still incomplete. |
-| Stdlib & rendering | 5-10% | Only `pkl:math.maxInt32` and the `pkl:test.catch` flow are wired. Renderers (`pcf`, `json`, `yaml`, `plist`), generators, `pkl:base` extensions, `pkl:reflect`, regex / duration / bytes, and the rest of the Apple Pkl stdlib surface are unimplemented. This is the largest remaining gap. |
+| Stdlib & rendering | 10-15% | Only `pkl:math.maxInt32` and the `pkl:test.catch` flow are wired on the stdlib side. The PCF renderer is byte-for-byte against upstream gold for the implemented language slice, and `eval -f json` emits Apple Pkl's `pkl eval -f json` shape. YAML / properties / plist renderers, generators, `pkl:base` extensions, `pkl:reflect`, regex / duration / bytes, and the rest of the Apple Pkl stdlib surface are unimplemented. This is still the largest remaining gap. |
 
 Overall, this is roughly 40%+ complete as a pure MoonBit Pkl core (parser + typechecker + interpreter for the implemented language slice), or closer to the 25-30% range if measured as a replacement for Apple Pkl compatibility — the constraint system is now thick on the language-semantics side, but the stdlib / renderer / generator surface is largely untouched.
 
@@ -103,4 +104,4 @@ git submodule update --init --recursive
 
 ## Scope
 
-This is not a full Pkl implementation yet. The next compatibility work continues the renderer pivot with `PKL-072` JSON rendering; the full draft roadmap lives in `specs/Roadmap.pkl`.
+This is not a full Pkl implementation yet. The next compatibility work continues the renderer pivot with `PKL-073` YAML rendering; the full draft roadmap lives in `specs/Roadmap.pkl`.

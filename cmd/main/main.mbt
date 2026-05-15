@@ -1,6 +1,7 @@
 ///|
 fn usage() -> Unit {
   println("usage: pkl <parse|check|eval> <file.pkl>")
+  println("       pkl eval [-f pcf|json] <file.pkl>")
   println("       pkl parse-many <file.pkl>...")
 }
 
@@ -202,11 +203,34 @@ fn main {
     println("ok \{passed}")
     return
   }
-  if args.length() != 3 {
+  // Pull out optional flags after the command. Only `eval` currently
+  // understands `-f <format>` / `--format <format>`; everything else
+  // continues to require exactly one positional argument.
+  let mut format = "pcf"
+  let positional : Array[String] = []
+  let mut i = 2
+  while i < args.length() {
+    let token = args[i]
+    if token == "-f" || token == "--format" {
+      if i + 1 >= args.length() {
+        usage()
+        @sys.exit(1)
+      }
+      format = args[i + 1]
+      i = i + 2
+    } else {
+      positional.push(token)
+      i = i + 1
+    }
+  }
+  if format != "pcf" && format != "json" {
+    fail("unsupported format: \{format}")
+  }
+  if positional.length() != 1 {
     usage()
     @sys.exit(1)
   }
-  let path = args[2]
+  let path = positional[0]
   let source = @fs.read_file_to_string(path) catch {
     _ => {
       fail("failed to read \{path}")
@@ -237,7 +261,12 @@ fn main {
       let session = @pkl.AnalysisSession::new()
       load_path(session, path, [])
       match session.eval_path(path) {
-        EvalOk(value) => println(@pkl.render_value(value))
+        EvalOk(value) =>
+          if format == "json" {
+            println(@pkl.render_value_as_json(value))
+          } else {
+            println(@pkl.render_value(value))
+          }
         EvalError(diagnostics) => {
           print_diagnostics(diagnostics)
           @sys.exit(1)

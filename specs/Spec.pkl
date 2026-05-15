@@ -1432,6 +1432,38 @@ local pcfRendererObjects = new Scenario {
   }
 }
 
+local jsonRenderer = new Scenario {
+  id = "PKL-072"
+  name = "render Pkl values as JSON"
+  description =
+    "The CLI `eval -f json` (or `--format json`) flag emits a JSON document matching Apple Pkl's `pkl eval -f json` shape: ObjectValue and MappingValue project to JSON objects (Mapping keys are coerced to strings), ListingValue projects to JSON arrays, IntValue / BoolValue / NullValue use the JSON scalar form, and StringValue applies the standard `\"`, `\\`, control-character (`\\b`, `\\f`, `\\n`, `\\r`, `\\t`, `\\uXXXX`) escapes. Indentation is fixed at two spaces. The default `eval` output remains PCF."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-071" }
+  tags { "renderer"; "json"; "cli" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Mirror the `pkl eval -f json` projection rules"
+      rationale =
+        "Apple Pkl's JSON output has specific rules for ObjectValue / MappingValue / ListingValue, Mapping key coercion, and JSON string escapes. Mirroring them at this stage means existing Pkl configs ported here can serialize to JSON without divergence; re-deriving the rules from scratch later would invite per-feature drift."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Wire JSON through a CLI flag rather than an `output { renderer }` block"
+      rationale =
+        "Apple Pkl primarily selects renderers via the module-level `output { renderer = new JsonRenderer { ... } }` block, which depends on the stdlib `JsonRenderer` class and `output { value }` projection. Those are independent slices (PKL-079 stdlib expansion). A `-f json` CLI flag covers the common `pkl eval -f json` workflow without blocking on stdlib work, and the renderer code itself is decoupled so the `output { ... }` path can call it later."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Coerce Mapping keys via PCF inline form for composite keys"
+      rationale =
+        "Apple Pkl forbids non-string JSON object keys; for scalar keys (Int, Bool, Null) the upstream renderer formats them as the corresponding scalar string (`\"1\"`, `\"true\"`, `\"null\"`). For composite keys the upstream behavior is implementation-defined and rarely used, so we reuse the PCF inline form to keep the output deterministic and readable, instead of failing."
+    }
+  }
+}
+
 scenarios {
   parseArithmetic
   evalArithmetic
@@ -1503,5 +1535,6 @@ scenarios {
   typeAliasedCallableReturnEvaluation
   pcfRendererPrimitives
   pcfRendererObjects
+  jsonRenderer
   ...roadmap.entries
 }

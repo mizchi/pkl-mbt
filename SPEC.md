@@ -1,6 +1,6 @@
 # Test SPEC
 
-101 tests across 2 module(s) — 97 pending, 4 active
+102 tests across 2 module(s) — 97 pending, 5 active
 
 ## `specs/`
 
@@ -422,11 +422,11 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **render Pkl values as JSON** [draft] — verifies: PKL-072 — tags: renderer, json, next
-  > Module rendering emits a JSON document equivalent to Apple Pkl's `pkl eval -f json` output, including String escapes, Mapping keys coerced to strings, and Listing -> array.
+- [ ] **render Pkl values as JSON** — verifies: PKL-072 — tags: renderer, json, cli
+  > The CLI `eval -f json` (or `--format json`) flag emits a JSON document matching Apple Pkl's `pkl eval -f json` shape: ObjectValue and MappingValue project to JSON objects (Mapping keys are coerced to strings), ListingValue projects to JSON arrays, IntValue / BoolValue / NullValue use the JSON scalar form, and StringValue applies the standard `"`, `\`, control-character (`\b`, `\f`, `\n`, `\r`, `\t`, `\uXXXX`) escapes. Indentation is fixed at two spaces. The default `eval` output remains PCF.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-071
-  - decisions: 1 entry(ies)
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **render Pkl values as Java Properties** (minor) [draft] — verifies: PKL-074 — tags: renderer, properties
@@ -443,7 +443,7 @@
   - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **render Pkl values as YAML** (minor) [draft] — verifies: PKL-073 — tags: renderer, yaml
+- [ ] **render Pkl values as YAML** (minor) [draft] — verifies: PKL-073 — tags: renderer, yaml, next
   > Module rendering emits YAML equivalent to `pkl eval -f yaml`, including block-style sequences and mappings, quoted-when-needed strings, and multiline `|` for embedded newlines.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-072
@@ -655,7 +655,11 @@
   > The native CLI evaluates a Pkl file and prints module object properties.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-070, PKL-071 — tags: moonbit, unit, contract
+- [x] **cli eval json** — verifies: PKL-072 — tags: moonbit, cli, renderer, json, contract
+  > The native CLI emits a JSON document when invoked with `-f json`.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-070, PKL-071, PKL-072 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
