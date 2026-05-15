@@ -191,6 +191,174 @@ fn merge_value_members(
 }
 
 ///|
+fn eval_value_to_captured_expr(value : Value) -> Expr? {
+  match value {
+    IntValue(inner) => Some(IntLiteral(inner))
+    BoolValue(inner) => Some(BoolLiteral(inner))
+    StringValue(inner) => Some(StringLiteral(inner))
+    NullValue => Some(NullLiteral)
+    _ => None
+  }
+}
+
+///|
+fn eval_name_is_blocked(names : Array[String], name : String) -> Bool {
+  for blocked in names {
+    if blocked == name {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn eval_push_parameter_names(
+  names : Array[String],
+  parameters : Array[FunctionParameter],
+) -> Array[String] {
+  let next : Array[String] = []
+  for name in names {
+    next.push(name)
+  }
+  for parameter in parameters {
+    next.push(parameter.name)
+  }
+  next
+}
+
+///|
+fn eval_expr_with_captured_values(
+  expr : Expr,
+  env : Array[ValueBinding],
+  blocked_names : Array[String],
+) -> Expr {
+  match expr {
+    Identifier(name) =>
+      if eval_name_is_blocked(blocked_names, name) {
+        expr
+      } else {
+        match lookup_value(env, name) {
+          Some(value) =>
+            match eval_value_to_captured_expr(value) {
+              Some(captured) => captured
+              None => expr
+            }
+          None => expr
+        }
+      }
+    ObjectLiteral(members) => {
+      let captured_members : Array[ObjectMember] = []
+      for field in members {
+        captured_members.push({
+          name: field.name,
+          type_name: field.type_name,
+          value: eval_expr_with_captured_values(field.value, env, blocked_names),
+        })
+      }
+      ObjectLiteral(captured_members)
+    }
+    TypedObjectLiteral(type_name, members) => {
+      let captured_members : Array[ObjectMember] = []
+      for field in members {
+        captured_members.push({
+          name: field.name,
+          type_name: field.type_name,
+          value: eval_expr_with_captured_values(field.value, env, blocked_names),
+        })
+      }
+      TypedObjectLiteral(type_name, captured_members)
+    }
+    ListingLiteral(elements) => {
+      let captured_elements : Array[Expr] = []
+      for element in elements {
+        captured_elements.push(
+          eval_expr_with_captured_values(element, env, blocked_names),
+        )
+      }
+      ListingLiteral(captured_elements)
+    }
+    MappingLiteral(entries) => {
+      let captured_entries : Array[MappingEntry] = []
+      for entry in entries {
+        captured_entries.push({
+          key: eval_expr_with_captured_values(entry.key, env, blocked_names),
+          value: eval_expr_with_captured_values(entry.value, env, blocked_names),
+        })
+      }
+      MappingLiteral(captured_entries)
+    }
+    MemberAccess(target, name) =>
+      MemberAccess(
+        eval_expr_with_captured_values(target, env, blocked_names),
+        name,
+      )
+    SafeMemberAccess(target, name) =>
+      SafeMemberAccess(
+        eval_expr_with_captured_values(target, env, blocked_names),
+        name,
+      )
+    SubscriptAccess(target, key) =>
+      SubscriptAccess(
+        eval_expr_with_captured_values(target, env, blocked_names),
+        eval_expr_with_captured_values(key, env, blocked_names),
+      )
+    AmendExpr(base, members) => {
+      let captured_members : Array[ObjectMember] = []
+      for field in members {
+        captured_members.push({
+          name: field.name,
+          type_name: field.type_name,
+          value: eval_expr_with_captured_values(field.value, env, blocked_names),
+        })
+      }
+      AmendExpr(
+        eval_expr_with_captured_values(base, env, blocked_names),
+        captured_members,
+      )
+    }
+    CallExpr(callee, arguments) => {
+      let captured_arguments : Array[Expr] = []
+      for argument in arguments {
+        captured_arguments.push(
+          eval_expr_with_captured_values(argument, env, blocked_names),
+        )
+      }
+      CallExpr(
+        eval_expr_with_captured_values(callee, env, blocked_names),
+        captured_arguments,
+      )
+    }
+    LambdaExpr(parameters, body, return_type_name) =>
+      LambdaExpr(
+        parameters,
+        eval_expr_with_captured_values(
+          body,
+          env,
+          eval_push_parameter_names(blocked_names, parameters),
+        ),
+        return_type_name,
+      )
+    NonNullExpr(inner) =>
+      NonNullExpr(eval_expr_with_captured_values(inner, env, blocked_names))
+    UnaryExpr(op, inner) =>
+      UnaryExpr(op, eval_expr_with_captured_values(inner, env, blocked_names))
+    BinaryExpr(op, left, right) =>
+      BinaryExpr(
+        op,
+        eval_expr_with_captured_values(left, env, blocked_names),
+        eval_expr_with_captured_values(right, env, blocked_names),
+      )
+    ConditionalExpr(condition, truthy, falsy) =>
+      ConditionalExpr(
+        eval_expr_with_captured_values(condition, env, blocked_names),
+        eval_expr_with_captured_values(truthy, env, blocked_names),
+        eval_expr_with_captured_values(falsy, env, blocked_names),
+      )
+    _ => expr
+  }
+}
+
+///|
 fn find_binding(bindings : Array[Binding], name : String) -> Binding? {
   let mut found : Binding? = None
   for binding in bindings {
@@ -801,9 +969,24 @@ fn eval_lambda_application(
     }
     call_cache.push({ name: parameters[i].name, value: argument_values[i] })
   }
-  eval_expr_with_bindings(
-    body, bindings, env, class_env, call_cache, stack, diagnostics, resolve_import,
-  )
+  match body {
+    LambdaExpr(lambda_parameters, lambda_body, return_type_name) =>
+      Some(
+        FunctionValue(
+          lambda_parameters,
+          eval_expr_with_captured_values(
+            lambda_body,
+            call_cache,
+            eval_push_parameter_names([], lambda_parameters),
+          ),
+          return_type_name,
+        ),
+      )
+    _ =>
+      eval_expr_with_bindings(
+        body, bindings, env, class_env, call_cache, stack, diagnostics, resolve_import,
+      )
+  }
 }
 
 ///|
@@ -1234,7 +1417,17 @@ fn eval_expr_with_bindings(
           )
       }
     LambdaExpr(parameters, body, return_type_name) =>
-      Some(FunctionValue(parameters, body, return_type_name))
+      Some(
+        FunctionValue(
+          parameters,
+          eval_expr_with_captured_values(
+            body,
+            cache,
+            eval_push_parameter_names([], parameters),
+          ),
+          return_type_name,
+        ),
+      )
     NonNullExpr(inner_expr) =>
       match
         eval_expr_with_bindings(

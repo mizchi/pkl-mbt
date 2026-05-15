@@ -925,6 +925,16 @@ test "evaluate Pkl callable runtime values" {
 }
 
 ///|
+test "evaluate Pkl callable closure captures" {
+  assert_true(
+    eval_source(
+      "function makeAdder(n) = (x) -> x + n\nlocal add2 = makeAdder(2)\nvalue = add2(3)",
+    ) ==
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(5) }])),
+  )
+}
+
+///|
 test "typecheck rejects invalid Pkl calls" {
   guard typecheck_source("function add(x, y) = x + y\nvalue = add(1)")
     is TypeError(arity_diagnostics) else {

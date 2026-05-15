@@ -1190,13 +1190,13 @@ local pklTestCatchConstraintsFixture = new Scenario {
 
 local callableClosureCaptures = new Scenario {
   id = "PKL-061"
-  name = "evaluate Pkl callable closure captures"
+  name = "evaluate simple Pkl callable closure captures"
   description =
-    "Function and lambda values preserve captured lexical bindings so returned lambdas and higher-order callables can evaluate variables from their defining scope."
+    "Function and lambda values preserve simple scalar lexical bindings so returned lambdas and higher-order callables can evaluate variables from their defining scope."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-044"; "PKL-060" }
-  tags { "evaluator"; "callable"; "next" }
-  reviewStatus = "draft"
+  tags { "evaluator"; "callable" }
+  reviewStatus = "approved"
   severity = "major"
   decisions {
     new Decision {
@@ -1204,6 +1204,26 @@ local callableClosureCaptures = new Scenario {
       summary = "Generalize callable values after catch-specific lazy invocation"
       rationale =
         "`pkl:test.catch` now evaluates a lazy lambda in a targeted path, and user-defined constraint factories are still recognized structurally. Full callable compatibility needs function values to retain lexical captures instead of relying on call-site caches."
+    }
+  }
+}
+
+local nonScalarClosureCaptures = new Scenario {
+  id = "PKL-062"
+  name = "evaluate non-scalar Pkl callable closure captures"
+  description =
+    "Function and lambda values preserve captured object and callable bindings instead of only scalar literals."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-061"; "PKL-044" }
+  tags { "evaluator"; "callable"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Move closure capture from literal substitution to value environments"
+      rationale =
+        "Simple scalar captures can be represented by substituting literal AST nodes, but object and callable captures need a real environment-preserving function value representation."
     }
   }
 }
@@ -1272,4 +1292,5 @@ scenarios {
   constrainedClassPropertyDefaults
   pklTestCatchConstraintsFixture
   callableClosureCaptures
+  nonScalarClosureCaptures
 }
