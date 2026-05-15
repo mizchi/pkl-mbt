@@ -164,6 +164,38 @@ local cliEvalProperties = new Test {
   timeoutSec = 120
 }
 
+local cliTestPass = new Test {
+  name = "cli test passing facts"
+  description =
+    "The native CLI `test` subcommand walks a `facts: Mapping<String, Listing<Boolean>>` member, reports a PASS line per fact, and ends with the pass / fail summary."
+  tags { "moonbit"; "cli"; "pkl-test"; "contract" }
+  specRef { "PKL-095" }
+  cmd = "moon run cmd/main --target native -- test fixtures/cli_test_pass.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "PASS addition (2 assertions)"
+    "PASS subtraction (1 assertions)"
+    "2 passed, 0 failed"
+  }
+  timeoutSec = 120
+}
+
+local cliTestFail = new Test {
+  name = "cli test failing facts"
+  description =
+    "The native CLI `test` subcommand reports a FAIL line for any fact whose Listing contains a non-true value, naming the offending assertion index, and prints the pass / fail summary."
+  tags { "moonbit"; "cli"; "pkl-test"; "contract" }
+  specRef { "PKL-095" }
+  cmd = "moon run cmd/main --target native -- test fixtures/cli_test_fail.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "PASS addition (1 assertions)"
+    "FAIL broken: assertion #1 of 1 did not evaluate to true"
+    "1 passed, 1 failed"
+  }
+  timeoutSec = 120
+}
+
 local upstreamSmoke = new Test {
   name = "upstream apple pkl fixture smoke"
   description =
@@ -206,6 +238,8 @@ tests {
   cliEvalFormatPcf
   cliEvalYaml
   cliEvalProperties
+  cliTestPass
+  cliTestFail
   upstreamSmoke
   upstreamParserSuite
 }

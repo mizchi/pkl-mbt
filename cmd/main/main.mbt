@@ -1,7 +1,8 @@
 ///|
 fn usage() -> Unit {
-  println("usage: pkl <parse|check|eval> <file.pkl>")
+  println("usage: pkl <parse|check|eval|test> <file.pkl>")
   println("       pkl eval [-f|--format pcf|json|yaml|properties] <file.pkl>")
+  println("       pkl test <file.pkl>")
   println("       pkl parse-many <file.pkl>...")
 }
 
@@ -304,9 +305,102 @@ fn main {
         }
       }
     }
+    "test" => {
+      let session = @pkl.AnalysisSession::new()
+      load_path(session, path, [])
+      match session.eval_path(path) {
+        EvalOk(value) => {
+          let summary = run_pkl_test(value)
+          for line in summary.lines {
+            println(line)
+          }
+          if summary.failed > 0 {
+            @sys.exit(1)
+          }
+        }
+        EvalError(diagnostics) => {
+          print_diagnostics(diagnostics)
+          @sys.exit(1)
+        }
+      }
+    }
     _ => {
       usage()
       @sys.exit(1)
     }
   }
+}
+
+///|
+priv struct PklTestSummary {
+  lines : Array[String]
+  failed : Int
+}
+
+///|
+/// Walk a `facts: Mapping<String, Listing<Boolean>>` member at the
+/// module level and report per-fact pass / fail. A fact passes when
+/// every Boolean in its Listing is `true`; the first non-true value
+/// (or any non-Boolean element) flips the fact to failed. Modules
+/// without a `facts` member are treated as zero tests, which matches
+/// `moon test`'s behaviour for empty test files.
+fn run_pkl_test(value : @pkl.Value) -> PklTestSummary {
+  let lines : Array[String] = []
+  let mut passed = 0
+  let mut failed = 0
+  let facts : @pkl.Value? = match value {
+    @pkl.ObjectValue(members) => {
+      let mut found : @pkl.Value? = None
+      for entry in members {
+        if entry.name == "facts" {
+          found = Some(entry.value)
+        }
+      }
+      found
+    }
+    _ => None
+  }
+  match facts {
+    Some(@pkl.MappingValue(entries)) =>
+      for entry in entries {
+        let name = match entry.key {
+          @pkl.StringValue(s) => s
+          _ => "<non-string key>"
+        }
+        let elements = match entry.value {
+          @pkl.ListingValue(xs) => xs
+          _ => []
+        }
+        let mut fact_failed = false
+        let mut total = 0
+        let mut bad_index = -1
+        for i = 0; i < elements.length(); i = i + 1 {
+          total += 1
+          match elements[i] {
+            @pkl.BoolValue(true) => ()
+            _ =>
+              if !fact_failed {
+                fact_failed = true
+                bad_index = i
+              }
+          }
+        }
+        if fact_failed {
+          failed += 1
+          lines.push(
+            "FAIL \{name}: assertion #\{bad_index + 1} of \{total} did not evaluate to true",
+          )
+        } else {
+          passed += 1
+          lines.push("PASS \{name} (\{total} assertions)")
+        }
+      }
+    Some(_) =>
+      lines.push(
+        "test runner expected `facts` to be a Mapping<String, Listing<Boolean>>",
+      )
+    None => ()
+  }
+  lines.push("\{passed} passed, \{failed} failed")
+  { lines, failed }
 }

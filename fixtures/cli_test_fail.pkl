@@ -1,0 +1,8 @@
+facts: Mapping<String, Listing<Boolean>> = new Mapping {
+  ["addition"] = new Listing {
+    1 + 1 == 2
+  }
+  ["broken"] = new Listing {
+    1 + 1 == 3
+  }
+}

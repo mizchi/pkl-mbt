@@ -51,7 +51,7 @@ local bytesLiterals: Spec.Scenario = new {
     "`Bytes` values created via `Bytes(...)` or string conversions, plus length, slice, and base64 encoding / decoding."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-077" }
-  tags { "stdlib"; "bytes" }
+  tags { "stdlib"; "bytes"; "next" }
   reviewStatus = "draft"
   severity = "minor"
 }
@@ -121,18 +121,6 @@ local floatConstraintPredicates: Spec.Scenario = new {
 
 // ── CLI surface and upstream compatibility ──────────────────────────────────
 
-local cliTestRunnerIntegration: Spec.Scenario = new {
-  id = "PKL-095"
-  name = "CLI test runner integrates pkl:test"
-  description =
-    "`moon run cmd/main test path.pkl` runs the `pkl:test` cases declared in the module, reports pass / fail counts, and exits non-zero on any failure."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-058" }
-  tags { "cli"; "pkl-test"; "next" }
-  reviewStatus = "draft"
-  severity = "minor"
-}
-
 local upstreamFixtureEvaluation: Spec.Scenario = new {
   id = "PKL-096"
   name = "evaluate broader upstream Pkl fixtures"
@@ -164,7 +152,6 @@ entries: Listing<Spec.Scenario> = new {
   genericClassDeclarations
   genericFunctionTypeParameters
   floatConstraintPredicates
-  cliTestRunnerIntegration
   upstreamFixtureEvaluation
   upstreamGoldOutputDiff
 }

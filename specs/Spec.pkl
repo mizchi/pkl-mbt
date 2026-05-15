@@ -1502,6 +1502,44 @@ local durationAndDataSizeLiterals = new Scenario {
   }
 }
 
+local cliPklTestRunner = new Scenario {
+  id = "PKL-095"
+  name = "CLI test runner integrates pkl:test facts"
+  description =
+    "`pkl test <file.pkl>` evaluates the file the same way `eval` does, then walks a top-level `facts: Mapping<String, Listing<Boolean>>` member: each entry is one fact, each Listing element is one assertion, and the fact passes only when every assertion is `BoolValue(true)`. The runner prints one `PASS <name> (N assertions)` or `FAIL <name>: assertion #i of N did not evaluate to true` line per fact, then a trailing `<passed> passed, <failed> failed` summary, and exits non-zero on any failure. Modules without a `facts` member print only the summary (zero passed, zero failed) and exit zero — matching the `moon test` behaviour for empty test files. The minimal slice intentionally requires the explicit typed `facts` shape rather than the `amends \"pkl:test\"` shorthand because the shorthand needs the full `pkl:test` module to flow through the import system; that lift stays a follow-up."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-058" }
+  tags { "cli"; "pkl-test" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-15"
+      summary = "Require the explicit `facts: Mapping<String, Listing<Boolean>>` shape, not `amends \"pkl:test\"`"
+      rationale =
+        "`amends \"pkl:test\"` relies on the import resolver loading the upstream `pkl:test` module so the `facts { [\"...\"] { ... } }` shorthand picks up its declared shape. Our resolver currently short-circuits `pkl:` URIs to a stub, so the shorthand collapses to an empty mapping when actually evaluated. The slice scope draws the line at the explicit type so the runner can ship today; the shorthand support is a strictly larger lift that needs the full `pkl:test` module to flow through the resolver."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Walk the evaluated value rather than re-parsing the source"
+      rationale =
+        "Routing through `eval_path` reuses every constraint, typecheck, and renderer behaviour the rest of the CLI depends on, so a fact like `xs.map((x) -> x.length) == [3, 4, 5]` evaluates with the same semantics as a regular eval. A separate parser would have to re-implement the assertion grammar and would silently drift from the rest of the evaluator."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Report per-fact pass/fail with the failing assertion index, short-circuiting within a fact"
+      rationale =
+        "A fact bundles a small group of related assertions; once one fails the rest of the same fact are no longer evidence — they could trivially pass with a stale value. Naming the first failing assertion's 1-based index plus the total assertion count gives enough information to find the offending line without burying the user in cascading diagnostics. Per-fact (rather than per-assertion) granularity also matches the upstream `pkl test` output shape."
+    }
+    new Decision {
+      date = "2026-05-15"
+      summary = "Use stdout assertions in the pkspec contracts rather than exit-code checks"
+      rationale =
+        "`moon run cmd/main --target native -- ...` swallows the inner binary's exit code (it returns moon's own exit code, not the binary's). Asserting on stdout — `PASS <name>`, `FAIL <name>`, and the trailing summary — captures the same information through the only channel the test harness can observe through the wrapper, and the binary itself still exits non-zero so direct invocations behave correctly for users. Lifting the exit-code assertion is a strictly larger CLI-runner change."
+    }
+  }
+}
+
 local cliFormatFlag = new Scenario {
   id = "PKL-094"
   name = "CLI --format flag for eval"
@@ -2115,5 +2153,6 @@ scenarios {
   stringConstraintPredicates
   collectionElementConstraints
   cliFormatFlag
+  cliPklTestRunner
   ...roadmap.entries
 }
