@@ -353,18 +353,6 @@ local lspServer: Spec.Scenario = new {
 // Promote PKL-133 first (smallest, no dependencies); the rest stack on
 // top of it in numerical order.
 
-local listingMappingFunctional: Spec.Scenario = new {
-  id = "PKL-135"
-  name = "Listing / Mapping / List functional methods"
-  description =
-    "`map((x) -> ...)`, `filter((x) -> ...)`, `flatMap((x) -> ...)`, `count((x) -> ...)`, `every((x) -> ...)`, `distinct`, `join(separator)`, `find((x) -> ...)`, plus the negative forms (`none((x) -> ...)`, `noneMatch`). pkspec uses these inside `Spec.pkl#tagSteps`, the `duplicateNames` check, and the rendered `Mapping` projections. Each method takes a lambda and produces a derived value; the evaluator routes through `apply_lambda(lambda, [arg])` already wired for PKL-110 generic inference."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-134" }
-  tags { "stdlib"; "evaluator"; "typechecker"; "pkf-pkspec"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 local whenConditionalProperty: Spec.Scenario = new {
   id = "PKL-136"
   name = "when conditional property"
@@ -372,7 +360,7 @@ local whenConditionalProperty: Spec.Scenario = new {
     "Apple Pkl's `when (cond) { property = value }` inside a Listing / Mapping / object body conditionally emits the inner properties. pkspec uses it in `scenarioToTest` to populate `specRef` only when the scenario carries an id: `specRef = new Listing<String> { when (s.id != null) { s.id } }`. Today the parser does not recognise the `when` form, so the surrounding listing silently misses the conditional entries; the evaluator gets nothing to fire on. Adds parser support (CST node) plus an `evaluate_when_clause` step in the object / listing / mapping evaluator that gates the inner properties on the condition's boolean result."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-001"; "PKL-002" }
-  tags { "parser"; "evaluator"; "pkf-pkspec" }
+  tags { "parser"; "evaluator"; "pkf-pkspec"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -390,7 +378,6 @@ local amendsBaseMerge: Spec.Scenario = new {
 }
 
 entries: Listing<Spec.Scenario> = new {
-  listingMappingFunctional
   whenConditionalProperty
   amendsBaseMerge
   pklRepl

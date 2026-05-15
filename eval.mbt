@@ -1167,7 +1167,18 @@ fn is_listing_method_name(name : String) -> Bool {
     // PKL-134: read-only conversion methods used by pkf / pkspec's
     // shape inspection chains (`tests.toList().map(...)`).
     | "toList"
-    | "toMap" => true
+    | "toMap"
+    // PKL-135: predicate / search / flatten methods used by pkspec's
+    // `tagSteps`, `duplicateNames`, and rendered Mapping projections.
+    | "flatMap"
+    | "count"
+    | "every"
+    | "any"
+    | "none"
+    | "find"
+    | "findOrNull"
+    | "findLast"
+    | "findLastOrNull" => true
     _ => false
   }
 }
@@ -1188,7 +1199,13 @@ fn is_mapping_method_name(name : String) -> Bool {
     | "fold"
     // PKL-134: identity conversion methods used by pkf / pkspec.
     | "toMap"
-    | "toList" => true
+    | "toList"
+    // PKL-135: predicate methods. Upstream's Mapping.every/any/none take
+    // `(Key, Value) -> Boolean`. count is upstream's `count((K, V) -> ...)`.
+    | "every"
+    | "any"
+    | "none"
+    | "count" => true
     _ => false
   }
 }
@@ -2021,6 +2038,276 @@ fn eval_listing_method(
       }
       Some(MappingValue([]))
     }
+    // PKL-135: flatMap concatenates the listing results of each element's
+    // transform call. Upstream allows Collection<Result> (List | Listing | Set);
+    // pkl-mbt collapses those into ListingValue, so the shape stays consistent.
+    "flatMap" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(Diagnostic::{
+          message: "Listing.flatMap expects 1 argument, got \{arg_values.length()}",
+        })
+        return None
+      }
+      let result : Array[Value] = []
+      for element in elements {
+        match
+          apply_function_value(
+            "Listing.flatMap callback",
+            arg_values[0],
+            [element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(ListingValue(inner)) =>
+            for v in inner {
+              result.push(v)
+            }
+          Some(_) => {
+            diagnostics.push(Diagnostic::{
+              message: "Listing.flatMap callback must return Listing",
+            })
+            return None
+          }
+          None => return None
+        }
+      }
+      Some(ListingValue(result))
+    }
+    "count" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(Diagnostic::{
+          message: "Listing.count expects 1 argument, got \{arg_values.length()}",
+        })
+        return None
+      }
+      let mut n = 0
+      for element in elements {
+        match
+          apply_function_value(
+            "Listing.count predicate",
+            arg_values[0],
+            [element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(BoolValue(true)) => n = n + 1
+          Some(BoolValue(false)) => ()
+          Some(_) => {
+            diagnostics.push(Diagnostic::{
+              message: "Listing.count predicate must return Boolean",
+            })
+            return None
+          }
+          None => return None
+        }
+      }
+      Some(IntValue(n))
+    }
+    "every" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(Diagnostic::{
+          message: "Listing.every expects 1 argument, got \{arg_values.length()}",
+        })
+        return None
+      }
+      for element in elements {
+        match
+          apply_function_value(
+            "Listing.every predicate",
+            arg_values[0],
+            [element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(BoolValue(true)) => ()
+          Some(BoolValue(false)) => return Some(BoolValue(false))
+          Some(_) => {
+            diagnostics.push(Diagnostic::{
+              message: "Listing.every predicate must return Boolean",
+            })
+            return None
+          }
+          None => return None
+        }
+      }
+      Some(BoolValue(true))
+    }
+    "any" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(Diagnostic::{
+          message: "Listing.any expects 1 argument, got \{arg_values.length()}",
+        })
+        return None
+      }
+      for element in elements {
+        match
+          apply_function_value(
+            "Listing.any predicate",
+            arg_values[0],
+            [element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(BoolValue(true)) => return Some(BoolValue(true))
+          Some(BoolValue(false)) => ()
+          Some(_) => {
+            diagnostics.push(Diagnostic::{
+              message: "Listing.any predicate must return Boolean",
+            })
+            return None
+          }
+          None => return None
+        }
+      }
+      Some(BoolValue(false))
+    }
+    "none" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(Diagnostic::{
+          message: "Listing.none expects 1 argument, got \{arg_values.length()}",
+        })
+        return None
+      }
+      for element in elements {
+        match
+          apply_function_value(
+            "Listing.none predicate",
+            arg_values[0],
+            [element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(BoolValue(true)) => return Some(BoolValue(false))
+          Some(BoolValue(false)) => ()
+          Some(_) => {
+            diagnostics.push(Diagnostic::{
+              message: "Listing.none predicate must return Boolean",
+            })
+            return None
+          }
+          None => return None
+        }
+      }
+      Some(BoolValue(true))
+    }
+    "find" | "findOrNull" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(Diagnostic::{
+          message: "Listing.\{method_name} expects 1 argument, got \{arg_values.length()}",
+        })
+        return None
+      }
+      for element in elements {
+        match
+          apply_function_value(
+            "Listing.\{method_name} predicate",
+            arg_values[0],
+            [element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(BoolValue(true)) => return Some(element)
+          Some(BoolValue(false)) => ()
+          Some(_) => {
+            diagnostics.push(Diagnostic::{
+              message: "Listing.\{method_name} predicate must return Boolean",
+            })
+            return None
+          }
+          None => return None
+        }
+      }
+      // Apple Pkl: `find` throws when no match, `findOrNull` returns null.
+      if method_name == "findOrNull" {
+        Some(NullValue)
+      } else {
+        diagnostics.push(Diagnostic::{
+          message: "Listing.find did not match any element",
+        })
+        None
+      }
+    }
+    "findLast" | "findLastOrNull" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(Diagnostic::{
+          message: "Listing.\{method_name} expects 1 argument, got \{arg_values.length()}",
+        })
+        return None
+      }
+      let mut i = elements.length() - 1
+      while i >= 0 {
+        let element = elements[i]
+        match
+          apply_function_value(
+            "Listing.\{method_name} predicate",
+            arg_values[0],
+            [element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(BoolValue(true)) => return Some(element)
+          Some(BoolValue(false)) => ()
+          Some(_) => {
+            diagnostics.push(Diagnostic::{
+              message: "Listing.\{method_name} predicate must return Boolean",
+            })
+            return None
+          }
+          None => return None
+        }
+        i = i - 1
+      }
+      if method_name == "findLastOrNull" {
+        Some(NullValue)
+      } else {
+        diagnostics.push(Diagnostic::{
+          message: "Listing.findLast did not match any element",
+        })
+        None
+      }
+    }
     _ => None
   }
 }
@@ -2162,6 +2449,149 @@ fn eval_mapping_method(
         values.push(entry.value)
       }
       Some(ListingValue(values))
+    }
+    // PKL-135: predicate methods. Upstream's signature is
+    // `(Key, Value) -> Boolean` for every / any; pkl-mbt mirrors that.
+    "every" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(Diagnostic::{
+          message: "Mapping.every expects 1 argument, got \{arg_values.length()}",
+        })
+        return None
+      }
+      for entry in entries {
+        match
+          apply_function_value(
+            "Mapping.every predicate",
+            arg_values[0],
+            [entry.key, entry.value],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(BoolValue(true)) => ()
+          Some(BoolValue(false)) => return Some(BoolValue(false))
+          Some(_) => {
+            diagnostics.push(Diagnostic::{
+              message: "Mapping.every predicate must return Boolean",
+            })
+            return None
+          }
+          None => return None
+        }
+      }
+      Some(BoolValue(true))
+    }
+    "any" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(Diagnostic::{
+          message: "Mapping.any expects 1 argument, got \{arg_values.length()}",
+        })
+        return None
+      }
+      for entry in entries {
+        match
+          apply_function_value(
+            "Mapping.any predicate",
+            arg_values[0],
+            [entry.key, entry.value],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(BoolValue(true)) => return Some(BoolValue(true))
+          Some(BoolValue(false)) => ()
+          Some(_) => {
+            diagnostics.push(Diagnostic::{
+              message: "Mapping.any predicate must return Boolean",
+            })
+            return None
+          }
+          None => return None
+        }
+      }
+      Some(BoolValue(false))
+    }
+    "none" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(Diagnostic::{
+          message: "Mapping.none expects 1 argument, got \{arg_values.length()}",
+        })
+        return None
+      }
+      for entry in entries {
+        match
+          apply_function_value(
+            "Mapping.none predicate",
+            arg_values[0],
+            [entry.key, entry.value],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(BoolValue(true)) => return Some(BoolValue(false))
+          Some(BoolValue(false)) => ()
+          Some(_) => {
+            diagnostics.push(Diagnostic::{
+              message: "Mapping.none predicate must return Boolean",
+            })
+            return None
+          }
+          None => return None
+        }
+      }
+      Some(BoolValue(true))
+    }
+    "count" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(Diagnostic::{
+          message: "Mapping.count expects 1 argument, got \{arg_values.length()}",
+        })
+        return None
+      }
+      let mut n = 0
+      for entry in entries {
+        match
+          apply_function_value(
+            "Mapping.count predicate",
+            arg_values[0],
+            [entry.key, entry.value],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(BoolValue(true)) => n = n + 1
+          Some(BoolValue(false)) => ()
+          Some(_) => {
+            diagnostics.push(Diagnostic::{
+              message: "Mapping.count predicate must return Boolean",
+            })
+            return None
+          }
+          None => return None
+        }
+      }
+      Some(IntValue(n))
     }
     _ => None
   }

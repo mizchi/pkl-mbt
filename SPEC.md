@@ -1,6 +1,6 @@
 # Test SPEC
 
-164 tests across 2 module(s) — 137 pending, 27 active
+165 tests across 2 module(s) — 137 pending, 28 active
 
 ## `specs/`
 
@@ -74,16 +74,17 @@
   - depends on: PKL-107
   - body: _not yet implemented_
 
-- [ ] **Listing / Mapping / List functional methods** [draft] — verifies: PKL-135 — tags: stdlib, evaluator, typechecker, pkf-pkspec, next
-  > `map((x) -> ...)`, `filter((x) -> ...)`, `flatMap((x) -> ...)`, `count((x) -> ...)`, `every((x) -> ...)`, `distinct`, `join(separator)`, `find((x) -> ...)`, plus the negative forms (`none((x) -> ...)`, `noneMatch`). pkspec uses these inside `Spec.pkl#tagSteps`, the `duplicateNames` check, and the rendered `Mapping` projections. Each method takes a lambda and produces a derived value; the evaluator routes through `apply_lambda(lambda, [arg])` already wired for PKL-110 generic inference.
-  - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-134
-  - body: _not yet implemented_
-
 - [ ] **Listing and Mapping element constraint propagation** — verifies: PKL-093 — tags: evaluator, typechecker, constraint, collection
   > `pkl_constrained_type_annotation_has_supported_constraint` recurses into the `Listing<T>` and `Mapping<K, V>` wrappers so element-level constraint annotations register as supported. The value-rejection cascade gains a collection branch after the Int / String branches: for a `Listing<T>` annotation on a `ListingValue`, every element re-enters the cascade with `T` as both display and source name; for a `Mapping<K, V>` annotation on a `MappingValue`, each entry's key is checked against `K` and each entry's value against `V`. The first rejecting element produces the diagnostic and short-circuits the cascade so error messages name a single failing predicate rather than a list. Nested wrappers (`Listing<Listing<Int(isPositive)>>`, `Mapping<String, Listing<Int(isBetween(0, 9))>>`) compose naturally because each recursion uses the same entry point; depth is capped at 8 to keep cycle-like aliases bounded.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-091, PKL-075
+  - decisions: 3 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **Listing and Mapping functional methods** — verifies: PKL-135 — tags: stdlib, evaluator, typechecker, pkf-pkspec
+  > Higher-order predicate / search / flatten methods on `Listing` and `Mapping` resolve and run end-to-end. `Listing` gains `flatMap`, `count`, `every`, `any`, `none`, `find`, `findOrNull`, `findLast`, `findLastOrNull`; `Mapping` gains `every`, `any`, `none`, `count` whose predicates take `(Key, Value) -> Boolean` (matching upstream's signature). Each method is wired through `is_listing_method_name` / `is_mapping_method_name` plus `eval_listing_method` / `eval_mapping_method`, reusing `apply_function_value` to invoke the user lambda per element. `find` raises a diagnostic when no element matches (mirroring Apple Pkl's behaviour), `findOrNull` and `findLastOrNull` return `NullValue` instead. `flatMap` accepts callbacks returning Listing only — the `Collection<Result>` union (List / Listing / Set) is collapsed onto `ListingValue` today, so the constraint is the runtime shape of the result rather than the declared type.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-134
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
@@ -913,7 +914,7 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **when conditional property** [draft] — verifies: PKL-136 — tags: parser, evaluator, pkf-pkspec
+- [ ] **when conditional property** [draft] — verifies: PKL-136 — tags: parser, evaluator, pkf-pkspec, next
   > Apple Pkl's `when (cond) { property = value }` inside a Listing / Mapping / object body conditionally emits the inner properties. pkspec uses it in `scenarioToTest` to populate `specRef` only when the scenario carries an id: `specRef = new Listing<String> { when (s.id != null) { s.id } }`. Today the parser does not recognise the `when` form, so the surrounding listing silently misses the conditional entries; the evaluator gets nothing to fire on. Adds parser support (CST node) plus an `evaluate_when_clause` step in the object / listing / mapping evaluator that gates the inner properties on the condition's boolean result.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-001, PKL-002
@@ -983,6 +984,10 @@
 
 - [x] **cli is operator runtime** — verifies: PKL-114 — tags: moonbit, cli, evaluator, is-operator, contract
   > The native CLI evaluates a fixture that exercises the `is` operator at runtime: `5 is Int`, `1.5 is Float`, `Number` checks against both Int and Float values, a negative check (`"x" is Int = false`), and an `if (x is Int) ...` branch inside a function. No `parser-only` diagnostic is raised — the evaluator routes through `value_is_type` and produces concrete Bool values.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli listing mapping functional** — verifies: PKL-135 — tags: moonbit, cli, stdlib, pkf-pkspec, contract
+  > The native CLI evaluates a fixture that exercises `Listing.flatMap` / `count` / `every` / `any` / `none` / `find` / `findLast` / `findOrNull`, plus `Mapping.every` / `any` / `none` / `count`. Each method routes through `apply_function_value` per element and returns the value Apple Pkl produces for the equivalent call.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli listing mapping stdlib** — verifies: PKL-134 — tags: moonbit, cli, stdlib, pkf-pkspec, contract

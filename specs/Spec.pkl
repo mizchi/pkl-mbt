@@ -1785,6 +1785,38 @@ local listingMappingStdlibCore = new Scenario {
   }
 }
 
+local listingMappingFunctional = new Scenario {
+  id = "PKL-135"
+  name = "Listing and Mapping functional methods"
+  description =
+    "Higher-order predicate / search / flatten methods on `Listing` and `Mapping` resolve and run end-to-end. `Listing` gains `flatMap`, `count`, `every`, `any`, `none`, `find`, `findOrNull`, `findLast`, `findLastOrNull`; `Mapping` gains `every`, `any`, `none`, `count` whose predicates take `(Key, Value) -> Boolean` (matching upstream's signature). Each method is wired through `is_listing_method_name` / `is_mapping_method_name` plus `eval_listing_method` / `eval_mapping_method`, reusing `apply_function_value` to invoke the user lambda per element. `find` raises a diagnostic when no element matches (mirroring Apple Pkl's behaviour), `findOrNull` and `findLastOrNull` return `NullValue` instead. `flatMap` accepts callbacks returning Listing only — the `Collection<Result>` union (List / Listing / Set) is collapsed onto `ListingValue` today, so the constraint is the runtime shape of the result rather than the declared type."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-134" }
+  tags { "stdlib"; "evaluator"; "typechecker"; "pkf-pkspec" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Skip `noneMatch` — Apple Pkl spells it `none`"
+      rationale =
+        "PKL-135's roadmap text mentioned `noneMatch` as a synonym, but Apple Pkl's stdlib only defines `none(predicate) -> Boolean`. The Java Stream API uses `noneMatch`; introducing the alias here would create a Pkl-incorrect surface. Implementing only `none` keeps the surface byte-aligned with Apple Pkl. If someone later wants the Stream-API spelling it can be added as a one-line alias arm."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "`find` raises a diagnostic when no match, `findOrNull` returns null"
+      rationale =
+        "Apple Pkl's `find` throws if no element matches; the `OrNull` variant exists precisely to avoid the throw. pkl-mbt mirrors that split by pushing a diagnostic and returning `None` (which aborts the evaluation) when `find` runs through the whole collection without a hit, and by returning `NullValue` for the `OrNull` variants. Collapsing both into a silent `NullValue` would diverge from upstream and hide bugs."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "`flatMap` rejects non-Listing callback results"
+      rationale =
+        "Upstream `flatMap` accepts a `Collection<Result>` (List | Listing | Set). pkl-mbt collapses those into `ListingValue`, so we only need to recognise that variant. Anything else (Int, String, ObjectValue, ...) is almost certainly a user bug; raise a clear diagnostic rather than silently coercing. When PKL-119 splits Set / Pair into their own variants, the arm extends to recognise the new variants without changing the call-site grammar."
+    }
+  }
+}
+
 local equalityTypecheckOperandMatch = new Scenario {
   id = "PKL-113"
   name = "equality typecheck operand match"
@@ -2910,5 +2942,6 @@ scenarios {
   typeParameterBounds
   pklAnyType
   listingMappingStdlibCore
+  listingMappingFunctional
   ...roadmap.entries
 }

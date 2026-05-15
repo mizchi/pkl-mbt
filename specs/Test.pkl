@@ -354,6 +354,31 @@ local cliListingMappingStdlib = new Test {
   timeoutSec = 120
 }
 
+local cliListingMappingFunctional = new Test {
+  name = "cli listing mapping functional"
+  description =
+    "The native CLI evaluates a fixture that exercises `Listing.flatMap` / `count` / `every` / `any` / `none` / `find` / `findLast` / `findOrNull`, plus `Mapping.every` / `any` / `none` / `count`. Each method routes through `apply_function_value` per element and returns the value Apple Pkl produces for the equivalent call."
+  tags { "moonbit"; "cli"; "stdlib"; "pkf-pkspec"; "contract" }
+  specRef { "PKL-135" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_listing_mapping_functional.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "countEven = 2"
+    "everyPositive = true"
+    "anyEven = true"
+    "noneNegative = true"
+    "firstEven = 2"
+    "lastEven = 4"
+    "missingOrNull = null"
+    "flat {"
+    "mEvery = true"
+    "mAny = true"
+    "mCount = 2"
+    "mNone = true"
+  }
+  timeoutSec = 120
+}
+
 local cliGenericInference = new Test {
   name = "cli generic call-site inference"
   description =
@@ -557,6 +582,7 @@ tests {
   cliTypeParameterBounds
   cliAnyType
   cliListingMappingStdlib
+  cliListingMappingFunctional
   cliFormat
   cliTestExamplesPass
   cliTestExamplesFail

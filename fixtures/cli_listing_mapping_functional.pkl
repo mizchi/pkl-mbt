@@ -1,0 +1,32 @@
+// PKL-135: Listing / Mapping functional methods
+xs = new Listing { 1; 2; 3; 4 }
+
+countEven = xs.count((n) -> n.isEven)
+
+everyPositive = xs.every((n) -> n > 0)
+
+anyEven = xs.any((n) -> n.isEven)
+
+noneNegative = xs.none((n) -> n < 0)
+
+firstEven = xs.find((n) -> n.isEven)
+
+lastEven = xs.findLast((n) -> n.isEven)
+
+missingOrNull = xs.findOrNull((n) -> n > 99)
+
+flat = xs.flatMap((n) -> new Listing { n; n + 10 })
+
+m = new Mapping {
+  ["a"] = 1
+  ["b"] = 2
+  ["c"] = 3
+}
+
+mEvery = m.every((k, v) -> v > 0)
+
+mAny = m.any((k, v) -> v == 2)
+
+mCount = m.count((k, v) -> v.isOdd)
+
+mNone = m.none((k, v) -> v < 0)

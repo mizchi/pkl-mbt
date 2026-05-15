@@ -2224,6 +2224,129 @@ test "PKL-134: Mapping.keys and values stay green" {
 }
 
 ///|
+test "PKL-135: Listing.count counts matching elements" {
+  guard eval_source(
+      "xs = new Listing { 1; 2; 3; 4 }\nn = xs.count((x) -> x.isEven)",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[1].value is IntValue(n) else { panic() }
+  inspect(n, content="2")
+}
+
+///|
+test "PKL-135: Listing.every short-circuits on false" {
+  guard eval_source(
+      "xs = new Listing { 1; 2; 3 }\nallPos = xs.every((x) -> x > 0)\nallEven = xs.every((x) -> x.isEven)",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[1].value is BoolValue(all_pos) else { panic() }
+  guard members[2].value is BoolValue(all_even) else { panic() }
+  assert_true(all_pos)
+  assert_true(!all_even)
+}
+
+///|
+test "PKL-135: Listing.any returns true on first match" {
+  guard eval_source(
+      "xs = new Listing { 1; 2; 3 }\nhasEven = xs.any((x) -> x.isEven)\nhasNeg = xs.any((x) -> x < 0)",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[1].value is BoolValue(has_even) else { panic() }
+  guard members[2].value is BoolValue(has_neg) else { panic() }
+  assert_true(has_even)
+  assert_true(!has_neg)
+}
+
+///|
+test "PKL-135: Listing.none mirrors every with inverted predicate" {
+  guard eval_source(
+      "xs = new Listing { 1; 3; 5 }\nallOdd = xs.none((x) -> x.isEven)",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[1].value is BoolValue(b) else { panic() }
+  assert_true(b)
+}
+
+///|
+test "PKL-135: Listing.find returns first match" {
+  guard eval_source(
+      "xs = new Listing { 1; 2; 3; 4 }\nfirst = xs.find((x) -> x.isEven)",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[1].value is IntValue(n) else { panic() }
+  inspect(n, content="2")
+}
+
+///|
+test "PKL-135: Listing.findLast walks back to front" {
+  guard eval_source(
+      "xs = new Listing { 1; 2; 3; 4 }\nlast = xs.findLast((x) -> x.isEven)",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[1].value is IntValue(n) else { panic() }
+  inspect(n, content="4")
+}
+
+///|
+test "PKL-135: Listing.findOrNull returns null on no match" {
+  guard eval_source(
+      "xs = new Listing { 1; 2; 3 }\nmaybe = xs.findOrNull((x) -> x > 99)",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  assert_true(members[1].value == NullValue)
+}
+
+///|
+test "PKL-135: Listing.flatMap concatenates inner Listings" {
+  guard eval_source(
+      "xs = new Listing { 1; 2 }\nys = xs.flatMap((x) -> new Listing { x; x + 10 })",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[1].value is ListingValue(items) else { panic() }
+  inspect(items.length(), content="4")
+}
+
+///|
+test "PKL-135: Mapping.every consumes (Key, Value) pairs" {
+  guard eval_source(
+      "m = new Mapping { [\"a\"] = 1; [\"b\"] = 2 }\nb = m.every((k, v) -> v > 0)",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[1].value is BoolValue(b) else { panic() }
+  assert_true(b)
+}
+
+///|
+test "PKL-135: Mapping.count counts matching entries" {
+  guard eval_source(
+      "m = new Mapping { [\"a\"] = 1; [\"b\"] = 2; [\"c\"] = 3 }\nn = m.count((k, v) -> v.isOdd)",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[1].value is IntValue(n) else { panic() }
+  inspect(n, content="2")
+}
+
+///|
 test "Number constraint predicate accepts both Int and Float" {
   assert_true(
     eval_source("a: Number(isPositive) = 3\nb: Number(isPositive) = 0.5") ==
