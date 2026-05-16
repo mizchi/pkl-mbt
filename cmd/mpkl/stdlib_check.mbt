@@ -253,12 +253,31 @@ let stdlib_probes : Array[StdlibProbe] = [
     source: "import \"pkl:json\" as json\nv = (new json.Parser {}).parse(\"[1, {\\\"x\\\": [2, 3]}]\")[1].x[0]",
     expect: "v = 2",
   },
-  // pkl:yaml — Parser shell only.
+  // pkl:yaml — Parser shell + parse() implementation (via
+  // moonbit-community/yaml).
   {
     group: "pkl:yaml",
     name: "Parser class instantiable",
     source: "import \"pkl:yaml\" as yaml\np = new yaml.Parser { useMapping = false }\nv = p.useMapping",
     expect: "v = false",
+  },
+  {
+    group: "pkl:yaml",
+    name: "Parser.parse decodes primitives (Dynamic mode)",
+    source: "import \"pkl:yaml\" as yaml\nv = (new yaml.Parser {}).parse(\"n: 42\\n\").n",
+    expect: "v = 42",
+  },
+  {
+    group: "pkl:yaml",
+    name: "Parser.parse honors useMapping",
+    source: "import \"pkl:yaml\" as yaml\nv = (new yaml.Parser { useMapping = true }).parse(\"k: v\\n\")",
+    expect: "[\"k\"] = \"v\"",
+  },
+  {
+    group: "pkl:yaml",
+    name: "Parser.parse handles nested arrays + maps",
+    source: "import \"pkl:yaml\" as yaml\nv = (new yaml.Parser {}).parse(\"items:\\n  - 1\\n  - 2\\nnested:\\n  inner: hello\\n\").nested.inner",
+    expect: "v = \"hello\"",
   },
   // pkl:xml — Renderer class shell only (no rendering yet).
   {

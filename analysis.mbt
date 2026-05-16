@@ -262,13 +262,18 @@ fn builtin_stdlib_source(uri : String) -> String? {
       Some(source)
     }
     "pkl:yaml" => {
-      // PKL-124: parallel to `pkl:json` — Parser + Property surface
-      // only. The YAML renderer is a `pkl:base` re-export, registered
-      // in `builtin_type_from_annotation` so `new YamlRenderer { ... }`
-      // typechecks without requiring an explicit import.
+      // PKL-124 / PKL-146: parallel to `pkl:json` — Parser + Property
+      // surface. The Parser stamps a hidden `__kind = "YamlParser"`
+      // marker (PKL-145 enabled `hidden` on class properties) so the
+      // evaluator intercepts `parser.parse(source)` and routes the
+      // YAML body through `moonbit-community/yaml`'s
+      // `Yaml::load_from_string`, projecting each document onto a
+      // Pkl Value via `yaml_to_value`. The YAML renderer itself is a
+      // `pkl:base` re-export.
       let source =
         #|class Parser {
         #|  useMapping: Boolean = false
+        #|  hidden __kind: String = "YamlParser"
         #|}
         #|class Property {
         #|  name: String

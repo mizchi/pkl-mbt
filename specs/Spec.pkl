@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklYamlParserScenario = new Scenario {
+  id = "PKL-146"
+  name = "pkl:yaml.Parser.parse implementation"
+  description =
+    "`pkl:yaml.Parser.parse(source)` decodes a YAML document into a Pkl `Value`. The evaluator's CallExpr dispatcher mirrors the PKL-144 / PKL-145 pkl:json path: the Parser stamps `hidden __kind = \"YamlParser\"` on its synthetic class, the dispatch checks `reflect_kind(receiver) is Some(\"YamlParser\")`, and the source string flows through `moonbit-community/yaml`'s `Yaml::load_from_string`. `yaml_to_value` projects each Yaml variant onto a Pkl Value: `Null` → `NullValue`; `Boolean` → `BoolValue`; `Integer(i)` → `IntValue` when `i` fits Int32 else `FloatValue` (no silent truncation); `Real(d)` → `IntValue` when integral + Int32-bounded else `FloatValue` (same disambiguation rule as the JSON path); `String` → `StringValue`; `Array` → `ListingValue` (recursive); `Map` → `ObjectValue` (default Dynamic mode) or `MappingValue` (`useMapping = true`); `BadValue` → `NullValue`. Multi-document YAML returns only the first document for now; the loader-side `Array[Yaml]` shape is preserved so multi-doc surface lands when a fixture demands it. Parser errors surface as `yaml.Parser.parse: <err>` diagnostics."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-145"; "PKL-144" }
+  tags { "evaluator"; "stdlib"; "yaml" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "Reuse moonbit-community/yaml@0.0.4 rather than hand-rolling a YAML parser"
+      rationale =
+        "YAML is bigger than JSON (indentation rules, multi-doc, anchors, tag handles) — hand-rolling a parser would dwarf the rest of pkl-mbt. `moonbit-community/yaml` exposes a `Yaml` enum that's a near-perfect projection target (Null / Boolean / Integer / Real / String / Array / Map plus the `BadValue` escape hatch) and builds on every MoonBit target. Cost: one extra entry in `moon.mod.json` deps."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Multi-document YAML returns the first document only"
+      rationale =
+        "Apple Pkl's `yaml.Parser.parse` returns a single value for single-document input; for multi-document `---`-separated streams it surfaces a `Listing<Value>` via a separate `parseAll` method. The loader-side `Array[Yaml]` shape is preserved (we just take `docs[0]`) so adding `parseAll` later is a method-name + arm addition, not a re-architecture. Single-doc covers every config / fixture pattern observed in pkspec / pkf today."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Int64 → Int32 numeric clamping uses FloatValue fallback"
+      rationale =
+        "`moonbit-community/yaml` exposes integers as `Int64`; pkl-mbt's `IntValue` carries Int32. Out-of-range Int64s could panic on `to_int` or silently wrap. The fallback to `FloatValue(i.to_double())` preserves the magnitude (Doubles cover the full Int64 range exactly for values up to 2^53) and lifts automatically when the value model promotes to Int64 (already a known follow-up for upstream `maxInt`)."
+    }
+  }
+}
+
 local hiddenClassPropertyScenario = new Scenario {
   id = "PKL-145"
   name = "hidden class property modifier"
@@ -4142,6 +4174,7 @@ scenarios {
   intSeqEqualityScenario
   pklJsonParserScenario
   hiddenClassPropertyScenario
+  pklYamlParserScenario
   setValueVariantScenario
   mapValueVariantScenario
   packageRegistryProbeScenario

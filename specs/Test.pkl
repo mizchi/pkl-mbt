@@ -101,6 +101,7 @@ local moonUnit = new Test {
     "PKL-119be"
     "PKL-144"
     "PKL-145"
+    "PKL-146"
   }
   cmd = "moon test --target js"
   timeoutSec = 120
@@ -430,7 +431,8 @@ local cliStdlibCheck = new Test {
     "[PASS] IntSeq sequence equality (step-aware)"
     "[PASS] Parser.parse decodes primitives (Dynamic mode)"
     "[PASS] Parser.parse honors useMapping"
-    "stdlib: 40 / 40 passed"
+    "[PASS] Parser.parse handles nested arrays + maps"
+    "stdlib: 43 / 43 passed"
   }
   timeoutSec = 180
 }

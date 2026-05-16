@@ -1525,15 +1525,71 @@ fn json_to_value(j : Json, use_mapping : Bool) -> Value {
 }
 
 ///|
-/// PKL-144 / PKL-145: read the `useMapping` slot from a pkl:json
-/// Parser mirror. The Parser is identified via the hidden
-/// `__kind = "JsonParser"` marker stamped by the synthetic class
-/// (`reflect_kind` walks the same `__kind` member); this helper
-/// only reads the toggle once the marker has been matched.
-fn json_parser_use_mapping(members : Array[ValueMember]) -> Bool {
+/// PKL-144 / PKL-145: read the `useMapping` slot from a pkl:json /
+/// pkl:yaml Parser mirror. Each Parser is identified via the hidden
+/// `__kind = "<JsonParser|YamlParser>"` marker stamped by the
+/// synthetic class (`reflect_kind` walks the same `__kind` member);
+/// this helper only reads the toggle once the marker has been
+/// matched.
+fn parser_use_mapping(members : Array[ValueMember]) -> Bool {
   match lookup_member(members, "useMapping") {
     Some(BoolValue(b)) => b
     _ => false
+  }
+}
+
+///|
+/// PKL-146: convert a `moonbit-community/yaml` `Yaml` value into the
+/// corresponding Pkl `Value`. `use_mapping` controls how YAML maps
+/// project — `true` → `MappingValue` (key as `StringValue`); `false`
+/// → `ObjectValue` (Dynamic shape, the default). Numbers: YAML
+/// `Real(d)` becomes Pkl `IntValue` when integral + Int32-bounded
+/// else `FloatValue` (same rule as the JSON path); YAML `Integer`
+/// clamps Int64 → Int32 and falls back to FloatValue when out of
+/// range so no value silently truncates. `BadValue` projects as
+/// `NullValue` — the upstream `yaml` package emits it for parse
+/// inputs the loader couldn't classify.
+fn yaml_to_value(y : @yaml.Yaml, use_mapping : Bool) -> Value {
+  match y {
+    Null => NullValue
+    Boolean(b) => BoolValue(b)
+    Integer(i) =>
+      if i >= -2147483648L && i <= 2147483647L {
+        IntValue(i.to_int())
+      } else {
+        FloatValue(i.to_double())
+      }
+    Real(d, ..) => {
+      let truncated = d.to_int().to_double()
+      if truncated == d && d >= -2147483648.0 && d <= 2147483647.0 {
+        IntValue(d.to_int())
+      } else {
+        FloatValue(d)
+      }
+    }
+    String(s) => StringValue(s)
+    Array(items) => {
+      let elements : Array[Value] = []
+      for item in items {
+        elements.push(yaml_to_value(item, use_mapping))
+      }
+      ListingValue(elements)
+    }
+    Map(map) =>
+      if use_mapping {
+        let entries : Array[ValueEntry] = []
+        for k, v in map {
+          entries.push({ key: StringValue(k), value: yaml_to_value(v, true) })
+        }
+        MappingValue(entries)
+      } else {
+        let members : Array[ValueMember] = []
+        for k, v in map {
+          members.push({ name: k, value: yaml_to_value(v, false) })
+        }
+        ObjectValue(members)
+      }
+    BadValue => NullValue
   }
 }
 
@@ -6214,9 +6270,7 @@ fn eval_expr_with_bindings(
                     // result via `json_to_value`. The receiver is
                     // identified via the hidden `__kind = "JsonParser"`
                     // marker that the synthetic `pkl:json.Parser`
-                    // class stamps (PKL-145 added the `hidden`
-                    // class-property modifier so the marker survives
-                    // lookup but doesn't render).
+                    // class stamps.
                     if arguments.length() != 1 {
                       diagnostics.push(
                         diag(
@@ -6238,9 +6292,7 @@ fn eval_expr_with_bindings(
                           resolve_import,
                         ) {
                         Some(StringValue(source_text)) => {
-                          let use_mapping = json_parser_use_mapping(
-                            receiver_members,
-                          )
+                          let use_mapping = parser_use_mapping(receiver_members)
                           try {
                             let parsed = @json.parse(source_text[:])
                             Some(json_to_value(parsed, use_mapping))
@@ -6256,6 +6308,64 @@ fn eval_expr_with_bindings(
                         Some(_) => {
                           diagnostics.push(
                             diag("json.Parser.parse expects a String argument"),
+                          )
+                          None
+                        }
+                        None => None
+                      }
+                    }
+                  } else if method_name == "parse" &&
+                    reflect_kind(receiver_members) is Some("YamlParser") {
+                    // PKL-146: `<yaml.Parser>.parse(source)` routes
+                    // through `@yaml.Yaml::load_from_string` and
+                    // projects the first document via `yaml_to_value`.
+                    // Multi-document YAML returns the first document
+                    // for now; full multi-doc support (returning a
+                    // Listing of docs) lands when a fixture demands
+                    // it. Empty input → NullValue.
+                    if arguments.length() != 1 {
+                      diagnostics.push(
+                        diag(
+                          "yaml.Parser.parse expects 1 argument, got \{arguments.length()}",
+                        ),
+                      )
+                      None
+                    } else {
+                      match
+                        eval_expr_with_bindings(
+                          arguments[0],
+                          bindings,
+                          env,
+                          class_env,
+                          cache,
+                          stack,
+                          declarations,
+                          diagnostics,
+                          resolve_import,
+                        ) {
+                        Some(StringValue(source_text)) => {
+                          let use_mapping = parser_use_mapping(receiver_members)
+                          try {
+                            let docs = @yaml.Yaml::load_from_string(
+                              source_text[:],
+                            )
+                            if docs.length() == 0 {
+                              Some(NullValue)
+                            } else {
+                              Some(yaml_to_value(docs[0], use_mapping))
+                            }
+                          } catch {
+                            err => {
+                              diagnostics.push(
+                                diag("yaml.Parser.parse: \{err}"),
+                              )
+                              None
+                            }
+                          }
+                        }
+                        Some(_) => {
+                          diagnostics.push(
+                            diag("yaml.Parser.parse expects a String argument"),
                           )
                           None
                         }
