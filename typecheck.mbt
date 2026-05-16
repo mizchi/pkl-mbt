@@ -26,6 +26,11 @@ pub(all) enum Type {
   // distinct at the typecheck layer so consumers tracking
   // `Set<Person>` vs `Listing<Person>` see a real difference.
   SetType(Array[Type])
+  // PKL-119d: `Map<K, V>` parallels `MappingType` but keeps the
+  // immutable functional map separate from the object-style
+  // `Mapping<K, V>` at the typechecker. Carrier shape mirrors
+  // MappingType.
+  MapType(Array[TypeEntry])
   FunctionType(Array[Type], Type)
   ConstrainedType(String, Type)
   UnionType(Array[Type])
@@ -208,6 +213,7 @@ pub fn render_type(typ : Type) -> String {
       "Pair<\{render_type(first)}, \{render_type(second)}>"
     IntSeqType => "IntSeq"
     SetType(_) => "Set"
+    MapType(_) => "Map"
     FunctionType(_, _) => "Function"
     ConstrainedType(_, inner) => render_type(inner)
     UnionType(types) => {
@@ -255,6 +261,9 @@ fn builtin_type_from_annotation(name : String) -> Type? {
     // type; parameterised `Set<T>` is intercepted earlier in
     // `type_from_annotation` via `generic_argument_text`.
     "Set" => Some(SetType([]))
+    // PKL-119d: bare `Map` (no generic arguments) accepts any
+    // key/value type; `Map<K, V>` is intercepted earlier.
+    "Map" => Some(MapType([]))
     // PKL-134: `List<T>` is Pkl's immutable indexed collection; pkl-mbt
     // collapses Listing / List into the same runtime value so the
     // typechecker treats them as the same shape. Once the value
@@ -589,6 +598,27 @@ fn type_from_annotation(name : String, type_env : Array[TypeBinding]) -> Type? {
         Some(inner) => return Some(SetType([inner]))
         None => return None
       }
+    None => ()
+  }
+  // PKL-119d: `Map<K, V>` annotation lands as `MapType([{key, value}])`.
+  // Bare `Map` reaches `builtin_type_from_annotation` and resolves to
+  // `MapType([])`.
+  match generic_argument_text(name, "Map") {
+    Some(inner_text) => {
+      let parts = split_top_level_generic_arguments(inner_text)
+      if parts.length() != 2 {
+        return None
+      }
+      match
+        (
+          type_from_annotation(parts[0], type_env),
+          type_from_annotation(parts[1], type_env),
+        ) {
+        (Some(key), Some(value)) =>
+          return Some(MapType([TypeEntry::{ key, value }]))
+        _ => return None
+      }
+    }
     None => ()
   }
   // PKL-119a: `Pair<A, B>` annotation lands as the dedicated
@@ -1457,6 +1487,29 @@ fn type_accepts(expected : Type, inferred : Type) -> Bool {
       let mut ok = true
       for actual_item in actual_items {
         if !type_accepts(expected_item, actual_item) {
+          ok = false
+        }
+      }
+      ok
+    }
+    // PKL-119d: Map follows the same widening rule as MappingType —
+    // empty expected entries accept any key/value. Otherwise the
+    // expected key / value common-types must accept each actual
+    // entry's slots.
+    (MapType(expected_entries), MapType(actual_entries)) => {
+      if expected_entries.length() == 0 {
+        return true
+      }
+      let expected_key = common_type(
+        expected_entries.map(fn(entry) { entry.key }),
+      )
+      let expected_value = common_type(
+        expected_entries.map(fn(entry) { entry.value }),
+      )
+      let mut ok = true
+      for actual_entry in actual_entries {
+        if !type_accepts(expected_key, actual_entry.key) ||
+          !type_accepts(expected_value, actual_entry.value) {
           ok = false
         }
       }
@@ -3417,6 +3470,62 @@ fn infer_call_expr(
             "join" => return StringType
             _ => ()
           }
+        // PKL-119d: MapType method-call return-type inference. Lookup
+        // helpers (`.containsKey` → Boolean, `.getOrNull(k)` → value
+        // type narrowed to `value?`, `.getOrThrow(k)` → value type).
+        // Projection (`.toMap` → identity, `.toMapping` → MappingType,
+        // `.toList` → Listing<Pair<K, V>>). Higher-order (`.map` →
+        // open MapType<UnknownKey, UnknownValue> since the lambda's
+        // return-type structure is opaque without a richer signature
+        // model; `.filter` → MapType<K, V>; `.fold` → initial type).
+        MapType(type_entries) =>
+          match method_name {
+            "containsKey" => return BoolType
+            "getOrNull" =>
+              if type_entries.length() == 0 {
+                return UnknownType
+              } else {
+                return nullable_type(
+                  common_type(type_entries.map(fn(e) { e.value })),
+                )
+              }
+            "getOrThrow" =>
+              if type_entries.length() == 0 {
+                return UnknownType
+              } else {
+                return common_type(type_entries.map(fn(e) { e.value }))
+              }
+            "toMap" => return MapType(type_entries)
+            "toMapping" => return MappingType(type_entries)
+            "toList" =>
+              if type_entries.length() == 0 {
+                return ListingType([PairType(UnknownType, UnknownType)])
+              } else {
+                let key_type = common_type(type_entries.map(fn(e) { e.key }))
+                let value_type = common_type(
+                  type_entries.map(fn(e) { e.value }),
+                )
+                return ListingType([PairType(key_type, value_type)])
+              }
+            "map" => return MapType([])
+            "filter" => return MapType(type_entries)
+            "fold" =>
+              if arguments.length() == 2 {
+                return infer_expr_with_bindings(
+                  arguments[0],
+                  bindings,
+                  env,
+                  type_env,
+                  cache,
+                  stack,
+                  diagnostics,
+                  resolve_import,
+                )
+              } else {
+                return UnknownType
+              }
+            _ => ()
+          }
         _ => ()
       }
     _ => ()
@@ -3434,6 +3543,45 @@ fn infer_call_expr(
       )
     }
     return SetType(element_types)
+  }
+  // PKL-119d: `Map(k1, v1, k2, v2, ...)` constructor — alternating
+  // arguments flow through inference into the carrier type-entry
+  // shape. Odd argument count surfaces the eval-side diagnostic so
+  // both passes report the same wording.
+  if callee is Identifier("Map") && find_type_binding(bindings, "Map") is None {
+    if arguments.length() % 2 != 0 {
+      diagnostics.push(
+        diag("Map expects an even number of arguments (alternating key, value)"),
+      )
+      return UnknownType
+    }
+    let type_entries : Array[TypeEntry] = []
+    let mut i = 0
+    while i < arguments.length() {
+      let key = infer_expr_with_bindings(
+        arguments[i],
+        bindings,
+        env,
+        type_env,
+        cache,
+        stack,
+        diagnostics,
+        resolve_import,
+      )
+      let value = infer_expr_with_bindings(
+        arguments[i + 1],
+        bindings,
+        env,
+        type_env,
+        cache,
+        stack,
+        diagnostics,
+        resolve_import,
+      )
+      type_entries.push({ key, value })
+      i = i + 2
+    }
+    return MapType(type_entries)
   }
   // PKL-119b: `IntSeq(start, end)` mirrors the Pair handling. Both
   // arguments must accept `Int`; the returned type is the parameter-
@@ -3757,6 +3905,57 @@ fn infer_expr_with_bindings(
               diagnostics.push(
                 diag(
                   "Cannot find property `\{member_name}` in object of type `Set`.",
+                ),
+              )
+              UnknownType
+            }
+          }
+        // PKL-119d: MapType bare property reads — `.length` / `.isEmpty`
+        // / `.isNotEmpty` are Int / Boolean; `.keys` → `Set<K>`;
+        // `.values` → `Listing<V>`; `.entries` → `Listing<Pair<K, V>>`.
+        // Method names fall through silently (the call form is
+        // intercepted in `infer_call_expr`); unknown bare reads
+        // surface the canonical wording.
+        MapType(type_entries) =>
+          match member_name {
+            "length" => IntType
+            "isEmpty" | "isNotEmpty" => BoolType
+            "keys" =>
+              if type_entries.length() == 0 {
+                SetType([])
+              } else {
+                SetType([common_type(type_entries.map(fn(e) { e.key }))])
+              }
+            "values" =>
+              if type_entries.length() == 0 {
+                ListingType([])
+              } else {
+                ListingType([common_type(type_entries.map(fn(e) { e.value }))])
+              }
+            "entries" =>
+              if type_entries.length() == 0 {
+                ListingType([PairType(UnknownType, UnknownType)])
+              } else {
+                ListingType([
+                  PairType(
+                    common_type(type_entries.map(fn(e) { e.key })),
+                    common_type(type_entries.map(fn(e) { e.value })),
+                  ),
+                ])
+              }
+            "containsKey"
+            | "getOrNull"
+            | "getOrThrow"
+            | "toMap"
+            | "toMapping"
+            | "toList"
+            | "map"
+            | "filter"
+            | "fold" => UnknownType
+            _ => {
+              diagnostics.push(
+                diag(
+                  "Cannot find property `\{member_name}` in object of type `Map`.",
                 ),
               )
               UnknownType

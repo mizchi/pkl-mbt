@@ -34,6 +34,14 @@ pub(all) enum Value {
   // upstream `Set(a, b, c)` form rather than `new Listing { a; b; c }`,
   // and the typechecker keeps `Set<T>` separate from `Listing<T>`.
   SetValue(Array[Value])
+  // PKL-119d: immutable functional map (Apple Pkl's `Map<K, V>`),
+  // distinct from `MappingValue` (the object-style `new Mapping
+  // { ... }` form). `Map(k1, v1, k2, v2, ...)` builds one; later
+  // keys with the same value overwrite earlier ones. The dedicated
+  // variant lets PCF round-trip through `Map(k, v, ...)` rather
+  // than the Mapping block form, and keeps `Map<K, V>` separate
+  // from `Mapping<K, V>` at the typechecker.
+  MapValue(Array[ValueEntry])
   FunctionValue(Array[FunctionParameter], Expr, String?, Array[ValueBinding])
   // PKL-082: magnitude in the named unit. Mixed-unit arithmetic
   // normalizes to the smaller of the two units (the base unit of each
@@ -908,6 +916,7 @@ fn eval_value_type_name(value : Value) -> String {
     PairValue(_, _) => "Pair"
     IntSeqValue(_, _, _) => "IntSeq"
     SetValue(_) => "Set"
+    MapValue(_) => "Map"
   }
 }
 
@@ -1254,6 +1263,32 @@ fn is_set_method_name(name : String) -> Bool {
     | "filter"
     | "fold"
     | "join" => true
+    _ => false
+  }
+}
+
+///|
+/// PKL-119d: method names dispatched off a `MapValue` target. Apple
+/// Pkl's `Map<K, V>` class is read-mostly; this slice covers the
+/// lookup methods (`getOrNull` / `containsKey` / `getOrThrow`),
+/// projection helpers (`toMap` / `toMapping` / `toList`), and the
+/// higher-order surface (`map` / `filter` / `fold`). The mutation
+/// methods (`put` / `remove`) are intentionally elided — Apple Pkl's
+/// signatures return new Maps rather than mutating, but their
+/// implementations involve key-equality semantics we already cover
+/// via the entry-walker so the slice can pick them up later without
+/// further model changes.
+fn is_map_method_name(name : String) -> Bool {
+  match name {
+    "containsKey"
+    | "getOrNull"
+    | "getOrThrow"
+    | "toMap"
+    | "toMapping"
+    | "toList"
+    | "map"
+    | "filter"
+    | "fold" => true
     _ => false
   }
 }
@@ -2798,6 +2833,231 @@ fn eval_set_method(
     _ => {
       diagnostics.push(
         diag("Cannot find property `\{method_name}` in object of type `Set`."),
+      )
+      None
+    }
+  }
+}
+
+///|
+/// PKL-119d: dispatch methods on a `MapValue`. The lookup methods
+/// (`getOrNull` / `containsKey` / `getOrThrow`) use the same value-
+/// equality helper as `contains_value` so any key type that derives
+/// Eq works (Pkl supports arbitrary key types). Projection helpers
+/// materialize into the matching variant — `.toMap` is identity,
+/// `.toMapping` re-projects into the object-style `MappingValue`,
+/// `.toList` walks the entries as `Listing<Pair<K, V>>`. `.map(f)`
+/// expects a `(key, value) -> Pair<NewKey, NewValue>` lambda; for
+/// the MVP we accept the upstream convention. `.filter` and `.fold`
+/// mirror the same pattern as Listing / Set.
+fn eval_map_method(
+  entries : Array[ValueEntry],
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let arg_values : Array[Value] = []
+  let mut ok = true
+  for argument in arguments {
+    match
+      eval_expr_with_bindings(
+        argument, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      ) {
+      Some(v) => arg_values.push(v)
+      None => ok = false
+    }
+  }
+  if !ok {
+    return None
+  }
+  match method_name {
+    "containsKey" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("Map.containsKey expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let key = arg_values[0]
+      for entry in entries {
+        if entry.key == key {
+          return Some(BoolValue(true))
+        }
+      }
+      Some(BoolValue(false))
+    }
+    "getOrNull" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("Map.getOrNull expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let key = arg_values[0]
+      for entry in entries {
+        if entry.key == key {
+          return Some(entry.value)
+        }
+      }
+      Some(NullValue)
+    }
+    "getOrThrow" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("Map.getOrThrow expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let key = arg_values[0]
+      for entry in entries {
+        if entry.key == key {
+          return Some(entry.value)
+        }
+      }
+      diagnostics.push(diag("Map.getOrThrow: key not found"))
+      None
+    }
+    "toMap" => {
+      if arg_values.length() != 0 {
+        diagnostics.push(
+          diag("Map.toMap expects 0 arguments, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      Some(MapValue(entries))
+    }
+    "toMapping" => {
+      if arg_values.length() != 0 {
+        diagnostics.push(
+          diag("Map.toMapping expects 0 arguments, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      Some(MappingValue(entries))
+    }
+    "toList" => {
+      if arg_values.length() != 0 {
+        diagnostics.push(
+          diag("Map.toList expects 0 arguments, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let pairs : Array[Value] = []
+      for entry in entries {
+        pairs.push(PairValue(entry.key, entry.value))
+      }
+      Some(ListingValue(pairs))
+    }
+    "map" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("Map.map expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let result : Array[ValueEntry] = []
+      for entry in entries {
+        match
+          apply_function_value(
+            "Map.map callback",
+            arg_values[0],
+            [entry.key, entry.value],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(PairValue(new_key, new_value)) =>
+            result.push({ key: new_key, value: new_value })
+          Some(_) => {
+            diagnostics.push(
+              diag("Map.map callback must return Pair<NewKey, NewValue>"),
+            )
+            return None
+          }
+          None => return None
+        }
+      }
+      Some(MapValue(result))
+    }
+    "filter" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("Map.filter expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let result : Array[ValueEntry] = []
+      for entry in entries {
+        match
+          apply_function_value(
+            "Map.filter predicate",
+            arg_values[0],
+            [entry.key, entry.value],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(BoolValue(true)) => result.push(entry)
+          Some(BoolValue(false)) => ()
+          Some(_) => {
+            diagnostics.push(diag("Map.filter predicate must return Boolean"))
+            return None
+          }
+          None => return None
+        }
+      }
+      Some(MapValue(result))
+    }
+    "fold" => {
+      if arg_values.length() != 2 {
+        diagnostics.push(
+          diag("Map.fold expects 2 arguments, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let mut acc = arg_values[0]
+      for entry in entries {
+        match
+          apply_function_value(
+            "Map.fold operator",
+            arg_values[1],
+            [acc, entry.key, entry.value],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(v) => acc = v
+          None => return None
+        }
+      }
+      Some(acc)
+    }
+    _ => {
+      diagnostics.push(
+        diag("Cannot find property `\{method_name}` in object of type `Map`."),
       )
       None
     }
@@ -4933,6 +5193,47 @@ fn eval_expr_with_bindings(
                 None
               }
             }
+          // PKL-119d: MapValue's bare-property surface — `.length`,
+          // `.isEmpty`, `.isNotEmpty`, `.keys` (Listing of keys),
+          // `.values` (Listing of values), `.entries` (Listing of
+          // Pair<K, V>). Method names (`.getOrNull` / `.containsKey`
+          // / `.toMap` / `.toMapping` / `.map` / `.filter` / `.fold`)
+          // fall through to the CallExpr dispatcher.
+          Some(MapValue(entries)) =>
+            match member_name {
+              "length" => Some(IntValue(entries.length()))
+              "isEmpty" => Some(BoolValue(entries.length() == 0))
+              "isNotEmpty" => Some(BoolValue(entries.length() != 0))
+              "keys" => {
+                let keys : Array[Value] = []
+                for entry in entries {
+                  keys.push(entry.key)
+                }
+                Some(SetValue(keys))
+              }
+              "values" => {
+                let values : Array[Value] = []
+                for entry in entries {
+                  values.push(entry.value)
+                }
+                Some(ListingValue(values))
+              }
+              "entries" => {
+                let pairs : Array[Value] = []
+                for entry in entries {
+                  pairs.push(PairValue(entry.key, entry.value))
+                }
+                Some(ListingValue(pairs))
+              }
+              _ => {
+                diagnostics.push(
+                  diag(
+                    "Cannot find property `\{member_name}` in object of type `Map`.",
+                  ),
+                )
+                None
+              }
+            }
           Some(_) => {
             diagnostics.push(diag("member access expects Object"))
             None
@@ -5326,10 +5627,15 @@ fn eval_expr_with_bindings(
       } else if callee is Identifier("Map") &&
         !stack_contains_binding(stack, "Map") &&
         find_binding(bindings, "Map") is None {
-        // PKL-139: Apple Pkl's `Map(k1, v1, k2, v2, ...)` constructor
-        // builds an immutable key-value mapping. Arguments come in
-        // alternating `key, value` pairs; the result is a `MappingValue`
-        // until PKL-119 introduces a dedicated MapValue.
+        // PKL-119d: Apple Pkl's `Map(k1, v1, k2, v2, ...)` constructor
+        // builds an immutable functional map. Arguments come in
+        // alternating `key, value` pairs; later duplicate keys
+        // overwrite earlier ones (matching upstream Map semantics).
+        // The result is the dedicated `MapValue` variant — distinct
+        // from `MappingValue` (the object-style `new Mapping { ... }`
+        // form) so PCF round-trips through the constructor form and
+        // the typechecker keeps `Map<K, V>` separate from
+        // `Mapping<K, V>`.
         if arguments.length() % 2 != 0 {
           diagnostics.push(
             diag(
@@ -5365,13 +5671,27 @@ fn eval_expr_with_bindings(
               resolve_import,
             )
             match (key_v, value_v) {
-              (Some(k), Some(v)) => entries.push({ key: k, value: v })
+              (Some(k), Some(v)) => {
+                // Overwrite earlier same-key entries so the carrier
+                // matches upstream functional-map semantics.
+                let mut replaced = false
+                for j = 0; j < entries.length(); j = j + 1 {
+                  if entries[j].key == k {
+                    entries[j] = { key: k, value: v }
+                    replaced = true
+                    break
+                  }
+                }
+                if !replaced {
+                  entries.push({ key: k, value: v })
+                }
+              }
               _ => ok = false
             }
             i = i + 2
           }
           if ok {
-            Some(MappingValue(entries))
+            Some(MapValue(entries))
           } else {
             None
           }
@@ -5545,6 +5865,7 @@ fn eval_expr_with_bindings(
               is_bytes_method_name(method_name) ||
               is_intseq_method_name(method_name) ||
               is_set_method_name(method_name) ||
+              is_map_method_name(method_name) ||
               method_name == "toUnit" ||
               method_name == "toBytes" {
               match
@@ -5654,6 +5975,22 @@ fn eval_expr_with_bindings(
                       declarations, diagnostics, resolve_import,
                     )
                   }
+                // PKL-119d: Map methods (`.containsKey` / `.getOrNull`
+                // / `.getOrThrow` / `.toMap` / `.toMapping` /
+                // `.toList` / `.map` / `.filter` / `.fold`) dispatch
+                // through the dedicated method evaluator.
+                Some(MapValue(entries)) =>
+                  if is_map_method_name(method_name) {
+                    eval_map_method(
+                      entries, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
                 _ =>
                   eval_callable_call(
                     callee, arguments, bindings, env, class_env, cache, stack, declarations,
@@ -5682,6 +6019,7 @@ fn eval_expr_with_bindings(
               is_bytes_method_name(method_name) ||
               is_intseq_method_name(method_name) ||
               is_set_method_name(method_name) ||
+              is_map_method_name(method_name) ||
               method_name == "toUnit" ||
               method_name == "toBytes" {
               match
@@ -7399,6 +7737,21 @@ fn render_pcf_scalar(value : Value, buf : StringBuilder) -> Unit {
       }
       buf.write_char(')')
     }
+    // PKL-119d: PCF round-trips through Apple Pkl's `Map(...)`
+    // constructor form (alternating key, value, key, value, ...).
+    // Reparsing the output yields the same MapValue.
+    MapValue(entries) => {
+      buf.write_string("Map(")
+      for i = 0; i < entries.length(); i = i + 1 {
+        if i > 0 {
+          buf.write_string(", ")
+        }
+        render_pcf_inline(entries[i].key, 0, buf)
+        buf.write_string(", ")
+        render_pcf_inline(entries[i].value, 0, buf)
+      }
+      buf.write_char(')')
+    }
     ObjectValue(_) | ListingValue(_) | MappingValue(_) =>
       // Defensive: callers should route block values through
       // render_pcf_inline / render_pcf_block_body. Falling back keeps
@@ -7593,6 +7946,10 @@ fn render_json_value(value : Value, indent : Int, buf : StringBuilder) -> Unit {
     // enforced at construction, so the array element order matches
     // the upstream insertion-order semantics.
     SetValue(elements) => render_json_array(elements, indent, buf)
+    // PKL-119d: Map projects as a JSON object, matching the
+    // existing MappingValue projection. The entry-walker coerces
+    // non-string keys the same way `json_coerce_key` already does.
+    MapValue(entries) => render_json_object_from_entries(entries, indent, buf)
   }
 }
 
@@ -7869,6 +8226,16 @@ fn render_yaml_block_value(
       } else {
         buf.write_char('\n')
         render_yaml_sequence(elements, indent, buf)
+      }
+    // PKL-119d: Map reuses the mapping-entries path so the YAML
+    // output shape matches a hand-written `new Mapping { ... }` of
+    // the same entries.
+    MapValue(entries) =>
+      if entries.length() == 0 {
+        buf.write_string(" {}\n")
+      } else {
+        buf.write_char('\n')
+        render_yaml_mapping_entries(entries, indent + 2, buf)
       }
     StringValue(s) =>
       match yaml_string_block_scalar_info(s) {
@@ -8457,6 +8824,8 @@ fn render_plist_value(value : Value, indent : Int, buf : StringBuilder) -> Unit 
       render_plist_array(intseq_materialize(start, end_v, step), indent, buf)
     // PKL-119c: Set reuses the same `<array>` path.
     SetValue(elements) => render_plist_array(elements, indent, buf)
+    // PKL-119d: Map reuses the mapping-entries `<dict>` path.
+    MapValue(entries) => render_plist_dict_from_entries(entries, indent, buf)
   }
 }
 
@@ -8763,6 +9132,21 @@ fn write_compact_json_value(value : Value, buf : StringBuilder) -> Unit {
         write_compact_json_value(elements[i], buf)
       }
       buf.write_char(']')
+    }
+    // PKL-119d: Map projects as a compact JSON object, mirroring the
+    // MappingValue projection so properties output sees `{"a":1,"b":2}`
+    // for `Map("a", 1, "b", 2)`.
+    MapValue(entries) => {
+      buf.write_char('{')
+      for i = 0; i < entries.length(); i = i + 1 {
+        if i > 0 {
+          buf.write_char(',')
+        }
+        render_json_string(json_coerce_key(entries[i].key), buf)
+        buf.write_char(':')
+        write_compact_json_value(entries[i].value, buf)
+      }
+      buf.write_char('}')
     }
   }
 }

@@ -31,11 +31,12 @@
 ///   - PKL-132 (LSP)                — out of scope for the library slice
 ///
 /// Active grouping (the ID ranges are conventional, not enforced):
-///   PKL-119d     stdlib Value variants — last leg (Map)
-///                  PKL-119a (Pair), PKL-119b (IntSeq), PKL-119c (Set)
-///                  already landed
 ///   PKL-129b     parser / imports — package:// registry resolution
 ///   PKL-131      checker — codegen bridge (consumes typechecker state)
+///
+/// PKL-119a/b/c/d (Pair / IntSeq / Set / Map dedicated value
+/// variants) have all landed; the stdlib value-variant split is now
+/// done.
 @ModuleInfo { minPklVersion = "0.31.0" }
 module specs.Roadmap
 
@@ -44,17 +45,6 @@ import "../pkspec/Spec.pkl"
 // ── ACTIVE ─────────────────────────────────────────────────────────────────
 // ── eval / typechecker precision ──
 
-local mapValueVariant: Spec.Scenario = new {
-  id = "PKL-119d"
-  name = "Map Value variant for the immutable functional map"
-  description =
-    "Apple Pkl distinguishes `Map<K, V>` (immutable functional map built with `Map(k, v, ...)`) from `Mapping<K, V>` (object-style mapping built with `new Mapping { ... }`, which carries constraints and default values). pkl-mbt currently collapses both into `MappingValue`. Introduce `MapValue(Array[ValueEntry])` and `MapType(K, V)` so the typechecker and renderer keep them apart and `Map`-specific methods (`getOrNull`, `keys`, `values`, `entries`, `containsKey`) dispatch off the dedicated variant."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-119a"; "PKL-119b"; "PKL-119c" }
-  tags { "evaluator"; "typechecker"; "stdlib"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
 
 // ── parser / imports ──
 
@@ -65,7 +55,7 @@ local packagePklRegistry: Spec.Scenario = new {
     "`import \"package://pkg.pkl-lang.org/...\"` resolves through Apple Pkl's registry protocol: fetch the package metadata JSON, locate the zipball URL, fetch + extract the zipball, then look up the path fragment inside. Today the CLI recognises the URI scheme but always errors with a clear diagnostic; PKL-129 lands the underlying `https://` fetch path. The registry resolution is the follow-up that adds a zip unpacker, fragment routing, and (later) checksum / signature verification."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-129" }
-  tags { "parser"; "imports"; "sandbox"; "pkf-pkspec" }
+  tags { "parser"; "imports"; "sandbox"; "pkf-pkspec"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -85,7 +75,6 @@ local codegenBridge: Spec.Scenario = new {
 }
 
 entries: Listing<Spec.Scenario> = new {
-  mapValueVariant
   packagePklRegistry
   codegenBridge
 }

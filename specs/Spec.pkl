@@ -1922,6 +1922,38 @@ local setValueVariantScenario = new Scenario {
   }
 }
 
+local mapValueVariantScenario = new Scenario {
+  id = "PKL-119d"
+  name = "Map Value variant for the immutable functional map"
+  description =
+    "Apple Pkl's `Map<K, V>` is the immutable functional map (built with `Map(k1, v1, k2, v2, ...)`), distinct from `Mapping<K, V>` (the object-style `new Mapping { ... }` form with constraints / defaults / amends). `Value` gains `MapValue(Array[ValueEntry])`; the `Map(...)` constructor returns it and later duplicate keys overwrite earlier entries (matching upstream functional-map semantics). Bare property reads — `.length` → Int; `.isEmpty` / `.isNotEmpty` → Boolean; `.keys` → SetValue of the keys; `.values` → ListingValue of values; `.entries` → ListingValue of PairValue carriers — flow through the member-access dispatcher. Methods (`.containsKey` / `.getOrNull(k)` / `.getOrThrow(k)` / `.toMap` / `.toMapping` / `.toList` / `.map((k, v) -> Pair<NewKey, NewValue>)` / `.filter((k, v) -> Boolean)` / `.fold(initial, (acc, k, v) -> NewAcc)`) dispatch through `eval_map_method`. Renderer projection: PCF round-trips through `Map(k, v, k, v, ...)` so eval output is parser-readable; JSON / YAML / Properties / plist project as the same object shape MappingValue uses (object / `<dict>` / `key.subkey = value`). Typechecker gains `MapType(Array[TypeEntry])` parallel to `MappingType`. `Map<K, V>` annotations land via `generic_argument_text`; bare `Map` resolves to `MapType([])`. `Map(...)` call sites infer to `MapType` carrying the entry-type pairs; `infer_call_expr` intercepts each method-call form so `.containsKey` → Boolean, `.getOrNull` → `value?`, `.getOrThrow` → value, `.toMap` → identity, `.toMapping` → MappingType, `.toList` → `Listing<Pair<K, V>>`, `.map` → `MapType([])` (richer return-type inference would need a Pair-shape narrowing hook), `.filter` → `Map<K, V>`, `.fold` → initial type. A new `(MapType, MapType)` arm in `type_accepts` mirrors `(MappingType, MappingType)`'s widening so `Map<String, Int>` annotations accept the constructor-inferred carrier shape."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-119a"; "PKL-119b"; "PKL-119c" }
+  tags { "evaluator"; "typechecker"; "stdlib" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Carrier shape mirrors MappingValue (entries array, value-equality on keys)"
+      rationale =
+        "An alternative was to model Map's key lookup through a hash table for O(1) `.getOrNull` / `.containsKey`. Pkl's key types include user classes / Listing / Mapping / Pair / IntSeq / Set — any value type — so the hash function would need to traverse arbitrary value graphs. The entries-array shape mirrors the existing MappingValue carrier (where the same lookup pattern already runs) and reuses the `derive(Eq)` value comparison. For the data sizes actual Pkl modules use today (config / pkspec / pkf shapes) the O(n) lookup is unobservable; a hash backing can layer in as a separate slice when an embedder profile shows it matters."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Later duplicate keys overwrite earlier entries"
+      rationale =
+        "Apple Pkl's `Map(k, v, k, v, ...)` constructor explicitly overwrites earlier same-key entries with later values. The behaviour was missing from the PKL-139 stop-gap (it just pushed every entry, which produced visible duplicates in PCF output). PKL-119d's slice fixes this alongside the variant split so the carrier is always semantically valid (one entry per key) and downstream lookups don't have to defensively walk past stale entries."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Map.map return type stays MapType([]) at the typecheck layer"
+      rationale =
+        "Apple Pkl's `Map.map(f: (K, V) -> Pair<NewKey, NewValue>): Map<NewKey, NewValue>` requires inferring the lambda's return type as a Pair and then projecting the two element types into the new MapType carrier. The typechecker doesn't currently have a Pair-shape destructuring hook in `FunctionType(args, return_type)` — modelling it would require either a structural-return inspection during `infer_function_type_call` or a narrower per-method analyzer. Today's slice returns the open `MapType([])` so downstream `.containsKey` / `.length` still typecheck (the empty entry list accepts any narrowing); the precise key/value inference lands when collection-method signature inference matures more broadly."
+    }
+  }
+}
+
 local plistRendererScenario = new Scenario {
   id = "PKL-126a"
   name = "plist renderer"
@@ -3902,5 +3934,6 @@ scenarios {
   pairValueVariantScenario
   intSeqValueVariantScenario
   setValueVariantScenario
+  mapValueVariantScenario
   ...roadmap.entries
 }

@@ -2524,12 +2524,12 @@ test "PKL-119c: Set(...) produces a dedicated SetValue with deduped elements" {
 }
 
 ///|
-test "PKL-139: Map(...) builds Mapping from alternating args" {
+test "PKL-119d: Map(...) builds a dedicated MapValue from alternating args" {
   guard eval_source("m = Map(\"a\", 1, \"b\", 2)")
     is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  guard members[0].value is MappingValue(entries) else { panic() }
+  guard members[0].value is MapValue(entries) else { panic() }
   inspect(entries.length(), content="2")
 }
 
@@ -3419,6 +3419,183 @@ test "PKL-120: pkl:math.pi constant" {
     }
   }
   inspect(got, content="3.141592653589793")
+}
+
+///|
+test "PKL-119d: Map(...) carrier preserves insertion order, later duplicates overwrite" {
+  guard eval_source("m = Map(\"a\", 1, \"b\", 2, \"a\", 99)")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is MapValue(entries) else { panic() }
+  inspect(entries.length(), content="2")
+  guard entries[0].key is StringValue(k0) else { panic() }
+  guard entries[0].value is IntValue(v0) else { panic() }
+  inspect(k0, content="a")
+  inspect(v0, content="99")
+}
+
+///|
+test "PKL-119d: Map.length / .isEmpty / .keys / .values / .entries" {
+  guard eval_source(
+      "m = Map(\"a\", 1, \"b\", 2)\nl = m.length\ne = m.isEmpty\nks = m.keys\nvs = m.values\nents = m.entries",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut length = 0
+  let mut empty = true
+  for entry in members {
+    match (entry.name, entry.value) {
+      ("l", IntValue(n)) => length = n
+      ("e", BoolValue(b)) => empty = b
+      ("ks", SetValue(_)) => ()
+      ("vs", ListingValue(_)) => ()
+      ("ents", ListingValue(items)) => {
+        guard items[0] is PairValue(_, _) else { panic() }
+      }
+      _ => ()
+    }
+  }
+  inspect(length, content="2")
+  inspect(empty, content="false")
+}
+
+///|
+test "PKL-119d: Map.containsKey / .getOrNull / .getOrThrow" {
+  guard eval_source(
+      "m = Map(\"a\", 1)\nhit = m.containsKey(\"a\")\nmiss = m.containsKey(\"b\")\nv = m.getOrNull(\"a\")\nnull_ = m.getOrNull(\"b\")",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut hit = false
+  let mut miss = true
+  let mut got = 0
+  let mut null_seen = false
+  for entry in members {
+    match (entry.name, entry.value) {
+      ("hit", BoolValue(b)) => hit = b
+      ("miss", BoolValue(b)) => miss = b
+      ("v", IntValue(n)) => got = n
+      ("null_", NullValue) => null_seen = true
+      _ => ()
+    }
+  }
+  inspect(hit, content="true")
+  inspect(miss, content="false")
+  inspect(got, content="1")
+  inspect(null_seen, content="true")
+}
+
+///|
+test "PKL-119d: Map.toMapping re-projects as MappingValue" {
+  guard eval_source("m = Map(\"a\", 1).toMapping()")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is MappingValue(entries) else { panic() }
+  inspect(entries.length(), content="1")
+}
+
+///|
+test "PKL-119d: Map.toList projects entries as Listing<Pair<K, V>>" {
+  guard eval_source("xs = Map(\"a\", 1, \"b\", 2).toList()")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is ListingValue(items) else { panic() }
+  inspect(items.length(), content="2")
+  guard items[0] is PairValue(_, _) else { panic() }
+}
+
+///|
+test "PKL-119d: Map.map projects to a new MapValue" {
+  guard eval_source("m = Map(\"a\", 1).map((k, v) -> Pair(k, v + 10))")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is MapValue(entries) else { panic() }
+  guard entries[0].value is IntValue(n) else { panic() }
+  inspect(n, content="11")
+}
+
+///|
+test "PKL-119d: Map.filter keeps the Map type" {
+  guard eval_source("m = Map(\"a\", 1, \"b\", 2).filter((k, v) -> v > 1)")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is MapValue(entries) else { panic() }
+  inspect(entries.length(), content="1")
+}
+
+///|
+test "PKL-119d: Map.fold reduces over the entries" {
+  guard eval_source(
+      "sum = Map(\"a\", 1, \"b\", 2, \"c\", 3).fold(0, (acc, k, v) -> acc + v)",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is IntValue(n) else { panic() }
+  inspect(n, content="6")
+}
+
+///|
+test "PKL-119d: PCF renders Map through the constructor form" {
+  guard eval_source("m = Map(\"a\", 1, \"b\", 2)") is EvalOk(value) else {
+    panic()
+  }
+  inspect(@pkl.render_value(value), content="m = Map(\"a\", 1, \"b\", 2)")
+}
+
+///|
+test "PKL-119d: JSON projects Map as a JSON object" {
+  guard eval_source("m = Map(\"a\", 1, \"b\", 2)") is EvalOk(value) else {
+    panic()
+  }
+  let json = @pkl.render_value_as_json(value)
+  let expected =
+    #|{
+    #|  "m": {
+    #|    "a": 1,
+    #|    "b": 2
+    #|  }
+    #|}
+  inspect(json, content=expected)
+}
+
+///|
+test "PKL-119d: Map<K, V> annotation typechecks" {
+  guard typecheck_source(
+      "m: Map<String, Int> = Map(\"a\", 1, \"b\", 2)\nl: Int = m.length\nhit: Boolean = m.containsKey(\"a\")",
+    )
+    is TypeOk(_) else {
+    panic()
+  }
+}
+
+///|
+test "PKL-119d: Map odd argument count surfaces diagnostic" {
+  let result = eval_source("m = Map(\"a\", 1, \"b\")")
+  guard result is EvalError(diagnostics) else { panic() }
+  let messages = diagnostics.iter().map(fn(d) { d.message }).collect()
+  inspect(
+    messages[0],
+    content="Map expects an even number of arguments (alternating key, value)",
+  )
+}
+
+///|
+test "PKL-119d: Map member typo surfaces Pkl-shaped diagnostic" {
+  let result = typecheck_source("m = Map(\"a\", 1)\nbad = m.lentgh")
+  guard result is TypeError(diagnostics) else { panic() }
+  let messages = diagnostics.iter().map(fn(d) { d.message }).collect()
+  inspect(
+    messages[0],
+    content="Cannot find property `lentgh` in object of type `Map`.",
+  )
 }
 
 ///|

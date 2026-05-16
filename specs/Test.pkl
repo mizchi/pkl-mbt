@@ -374,6 +374,30 @@ local cliFloatMagnitudeUnits = new Test {
   timeoutSec = 120
 }
 
+local cliMapValue = new Test {
+  name = "cli map value"
+  description =
+    "The native CLI evaluates a fixture exercising the dedicated `MapValue` variant (Apple Pkl's `Map<K, V>`, distinct from `Mapping<K, V>`). `Map(\"a\", 1, ...)` construction, bare property reads (`.length` / `.keys` / `.values` / `.entries`), lookup methods (`.containsKey` / `.getOrNull`), `.map((k, v) -> Pair(...))` projection, `.filter((k, v) -> Boolean)` (keeps Map type), `.fold(0, (acc, k, v) -> ...)` reduction, and `Map<K, V>` annotated bindings whose constructor inference flows through `type_accepts`. PCF renders `Map(k, v, ...)` so the eval output is parser-readable; `.entries` lands as `Listing<Pair<K, V>>` because PKL-119a's PairValue is now part of the value model."
+  tags { "moonbit"; "cli"; "evaluator"; "typechecker"; "stdlib"; "contract" }
+  specRef { "PKL-119d" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_map_value.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "counts = Map(\"a\", 1, \"b\", 2, \"c\", 3)"
+    "count = 3"
+    "ks = Set(\"a\", \"b\", \"c\")"
+    "has = true"
+    "miss = false"
+    "valB = 2"
+    "missing = null"
+    "doubled = Map(\"a\", 2, \"b\", 4, \"c\", 6)"
+    "big = Map(\"b\", 2, \"c\", 3)"
+    "sumValues = 6"
+    "annotated = Map(\"alpha\", 10, \"beta\", 20)"
+  }
+  timeoutSec = 120
+}
+
 local cliSetValue = new Test {
   name = "cli set value"
   description =
@@ -874,7 +898,7 @@ local cliPkspecPolish = new Test {
     "ctorList {"
     "ctorEmpty {}"
     "ctorSet = Set(1, 2, 3)"
-    "ctorMap {"
+    "ctorMap = Map(\"a\", 1, \"b\", 2)"
     "ctorPair = Pair(\"k\", \"v\")"
   }
   timeoutSec = 120
@@ -1193,6 +1217,7 @@ tests {
   cliPairValue
   cliIntSeqValue
   cliSetValue
+  cliMapValue
   cliHeredocString
   cliFormat
   cliTestExamplesPass

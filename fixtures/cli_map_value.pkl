@@ -1,0 +1,35 @@
+// PKL-119d: `Map(k1, v1, k2, v2, ...)` constructs the dedicated
+// `MapValue` variant — distinct from `MappingValue` (the object-style
+// `new Mapping { ... }` form). Later duplicate keys overwrite earlier
+// entries (functional-map semantics). Bare properties (`.length` /
+// `.isEmpty` / `.keys` / `.values` / `.entries`) read off the
+// carrier; methods (`.containsKey` / `.getOrNull` / `.getOrThrow` /
+// `.toMap` / `.toMapping` / `.toList` / `.map` / `.filter` / `.fold`)
+// dispatch through the dedicated evaluator. PCF round-trips through
+// `Map(k, v, ...)` (parser-readable); JSON / YAML / Properties / plist
+// project as the same object shape MappingValue uses.
+counts = Map("a", 1, "b", 2, "c", 3)
+
+count = counts.length
+
+ks = counts.keys
+
+vs = counts.values
+
+ents = counts.entries
+
+has = counts.containsKey("b")
+
+miss = counts.containsKey("z")
+
+valB = counts.getOrNull("b")
+
+missing = counts.getOrNull("zz")
+
+doubled = counts.map((k, v) -> Pair(k, v * 2))
+
+big = counts.filter((k, v) -> v > 1)
+
+sumValues = counts.fold(0, (acc, k, v) -> acc + v)
+
+annotated: Map<String, Int> = Map("alpha", 10, "beta", 20)
