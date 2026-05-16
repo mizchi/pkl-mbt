@@ -1,0 +1,15 @@
+// PKL-128b: triple-quoted heredoc strings. Apple Pkl strips the
+// leading newline and dedents every line by the indentation of the
+// closing `"""` marker. The lexer collects the literal as one token;
+// the parser's `strip_heredoc_indent` does the dedent before regular
+// escape handling.
+greeting =
+  """
+  hello
+  world
+  """
+
+flat =
+  """
+  no indent here
+  """

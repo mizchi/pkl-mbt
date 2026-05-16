@@ -1,6 +1,6 @@
 # Test SPEC
 
-180 tests across 2 module(s) — 142 pending, 38 active
+183 tests across 2 module(s) — 143 pending, 40 active
 
 ## `specs/`
 
@@ -573,9 +573,9 @@
   - body: _not yet implemented_
 
 - [ ] **parser surface expansion remaining** [draft] — verifies: PKL-128 — tags: parser, next
-  > Scientific notation Float (`1e10` / `2.5e-3`), triple-quoted heredoc strings, annotation classes (`@Deprecated`, `@Since`), and constraint predicate composition (`Int(isPositive & isLessThan(10))`). String interpolation `\(expr)` landed as PKL-128a. Each remaining item is a parser-side extension; downstream stages are mostly ready.
+  > Annotation classes (`@Deprecated`, `@Since`) parsed into AST nodes and constraint predicate composition (`Int(isPositive & isLessThan(10))`). String interpolation landed as PKL-128a; scientific Float and triple-quoted heredoc landed as PKL-128b. The remaining items are parser-side extensions; downstream stages are mostly ready.
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-001, PKL-128a
+  - depends on: PKL-001, PKL-128a, PKL-128b
   - body: _not yet implemented_
 
 - [ ] **pkl analyze lint subcommand** (minor) [draft] — verifies: PKL-102 — tags: cli, lint
@@ -718,6 +718,13 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-104
   - decisions: 3 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **scientific Float and triple-quoted heredoc** (minor) — verifies: PKL-128b — tags: parser, lexer, string, float
+  > Two parser-surface extensions that landed together because they share the lexer's literal-token path. (1) Scientific-notation Float literals — `1e10`, `2.5e-3`, `4E+8`. The lexer extends the existing Int / Float scan with an optional `e` / `E` + sign + digit suffix; `parse_float_text` splits at the exponent, parses the mantissa, then multiplies by 10^exp. (2) Triple-quoted heredoc strings — `"""<newline>...<indent>"""`. The lexer captures the whole literal as one `string_token` (three opening `"`, body, three closing `"`); `strip_heredoc_indent` then drops the leading newline and dedents each body line by the closing delimiter's indentation. The existing escape decoder still runs on the dedented body so `\n`, `\t`, etc. continue to work. String interpolation (PKL-128a) operates on the same dedented body.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-001, PKL-128a
+  - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **source position in diagnostics** — verifies: PKL-107 — tags: diagnostics, position
@@ -1030,6 +1037,10 @@
   > The native CLI evaluates a fixture that declares `typealias Box<T> = Listing<T>` and `typealias Pair<K, V> = Mapping<K, V>`, then instantiates `Box<Int>`, `Box<String>`, and `Pair<String, Int>`. Each declaration resolves through `try_generic_alias_substitution`, the listing / mapping elements typecheck against the substituted element types, and the evaluator emits the same PCF as the equivalent non-aliased annotation.
   - body: `cmd` (exit 0 expected)
 
+- [x] **cli heredoc string** — verifies: PKL-128b — tags: moonbit, cli, parser, lexer, string, contract
+  > The native CLI evaluates a fixture with triple-quoted heredoc strings. The leading newline is dropped and every line is dedented by the closing delimiter's indentation; the rendered output joins each line back with `\n` separators.
+  - body: `cmd` (exit 0 expected)
+
 - [x] **cli https URI import** — verifies: PKL-129 — tags: moonbit, cli, imports, pkf-pkspec, contract
   > The native CLI evaluates a fixture whose `import` declaration points at a raw GitHub URL of another fixture in this repo. The HTTP fetch goes through `mizchi/x/http.get` under a `moonbitlang/async` event loop, and the imported module's bindings become available in the importing module's typecheck / evaluation pipeline.
   - body: `cmd` (exit 0 expected)
@@ -1064,6 +1075,10 @@
 
 - [x] **cli renderer converters** — verifies: PKL-105 — tags: moonbit, cli, renderer, converter, contract
   > The native CLI evaluates a fixture whose `output { renderer = new JsonRenderer { converters { ... } } }` declares two path-keyed converters: `["count"] = (v) -> v * 10` and `["server.port"] = (p) -> p + 1`. The post-eval pass rewrites both values before the JSON renderer fires, so `count = 5` shows as 50 and `server.port = 8080` shows as 8081 in the rendered output.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli scientific float** — verifies: PKL-128b — tags: moonbit, cli, parser, lexer, float, contract
+  > The native CLI evaluates a fixture with scientific-notation Float literals (`1e10`, `2.5e-3`, `4E+8`, `1.5e2`). Each literal renders as a Float value with the expected magnitude.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli stdlib modifiers** — verifies: PKL-140 — tags: moonbit, cli, parser, stdlib, contract

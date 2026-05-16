@@ -244,9 +244,9 @@ local parserSurfaceExpansion: Spec.Scenario = new {
   id = "PKL-128"
   name = "parser surface expansion remaining"
   description =
-    "Scientific notation Float (`1e10` / `2.5e-3`), triple-quoted heredoc strings, annotation classes (`@Deprecated`, `@Since`), and constraint predicate composition (`Int(isPositive & isLessThan(10))`). String interpolation `\\(expr)` landed as PKL-128a. Each remaining item is a parser-side extension; downstream stages are mostly ready."
+    "Annotation classes (`@Deprecated`, `@Since`) parsed into AST nodes and constraint predicate composition (`Int(isPositive & isLessThan(10))`). String interpolation landed as PKL-128a; scientific Float and triple-quoted heredoc landed as PKL-128b. The remaining items are parser-side extensions; downstream stages are mostly ready."
   contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-001"; "PKL-128a" }
+  dependsOn { "PKL-001"; "PKL-128a"; "PKL-128b" }
   tags { "parser"; "next" }
   reviewStatus = "draft"
   severity = "major"

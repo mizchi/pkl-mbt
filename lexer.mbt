@@ -142,6 +142,7 @@ fn Lexer::next_token(self : Lexer) -> Token {
     // (`1.h`, `5.min`) stays an Int because the character after `.` is
     // an identifier, not a digit, so the dispatch below keeps the
     // existing magnitude-+-unit path intact.
+    let mut is_float = false
     if self.pos + 1 < self.len &&
       self.char_at(self.pos) == '.' &&
       is_digit(self.char_at(self.pos + 1)) {
@@ -149,11 +150,61 @@ fn Lexer::next_token(self : Lexer) -> Token {
       while self.pos < self.len && is_digit(self.char_at(self.pos)) {
         self.pos += 1
       }
+      is_float = true
+    }
+    // PKL-128: scientific-notation Float (`1e10`, `2.5e-3`, `4E+8`).
+    // An `e` / `E` immediately following the digit (or fractional)
+    // run with an optional `+` / `-` sign and at least one digit
+    // promotes the literal to a Float. Without the trailing digit
+    // the `e` is treated as a regular identifier byte (the
+    // identifier dispatch below picks it up on the next call).
+    if self.pos < self.len {
+      let exp_char = self.char_at(self.pos)
+      if exp_char == 'e' || exp_char == 'E' {
+        let mut probe = self.pos + 1
+        if probe < self.len &&
+          (self.char_at(probe) == '+' || self.char_at(probe) == '-') {
+          probe = probe + 1
+        }
+        if probe < self.len && is_digit(self.char_at(probe)) {
+          self.pos = probe
+          while self.pos < self.len && is_digit(self.char_at(self.pos)) {
+            self.pos += 1
+          }
+          is_float = true
+        }
+      }
+    }
+    if is_float {
       return Token::new(float_token(), self.slice_from(start))
     }
     return Token::new(int_token(), self.slice_from(start))
   }
   if c == '"' {
+    // PKL-128: triple-quoted heredoc (`"""..."""`). Apple Pkl strips
+    // the leading newline + the closing delimiter's indentation from
+    // each content line. The lexer keeps the whole literal as one
+    // `string_token`; the parser's escape decoder will strip the
+    // indent and unwrap. Detection is shallow: three consecutive
+    // `"` characters open a heredoc, and the matching three `"`
+    // close it. Inner `"` runs of length 1 or 2 stay literal.
+    if self.pos + 2 < self.len &&
+      self.char_at(self.pos + 1) == '"' &&
+      self.char_at(self.pos + 2) == '"' {
+      self.pos += 3
+      while self.pos + 2 < self.len {
+        if self.char_at(self.pos) == '"' &&
+          self.char_at(self.pos + 1) == '"' &&
+          self.char_at(self.pos + 2) == '"' {
+          self.pos += 3
+          return Token::new(string_token(), self.slice_from(start))
+        }
+        self.pos += 1
+      }
+      // Unterminated heredoc — consume to EOF and return what we have.
+      self.pos = self.len
+      return Token::new(string_token(), self.slice_from(start))
+    }
     self.pos += 1
     while self.pos < self.len {
       let ch = self.char_at(self.pos)

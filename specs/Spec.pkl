@@ -1785,6 +1785,32 @@ local listingMappingStdlibCore = new Scenario {
   }
 }
 
+local scientificFloatAndHeredoc = new Scenario {
+  id = "PKL-128b"
+  name = "scientific Float and triple-quoted heredoc"
+  description =
+    "Two parser-surface extensions that landed together because they share the lexer's literal-token path. (1) Scientific-notation Float literals — `1e10`, `2.5e-3`, `4E+8`. The lexer extends the existing Int / Float scan with an optional `e` / `E` + sign + digit suffix; `parse_float_text` splits at the exponent, parses the mantissa, then multiplies by 10^exp. (2) Triple-quoted heredoc strings — `\"\"\"<newline>...<indent>\"\"\"`. The lexer captures the whole literal as one `string_token` (three opening `\"`, body, three closing `\"`); `strip_heredoc_indent` then drops the leading newline and dedents each body line by the closing delimiter's indentation. The existing escape decoder still runs on the dedented body so `\\n`, `\\t`, etc. continue to work. String interpolation (PKL-128a) operates on the same dedented body."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-001"; "PKL-128a" }
+  tags { "parser"; "lexer"; "string"; "float" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Lex heredoc as one token, dedent at parse time"
+      rationale =
+        "An alternative is to emit one token per body line so the dedent happens in the lexer. That would scatter indent logic across two stages (lexer for split, parser for unwrap) and break the assumption that one source range corresponds to one token. Keeping the whole literal in one `string_token` mirrors the regular-string path; `strip_heredoc_indent` runs once in `parse_string_literal_text` and shares the escape / interpolation pipeline."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Compute `10^exp` with a multiply loop"
+      rationale =
+        "MoonBit's stdlib `Double::pow` would be one call, but pkl-mbt's parser is target-agnostic and doesn't currently depend on `moonbitlang/core/math.pow`. A bounded `exp_value`-step multiply loop keeps the parser zero-cost in deps. Scientific exponents in real-world Pkl never exceed a few hundred, so the loop is microseconds at worst."
+    }
+  }
+}
+
 local stringInterpolation = new Scenario {
   id = "PKL-128a"
   name = "string interpolation"
@@ -3276,5 +3302,6 @@ scenarios {
   rendererConverters
   diagnosticSourcePosition
   stringInterpolation
+  scientificFloatAndHeredoc
   ...roadmap.entries
 }

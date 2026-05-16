@@ -354,6 +354,38 @@ local cliListingMappingStdlib = new Test {
   timeoutSec = 120
 }
 
+local cliScientificFloat = new Test {
+  name = "cli scientific float"
+  description =
+    "The native CLI evaluates a fixture with scientific-notation Float literals (`1e10`, `2.5e-3`, `4E+8`, `1.5e2`). Each literal renders as a Float value with the expected magnitude."
+  tags { "moonbit"; "cli"; "parser"; "lexer"; "float"; "contract" }
+  specRef { "PKL-128b" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_scientific_float.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "big = 10000000000.0"
+    "small = 0.0025"
+    "upper = 400000000.0"
+    "mid = 150.0"
+  }
+  timeoutSec = 120
+}
+
+local cliHeredocString = new Test {
+  name = "cli heredoc string"
+  description =
+    "The native CLI evaluates a fixture with triple-quoted heredoc strings. The leading newline is dropped and every line is dedented by the closing delimiter's indentation; the rendered output joins each line back with `\\n` separators."
+  tags { "moonbit"; "cli"; "parser"; "lexer"; "string"; "contract" }
+  specRef { "PKL-128b" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_heredoc_string.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "greeting = \"hello\\nworld\\n\""
+    "flat = \"no indent here\\n\""
+  }
+  timeoutSec = 120
+}
+
 local cliStringInterpolation = new Test {
   name = "cli string interpolation"
   description =
@@ -760,6 +792,8 @@ tests {
   cliRendererConverters
   cliDiagnosticPosition
   cliStringInterpolation
+  cliScientificFloat
+  cliHeredocString
   cliFormat
   cliTestExamplesPass
   cliTestExamplesFail

@@ -2437,16 +2437,30 @@ fn parse_int_text(text : String) -> Int {
 ///|
 fn parse_float_text(text : String) -> Double {
   // PKL-092: parse `<int>.<frac>` into a Double by accumulating the
-  // integer and fractional parts separately. Sticking to a hand-rolled
-  // walk keeps the parser self-contained (no extra core dep) and the
-  // lexer guarantees the exact `digit+ . digit+` shape, so there is no
-  // need to defend against malformed input here.
+  // integer and fractional parts separately. PKL-128: also handle
+  // scientific notation (`1e10`, `2.5e-3`, `4E+8`) — split at the
+  // exponent marker, parse the mantissa, then multiply by 10^exp.
+  // The lexer guarantees a digit+ exponent so the trailing parse can
+  // assume a non-empty signed integer.
+  let mut exp_idx = -1
+  for i = 0; i < text.length(); i = i + 1 {
+    let c = text[i].to_int().unsafe_to_char()
+    if c == 'e' || c == 'E' {
+      exp_idx = i
+      break
+    }
+  }
+  let mantissa_text = if exp_idx >= 0 {
+    String::unsafe_substring(text, start=0, end=exp_idx)
+  } else {
+    text
+  }
   let mut int_part = 0.0
   let mut frac_part = 0.0
   let mut frac_scale = 1.0
   let mut in_fraction = false
-  for i = 0; i < text.length(); i = i + 1 {
-    let c = text[i].to_int().unsafe_to_char()
+  for i = 0; i < mantissa_text.length(); i = i + 1 {
+    let c = mantissa_text[i].to_int().unsafe_to_char()
     if c == '.' {
       in_fraction = true
     } else if c >= '0' && c <= '9' {
@@ -2459,7 +2473,39 @@ fn parse_float_text(text : String) -> Double {
       }
     }
   }
-  int_part + frac_part
+  let mantissa = int_part + frac_part
+  if exp_idx < 0 {
+    return mantissa
+  }
+  let mut exp_start = exp_idx + 1
+  let mut exp_sign = 1.0
+  if exp_start < text.length() {
+    let sign_char = text[exp_start].to_int().unsafe_to_char()
+    if sign_char == '+' {
+      exp_start = exp_start + 1
+    } else if sign_char == '-' {
+      exp_sign = -1.0
+      exp_start = exp_start + 1
+    }
+  }
+  let mut exp_value = 0.0
+  for i = exp_start; i < text.length(); i = i + 1 {
+    let c = text[i].to_int().unsafe_to_char()
+    if c >= '0' && c <= '9' {
+      exp_value = exp_value * 10.0 + (c.to_int() - '0'.to_int()).to_double()
+    }
+  }
+  let mut power = 1.0
+  let mut steps = 0.0
+  while steps < exp_value {
+    power = power * 10.0
+    steps = steps + 1.0
+  }
+  if exp_sign > 0.0 {
+    mantissa * power
+  } else {
+    mantissa / power
+  }
 }
 
 ///|
@@ -2471,7 +2517,16 @@ fn parse_float_text(text : String) -> Double {
 fn parse_string_literal_text(text : String) -> Expr {
   // Strip the surrounding quotes (if present) but track the inner text
   // so escape sequences and interpolations can be split independently.
-  let inner = if text.length() >= 2 &&
+  // PKL-128: a triple-quoted heredoc (`"""..."""`) strips its leading
+  // newline and the closing delimiter's indentation from each line
+  // before the regular escape / interpolation processing kicks in.
+  let inner = if text.length() >= 6 &&
+    text.has_prefix("\"\"\"") &&
+    text.has_suffix("\"\"\"") {
+    strip_heredoc_indent(
+      String::unsafe_substring(text, start=3, end=text.length() - 3),
+    )
+  } else if text.length() >= 2 &&
     text[0].to_int().unsafe_to_char() == '"' &&
     text[text.length() - 1].to_int().unsafe_to_char() == '"' {
     String::unsafe_substring(text, start=1, end=text.length() - 1)
@@ -2566,6 +2621,71 @@ fn parse_string_literal_text(text : String) -> Expr {
     }
   }
   InterpolatedString(normalized)
+}
+
+///|
+/// PKL-128: dedent a triple-quoted heredoc body.
+///
+/// Apple Pkl's `"""<newline>...<indent>"""` removes the leading newline
+/// and trims the indentation of the closing delimiter from every line.
+/// The body passed here is the raw content between the opening and
+/// closing `"""` markers; the result is the content with the leading
+/// newline stripped and each line's `closing_indent` prefix removed.
+fn strip_heredoc_indent(body : String) -> String {
+  let mut start = 0
+  // Strip a single leading newline (`"""<lf>`).
+  if start < body.length() {
+    let c = body[start].to_int().unsafe_to_char()
+    if c == '\n' {
+      start = start + 1
+    } else if c == '\r' &&
+      start + 1 < body.length() &&
+      body[start + 1].to_int().unsafe_to_char() == '\n' {
+      start = start + 2
+    }
+  }
+  // Find the indentation immediately before the trailing close. The
+  // close marker has already been stripped, so the indent we want is
+  // the run of horizontal whitespace at the very end of `body`.
+  let mut indent_start = body.length()
+  while indent_start > start {
+    let c = body[indent_start - 1].to_int().unsafe_to_char()
+    if c == ' ' || c == '\t' {
+      indent_start = indent_start - 1
+    } else {
+      break
+    }
+  }
+  let indent_len = body.length() - indent_start
+  let indent = String::unsafe_substring(
+    body,
+    start=indent_start,
+    end=body.length(),
+  )
+  // Walk each line, strip the indent prefix when present.
+  let buf = StringBuilder::new()
+  let mut i = start
+  let body_end = indent_start
+  let mut at_line_start = true
+  while i < body_end {
+    if at_line_start && indent_len > 0 && i + indent_len <= body_end {
+      let candidate = String::unsafe_substring(
+        body,
+        start=i,
+        end=i + indent_len,
+      )
+      if candidate == indent {
+        i = i + indent_len
+        at_line_start = false
+        continue
+      }
+    }
+    let c = body[i].to_int().unsafe_to_char()
+    buf.write_char(c)
+    at_line_start = c == '\n'
+    i = i + 1
+  }
+  buf.to_string()
 }
 
 ///|

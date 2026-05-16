@@ -1,0 +1,11 @@
+// PKL-128b: scientific-notation Float literals (`1e10`, `2.5e-3`,
+// `4E+8`) parse as Float values without needing an explicit decimal
+// point. The lexer extends the existing Int run with an optional
+// `e` / `E` + sign + digit suffix.
+big = 1e10
+
+small = 2.5e-3
+
+upper = 4E+8
+
+mid = 1.5e2

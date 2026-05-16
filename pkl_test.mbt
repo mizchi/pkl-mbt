@@ -2647,6 +2647,32 @@ test "PKL-105: path-keyed renderer converter rewrites a top-level value" {
 }
 
 ///|
+test "PKL-128b: scientific notation Float literal parses" {
+  guard eval_source("x = 1e10") is EvalOk(ObjectValue(members)) else { panic() }
+  guard members[0].value is FloatValue(d) else { panic() }
+  inspect(d, content="10000000000")
+}
+
+///|
+test "PKL-128b: negative exponent scientific Float" {
+  guard eval_source("x = 2.5e-3") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is FloatValue(d) else { panic() }
+  inspect(d, content="0.0025")
+}
+
+///|
+test "PKL-128b: triple-quoted heredoc strips dedent" {
+  guard eval_source("greeting = \"\"\"\n  hello\n  world\n  \"\"\"")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is StringValue(s) else { panic() }
+  assert_eq(s, "hello\nworld\n")
+}
+
+///|
 test "PKL-128a: string interpolation evaluates each segment" {
   guard eval_source(
       "name = \"alpha\"\ncount = 3\nmsg = \"hello \\(name), count is \\(count + 1)\"",
