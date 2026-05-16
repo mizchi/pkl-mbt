@@ -698,23 +698,47 @@ fn pkl_constrained_type_annotation_has_supported_constraint_with_depth(
 
 ///|
 fn pkl_constraint_name(predicate : ConstraintIntPredicate) -> String {
+  // PKL-148: include the argument list verbatim so the diagnostic
+  // wording matches Apple Pkl's exact format (e.g. `isBetween(10, 20)`
+  // rather than the bare `isBetween`). The threshold values are
+  // formatted through `format_constraint_arg` so Int-magnitude
+  // doubles render without a trailing `.0`.
   match predicate {
-    IsBetween(_, _) => "isBetween"
+    IsBetween(lo, hi) =>
+      "isBetween(\{format_constraint_arg(lo)}, \{format_constraint_arg(hi)})"
     IsPositive => "isPositive"
-    IsGreaterThan(_) => "isGreaterThan"
-    IsLessThan(_) => "isLessThan"
-    NotIsBetween(_, _) => "!isBetween"
+    IsGreaterThan(t) => "isGreaterThan(\{format_constraint_arg(t)})"
+    IsLessThan(t) => "isLessThan(\{format_constraint_arg(t)})"
+    NotIsBetween(lo, hi) =>
+      "!isBetween(\{format_constraint_arg(lo)}, \{format_constraint_arg(hi)})"
     NotIsPositive => "!isPositive"
-    NotIsGreaterThan(_) => "!isGreaterThan"
-    NotIsLessThan(_) => "!isLessThan"
-    CustomGreaterThan(name, _) => name
-    CustomLessThan(name, _) => name
-    CustomGreaterOrEqual(name, _) => name
-    CustomLessOrEqual(name, _) => name
-    NotCustomGreaterThan(name, _) => "!" + name
-    NotCustomLessThan(name, _) => "!" + name
-    NotCustomGreaterOrEqual(name, _) => "!" + name
-    NotCustomLessOrEqual(name, _) => "!" + name
+    NotIsGreaterThan(t) => "!isGreaterThan(\{format_constraint_arg(t)})"
+    NotIsLessThan(t) => "!isLessThan(\{format_constraint_arg(t)})"
+    CustomGreaterThan(name, t) => "\{name}(\{format_constraint_arg(t)})"
+    CustomLessThan(name, t) => "\{name}(\{format_constraint_arg(t)})"
+    CustomGreaterOrEqual(name, t) => "\{name}(\{format_constraint_arg(t)})"
+    CustomLessOrEqual(name, t) => "\{name}(\{format_constraint_arg(t)})"
+    NotCustomGreaterThan(name, t) =>
+      "!" + name + "(\{format_constraint_arg(t)})"
+    NotCustomLessThan(name, t) => "!" + name + "(\{format_constraint_arg(t)})"
+    NotCustomGreaterOrEqual(name, t) =>
+      "!" + name + "(\{format_constraint_arg(t)})"
+    NotCustomLessOrEqual(name, t) =>
+      "!" + name + "(\{format_constraint_arg(t)})"
+  }
+}
+
+///|
+/// PKL-148: format a constraint threshold for the diagnostic. Int-like
+/// magnitudes (e.g. `10.0`) drop their trailing `.0` so the message
+/// reads `isBetween(10, 20)` rather than `isBetween(10.0, 20.0)`.
+fn format_constraint_arg(value : Double) -> String {
+  if value.is_nan() || value.is_inf() {
+    "\{value}"
+  } else if value == value.floor() && value.abs() < 9.0e15 {
+    "\{value.to_int()}"
+  } else {
+    "\{value}"
   }
 }
 
@@ -731,14 +755,17 @@ fn pkl_constraint_predicate_accepts(
 
 ///|
 fn pkl_constrained_int_rejection_message_from_source(
-  display_name : String,
+  _display_name : String,
   source_name : String,
   value : Int,
 ) -> String? {
   for predicate in pkl_constrained_int_predicates(source_name) {
     if !pkl_constraint_predicate_accepts(predicate, value) {
       return Some(
-        "type annotation \{display_name} constraint \{pkl_constraint_name(predicate)} rejects \{value}",
+        // PKL-148: align with Apple Pkl's exact diagnostic wording so
+        // snippetTest fixtures that capture this string via
+        // `test.catch(...)` match byte-for-byte.
+        "Type constraint `\{pkl_constraint_name(predicate)}` violated. Value: \{value}",
       )
     }
   }
@@ -747,7 +774,7 @@ fn pkl_constrained_int_rejection_message_from_source(
 
 ///|
 fn pkl_user_defined_constrained_int_rejection_message_from_source(
-  display_name : String,
+  _display_name : String,
   source_name : String,
   value : Int,
   declarations : Array[Declaration],
@@ -758,7 +785,10 @@ fn pkl_user_defined_constrained_int_rejection_message_from_source(
     ) {
     if !pkl_constraint_predicate_accepts(predicate, value) {
       return Some(
-        "type annotation \{display_name} constraint \{pkl_constraint_name(predicate)} rejects \{value}",
+        // PKL-148: align with Apple Pkl's exact diagnostic wording so
+        // snippetTest fixtures that capture this string via
+        // `test.catch(...)` match byte-for-byte.
+        "Type constraint `\{pkl_constraint_name(predicate)}` violated. Value: \{value}",
       )
     }
   }
@@ -888,14 +918,17 @@ fn pkl_constraint_predicate_accepts_float(
 
 ///|
 fn pkl_constrained_float_rejection_message_from_source(
-  display_name : String,
+  _display_name : String,
   source_name : String,
   value : Double,
 ) -> String? {
   for predicate in pkl_constrained_int_predicates(source_name) {
     if !pkl_constraint_predicate_accepts_float(predicate, value) {
       return Some(
-        "type annotation \{display_name} constraint \{pkl_constraint_name(predicate)} rejects \{value}",
+        // PKL-148: align with Apple Pkl's exact diagnostic wording so
+        // snippetTest fixtures that capture this string via
+        // `test.catch(...)` match byte-for-byte.
+        "Type constraint `\{pkl_constraint_name(predicate)}` violated. Value: \{value}",
       )
     }
   }
@@ -1331,20 +1364,23 @@ fn pkl_string_length_op_text(op : ConstraintStringLengthOp) -> String {
 
 ///|
 fn pkl_string_constraint_name(predicate : ConstraintStringPredicate) -> String {
+  // PKL-148: include the argument list verbatim so the diagnostic
+  // wording matches Apple Pkl exactly (e.g. `length.isBetween(10, 20)`
+  // rather than the bare `length.isBetween`).
   match predicate {
-    StringLengthIsBetween(_, _) => "length.isBetween"
+    StringLengthIsBetween(lo, hi) => "length.isBetween(\{lo}, \{hi})"
     StringLengthIsPositive => "length.isPositive"
-    StringLengthIsGreaterThan(_) => "length.isGreaterThan"
-    StringLengthIsLessThan(_) => "length.isLessThan"
-    StringLengthCompare(op, _) => "length \{pkl_string_length_op_text(op)}"
-    StringMatchesRegex(_) => "matches"
-    NotStringLengthIsBetween(_, _) => "!length.isBetween"
+    StringLengthIsGreaterThan(t) => "length.isGreaterThan(\{t})"
+    StringLengthIsLessThan(t) => "length.isLessThan(\{t})"
+    StringLengthCompare(op, t) => "length \{pkl_string_length_op_text(op)} \{t}"
+    StringMatchesRegex(pattern) => "matches(Regex(\"\{pattern}\"))"
+    NotStringLengthIsBetween(lo, hi) => "!length.isBetween(\{lo}, \{hi})"
     NotStringLengthIsPositive => "!length.isPositive"
-    NotStringLengthIsGreaterThan(_) => "!length.isGreaterThan"
-    NotStringLengthIsLessThan(_) => "!length.isLessThan"
-    NotStringLengthCompare(op, _) =>
-      "!(length \{pkl_string_length_op_text(op)})"
-    NotStringMatchesRegex(_) => "!matches"
+    NotStringLengthIsGreaterThan(t) => "!length.isGreaterThan(\{t})"
+    NotStringLengthIsLessThan(t) => "!length.isLessThan(\{t})"
+    NotStringLengthCompare(op, t) =>
+      "!(length \{pkl_string_length_op_text(op)} \{t})"
+    NotStringMatchesRegex(pattern) => "!matches(Regex(\"\{pattern}\"))"
   }
 }
 
@@ -1407,14 +1443,14 @@ fn pkl_string_predicate_accepts(
 
 ///|
 fn pkl_constrained_string_rejection_message_from_source(
-  display_name : String,
+  _display_name : String,
   source_name : String,
   value : String,
 ) -> String? {
   for predicate in pkl_constrained_string_predicates(source_name) {
     if !pkl_string_predicate_accepts(predicate, value) {
       return Some(
-        "type annotation \{display_name} constraint \{pkl_string_constraint_name(predicate)} rejects \"\{value}\"",
+        "Type constraint `\{pkl_string_constraint_name(predicate)}` violated. Value: \"\{value}\"",
       )
     }
   }

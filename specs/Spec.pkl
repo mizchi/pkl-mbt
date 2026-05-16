@@ -1896,6 +1896,44 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklBaseMethodSurfaceScenario = new Scenario {
+  id = "PKL-148"
+  name = "pkl:base method surface expansion first wave"
+  description =
+    "Fills in the pkl:base surface gaps that snippetTest fixtures lean on. Added: Bool methods (`xor` / `implies` / `and` / `or` / `toString`); Float methods (`toString` / `abs` / `round` / `floor` / `ceil`); Int property surface (`isPositive` / `isNonZero` / `isFinite` / `isNaN` / `isInfinite` / `sign` / `inv`); String property surface (`isNotEmpty` / `isBlank` / `isNotBlank` / `reverse` / `base64`); Listing property surface (`isNotEmpty` / `isDistinct` / `firstOrNull` / `lastOrNull` / `toList` / `toSet` / `toListing`); Listing methods (`getOrNull(idx)` / `startsWith(other)` / `endsWith(other)`); Mapping property surface (`isNotEmpty` / `entries` / `toMap` / `toMapping`); Set methods (`add(x)` / `every(p)` / `any(p)` / `none(p)` / `count(p)` / `firstOrNull` / `lastOrNull`); Map method (`containsValue(v)`); Pair member aliases (`.key` / `.value` mirror `.first` / `.second`). Binary `+` now concatenates ListingValue / SetValue / MappingValue / MapValue / StringValue pairs. `value.getClass()` synthesises a `pkl:reflect.Class` mirror exposing `simpleName` / `name`. Class-typed bindings (`p: Person = new {}`) now expand their declared default properties via `apply_class_defaults_for_type`. Constraint diagnostic wording was rewritten to Apple Pkl's canonical form (`Type constraint \\\\\\\\\\\\\\`isBetween(10, 20)\\\\\\\\\\\\\\` violated. Value: 11` and `Expected value of type \\\\\\\\\\\\\\`Int\\\\\\\\\\\\\\`, but got type \\\\\\\\\\\\\\`String\\\\\\\\\\\\\\`. Value: \\\\\\\"foo\\\\\\\"`) so snippetTest fixtures that capture the message via `test.catch(...)` match byte-for-byte. NonNull assertion wording aligned (`Expected a non-null value, but got \\\\\\\\\\\\\\`null\\\\\\\\\\\\\\`.`)."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-075"; "PKL-147" }
+  tags { "evaluator"; "stdlib"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "Constraint diagnostic wording matches Apple Pkl verbatim"
+      rationale =
+        "snippetTest fixtures stash the diagnostic via `test.catch(...)` and assert the rendered string is the exact upstream wording. Our pre-PKL-148 wording (`type annotation X member a constraint Y rejects Z`) was internal-style; switching to `Type constraint \\\\\\\\\\\\\\`Y\\\\\\\\\\\\\\` violated. Value: Z` unlocks the entire constraint-fixture cluster (`classes/constraints*.pkl`) — they're now either gold-match or one render-detail away."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Class defaults expand when a typed empty new {} is bound"
+      rationale =
+        "Apple Pkl applies class-default properties at binding time, not only inside a `new TypeName { ... }` typed-literal. The fixture `basic/fixedProperty2.pkl` writes `p: Person = new {}` and expects `p { name = \\\\\\\"The Person\\\\\\\" }` — without the binding-time default fill the rendered output was the empty `p {}`. `apply_class_defaults_for_type` runs at the binding-eval site so the path is symmetric to the typed-literal path."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "getClass() returns a synthetic reflect.Class mirror"
+      rationale =
+        "The fixture `api/any.pkl` exercises `value.getClass().simpleName` against every primitive variant. Building it as a `pkl:reflect.Class` mirror (with `__kind` marker, `reflectee`, `simpleName`, `name`) keeps the value compatible with the existing reflect-introspection path so downstream `.properties` / `.methods` / `.supertype` access surfaces don't need a parallel implementation."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Collection + operator semantics follow Apple Pkl"
+      rationale =
+        "`Listing + Listing` concatenates; `Set + Set` is union (right-biased for new elements); `Map + Map` / `Mapping + Mapping` are right-biased merges; `String + String` is concatenation. The arms are gated on the matching value variant before the generic equality / type-error path so a typo like `5 + \\\\\\\"x\\\\\\\"` still surfaces the standard `operator + expects Int operands` diagnostic."
+    }
+  }
+}
+
 local snippetTestHarnessScenario = new Scenario {
   id = "PKL-147"
   name = "snippetTest harness foundation"
@@ -4220,5 +4258,6 @@ scenarios {
   stdlibCoverageProbeScenario
   reflectIntrospectionScenario
   snippetTestHarnessScenario
+  pklBaseMethodSurfaceScenario
   ...roadmap.entries
 }

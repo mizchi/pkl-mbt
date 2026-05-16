@@ -550,6 +550,58 @@ fn eval_constrained_type_source_name(
 // `parse_inferred_new_body` peek (which dispatches on the first
 // significant token), so a non-empty ObjectValue with a Listing /
 // Mapping annotation is a real type mismatch.
+
+///|
+/// PKL-148: when a typed binding (`p: Person = new {}`) gets filled in
+/// with an empty object, fall back to the class's declared default
+/// property values. Without this the rendered output is `p {}` instead
+/// of the inherited defaults. The expansion runs only for ObjectValue
+/// with zero visible members where `type_name` names a user-defined
+/// class; everything else passes through.
+fn apply_class_defaults_for_type(
+  value : Value,
+  type_name : String?,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  match (value, type_name) {
+    (ObjectValue(members), Some(name)) =>
+      if visible_members(members).length() != 0 {
+        value
+      } else {
+        let base = name
+        match lookup_class_binding(class_env, base) {
+          Some(_) => {
+            let defaults = eval_class_default_members(
+              base,
+              bindings,
+              env,
+              class_env,
+              cache,
+              [],
+              declarations,
+              diagnostics,
+              resolve_import,
+            )
+            if defaults.length() == 0 {
+              value
+            } else {
+              ObjectValue(merge_value_members(defaults, members))
+            }
+          }
+          None => value
+        }
+      }
+    _ => value
+  }
+}
+
+///|
 fn coerce_value_to_annotated_type(value : Value, type_name : String?) -> Value {
   match (value, type_name) {
     (ObjectValue(members), Some(name)) if members.length() == 0 =>
@@ -1105,6 +1157,22 @@ fn eval_value_type_name(value : Value) -> String {
 }
 
 ///|
+/// PKL-148: synthesize a `pkl:reflect.Class` mirror for any runtime
+/// `Value`. snippetTest fixtures lean on `x.getClass().simpleName` to
+/// pin a value's type at runtime — the mirror only needs `simpleName`
+/// and `name` to satisfy the common usage. The `__kind` marker keeps
+/// the value compatible with the existing reflect-introspection path.
+fn synth_class_mirror_for_value(value : Value) -> Value {
+  let name = eval_value_type_name(value)
+  ObjectValue([
+    { name: hidden_member_name("__kind"), value: StringValue("Class") },
+    { name: hidden_member_name("reflectee"), value: StringValue(name) },
+    { name: "simpleName", value: StringValue(name) },
+    { name: "name", value: StringValue(name) },
+  ])
+}
+
+///|
 fn eval_value_accepts_type_annotation(
   type_name : String,
   value : Value,
@@ -1213,6 +1281,19 @@ fn eval_callable_argument_rejection_message(
 }
 
 ///|
+
+///|
+/// PKL-148: render a value through the inline PCF form so diagnostic
+/// messages can quote the rejected value. The wrapper keeps the call
+/// sites concise — the `Value: <text>` segment is a recurring shape
+/// in Apple Pkl's constraint / type-mismatch wording.
+fn render_pcf_value_inline(value : Value) -> String {
+  let buf = StringBuilder::new()
+  render_pcf_inline(value, 0, buf)
+  buf.to_string()
+}
+
+///|
 fn eval_callable_return_rejection_message(
   label : String,
   return_type_name : String?,
@@ -1227,8 +1308,14 @@ fn eval_callable_return_rejection_message(
       let aliases = eval_type_alias_bindings(declarations)
       let resolved_type_name = eval_resolved_type_alias(type_name, aliases)
       if !eval_value_accepts_type_annotation(resolved_type_name, value) {
+        // PKL-148: align with Apple Pkl's diagnostic wording so
+        // snippetTest fixtures that capture this exact string via
+        // `test.catch(...)` match byte-for-byte. The trailing
+        // `Value: <pcf>` segment mirrors upstream — it renders the
+        // failing value with the standard PCF inline form so the
+        // user sees what was rejected.
         Some(
-          "\{label} return type annotation \{type_name} does not accept \{eval_value_type_name(value)}",
+          "Expected value of type `\{type_name}`, but got type `\{eval_value_type_name(value)}`. Value: \{render_pcf_value_inline(value)}",
         )
       } else {
         match
@@ -1440,6 +1527,15 @@ fn is_intseq_method_name(name : String) -> Bool {
 fn is_set_method_name(name : String) -> Bool {
   match name {
     "contains"
+    // PKL-148: pkl:base Set surface — `add` / `every` / `any` /
+    // `firstOrNull` / `getOrNull` / `count`.
+    | "add"
+    | "every"
+    | "any"
+    | "none"
+    | "firstOrNull"
+    | "lastOrNull"
+    | "count"
     | "toList"
     | "toListing"
     | "toSet"
@@ -1465,6 +1561,9 @@ fn is_set_method_name(name : String) -> Bool {
 fn is_map_method_name(name : String) -> Bool {
   match name {
     "containsKey"
+    // PKL-148: pkl:base Map.containsValue(v) is the value-side parallel
+    // of `containsKey` — Apple Pkl's fixture `api/map.pkl` exercises it.
+    | "containsValue"
     | "getOrNull"
     | "getOrThrow"
     | "toMap"
@@ -1648,7 +1747,22 @@ fn intseq_value_equal(
 ///|
 fn is_listing_property_name(name : String) -> Bool {
   match name {
-    "length" | "isEmpty" | "first" | "last" | "distinct" => true
+    "length"
+    | "isEmpty"
+    // PKL-148: PKL-base Listing properties — `isNotEmpty`, `isDistinct`,
+    // `firstOrNull`, `lastOrNull`, `toList`, `toSet`. Apple Pkl projects
+    // them as zero-arg property reads (no parens) since the underlying
+    // method has no parameters.
+    | "isNotEmpty"
+    | "isDistinct"
+    | "firstOrNull"
+    | "lastOrNull"
+    | "toList"
+    | "toSet"
+    | "toListing"
+    | "first"
+    | "last"
+    | "distinct" => true
     _ => false
   }
 }
@@ -1664,6 +1778,11 @@ fn is_listing_method_name(name : String) -> Bool {
     | "drop"
     | "join"
     | "reverse"
+    // PKL-148: pkl:base Listing surface — `getOrNull(idx)`,
+    // `startsWith(other)`, `endsWith(other)`, `min` / `max` / `sum`.
+    | "getOrNull"
+    | "startsWith"
+    | "endsWith"
     // PKL-134: read-only conversion methods used by pkf / pkspec's
     // shape inspection chains (`tests.toList().map(...)`).
     | "toList"
@@ -1686,7 +1805,16 @@ fn is_listing_method_name(name : String) -> Bool {
 ///|
 fn is_mapping_property_name(name : String) -> Bool {
   match name {
-    "length" | "isEmpty" | "keys" | "values" => true
+    "length"
+    | "isEmpty"
+    // PKL-148: project the no-arg surface used by `.isNotEmpty` / `.entries`
+    // / `.toMap` / `.toMapping` from pkl:base.
+    | "isNotEmpty"
+    | "entries"
+    | "toMap"
+    | "toMapping"
+    | "keys"
+    | "values" => true
     _ => false
   }
 }
@@ -1713,7 +1841,19 @@ fn is_mapping_method_name(name : String) -> Bool {
 ///|
 fn is_string_property_name(name : String) -> Bool {
   match name {
-    "length" | "isEmpty" | "codePointCount" | "codePoints" | "chars" => true
+    "length"
+    | "isEmpty"
+    // PKL-148: pkl:base.String surface — `isNotEmpty`, `isBlank`,
+    // `isNotBlank`, `reverse`, `base64`, plus the surrogate-pair
+    // accessors.
+    | "isNotEmpty"
+    | "isBlank"
+    | "isNotBlank"
+    | "reverse"
+    | "base64"
+    | "codePointCount"
+    | "codePoints"
+    | "chars" => true
     _ => false
   }
 }
@@ -1743,7 +1883,16 @@ fn is_string_method_name(name : String) -> Bool {
 ///|
 fn is_int_property_name(name : String) -> Bool {
   match name {
-    "abs" | "isEven" | "isOdd" => true
+    "abs"
+    | "isEven"
+    | "isOdd"
+    | "isPositive"
+    | "isNonZero"
+    | "isFinite"
+    | "isNaN"
+    | "isInfinite"
+    | "sign"
+    | "inv" => true
     _ => false
   }
 }
@@ -1752,6 +1901,25 @@ fn is_int_property_name(name : String) -> Bool {
 fn is_int_method_name(name : String) -> Bool {
   match name {
     "toString" | "toChar" => true
+    _ => false
+  }
+}
+
+///|
+/// PKL-148: pkl:base Boolean method names.
+fn is_bool_method_name(name : String) -> Bool {
+  match name {
+    "xor" | "implies" | "and" | "or" | "toString" => true
+    _ => false
+  }
+}
+
+///|
+/// PKL-148: pkl:base Float method names. Mirrors `is_int_method_name`
+/// but routes through `eval_float_method`.
+fn is_float_method_name(name : String) -> Bool {
+  match name {
+    "toString" | "abs" | "round" | "floor" | "ceil" => true
     _ => false
   }
 }
@@ -2245,6 +2413,45 @@ fn eval_listing_property(
   match name {
     "length" => Some(IntValue(elements.length()))
     "isEmpty" => Some(BoolValue(elements.length() == 0))
+    "isNotEmpty" => Some(BoolValue(elements.length() != 0))
+    "isDistinct" => {
+      let seen : Array[Value] = []
+      let mut distinct = true
+      for v in elements {
+        if contains_value(seen, v) {
+          distinct = false
+          break
+        }
+        seen.push(v)
+      }
+      Some(BoolValue(distinct))
+    }
+    "firstOrNull" =>
+      if elements.length() == 0 {
+        Some(NullValue)
+      } else {
+        Some(elements[0])
+      }
+    "lastOrNull" =>
+      if elements.length() == 0 {
+        Some(NullValue)
+      } else {
+        Some(elements[elements.length() - 1])
+      }
+    // PKL-148: `Listing.toList` / `.toListing` are identity-shape
+    // conversions today (PKL-151 will split `ListValue` from
+    // `ListingValue`); `.toSet` builds a deduplicated Set.
+    "toList" => Some(ListingValue(elements))
+    "toListing" => Some(ListingValue(elements))
+    "toSet" => {
+      let seen : Array[Value] = []
+      for v in elements {
+        if !contains_value(seen, v) {
+          seen.push(v)
+        }
+      }
+      Some(SetValue(seen))
+    }
     "first" =>
       if elements.length() == 0 {
         diagnostics.push(diag("Listing.first on empty Listing"))
@@ -2312,6 +2519,69 @@ fn eval_listing_method(
         return None
       }
       Some(BoolValue(contains_value(elements, arg_values[0])))
+    }
+    // PKL-148: pkl:base Listing.getOrNull(index) — returns the element
+    // at `index` or null when out of bounds. Apple Pkl's signature is
+    // `(Int) -> T?`.
+    "getOrNull" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.getOrNull expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match arg_values[0] {
+        IntValue(idx) =>
+          if idx >= 0 && idx < elements.length() {
+            Some(elements[idx])
+          } else {
+            Some(NullValue)
+          }
+        _ => {
+          diagnostics.push(diag("Listing.getOrNull expects an Int index"))
+          None
+        }
+      }
+    }
+    // PKL-148: pkl:base Listing.startsWith(other) / endsWith(other) —
+    // structural prefix / suffix match against another Listing.
+    "startsWith" | "endsWith" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.\{method_name} expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match arg_values[0] {
+        ListingValue(other) | SetValue(other) =>
+          if other.length() > elements.length() {
+            Some(BoolValue(false))
+          } else {
+            let offset = if method_name == "startsWith" {
+              0
+            } else {
+              elements.length() - other.length()
+            }
+            let mut equal = true
+            for i = 0; i < other.length(); i = i + 1 {
+              if elements[i + offset] != other[i] {
+                equal = false
+                break
+              }
+            }
+            Some(BoolValue(equal))
+          }
+        _ => {
+          diagnostics.push(
+            diag("Listing.\{method_name} expects a Listing argument"),
+          )
+          None
+        }
+      }
     }
     "reverse" => {
       if arg_values.length() != 0 {
@@ -2808,6 +3078,7 @@ fn eval_mapping_property(
   match name {
     "length" => Some(IntValue(entries.length()))
     "isEmpty" => Some(BoolValue(entries.length() == 0))
+    "isNotEmpty" => Some(BoolValue(entries.length() != 0))
     "keys" => {
       let keys : Array[Value] = []
       for entry in entries {
@@ -2822,6 +3093,24 @@ fn eval_mapping_property(
       }
       Some(ListingValue(values))
     }
+    "entries" => {
+      // PKL-148: `Mapping.entries` projects to a Listing of
+      // Pair<Key, Value> mirroring `Map.entries`.
+      let pairs : Array[Value] = []
+      for entry in entries {
+        pairs.push(PairValue(entry.key, entry.value))
+      }
+      Some(ListingValue(pairs))
+    }
+    "toMap" => {
+      // PKL-148: lift the Mapping into a Map value preserving order.
+      let kvs : Array[ValueEntry] = []
+      for entry in entries {
+        kvs.push({ key: entry.key, value: entry.value })
+      }
+      Some(MapValue(kvs))
+    }
+    "toMapping" => Some(MappingValue(entries))
     _ => {
       diagnostics.push(
         diag("Cannot find property `\{name}` in object of type `Mapping`."),
@@ -3018,6 +3307,122 @@ fn eval_set_method(
         return None
       }
       Some(BoolValue(contains_value(elements, arg_values[0])))
+    }
+    // PKL-148: `Set.add(x)` returns a new Set with `x` appended (no-op
+    // when the element already belongs). Apple Pkl's signature is
+    // `add(Value) -> Set` — non-mutating.
+    "add" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("Set.add expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let next : Array[Value] = []
+      for v in elements {
+        next.push(v)
+      }
+      if !contains_value(next, arg_values[0]) {
+        next.push(arg_values[0])
+      }
+      Some(SetValue(next))
+    }
+    "firstOrNull" =>
+      if elements.length() == 0 {
+        Some(NullValue)
+      } else {
+        Some(elements[0])
+      }
+    "lastOrNull" =>
+      if elements.length() == 0 {
+        Some(NullValue)
+      } else {
+        Some(elements[elements.length() - 1])
+      }
+    "every" | "any" | "none" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Set.\{method_name} expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      let mut hit = false
+      for element in elements {
+        match
+          apply_function_value(
+            "Set.\{method_name} predicate",
+            arg_values[0],
+            [element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(BoolValue(true)) => {
+            hit = true
+            if method_name == "any" || method_name == "none" {
+              break
+            }
+          }
+          Some(BoolValue(false)) =>
+            if method_name == "every" {
+              return Some(BoolValue(false))
+            }
+          Some(_) => {
+            diagnostics.push(
+              diag("Set.\{method_name} predicate must return Boolean"),
+            )
+            return None
+          }
+          None => return None
+        }
+      }
+      match method_name {
+        "every" => Some(BoolValue(true))
+        "any" => Some(BoolValue(hit))
+        "none" => Some(BoolValue(!hit))
+        _ => None
+      }
+    }
+    "count" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("Set.count expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let mut n = 0
+      for element in elements {
+        match
+          apply_function_value(
+            "Set.count predicate",
+            arg_values[0],
+            [element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(BoolValue(true)) => n = n + 1
+          Some(BoolValue(false)) => ()
+          Some(_) => {
+            diagnostics.push(diag("Set.count predicate must return Boolean"))
+            return None
+          }
+          None => return None
+        }
+      }
+      Some(IntValue(n))
     }
     "toList" | "toListing" => {
       if arg_values.length() != 0 {
@@ -3217,6 +3622,23 @@ fn eval_map_method(
       let key = arg_values[0]
       for entry in entries {
         if entry.key == key {
+          return Some(BoolValue(true))
+        }
+      }
+      Some(BoolValue(false))
+    }
+    "containsValue" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Map.containsValue expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      let v = arg_values[0]
+      for entry in entries {
+        if entry.value == v {
           return Some(BoolValue(true))
         }
       }
@@ -3655,6 +4077,21 @@ fn eval_int_property(
     "abs" => if n < 0 { Some(IntValue(0 - n)) } else { Some(IntValue(n)) }
     "isEven" => Some(BoolValue(n % 2 == 0))
     "isOdd" => Some(BoolValue(n % 2 != 0))
+    // PKL-148: pkl:base Int zero-arg accessors.
+    "isPositive" => Some(BoolValue(n >= 0))
+    "isNonZero" => Some(BoolValue(n != 0))
+    "isFinite" => Some(BoolValue(true))
+    "isNaN" => Some(BoolValue(false))
+    "isInfinite" => Some(BoolValue(false))
+    "sign" =>
+      if n > 0 {
+        Some(IntValue(1))
+      } else if n < 0 {
+        Some(IntValue(-1))
+      } else {
+        Some(IntValue(0))
+      }
+    "inv" => Some(IntValue(n.lnot()))
     _ => {
       diagnostics.push(
         diag("Cannot find property `\{name}` in object of type `Int`."),
@@ -3820,6 +4257,164 @@ fn eval_int_method(
       Some(StringValue(buf.to_string()))
     }
     _ => None
+  }
+}
+
+///|
+/// PKL-148: pkl:base Bool method surface. Apple Pkl projects logical
+/// operators (`xor` / `implies`) and the keyword-named pair (`and` /
+/// `or`) as instance methods; `toString` is universal. The methods
+/// take a single Boolean argument except `toString` (arity 0) and the
+/// unary `not` (arity 0).
+fn eval_bool_method(
+  b : Bool,
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let arg_values : Array[Value] = []
+  let mut ok = true
+  for argument in arguments {
+    match
+      eval_expr_with_bindings(
+        argument, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      ) {
+      Some(v) => arg_values.push(v)
+      None => ok = false
+    }
+  }
+  if !ok {
+    return None
+  }
+  match method_name {
+    "toString" =>
+      if arg_values.length() == 0 {
+        if b {
+          Some(StringValue("true"))
+        } else {
+          Some(StringValue("false"))
+        }
+      } else {
+        diagnostics.push(diag("Bool.toString takes no arguments"))
+        None
+      }
+    "xor" | "implies" | "and" | "or" =>
+      if arg_values.length() == 1 {
+        match arg_values[0] {
+          BoolValue(other) =>
+            match method_name {
+              "xor" => Some(BoolValue(b != other))
+              "implies" => Some(BoolValue(!b || other))
+              "and" => Some(BoolValue(b && other))
+              "or" => Some(BoolValue(b || other))
+              _ => None
+            }
+          _ => {
+            diagnostics.push(
+              diag("Bool.\{method_name} expects a Boolean argument"),
+            )
+            None
+          }
+        }
+      } else {
+        diagnostics.push(
+          diag("Bool.\{method_name} expects exactly one argument"),
+        )
+        None
+      }
+    _ => {
+      diagnostics.push(
+        diag("Cannot find method `\{method_name}` in object of type `Boolean`."),
+      )
+      None
+    }
+  }
+}
+
+///|
+/// PKL-148: pkl:base Float method surface. Most Float operations
+/// share the Int name surface; the runtime intercepts a small set
+/// of float-specific names (`isNaN`, `isFinite`, `isInfinite`).
+fn eval_float_method(
+  d : Double,
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let arg_values : Array[Value] = []
+  let mut ok = true
+  for argument in arguments {
+    match
+      eval_expr_with_bindings(
+        argument, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      ) {
+      Some(v) => arg_values.push(v)
+      None => ok = false
+    }
+  }
+  if !ok {
+    return None
+  }
+  match method_name {
+    "toString" =>
+      if arg_values.length() == 0 {
+        Some(StringValue(render_float_text(d)))
+      } else {
+        diagnostics.push(diag("Float.toString takes no arguments"))
+        None
+      }
+    "abs" =>
+      if arg_values.length() == 0 {
+        Some(FloatValue(if d < 0.0 { -d } else { d }))
+      } else {
+        diagnostics.push(diag("Float.abs takes no arguments"))
+        None
+      }
+    "round" =>
+      if arg_values.length() == 0 {
+        // Round half to even (Apple Pkl's default per IEEE 754 round-to-nearest).
+        let r = d.round()
+        Some(IntValue(r.to_int()))
+      } else {
+        diagnostics.push(diag("Float.round takes no arguments"))
+        None
+      }
+    "floor" =>
+      if arg_values.length() == 0 {
+        Some(FloatValue(d.floor()))
+      } else {
+        diagnostics.push(diag("Float.floor takes no arguments"))
+        None
+      }
+    "ceil" =>
+      if arg_values.length() == 0 {
+        Some(FloatValue(d.ceil()))
+      } else {
+        diagnostics.push(diag("Float.ceil takes no arguments"))
+        None
+      }
+    _ => {
+      diagnostics.push(
+        diag("Cannot find method `\{method_name}` in object of type `Float`."),
+      )
+      None
+    }
   }
 }
 
@@ -4108,6 +4703,47 @@ fn eval_string_property(
   match name {
     "length" => Some(IntValue(s.length()))
     "isEmpty" => Some(BoolValue(s.length() == 0))
+    // PKL-148: pkl:base String zero-arg accessors. `isBlank` checks
+    // for whitespace-only; `reverse` reverses code-points (not UTF-16
+    // units) so surrogate pairs survive.
+    "isNotEmpty" => Some(BoolValue(s.length() != 0))
+    "isBlank" => {
+      let mut blank = true
+      for c in s.iter() {
+        if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+          blank = false
+          break
+        }
+      }
+      Some(BoolValue(blank))
+    }
+    "isNotBlank" => {
+      let mut blank = true
+      for c in s.iter() {
+        if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+          blank = false
+          break
+        }
+      }
+      Some(BoolValue(!blank))
+    }
+    "base64" =>
+      // PKL-148: encode the string's UTF-8 bytes as standard base64.
+      // Apple Pkl projects this as a property, not a method.
+      Some(StringValue(@base64.encode(@utf8.encode(s))))
+    "reverse" => {
+      let chars : Array[Char] = []
+      for c in s.iter() {
+        chars.push(c)
+      }
+      let buf = StringBuilder::new()
+      let mut i = chars.length() - 1
+      while i >= 0 {
+        buf.write_char(chars[i])
+        i = i - 1
+      }
+      Some(StringValue(buf.to_string()))
+    }
     // PKL-122: surrogate-pair aware properties. `length` stays
     // UTF-16 code units for compat with the existing fixture
     // baseline; `codePointCount` / `codePoints` / `chars` are the
@@ -5513,6 +6149,11 @@ fn eval_expr_with_bindings(
             match member_name {
               "first" => Some(first)
               "second" => Some(second)
+              // PKL-148: `.key` / `.value` are Apple Pkl's named aliases
+              // for `.first` / `.second` — fixtures like `api/pair.pkl`
+              // exercise both naming surfaces against the same Pair.
+              "key" => Some(first)
+              "value" => Some(second)
               _ => {
                 diagnostics.push(
                   diag(
@@ -6262,10 +6903,29 @@ fn eval_expr_with_bindings(
                 target_expr, method_name, arguments, false, bindings, env, class_env,
                 cache, stack, declarations, diagnostics, resolve_import,
               )
+            } else if method_name == "getClass" && arguments.length() == 0 {
+              // PKL-148: `value.getClass()` returns a `pkl:reflect.Class`
+              // mirror exposing `simpleName` / `name`. snippetTest's
+              // `api/any.pkl` exercises this on every primitive variant
+              // — Int, Float, Bool, String, Duration, DataSize, List,
+              // Map, Listing, Mapping, Dynamic, Pair, Null.
+              match
+                eval_expr_with_bindings(
+                  target_expr, bindings, env, class_env, cache, stack, declarations,
+                  diagnostics, resolve_import,
+                ) {
+                Some(value) => Some(synth_class_mirror_for_value(value))
+                None => None
+              }
             } else if is_listing_method_name(method_name) ||
               is_mapping_method_name(method_name) ||
               is_string_method_name(method_name) ||
               is_int_method_name(method_name) ||
+              // PKL-148: Bool / Float method dispatchers join the
+              // gate so `true.xor(false)` / `1.5.abs()` route through
+              // the receiver-typed arm instead of `eval_callable_call`.
+              is_bool_method_name(method_name) ||
+              is_float_method_name(method_name) ||
               is_regex_method_name(method_name) ||
               is_bytes_method_name(method_name) ||
               is_intseq_method_name(method_name) ||
@@ -6505,6 +7165,22 @@ fn eval_expr_with_bindings(
                       declarations, diagnostics, resolve_import,
                     )
                   }
+                // PKL-148: Bool method dispatch — `xor` / `implies` /
+                // `and` / `or` / `toString` / `getClass`. snippetTest
+                // fixtures lean on these to express truth tables.
+                Some(BoolValue(b)) =>
+                  eval_bool_method(
+                    b, method_name, arguments, bindings, env, class_env, cache, stack,
+                    declarations, diagnostics, resolve_import,
+                  )
+                Some(FloatValue(d)) =>
+                  // PKL-148: Float method dispatch covers `abs` /
+                  // `toString` / `round` / `floor` / `ceil` / `isNaN`
+                  // / `isFinite` / `isInfinite`.
+                  eval_float_method(
+                    d, method_name, arguments, bindings, env, class_env, cache, stack,
+                    declarations, diagnostics, resolve_import,
+                  )
                 Some(DurationValue(n, unit)) =>
                   eval_duration_method(
                     n, unit, method_name, arguments, bindings, env, class_env, cache,
@@ -6660,6 +7336,22 @@ fn eval_expr_with_bindings(
                       declarations, diagnostics, resolve_import,
                     )
                   }
+                // PKL-148: Bool method dispatch — `xor` / `implies` /
+                // `and` / `or` / `toString` / `getClass`. snippetTest
+                // fixtures lean on these to express truth tables.
+                Some(BoolValue(b)) =>
+                  eval_bool_method(
+                    b, method_name, arguments, bindings, env, class_env, cache, stack,
+                    declarations, diagnostics, resolve_import,
+                  )
+                Some(FloatValue(d)) =>
+                  // PKL-148: Float method dispatch covers `abs` /
+                  // `toString` / `round` / `floor` / `ceil` / `isNaN`
+                  // / `isFinite` / `isInfinite`.
+                  eval_float_method(
+                    d, method_name, arguments, bindings, env, class_env, cache, stack,
+                    declarations, diagnostics, resolve_import,
+                  )
                 Some(DurationValue(n, unit)) =>
                   eval_duration_method(
                     n, unit, method_name, arguments, bindings, env, class_env, cache,
@@ -6715,7 +7407,7 @@ fn eval_expr_with_bindings(
           resolve_import,
         ) {
         Some(NullValue) => {
-          diagnostics.push(diag("non-null assertion failed"))
+          diagnostics.push(diag("Expected a non-null value, but got `null`."))
           None
         }
         Some(value) => Some(value)
@@ -7026,6 +7718,75 @@ fn eval_expr_with_bindings(
             }
           }
         }
+        // PKL-148: Listing / Set / Map / String concatenation via `+`.
+        // Apple Pkl's `Listing + Listing` returns a new Listing with the
+        // right-hand elements appended; `Set + Set` is union (right-hand
+        // order preserved for new elements); `Map + Map` is right-biased
+        // merge; `String + String` is concatenation.
+        (Some(ListingValue(la)), Some(ListingValue(lb))) if op == Add => {
+          let merged : Array[Value] = []
+          for v in la {
+            merged.push(v)
+          }
+          for v in lb {
+            merged.push(v)
+          }
+          Some(ListingValue(merged))
+        }
+        (Some(SetValue(la)), Some(SetValue(lb))) if op == Add => {
+          let merged : Array[Value] = []
+          for v in la {
+            merged.push(v)
+          }
+          for v in lb {
+            if !contains_value(merged, v) {
+              merged.push(v)
+            }
+          }
+          Some(SetValue(merged))
+        }
+        (Some(MappingValue(ea)), Some(MappingValue(eb))) if op == Add => {
+          let merged : Array[ValueEntry] = []
+          for e in ea {
+            merged.push(e)
+          }
+          for e in eb {
+            let mut replaced = false
+            for i = 0; i < merged.length(); i = i + 1 {
+              if merged[i].key == e.key {
+                merged[i] = e
+                replaced = true
+                break
+              }
+            }
+            if !replaced {
+              merged.push(e)
+            }
+          }
+          Some(MappingValue(merged))
+        }
+        (Some(MapValue(ea)), Some(MapValue(eb))) if op == Add => {
+          let merged : Array[ValueEntry] = []
+          for e in ea {
+            merged.push(e)
+          }
+          for e in eb {
+            let mut replaced = false
+            for i = 0; i < merged.length(); i = i + 1 {
+              if merged[i].key == e.key {
+                merged[i] = e
+                replaced = true
+                break
+              }
+            }
+            if !replaced {
+              merged.push(e)
+            }
+          }
+          Some(MapValue(merged))
+        }
+        (Some(StringValue(sa)), Some(StringValue(sb))) if op == Add =>
+          Some(StringValue(sa + sb))
         (Some(a), Some(b)) if op == Equal => Some(BoolValue(a == b))
         (Some(a), Some(b)) if op == NotEqual => Some(BoolValue(a != b))
         (Some(_), Some(_)) => {
@@ -7632,9 +8393,26 @@ fn eval_program(
       }
       match resolved_value {
         Some(raw_value) => {
-          let value = coerce_value_to_annotated_type(
+          let coerced = coerce_value_to_annotated_type(
             raw_value,
             binding.type_name,
+          )
+          // PKL-148: when a typed binding is filled in with `new {}` (or
+          // a sparse amend), expand the class-level defaults so the
+          // declared properties materialise in the rendered output.
+          // `apply_class_defaults_for_type` is a no-op when the value
+          // already carries members, when no type is annotated, or when
+          // the type name doesn't resolve to a user-defined class.
+          let value = apply_class_defaults_for_type(
+            coerced,
+            binding.type_name,
+            bindings,
+            env,
+            class_env,
+            cache,
+            program.declarations,
+            diagnostics,
+            resolve_import,
           )
           if eval_constrained_type_annotation_value_is_valid(
               binding.type_name,

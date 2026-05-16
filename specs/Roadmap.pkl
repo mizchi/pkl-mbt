@@ -52,6 +52,12 @@
 ///                     dispatch, module.catch, hex/bin/oct ints,
 ///                     output.text / omitNullProperties; +3 gold-match
 ///                     fixtures, 33 → 35)
+///   PKL-148 (1st)     pkl:base method surface first wave (Bool / Float /
+///                     Int / String / Listing / Mapping / Set / Map / Pair
+///                     additions, getClass mirror, class-default expansion
+///                     for typed empty new {}, Apple Pkl-aligned constraint
+///                     diagnostic wording, +/concat for collection variants;
+///                     +3 gold-match fixtures, 35 → 38)
 @ModuleInfo { minPklVersion = "0.31.0" }
 module specs.Roadmap
 
@@ -68,13 +74,13 @@ import "../pkspec/Spec.pkl"
 // fixture category it should unblock so progress is measurable
 // against `scripts/upstream-smoke.sh` after each landing.
 
-local pklBaseMethodSurface: Spec.Scenario = new {
-  id = "PKL-148"
-  name = "pkl:base method surface expansion"
+local pklBaseMethodSurfaceFollowup: Spec.Scenario = new {
+  id = "PKL-148b"
+  name = "pkl:base method surface second wave"
   description =
-    "Upstream fixtures lean on `pkl:base` properties / methods pkl-mbt hasn't yet wired — the diagnostic categorization showed 96 `Cannot find property` failures across `api/annotationConverters`, projection helpers (`.toMap()` shape conversions), and various Listing / Mapping / String accessors. Survey the failing fixtures, group the missing names by container (Listing / Mapping / String / Int / Class / Module), and fill in the implementations against Apple Pkl's base.pkl as the spec. The slice can ship in waves (Listing first, Mapping second, ...) since each method addition is independent."
+    "PKL-148's first wave (landed) covered Bool / Float / Int / String / Listing / Mapping / Set / Map / Pair zero-arg accessors plus a handful of common methods, Apple Pkl-aligned constraint diagnostic wording, class-default expansion for typed empty `new {}`, and the collection `+` operator. The follow-up wave needs: scope-resolution fixes for late-bound forward references (`y = 3` after `x = y; y = 5` in the same object body), super-call semantics (`super.method(...)`), class-as-value (`Person.foo` → `Cannot find property foo in object of type Class`), the `(lambda) { ... }` amend form for lambda-returning lambdas, `Listing<T>(!isEmpty)` Listing-constraint dispatch, and the remaining stdlib methods (Listing.isDistinctBy, DataSize.isBinaryUnit, Duration.isBetween, Int.isBetween, jsonnet renderer module). Once those land the silent-mismatch bucket should collapse another ~30 fixtures into gold-match."
   contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-075"; "PKL-147" }
+  dependsOn { "PKL-148" }
   tags { "evaluator"; "stdlib"; "upstream"; "compat"; "next" }
   reviewStatus = "draft"
   severity = "major"
@@ -141,7 +147,7 @@ local silentMismatchSurvey: Spec.Scenario = new {
 }
 
 entries: Listing<Spec.Scenario> = new {
-  pklBaseMethodSurface
+  pklBaseMethodSurfaceFollowup
   upstreamResourceType
   asAndPipeRuntime
   listVariantSplit

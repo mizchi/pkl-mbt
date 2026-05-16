@@ -1,6 +1,6 @@
 # Test SPEC
 
-222 tests across 2 module(s) — 157 pending, 65 active
+223 tests across 2 module(s) — 158 pending, 65 active
 
 ## `specs/`
 
@@ -683,10 +683,17 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **pkl:base method surface expansion** [draft] — verifies: PKL-148 — tags: evaluator, stdlib, upstream, compat, next
-  > Upstream fixtures lean on `pkl:base` properties / methods pkl-mbt hasn't yet wired — the diagnostic categorization showed 96 `Cannot find property` failures across `api/annotationConverters`, projection helpers (`.toMap()` shape conversions), and various Listing / Mapping / String accessors. Survey the failing fixtures, group the missing names by container (Listing / Mapping / String / Int / Class / Module), and fill in the implementations against Apple Pkl's base.pkl as the spec. The slice can ship in waves (Listing first, Mapping second, ...) since each method addition is independent.
+- [ ] **pkl:base method surface expansion first wave** — verifies: PKL-148 — tags: evaluator, stdlib, upstream, compat
+  > Fills in the pkl:base surface gaps that snippetTest fixtures lean on. Added: Bool methods (`xor` / `implies` / `and` / `or` / `toString`); Float methods (`toString` / `abs` / `round` / `floor` / `ceil`); Int property surface (`isPositive` / `isNonZero` / `isFinite` / `isNaN` / `isInfinite` / `sign` / `inv`); String property surface (`isNotEmpty` / `isBlank` / `isNotBlank` / `reverse` / `base64`); Listing property surface (`isNotEmpty` / `isDistinct` / `firstOrNull` / `lastOrNull` / `toList` / `toSet` / `toListing`); Listing methods (`getOrNull(idx)` / `startsWith(other)` / `endsWith(other)`); Mapping property surface (`isNotEmpty` / `entries` / `toMap` / `toMapping`); Set methods (`add(x)` / `every(p)` / `any(p)` / `none(p)` / `count(p)` / `firstOrNull` / `lastOrNull`); Map method (`containsValue(v)`); Pair member aliases (`.key` / `.value` mirror `.first` / `.second`). Binary `+` now concatenates ListingValue / SetValue / MappingValue / MapValue / StringValue pairs. `value.getClass()` synthesises a `pkl:reflect.Class` mirror exposing `simpleName` / `name`. Class-typed bindings (`p: Person = new {}`) now expand their declared default properties via `apply_class_defaults_for_type`. Constraint diagnostic wording was rewritten to Apple Pkl's canonical form (`Type constraint \\\\\\\`isBetween(10, 20)\\\\\\\` violated. Value: 11` and `Expected value of type \\\\\\\`Int\\\\\\\`, but got type \\\\\\\`String\\\\\\\`. Value: \\\"foo\\\"`) so snippetTest fixtures that capture the message via `test.catch(...)` match byte-for-byte. NonNull assertion wording aligned (`Expected a non-null value, but got \\\\\\\`null\\\\\\\`.`).
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-075, PKL-147
+  - decisions: 4 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **pkl:base method surface second wave** [draft] — verifies: PKL-148b — tags: evaluator, stdlib, upstream, compat, next
+  > PKL-148's first wave (landed) covered Bool / Float / Int / String / Listing / Mapping / Set / Map / Pair zero-arg accessors plus a handful of common methods, Apple Pkl-aligned constraint diagnostic wording, class-default expansion for typed empty `new {}`, and the collection `+` operator. The follow-up wave needs: scope-resolution fixes for late-bound forward references (`y = 3` after `x = y; y = 5` in the same object body), super-call semantics (`super.method(...)`), class-as-value (`Person.foo` → `Cannot find property foo in object of type Class`), the `(lambda) { ... }` amend form for lambda-returning lambdas, `Listing<T>(!isEmpty)` Listing-constraint dispatch, and the remaining stdlib methods (Listing.isDistinctBy, DataSize.isBinaryUnit, Duration.isBetween, Int.isBetween, jsonnet renderer module). Once those land the silent-mismatch bucket should collapse another ~30 fixtures into gold-match.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-148
   - body: _not yet implemented_
 
 - [ ] **pkl:json / pkl:yaml / pkl:xml / pkl:protobuf stdlib modules** — verifies: PKL-124 — tags: stdlib, renderer
@@ -1331,11 +1338,11 @@
   > The native CLI evaluates a fixture that declares `output { renderer = new YamlRenderer {} }` and several multiline String values. The YAML output renders them as literal block scalars: `|` (one trailing newline, clip), `|-` (no trailing newline, strip), `|+` (multiple trailing newlines, keep), with two-space content indentation. Strings whose lines start with whitespace fall back to double-quoted form, and listing items in block context also pick up the block-scalar projection.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-080, PKL-081, PKL-082, PKL-083, PKL-084, PKL-085, PKL-086, PKL-087, PKL-088, PKL-089, PKL-090, PKL-091, PKL-092, PKL-093, PKL-098, PKL-119be, PKL-144, PKL-145, PKL-146, PKL-147 — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-080, PKL-081, PKL-082, PKL-083, PKL-084, PKL-085, PKL-086, PKL-087, PKL-088, PKL-089, PKL-090, PKL-091, PKL-092, PKL-093, PKL-098, PKL-119be, PKL-144, PKL-145, PKL-146, PKL-147, PKL-148 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
-- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147 — tags: moonbit, upstream, compatibility, contract
+- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148 — tags: moonbit, upstream, compatibility, contract
   > Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF and JSON).
   - body: `cmd` (exit 0 expected)
 

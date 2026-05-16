@@ -114,7 +114,7 @@ test "evaluate pkl test catch for upstream constraint fixtures" {
         ValueMember::{
           name: "res2",
           value: StringValue(
-            "type annotation X member a constraint isGreaterThan rejects 5",
+            "Type constraint `isGreaterThan(5)` violated. Value: 5",
           ),
         },
       ]),
@@ -1842,7 +1842,7 @@ test "Float constraint predicate rejects out-of-range Float" {
   }
   inspect(
     diagnostics[0].message,
-    content="type annotation Float(isPositive) constraint isPositive rejects -0.5",
+    content="Type constraint `isPositive` violated. Value: -0.5",
   )
 }
 
@@ -1870,7 +1870,9 @@ test "PKL-112: Float isBetween with Float thresholds rejects out-of-range" {
   }
   inspect(
     diagnostics[0].message,
-    content="type annotation Float(isBetween(0.5,1.5)) constraint isBetween rejects 2",
+    content=(
+      #|Type constraint `isBetween(0.5, 1.5)` violated. Value: 2
+    ),
   )
 }
 
@@ -1890,7 +1892,9 @@ test "PKL-112: Float isLessThan with Float threshold rejects" {
   }
   inspect(
     diagnostics[0].message,
-    content="type annotation Float(isLessThan(1.5)) constraint isLessThan rejects 2",
+    content=(
+      #|Type constraint `isLessThan(1.5)` violated. Value: 2
+    ),
   )
 }
 
@@ -3969,6 +3973,93 @@ test "PKL-119b: IntSeq.fold reduces left-to-right" {
 }
 
 ///|
+test "PKL-148: Bool xor and implies dispatch through the method path" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "a = true.xor(false)\nb = true.implies(false)\nc = false.implies(true)",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("a = true"), content="true")
+  inspect(rendered.contains("b = false"), content="true")
+  inspect(rendered.contains("c = true"), content="true")
+}
+
+///|
+test "PKL-148: Listing.getOrNull returns the element or null" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "l = new Listing { 10; 20; 30 }\nfound = l.getOrNull(1)\nmissing = l.getOrNull(9)",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("found = 20"), content="true")
+  inspect(rendered.contains("missing = null"), content="true")
+}
+
+///|
+test "PKL-148: Map.containsValue probes the value side" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "m = Map(\"a\", 1, \"b\", 2)\nhasOne = m.containsValue(1)\nhasNine = m.containsValue(9)",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("hasOne = true"), content="true")
+  inspect(rendered.contains("hasNine = false"), content="true")
+}
+
+///|
+test "PKL-148: value.getClass().simpleName mirrors the runtime type" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "i = 1.getClass().simpleName\ns = \"hi\".getClass().simpleName\nb = true.getClass().simpleName",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("i = \"Int\""), content="true")
+  inspect(rendered.contains("s = \"String\""), content="true")
+  inspect(rendered.contains("b = \"Boolean\""), content="true")
+}
+
+///|
+test "PKL-148: typed empty new {} expands class defaults" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "class Person { name: String = \"The Person\" }\np: Person = new {}",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("name = \"The Person\""), content="true")
+}
+
+///|
+test "PKL-148: constraint diagnostic uses Apple Pkl wording" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:test\"\nclass X { a: Int(isBetween(0, 10)) }\nbad = test.catch(() -> new X { a = 20 }.a)",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered.contains("Type constraint `isBetween(0, 10)` violated. Value: 20"),
+    content="true",
+  )
+}
+
+///|
+test "PKL-148: Listing + Listing concatenates" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "a = new Listing { 1; 2 } + new Listing { 3; 4 }",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("1"), content="true")
+  inspect(rendered.contains("4"), content="true")
+}
+
+///|
 test "PKL-147: nested amend body in mapping entry preserves listing elements" {
   // Regression: `parse_mapping_entry`'s no-`=` brace form used to call
   // `parse_object_body` which silently dropped bare-element listing
@@ -5475,7 +5566,9 @@ test "typealiased function argument annotation enforces the alias constraint" {
   guard session.eval_path("main.pkl") is EvalError(diagnostics) else { panic() }
   assert_true(
     diagnostics.length() > 0 &&
-    diagnostics[0].message.contains("isBetween rejects 11"),
+    diagnostics[0].message.contains(
+      "Type constraint `isBetween(0, 10)` violated. Value: 11",
+    ),
   )
 }
 
@@ -5513,7 +5606,9 @@ test "typealiased class method argument annotation enforces the alias constraint
   guard session.eval_path("main.pkl") is EvalError(diagnostics) else { panic() }
   assert_true(
     diagnostics.length() > 0 &&
-    diagnostics[0].message.contains("isBetween rejects 20"),
+    diagnostics[0].message.contains(
+      "Type constraint `isBetween(0, 10)` violated. Value: 20",
+    ),
   )
 }
 
@@ -6015,12 +6110,16 @@ test "enforce Pkl constrained method parameter annotations" {
   }
   inspect(
     type_diagnostics[0].message,
-    content="method add argument 1 type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+    content=(
+      #|method add argument 1 Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
   guard eval_source(invalid) is EvalError(eval_diagnostics) else { panic() }
   inspect(
     eval_diagnostics[0].message,
-    content="method add argument 1 type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+    content=(
+      #|method add argument 1 Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
 }
 
@@ -6252,12 +6351,16 @@ test "evaluate Pkl constrained class property annotations" {
   }
   inspect(
     type_diagnostics[0].message,
-    content="type annotation X member a constraint above rejects 5",
+    content=(
+      #|Type constraint `above(5)` violated. Value: 5
+    ),
   )
   guard eval_source(invalid) is EvalError(eval_diagnostics) else { panic() }
   inspect(
     eval_diagnostics[0].message,
-    content="type annotation X member a constraint above rejects 5",
+    content=(
+      #|Type constraint `above(5)` violated. Value: 5
+    ),
   )
 }
 
@@ -6284,12 +6387,16 @@ test "evaluate Pkl constrained class property default values" {
   }
   inspect(
     type_diagnostics[0].message,
-    content="type annotation X member a constraint above rejects 5",
+    content=(
+      #|Type constraint `above(5)` violated. Value: 5
+    ),
   )
   guard eval_source(invalid) is EvalError(eval_diagnostics) else { panic() }
   inspect(
     eval_diagnostics[0].message,
-    content="type annotation X member a constraint above rejects 5",
+    content=(
+      #|Type constraint `above(5)` violated. Value: 5
+    ),
   )
 }
 
@@ -6547,7 +6654,9 @@ test "evaluate Pkl callable return annotations" {
   }
   inspect(
     diagnostics[0].message,
-    content="function bad return type annotation Int does not accept String",
+    content=(
+      #|Expected value of type `Int`, but got type `String`. Value: "hawk"
+    ),
   )
 }
 
@@ -6572,7 +6681,9 @@ test "evaluate Pkl class method return annotations" {
   }
   inspect(
     diagnostics[0].message,
-    content="method bad return type annotation Int does not accept String",
+    content=(
+      #|Expected value of type `Int`, but got type `String`. Value: "hawk"
+    ),
   )
 }
 
@@ -6588,7 +6699,9 @@ test "evaluate constrained Pkl callable return annotations" {
   }
   inspect(
     diagnostics[0].message,
-    content="function bad return type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+    content=(
+      #|function bad return Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
 }
 
@@ -6608,7 +6721,9 @@ test "evaluate user-defined constrained Pkl callable return annotations" {
   }
   inspect(
     diagnostics[0].message,
-    content="function bad return type annotation Int(above(5)) constraint above rejects 1",
+    content=(
+      #|function bad return Type constraint `above(5)` violated. Value: 1
+    ),
   )
 }
 
@@ -6633,7 +6748,9 @@ test "evaluate user-defined constrained Pkl class method return annotations" {
   }
   inspect(
     diagnostics[0].message,
-    content="method bad return type annotation Int(above(5)) constraint above rejects 1",
+    content=(
+      #|method bad return Type constraint `above(5)` violated. Value: 1
+    ),
   )
 }
 
@@ -6653,7 +6770,9 @@ test "evaluate user-defined constrained Pkl callable arguments" {
   }
   inspect(
     diagnostics[0].message,
-    content="function check argument 1 type annotation Int(above(5)) constraint above rejects 1",
+    content=(
+      #|function check argument 1 Type constraint `above(5)` violated. Value: 1
+    ),
   )
 }
 
@@ -6678,7 +6797,9 @@ test "evaluate user-defined constrained Pkl class method arguments" {
   }
   inspect(
     diagnostics[0].message,
-    content="method check argument 1 type annotation Int(above(5)) constraint above rejects 1",
+    content=(
+      #|method check argument 1 Type constraint `above(5)` violated. Value: 1
+    ),
   )
 }
 
@@ -6698,7 +6819,9 @@ test "evaluate typealiased Pkl callable return annotations" {
   }
   inspect(
     diagnostics[0].message,
-    content="function bad return type annotation Small does not accept String",
+    content=(
+      #|Expected value of type `Small`, but got type `String`. Value: "hawk"
+    ),
   )
   assert_true(
     eval_source(
@@ -6714,7 +6837,9 @@ test "evaluate typealiased Pkl callable return annotations" {
   }
   inspect(
     constraint_diagnostics[0].message,
-    content="function bad return type annotation Small constraint isBetween rejects 11",
+    content=(
+      #|function bad return Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
 }
 
@@ -6739,7 +6864,9 @@ test "evaluate typealiased Pkl class method return annotations" {
   }
   inspect(
     diagnostics[0].message,
-    content="method bad return type annotation Small does not accept String",
+    content=(
+      #|Expected value of type `Small`, but got type `String`. Value: "hawk"
+    ),
   )
 }
 
@@ -6812,7 +6939,9 @@ test "typecheck rejects constrained Pkl callable return bodies" {
   }
   inspect(
     diagnostics[0].message,
-    content="function bad return type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+    content=(
+      #|function bad return Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
   guard typecheck_source(
       "class Counter { function bad(): Int(isBetween(0, 10)) = 11 }\ncounter = new Counter {}",
@@ -6822,7 +6951,9 @@ test "typecheck rejects constrained Pkl callable return bodies" {
   }
   inspect(
     method_diagnostics[0].message,
-    content="method Counter.bad return type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+    content=(
+      #|method Counter.bad return Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
 }
 
@@ -6842,7 +6973,9 @@ test "typecheck rejects user-defined constrained Pkl callable return bodies" {
   }
   inspect(
     diagnostics[0].message,
-    content="function bad return type annotation Int(above(5)) constraint above rejects 1",
+    content=(
+      #|function bad return Type constraint `above(5)` violated. Value: 1
+    ),
   )
   guard typecheck_source(
       "const function above(n) = (x) -> x > n\nclass Counter { function bad(): Int(above(5)) = 1 }\ncounter = new Counter {}",
@@ -6852,7 +6985,9 @@ test "typecheck rejects user-defined constrained Pkl callable return bodies" {
   }
   inspect(
     method_diagnostics[0].message,
-    content="method Counter.bad return type annotation Int(above(5)) constraint above rejects 1",
+    content=(
+      #|method Counter.bad return Type constraint `above(5)` violated. Value: 1
+    ),
   )
 }
 
@@ -6872,7 +7007,9 @@ test "enforce Pkl constrained function parameter annotations" {
   }
   inspect(
     type_diagnostics[0].message,
-    content="function accept argument 1 type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+    content=(
+      #|function accept argument 1 Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
   guard typecheck_source(
       "local accept = (n: Int(this.isBetween(0, 10))): Int -> n\nvalue = accept(11)",
@@ -6882,7 +7019,9 @@ test "enforce Pkl constrained function parameter annotations" {
   }
   inspect(
     lambda_diagnostics[0].message,
-    content="function accept argument 1 type annotation Int(this.isBetween(0,10)) constraint isBetween rejects 11",
+    content=(
+      #|function accept argument 1 Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
   assert_true(
     eval_source(
@@ -6898,7 +7037,9 @@ test "enforce Pkl constrained function parameter annotations" {
   }
   inspect(
     eval_diagnostics[0].message,
-    content="function f argument 1 type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+    content=(
+      #|function f argument 1 Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
 }
 
@@ -6918,7 +7059,9 @@ test "typecheck Pkl constrained callable signature metadata" {
   }
   inspect(
     function_diagnostics[0].message,
-    content="function argument 1 type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+    content=(
+      #|function argument 1 Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
   guard typecheck_source(
       "local accept = (n: Int(this.isBetween(0, 10))): Int -> n\nlocal f = accept\nvalue = f(11)",
@@ -6928,7 +7071,9 @@ test "typecheck Pkl constrained callable signature metadata" {
   }
   inspect(
     lambda_diagnostics[0].message,
-    content="function argument 1 type annotation Int(this.isBetween(0,10)) constraint isBetween rejects 11",
+    content=(
+      #|function argument 1 Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
 }
 
@@ -6948,7 +7093,9 @@ test "typecheck Pkl constrained higher-order callable metadata" {
   }
   inspect(
     function_diagnostics[0].message,
-    content="function apply argument 2 type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+    content=(
+      #|function apply argument 2 Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
   guard typecheck_source(
       "local apply = (f, n): Int -> f(n)\nlocal accept = (n: Int(this.isBetween(0, 10))): Int -> n\nvalue = apply(accept, 11)",
@@ -6958,7 +7105,9 @@ test "typecheck Pkl constrained higher-order callable metadata" {
   }
   inspect(
     lambda_diagnostics[0].message,
-    content="function apply argument 2 type annotation Int(this.isBetween(0,10)) constraint isBetween rejects 11",
+    content=(
+      #|function apply argument 2 Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
 }
 
@@ -7004,7 +7153,9 @@ test "preserve Pkl constrained typealias metadata" {
   }
   inspect(
     value_diagnostics[0].message,
-    content="type annotation Small constraint isBetween rejects 11",
+    content=(
+      #|Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
   guard eval_source(
       "typealias Small = Int(isBetween(0, 10))\nvalue: Small = 11",
@@ -7014,7 +7165,9 @@ test "preserve Pkl constrained typealias metadata" {
   }
   inspect(
     eval_diagnostics[0].message,
-    content="type annotation Small constraint isBetween rejects 11",
+    content=(
+      #|Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
   guard typecheck_source(
       "typealias Small = Int(this.isBetween(0, 10))\nfunction accept(n: Small): Int = n\nvalue = accept(11)",
@@ -7024,7 +7177,9 @@ test "preserve Pkl constrained typealias metadata" {
   }
   inspect(
     parameter_diagnostics[0].message,
-    content="function accept argument 1 type annotation Small constraint isBetween rejects 11",
+    content=(
+      #|function accept argument 1 Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
 }
 
@@ -7044,7 +7199,9 @@ test "evaluate Pkl constrained typealias object member annotations" {
   }
   inspect(
     type_diagnostics[0].message,
-    content="type annotation Small constraint isBetween rejects 11",
+    content=(
+      #|Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
   guard eval_source(
       "typealias Small = Int(isBetween(0, 10))\nvalue = new { n: Small = 11 }",
@@ -7054,7 +7211,9 @@ test "evaluate Pkl constrained typealias object member annotations" {
   }
   inspect(
     eval_diagnostics[0].message,
-    content="type annotation Small constraint isBetween rejects 11",
+    content=(
+      #|Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
 }
 
@@ -7070,7 +7229,7 @@ test "support additional Pkl numeric constraint predicates" {
   }
   inspect(
     positive_diagnostics[0].message,
-    content="type annotation Int(isPositive) constraint isPositive rejects 0",
+    content="Type constraint `isPositive` violated. Value: 0",
   )
   guard eval_source("value: Int(this.isGreaterThan(5)) = 5")
     is EvalError(greater_diagnostics) else {
@@ -7078,7 +7237,9 @@ test "support additional Pkl numeric constraint predicates" {
   }
   inspect(
     greater_diagnostics[0].message,
-    content="type annotation Int(this.isGreaterThan(5)) constraint isGreaterThan rejects 5",
+    content=(
+      #|Type constraint `isGreaterThan(5)` violated. Value: 5
+    ),
   )
   guard typecheck_source(
       "typealias Small = Int(isLessThan(10))\nvalue = new { n: Small = 10 }",
@@ -7088,7 +7249,9 @@ test "support additional Pkl numeric constraint predicates" {
   }
   inspect(
     alias_diagnostics[0].message,
-    content="type annotation Small constraint isLessThan rejects 10",
+    content=(
+      #|Type constraint `isLessThan(10)` violated. Value: 10
+    ),
   )
 }
 
@@ -7104,7 +7267,9 @@ test "support multiple Pkl type constraint predicates" {
   }
   inspect(
     type_diagnostics[0].message,
-    content="type annotation Int(isPositive,isLessThan(10)) constraint isLessThan rejects 10",
+    content=(
+      #|Type constraint `isLessThan(10)` violated. Value: 10
+    ),
   )
   guard eval_source("value: Int(isPositive, isBetween(1, 10)) = 0")
     is EvalError(eval_diagnostics) else {
@@ -7112,7 +7277,7 @@ test "support multiple Pkl type constraint predicates" {
   }
   inspect(
     eval_diagnostics[0].message,
-    content="type annotation Int(isPositive,isBetween(1,10)) constraint isPositive rejects 0",
+    content="Type constraint `isPositive` violated. Value: 0",
   )
 }
 
@@ -7128,7 +7293,7 @@ test "support negated Pkl type constraint predicates" {
   }
   inspect(
     type_diagnostics[0].message,
-    content="type annotation Int(!isPositive) constraint !isPositive rejects 1",
+    content="Type constraint `!isPositive` violated. Value: 1",
   )
   guard eval_source("value: Int(!isLessThan(10)) = 9")
     is EvalError(eval_diagnostics) else {
@@ -7136,7 +7301,9 @@ test "support negated Pkl type constraint predicates" {
   }
   inspect(
     eval_diagnostics[0].message,
-    content="type annotation Int(!isLessThan(10)) constraint !isLessThan rejects 9",
+    content=(
+      #|Type constraint `!isLessThan(10)` violated. Value: 9
+    ),
   )
 }
 
@@ -7162,7 +7329,9 @@ test "evaluate Pkl user-defined type constraint functions" {
   }
   inspect(
     type_diagnostics[0].message,
-    content="type annotation Int(above(5)) constraint above rejects 5",
+    content=(
+      #|Type constraint `above(5)` violated. Value: 5
+    ),
   )
   guard typecheck_source(
       "function above(n) = (x) -> x > n\ntypealias Above5 = Int(above(5))\nvalue: Above5 = 5",
@@ -7172,7 +7341,9 @@ test "evaluate Pkl user-defined type constraint functions" {
   }
   inspect(
     alias_type_diagnostics[0].message,
-    content="type annotation Above5 constraint above rejects 5",
+    content=(
+      #|Type constraint `above(5)` violated. Value: 5
+    ),
   )
   guard eval_source(
       "function above(n) = (x) -> x > n\nvalue: Int(above(5)) = 5",
@@ -7182,7 +7353,9 @@ test "evaluate Pkl user-defined type constraint functions" {
   }
   inspect(
     eval_diagnostics[0].message,
-    content="type annotation Int(above(5)) constraint above rejects 5",
+    content=(
+      #|Type constraint `above(5)` violated. Value: 5
+    ),
   )
   guard eval_source(
       "function above(n) = (x) -> x > n\ntypealias Above5 = Int(above(5))\nvalue: Above5 = 5",
@@ -7192,7 +7365,9 @@ test "evaluate Pkl user-defined type constraint functions" {
   }
   inspect(
     alias_eval_diagnostics[0].message,
-    content="type annotation Above5 constraint above rejects 5",
+    content=(
+      #|Type constraint `above(5)` violated. Value: 5
+    ),
   )
 }
 
@@ -7208,7 +7383,9 @@ test "evaluate and typecheck Pkl constrained type annotation predicates" {
   }
   inspect(
     type_diagnostics[0].message,
-    content="type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+    content=(
+      #|Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
   assert_true(
     eval_source("value: Int(isBetween(0, 10)) = 3") ==
@@ -7220,7 +7397,9 @@ test "evaluate and typecheck Pkl constrained type annotation predicates" {
   }
   inspect(
     eval_diagnostics[0].message,
-    content="type annotation Int(this.isBetween(0,10)) constraint isBetween rejects 11",
+    content=(
+      #|Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
   guard typecheck_source("value = new { n: Int(isBetween(0, 10)) = 11 }")
     is TypeError(member_type_diagnostics) else {
@@ -7228,7 +7407,9 @@ test "evaluate and typecheck Pkl constrained type annotation predicates" {
   }
   inspect(
     member_type_diagnostics[0].message,
-    content="type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+    content=(
+      #|Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
   guard eval_source("value = new { n: Int(isBetween(0, 10)) = 11 }")
     is EvalError(member_eval_diagnostics) else {
@@ -7236,7 +7417,9 @@ test "evaluate and typecheck Pkl constrained type annotation predicates" {
   }
   inspect(
     member_eval_diagnostics[0].message,
-    content="type annotation Int(isBetween(0,10)) constraint isBetween rejects 11",
+    content=(
+      #|Type constraint `isBetween(0, 10)` violated. Value: 11
+    ),
   )
 }
 
@@ -8073,7 +8256,7 @@ test "Pkl String constraint length comparison rejects out-of-range values" {
     EvalError(diagnostics) => {
       let mut found = false
       for d in diagnostics {
-        if d.message.contains("length") && d.message.contains("rejects") {
+        if d.message.contains("length") && d.message.contains("violated") {
           found = true
         }
       }
@@ -8103,7 +8286,7 @@ test "Pkl String constraint length.isBetween accepts and rejects" {
     EvalError(diagnostics) => {
       let mut found = false
       for d in diagnostics {
-        if d.message.contains("isBetween") && d.message.contains("rejects") {
+        if d.message.contains("isBetween") && d.message.contains("violated") {
           found = true
         }
       }
@@ -8133,7 +8316,7 @@ test "Pkl String constraint matches(Regex(...)) accepts and rejects" {
     EvalError(diagnostics) => {
       let mut found = false
       for d in diagnostics {
-        if d.message.contains("matches") && d.message.contains("rejects") {
+        if d.message.contains("matches") && d.message.contains("violated") {
           found = true
         }
       }
@@ -8151,7 +8334,7 @@ test "Pkl String constraint length.isPositive rejects empty strings" {
     EvalError(diagnostics) => {
       let mut found = false
       for d in diagnostics {
-        if d.message.contains("isPositive") && d.message.contains("rejects") {
+        if d.message.contains("isPositive") && d.message.contains("violated") {
           found = true
         }
       }
@@ -8171,7 +8354,7 @@ test "Pkl String constraint negated matches rejects matching values" {
     EvalError(diagnostics) => {
       let mut found = false
       for d in diagnostics {
-        if d.message.contains("!matches") && d.message.contains("rejects") {
+        if d.message.contains("!matches") && d.message.contains("violated") {
           found = true
         }
       }
@@ -8210,7 +8393,7 @@ test "Pkl Listing element constraint rejects an element that fails the predicate
     EvalError(diagnostics) => {
       let mut found = false
       for d in diagnostics {
-        if d.message.contains("isPositive") && d.message.contains("rejects") {
+        if d.message.contains("isPositive") && d.message.contains("violated") {
           found = true
         }
       }
@@ -8230,7 +8413,7 @@ test "Pkl Listing element constraint propagates String predicates" {
     EvalError(diagnostics) => {
       let mut found = false
       for d in diagnostics {
-        if d.message.contains("length") && d.message.contains("rejects") {
+        if d.message.contains("length") && d.message.contains("violated") {
           found = true
         }
       }
@@ -8250,7 +8433,7 @@ test "Pkl Mapping element constraint validates entry values" {
     EvalError(diagnostics) => {
       let mut found = false
       for d in diagnostics {
-        if d.message.contains("isBetween") && d.message.contains("rejects") {
+        if d.message.contains("isBetween") && d.message.contains("violated") {
           found = true
         }
       }
@@ -8270,7 +8453,7 @@ test "Pkl Mapping element constraint validates entry keys" {
     EvalError(diagnostics) => {
       let mut found = false
       for d in diagnostics {
-        if d.message.contains("length") && d.message.contains("rejects") {
+        if d.message.contains("length") && d.message.contains("violated") {
           found = true
         }
       }

@@ -103,6 +103,7 @@ local moonUnit = new Test {
     "PKL-145"
     "PKL-146"
     "PKL-147"
+    "PKL-148"
   }
   cmd = "moon test --target js"
   timeoutSec = 120
@@ -1259,6 +1260,7 @@ local upstreamSmoke = new Test {
     "PKL-126a"
     "PKL-144"
     "PKL-147"
+    "PKL-148"
   }
   cmd = "./scripts/upstream-smoke.sh"
   workdir = ".."
@@ -1285,7 +1287,7 @@ local upstreamSmoke = new Test {
     "upstream eval ok: classes/constraints8.pkl"
     "upstream json eval ok: api/jsonRenderer1.json (gold match)"
     "upstream eval ok: api/pListRenderer1.plist (gold match)"
-    "upstream-smoke: 35 gold-match fixtures passed"
+    "upstream-smoke: 38 gold-match fixtures passed"
     "upstream-smoke: 1 json gold-match fixtures passed"
     "upstream-smoke: 1 plist gold-match fixtures passed"
   }

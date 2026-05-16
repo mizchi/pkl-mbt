@@ -22,6 +22,7 @@ GOLD_FIXTURES=(
   "basic/comments"
   "basic/constModifier3"
   "basic/fixedProperty1"
+  "basic/fixedProperty2"
   "basic/fixedProperty3"
   "basic/import1"
   "basic/import2"
@@ -30,12 +31,14 @@ GOLD_FIXTURES=(
   "basic/indexExpressions"
   "basic/minPklVersion"
   "basic/moduleRefLibrary"
+  "basic/nonNull"
   "basic/parens"
   "basic/semicolon"
   "classes/class1"
   "classes/constraintsLambdaThis"
   "classes/functions2"
   "generators/propertyGenerators"
+  "listings/cacheStealing"
   "listings/cacheStealingTypeCheck"
   "modules/amendModule1"
   "modules/amendModule2"
@@ -191,7 +194,7 @@ done
 eval_contains \
   "classes/constraints8.pkl" \
   "$UPSTREAM/classes/constraints8.pkl" \
-  "res2 = \"type annotation X member a constraint isGreaterThan rejects 5\""
+  "res2 = \"Type constraint \`isGreaterThan(5)\` violated. Value: 5\""
 
 printf 'upstream-smoke: %d gold-match fixtures passed\n' "$ok_count"
 printf 'upstream-smoke: %d json gold-match fixtures passed\n' "$json_ok_count"
