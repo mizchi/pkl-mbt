@@ -1877,7 +1877,8 @@ local rendererStdlibModulesScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-16"
-      summary = "pkl:base renderer classes seeded in the builtin type table, not as a synthetic pkl:base module"
+      summary =
+        "pkl:base renderer classes seeded in the builtin type table, not as a synthetic pkl:base module"
       rationale =
         "An alternative path is to add `pkl:base` to `builtin_stdlib_source` and walk its declarations through the normal import-typing pipeline. That would model the upstream relationship faithfully (renderers extend `ValueRenderer` which extends from a shared base) but requires a parser-visible `pkl:base` source for every class the user might reach for — strings, numbers, listings, mappings, and dozens of helpers — and the `infer_program` path would need to learn about implicit-import seeding. Wiring just the renderer class names into `builtin_type_from_annotation` keeps the slice narrow to what `output { renderer }` actually exercises today; the broader `pkl:base` synthesis can land as its own slice when an embedded use case requires the full stdlib type surface."
     }
@@ -1903,19 +1904,22 @@ local crossModuleFunctionExport = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-16"
-      summary = "Export module-level functions via hidden-prefixed members rather than a separate side channel"
+      summary =
+        "Export module-level functions via hidden-prefixed members rather than a separate side channel"
       rationale =
         "Adding a parallel `Array[FunctionDecl]` channel to the import resolver (`resolve_import_functions` next to `resolve_import_classes`) would require plumbing the channel through every member-access call site so the dispatcher can fall back from the `ObjectValue` lookup to the function table. Pushing the function as a hidden-named member on the existing `ObjectValue` reuses the in-place `lookup_member` path (which already handles `is_hidden_member_name`-tagged entries bidirectionally) and stays narrow to the eval / typecheck output shape. The trade-off is that raw `eval_source` / `typecheck_source` would surface the hidden entries to test assertions, so the public entry points strip them at the return boundary — a five-line change per entry point versus a deep multi-file refactor."
     }
     new Decision {
       date = "2026-05-16"
-      summary = "Filter only at public-API exit points; keep internal EvalResult / TypecheckResult unfiltered"
+      summary =
+        "Filter only at public-API exit points; keep internal EvalResult / TypecheckResult unfiltered"
       rationale =
         "`AnalysisSession`'s ripple-cached `evals` query stores the full result so subsequent import lookups still see the cross-module function exports — the same cached value is consumed both by `eval_path` (which strips) and by the recursive `eval_module_path` that resolves another module's imports (which doesn't strip). Filtering at the cache layer would force a second lookup table to keep the unfiltered shape around for the next importer. Stripping at the boundary (`eval_path`, `eval_source`, `typecheck_source`) keeps the symmetry single-sourced: one filter per public entry, no parallel caches."
     }
     new Decision {
       date = "2026-05-16"
-      summary = "Slice limited to functions; class / typealias precision already flows via PKL-006 / PKL-137"
+      summary =
+        "Slice limited to functions; class / typealias precision already flows via PKL-006 / PKL-137"
       rationale =
         "The PKL-118 description originally enumerated functions, classes, type aliases, and constraint annotations as candidates for cross-module precision. Inspecting the codebase: classes already export through `qualify_imported_type` (`<Import>.<ClassName>`), type aliases through `type_exports_from_parse_result`'s typealias arm (PKL-137 work), and constraint annotations through the constraint-validation pass that already participates in the typecheck of `imported.MyClass`. The remaining concrete gap was module-level functions, which this slice closes. Inheriting abstract methods through an imported parent still stays deferred — a future slice can layer it on by extending `find_inherited_method` to traverse imported parents through the same hidden-prefixed channel."
     }
@@ -1967,7 +1971,8 @@ local diagnosticUpstreamAlignment = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-16"
-      summary = "Align first-line phrasing only; leave source-position / value-trace decorations as a follow-up"
+      summary =
+        "Align first-line phrasing only; leave source-position / value-trace decorations as a follow-up"
       rationale =
         "Apple Pkl error fixtures include caret-anchored source excerpts (`xx | foo`) and value-trace blocks (`(it: T) -> ...` with `│` blame lines) that depend on infrastructure we don't have yet — full source position propagation lands incrementally with PKL-107 and value tracing has no concrete slice yet. Pinning the first-line wording immediately is the highest-value chunk: a future fixture sweep can diff our output against `<fixture>.err`'s line 2 (the `Pkl Error` banner sits on line 1) and the byte-exact match becomes a regression test for the alignment as new error sites get added. The decorations can layer in without invalidating this work."
     }
@@ -1999,7 +2004,8 @@ local cliSandboxFlagsScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-16"
-      summary = "Module-level mutable sandbox state instead of threading SandboxConfig through every eval call"
+      summary =
+        "Module-level mutable sandbox state instead of threading SandboxConfig through every eval call"
       rationale =
         "The evaluator's deepest call paths (eval_expr_with_bindings, eval_module_path, eval_read_uri) are reached via dozens of intermediate frames. Plumbing a SandboxConfig argument through every one of them is a multi-hundred-line refactor that pays nothing back as long as the CLI is the only configurator. Module-level state mirrors how `env:` already reads from process-global state (host environment), so the precedent is already in the codebase. When an embedded use case demands per-evaluation isolation, the configurators can be swapped for a session-scoped struct without touching the read path."
     }
@@ -2075,7 +2081,8 @@ local annotationClassCapture = new Scenario {
     }
     new Decision {
       date = "2026-05-16"
-      summary = "Module-level annotations attach to Program.module_annotations, not the implicit module"
+      summary =
+        "Module-level annotations attach to Program.module_annotations, not the implicit module"
       rationale =
         "Apple Pkl files don't require an explicit `module` keyword; a file with no header still represents a module. Adding a `ModuleDeclaration` AST node just to hang annotations off would force every existing module consumer to thread the optional decl through. `Program` already aggregates module-level state (`module_name`, `module_relation`, etc.), so the new `module_annotations: Array[Annotation]` field slots in alongside. Annotations only attach when an explicit `module` keyword (or `amends` / `extends` header) is present — bare files leave the list empty."
     }
@@ -2101,7 +2108,8 @@ local yamlBlockScalars = new Scenario {
     }
     new Decision {
       date = "2026-05-16"
-      summary = "Reject strings whose lines start with whitespace instead of emitting `|N` indicators"
+      summary =
+        "Reject strings whose lines start with whitespace instead of emitting `|N` indicators"
       rationale =
         "YAML supports `|2`, `|4`, etc. to override the auto-detected indentation when the first content line itself starts with spaces or tabs. Implementing the indicator + matching content indent is doable but doubles the code path and rarely improves readability over the double-quoted fallback for the few strings that actually need it. Falling back to double-quoted keeps the rendered output deterministic and avoids the per-line indent arithmetic; a follow-up can introduce `|N` if a fixture demands it."
     }
@@ -2127,7 +2135,8 @@ local stringUnicodeMethods = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-16"
-      summary = "Keep `String.length` as UTF-16 code units; add `codePointCount` as the Unicode view"
+      summary =
+        "Keep `String.length` as UTF-16 code units; add `codePointCount` as the Unicode view"
       rationale =
         "Switching `length` to code-point count is a behaviour change for every fixture that touches a non-BMP string — most observable today via `String.toBytes` and substring operations whose offsets are documented in UTF-16 units. The follow-up substring / indexing migration to code-point offsets is its own slice; landing both at once would conflate the API extension with a quiet semantic break. `codePointCount` is the explicit Unicode counterpart and leaves the existing baseline byte-identical."
     }

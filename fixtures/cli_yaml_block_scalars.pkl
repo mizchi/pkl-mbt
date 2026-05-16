@@ -8,10 +8,11 @@ output {
   renderer = new YamlRenderer {}
 }
 
-poem = """
-roses are red
-violets are blue
-"""
+poem =
+  """
+  roses are red
+  violets are blue
+  """
 
 stripped = "alpha\nbeta"
 

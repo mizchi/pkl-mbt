@@ -8,11 +8,9 @@
 //   - `xml.Renderer` and `protobuf.Renderer` are reached through the
 //     qualified `import "pkl:xml" as xml` / `import "pkl:protobuf"
 //     as protobuf` path, which lands the synthetic stdlib module.
-import "pkl:xml" as xml
-
-import "pkl:protobuf" as protobuf
-
 import "pkl:json" as json
+import "pkl:protobuf" as protobuf
+import "pkl:xml" as xml
 
 baseRenderers = new {
   pcf = new PcfRenderer {}

@@ -5,97 +5,42 @@
 /// commitment. Promote to `specs/Spec.pkl` (and flip `reviewStatus` to
 /// `"approved"`) when starting the slice.
 ///
-/// Loose grouping (the ID ranges are conventional, not enforced):
-///   PKL-099 .. PKL-106  CLI surface (format / repl / analyze / output driver)
-///   PKL-107 .. PKL-109  diagnostics, upstream compatibility
-///   PKL-110 .. PKL-118  typechecker rounding (generics inference, equality, narrowing)
-///   PKL-119 .. PKL-124  stdlib expansion (Set/Pair/Map, math float, semver/json/yaml/xml)
-///   PKL-125 .. PKL-127  renderer expansion (block scalars, plist/xml/protobuf, converters)
-///   PKL-128             parser surface expansion
-///   PKL-129             package / https URI import
-///   PKL-130 .. PKL-131  documentation generation, codegen bridge
-///   PKL-132             LSP server foundation
-///   PKL-133 .. PKL-137  pkf / pkspec evaluation blockers (the `Any` type,
-///                       Listing / Mapping stdlib methods, `when` conditional
-///                       property, `amends` semantics). Tagged `pkf-pkspec`
-///                       and ordered ahead of the rest of the roadmap.
+/// 2026-05-16 scope refocus: pkl-mbt is being positioned as a MoonBit
+/// library (parser / typechecker / evaluator surface), so the slices
+/// that overlap with Apple Pkl's own runtime tooling were removed:
+///   - PKL-101 (repl)               — interactive CLI, low library value
+///   - PKL-126b (xml renderer)      — `pkl eval -f xml` is already in upstream
+///   - PKL-126c (protobuf renderer) — same; needs `.proto` schema parser
+///   - PKL-127 (renderer converters) — same renderer surface
+///   - PKL-130 (pkldoc)             — pkl's own `pkldoc` covers this
+///   - PKL-132 (LSP)                — out of scope for the library slice
+/// These can be reinstated later if a concrete consumer surfaces; for
+/// now they sit in git history rather than the active roadmap.
+///
+/// Remaining grouping (the ID ranges are conventional, not enforced):
+///   PKL-119      stdlib Value variants (Set / Pair / Map / IntSeq)
+///   PKL-129b     parser / imports — package:// registry resolution
+///   PKL-131      checker — codegen bridge (consumes typechecker state)
 @ModuleInfo { minPklVersion = "0.31.0" }
 module specs.Roadmap
 
 import "../pkspec/Spec.pkl"
 
-// ── CLI surface ─────────────────────────────────────────────────────────────
-
-local pklRepl: Spec.Scenario = new {
-  id = "PKL-101"
-  name = "pkl repl interactive evaluator"
-  description =
-    "`moon run cmd/main -- repl` opens an interactive read-eval-print loop: each line parses as either a binding (`x = 5`) or an expression and prints the rendered result. Reuses the `AnalysisSession` so each entry incrementally extends the module."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-009" }
-  tags { "cli"; "repl" }
-  reviewStatus = "draft"
-  severity = "minor"
-}
-
-// ── diagnostics, upstream compatibility ─────────────────────────────────────
-
-// ── typechecker rounding ────────────────────────────────────────────────────
-
-
-// ── stdlib expansion ────────────────────────────────────────────────────────
+// ── eval / typechecker precision ────────────────────────────────────────────
 
 local setPairMapIntSeqVariants: Spec.Scenario = new {
   id = "PKL-119"
   name = "Set / Pair / Map / IntSeq Value variants"
   description =
-    "Introduce dedicated Value variants for `Set` / `Pair` / `Map` / `IntSeq` instead of folding into `ListingValue` / `MappingValue`. The renderer round-trip for these stdlib types becomes accurate (`Set(1, 2, 3)`, `Pair(a, b)`), and equality / iteration matches upstream semantics."
+    "Introduce dedicated Value variants for `Set` / `Pair` / `Map` / `IntSeq` instead of folding into `ListingValue` / `MappingValue`. The renderer round-trip for these stdlib types becomes accurate (`Set(1, 2, 3)`, `Pair(a, b)`), equality / iteration matches upstream semantics, and the typechecker can keep them apart from the structurally similar `Listing` / `Mapping` shapes — the latter matters for consumers using pkl-mbt as a library, where collapsing the types loses information the embedder may need."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-075" }
-  tags { "evaluator"; "stdlib"; "renderer" }
+  tags { "evaluator"; "typechecker"; "stdlib"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
 
-// ── renderer expansion ──────────────────────────────────────────────────────
-
-local xmlRenderer: Spec.Scenario = new {
-  id = "PKL-126b"
-  name = "xml renderer"
-  description =
-    "Emit Pkl objects as an XML element tree. Each property becomes an `<element-name>` node; listings render as repeated elements; mapping entries render with the key as the element name. The `xml.Element` and `xml.Inline` annotation classes from `pkl:xml` already exist (PKL-124); this slice wires the rendering side. `-f xml` and `output { renderer = new xml.Renderer { ... } }` both route here."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-124"; "PKL-126a" }
-  tags { "renderer"; "xml"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
-local protobufRenderer: Spec.Scenario = new {
-  id = "PKL-126c"
-  name = "protobuf renderer"
-  description =
-    "Serialize Pkl values against an externally provided `.proto` schema and emit the binary wire format. Requires a schema-lookup mechanism (the `pkl:protobuf` `Renderer` class carries the schema reference) and a way to surface bytes through the existing `BytesValue` carrier. Larger than PKL-126a / PKL-126b because of the schema parsing + wire encoding lift; tracked as its own slice."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-124"; "PKL-126a"; "PKL-126b" }
-  tags { "renderer"; "protobuf" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
-local rendererConverters: Spec.Scenario = new {
-  id = "PKL-127"
-  name = "renderer converter machinery"
-  description =
-    "JSON / YAML / Properties renderers honor `converters { [\"path\"] = (value) -> ...; [\"Class\"] = (value) -> ... }`. Path lookups beat class lookups; the converter return value replaces the source value in the rendered output."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-104" }
-  tags { "renderer"; "converter" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
-// ── parser surface ─────────────────────────────────────────────────────────
+// ── parser / imports ───────────────────────────────────────────────────────
 
 local packagePklRegistry: Spec.Scenario = new {
   id = "PKL-129b"
@@ -109,67 +54,22 @@ local packagePklRegistry: Spec.Scenario = new {
   severity = "major"
 }
 
-// ── documentation, codegen, LSP ─────────────────────────────────────────────
-
-local pkldoc: Spec.Scenario = new {
-  id = "PKL-130"
-  name = "pkldoc documentation generation"
-  description =
-    "`moon run cmd/main -- doc <module>` renders the module's class / typealias / function declarations as Markdown / HTML, using the doc-comment text already captured by the parser."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-080" }
-  tags { "cli"; "pkldoc" }
-  reviewStatus = "draft"
-  severity = "minor"
-}
+// ── checker ────────────────────────────────────────────────────────────────
 
 local codegenBridge: Spec.Scenario = new {
   id = "PKL-131"
   name = "pkl-codegen bridge"
   description =
-    "Lower a typechecked Pkl module to a target language schema (Java / Kotlin / Swift / Go). The bridge consumes the existing typechecker state via `pkl:reflect`'s minimal stub once expanded."
+    "Lower a typechecked Pkl module to a target language schema (Java / Kotlin / Swift / Go / MoonBit). The bridge consumes the existing typechecker state via `pkl:reflect`'s minimal stub once expanded. For pkl-mbt as a MoonBit library, the natural first target is MoonBit itself — emit a `struct` / `enum` skeleton matching the Pkl class / typealias surface so embedders can round-trip their schemas through the same type system."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-080"; "PKL-110" }
-  tags { "cli"; "codegen" }
+  tags { "cli"; "codegen"; "typechecker" }
   reviewStatus = "draft"
   severity = "major"
 }
-
-local lspServer: Spec.Scenario = new {
-  id = "PKL-132"
-  name = "LSP server foundation"
-  description =
-    "A Language Server Protocol server (stdio or socket transport) that surfaces hover, go-to-definition, find-references, completion, diagnostics, semantic tokens, and rename. The existing CST + typechecker + ripple-backed AnalysisSession provide the analysis substrate."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-107" }
-  tags { "lsp"; "editor" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
-// ── pkf / pkspec evaluation blockers ───────────────────────────────────────
-// These five slices are what `moon run cmd/main -- eval` is missing today
-// to load and run pkf's `Taskfile.pkl` and pkspec's `specs/*.pkl`. They
-// were derived by running the actual files through the evaluator on
-// 2026-05-15 and collecting the diagnostics:
-//   - `unknown type annotation Any?` / `Mapping<String, Any>` → PKL-133
-//   - `unknown member toList` / `keys` / `values` → PKL-134
-//   - `unknown member map` / `filter` / `flatMap` / `count` / etc. → PKL-135
-//   - parser silently drops `when (cond) { property = value }` blocks
-//     inside Listing / Mapping literals → PKL-136
-//   - `amends "..."` base module's tests / scenarios / output binding
-//     do not flow into the child's evaluation → PKL-137
-// Promote PKL-133 first (smallest, no dependencies); the rest stack on
-// top of it in numerical order.
 
 entries: Listing<Spec.Scenario> = new {
-  pklRepl
   setPairMapIntSeqVariants
-  xmlRenderer
-  protobufRenderer
-  rendererConverters
   packagePklRegistry
-  pkldoc
   codegenBridge
-  lspServer
 }
