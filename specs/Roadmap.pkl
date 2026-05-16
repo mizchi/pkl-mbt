@@ -47,24 +47,13 @@ local upstreamFixtureSweepExpansion: Spec.Scenario = new {
     "Walk additional upstream `LanguageSnippetTests/input/*` subtrees (`api/`, `errors/`, `generators/`, `lambdas/`, `listings/`, `mappings/`, `methods/`, `objects/`, `packages/`, `projects/`) and promote every fixture that gold-matches byte-for-byte to the curated list. Tracks rolling coverage of the ~800-fixture upstream suite."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-096" }
-  tags { "compatibility"; "upstream" }
+  tags { "compatibility"; "upstream"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
 
 // ── typechecker rounding ────────────────────────────────────────────────────
 
-local crossModuleTypecheckCompleteness: Spec.Scenario = new {
-  id = "PKL-118"
-  name = "cross-module typecheck round-trip completeness"
-  description =
-    "Imported modules' class definitions, type aliases, function signatures, and constraint annotations participate in the importing module's typecheck the same way local declarations do. Today some sites lose precision when crossing the import boundary."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-006" }
-  tags { "typechecker"; "imports"; "pkf-pkspec"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
 
 // ── stdlib expansion ────────────────────────────────────────────────────────
 
@@ -188,7 +177,6 @@ local lspServer: Spec.Scenario = new {
 entries: Listing<Spec.Scenario> = new {
   pklRepl
   upstreamFixtureSweepExpansion
-  crossModuleTypecheckCompleteness
   setPairMapIntSeqVariants
   pklRendererStdlibModules
   plistXmlProtobufRenderers

@@ -82,7 +82,23 @@ pub fn AnalysisSession::eval_path(
   self : AnalysisSession,
   path : String,
 ) -> EvalResult {
-  self.evals.fetch(self.db.runtime(), path)
+  // PKL-118: parallel to `eval_source`'s filter — strip the
+  // hidden-prefixed function members the evaluator adds for cross-
+  // module dispatch. The session's cached EvalResult keeps the full
+  // (with-hidden) shape so subsequent import lookups still see the
+  // function exports; only this returning boundary strips them.
+  match self.evals.fetch(self.db.runtime(), path) {
+    EvalOk(ObjectValue(members)) => {
+      let visible : Array[ValueMember] = []
+      for field in members {
+        if !is_hidden_member_name(field.name) {
+          visible.push(field)
+        }
+      }
+      EvalOk(ObjectValue(visible))
+    }
+    other => other
+  }
 }
 
 ///|

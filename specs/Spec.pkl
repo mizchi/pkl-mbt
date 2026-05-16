@@ -1812,6 +1812,38 @@ local floatMagnitudeUnits = new Scenario {
   }
 }
 
+local crossModuleFunctionExport = new Scenario {
+  id = "PKL-118"
+  name = "cross-module typecheck round-trip completeness"
+  description =
+    "Module-level `function name(params) = body` declarations now participate in cross-module lookup. An importing module reaches them as `<Import>.<name>` at both the eval layer (the call dispatches the lambda body against the supplied arguments) and the typecheck layer (the function's signature flows through the same `infer_expr_with_bindings` path as a local lambda, so argument type errors surface with the precision a local call would have). The implementation pushes each module-level function as a hidden-prefixed member on the module's `ObjectValue` (eval) and `ObjectType` (typecheck); `render_value`'s existing skip for `is_hidden_member_name` keeps the rendered output unchanged. `AnalysisSession::eval_path`, `eval_source`, and `typecheck_source` strip the hidden entries at their return boundary so the existing test corpus (which asserts on visible-binding equality) keeps passing — only the internal cross-module dispatch sees the full shape. Today's slice covers module-level functions only; imported class definitions, type aliases, and constraint annotations already flow through PKL-006 / PKL-137's earlier work and `qualify_imported_type` (`<Import>.<TypeName>`); a future tightening can layer in cross-module abstract-method coverage once an embedded use case exercises it."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-006" }
+  tags { "typechecker"; "imports"; "pkf-pkspec" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Export module-level functions via hidden-prefixed members rather than a separate side channel"
+      rationale =
+        "Adding a parallel `Array[FunctionDecl]` channel to the import resolver (`resolve_import_functions` next to `resolve_import_classes`) would require plumbing the channel through every member-access call site so the dispatcher can fall back from the `ObjectValue` lookup to the function table. Pushing the function as a hidden-named member on the existing `ObjectValue` reuses the in-place `lookup_member` path (which already handles `is_hidden_member_name`-tagged entries bidirectionally) and stays narrow to the eval / typecheck output shape. The trade-off is that raw `eval_source` / `typecheck_source` would surface the hidden entries to test assertions, so the public entry points strip them at the return boundary — a five-line change per entry point versus a deep multi-file refactor."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Filter only at public-API exit points; keep internal EvalResult / TypecheckResult unfiltered"
+      rationale =
+        "`AnalysisSession`'s ripple-cached `evals` query stores the full result so subsequent import lookups still see the cross-module function exports — the same cached value is consumed both by `eval_path` (which strips) and by the recursive `eval_module_path` that resolves another module's imports (which doesn't strip). Filtering at the cache layer would force a second lookup table to keep the unfiltered shape around for the next importer. Stripping at the boundary (`eval_path`, `eval_source`, `typecheck_source`) keeps the symmetry single-sourced: one filter per public entry, no parallel caches."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Slice limited to functions; class / typealias precision already flows via PKL-006 / PKL-137"
+      rationale =
+        "The PKL-118 description originally enumerated functions, classes, type aliases, and constraint annotations as candidates for cross-module precision. Inspecting the codebase: classes already export through `qualify_imported_type` (`<Import>.<ClassName>`), type aliases through `type_exports_from_parse_result`'s typealias arm (PKL-137 work), and constraint annotations through the constraint-validation pass that already participates in the typecheck of `imported.MyClass`. The remaining concrete gap was module-level functions, which this slice closes. Inheriting abstract methods through an imported parent still stays deferred — a future slice can layer it on by extending `find_inherited_method` to traverse imported parents through the same hidden-prefixed channel."
+    }
+  }
+}
+
 local inheritanceDispatchHardeningScenario = new Scenario {
   id = "PKL-117"
   name = "inheritance dispatch hardening remaining"
@@ -3692,5 +3724,6 @@ scenarios {
   cliSandboxFlagsScenario
   diagnosticUpstreamAlignment
   inheritanceDispatchHardeningScenario
+  crossModuleFunctionExport
   ...roadmap.entries
 }

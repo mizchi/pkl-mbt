@@ -87,9 +87,15 @@ fn lookup_type(env : Array[TypeBinding], name : String) -> Type? {
 
 ///|
 fn lookup_member_type(members : Array[TypeMember], name : String) -> Type? {
+  // PKL-118: mirror the eval-side `lookup_member` behaviour — a
+  // hidden-prefixed entry (the form used to export module-level
+  // functions across modules) resolves under its bare name too. This
+  // is what lets `Base.helper(x)` find a `function helper(...)`
+  // declared at the imported module's top level.
+  let prefixed = hidden_member_name(name)
   let mut found : Type? = None
   for field in members {
-    if field.name == name {
+    if field.name == name || field.name == prefixed {
       found = Some(field.typ)
     }
   }
@@ -3384,7 +3390,7 @@ fn infer_expr_with_bindings(
           match lookup_member_type(members, member_name) {
             Some(typ) => member_contract_type(typ)
             None => {
-              diagnostics.push(diag("unknown member \{member_name}"))
+              diagnostics.push(diag("Cannot find property `\{member_name}`."))
               UnknownType
             }
           }
@@ -3392,7 +3398,7 @@ fn infer_expr_with_bindings(
           match lookup_member_type(members, member_name) {
             Some(typ) => member_contract_type(typ)
             None => {
-              diagnostics.push(diag("unknown member \{member_name}"))
+              diagnostics.push(diag("Cannot find property `\{member_name}`."))
               UnknownType
             }
           }
@@ -3411,7 +3417,7 @@ fn infer_expr_with_bindings(
           match lookup_member_type(members, member_name) {
             Some(typ) => member_contract_type(typ)
             None => {
-              diagnostics.push(diag("unknown member \{member_name}"))
+              diagnostics.push(diag("Cannot find property `\{member_name}`."))
               UnknownType
             }
           }
@@ -3419,7 +3425,7 @@ fn infer_expr_with_bindings(
           match lookup_member_type(members, member_name) {
             Some(typ) => member_contract_type(typ)
             None => {
-              diagnostics.push(diag("unknown member \{member_name}"))
+              diagnostics.push(diag("Cannot find property `\{member_name}`."))
               UnknownType
             }
           }
@@ -3427,7 +3433,7 @@ fn infer_expr_with_bindings(
           match lookup_member_type(members, member_name) {
             Some(typ) => nullable_type(member_contract_type(typ))
             None => {
-              diagnostics.push(diag("unknown member \{member_name}"))
+              diagnostics.push(diag("Cannot find property `\{member_name}`."))
               UnknownType
             }
           }
@@ -3435,7 +3441,7 @@ fn infer_expr_with_bindings(
           match lookup_member_type(members, member_name) {
             Some(typ) => nullable_type(member_contract_type(typ))
             None => {
-              diagnostics.push(diag("unknown member \{member_name}"))
+              diagnostics.push(diag("Cannot find property `\{member_name}`."))
               UnknownType
             }
           }
@@ -4014,6 +4020,43 @@ fn infer_program(
       None => ()
     }
   }
+  // PKL-118: mirror the eval-side hidden-prefixed function export so
+  // a cross-module reference like `Base.helper(x)` resolves at the
+  // typecheck layer. The function's lambda type flows through the
+  // normal inference path so call-site argument checks line up with
+  // the local-call behaviour. Hidden-prefixed entries don't render
+  // in the module's downstream surface, so PCF / JSON output stays
+  // unchanged.
+  for declaration in program.declarations {
+    match declaration {
+      FunctionDeclaration(function_decl) =>
+        match function_decl.body {
+          Some(body) => {
+            let lambda_expr = LambdaExpr(
+              function_decl.parameters,
+              body,
+              function_decl.return_type_name,
+            )
+            let inferred = infer_expr_with_bindings(
+              lambda_expr,
+              bindings,
+              env,
+              type_env,
+              cache,
+              [],
+              diagnostics,
+              resolve_import,
+            )
+            fields.push({
+              name: hidden_member_name(function_decl.name),
+              typ: inferred,
+            })
+          }
+          None => ()
+        }
+      _ => ()
+    }
+  }
   match program.body {
     Some(expr) =>
       infer_expr_with_bindings(
@@ -4044,7 +4087,25 @@ fn infer_program(
 
 ///|
 pub fn typecheck_source(source : String) -> TypecheckResult {
-  typecheck_source_with_imports(source, fn(_) { None })
+  // PKL-118: parallel to `eval_source`'s filter — strip the
+  // hidden-prefixed function entries that the typechecker adds for
+  // cross-module dispatch. The existing test corpus asserts on
+  // visible-binding `ObjectType` membership; surfacing the synthetic
+  // entries would force every test that declares a `function` to
+  // expand its expected shape even though the user-visible module
+  // surface still hides them.
+  match typecheck_source_with_imports(source, fn(_) { None }) {
+    TypeOk(ObjectType(members)) => {
+      let visible : Array[TypeMember] = []
+      for field in members {
+        if !is_hidden_member_name(field.name) {
+          visible.push(field)
+        }
+      }
+      TypeOk(ObjectType(visible))
+    }
+    other => other
+  }
 }
 
 ///|

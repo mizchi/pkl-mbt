@@ -3008,6 +3008,52 @@ test "PKL-108: unknown type annotation uses Apple Pkl wording" {
 }
 
 ///|
+test "PKL-118: imported module-level function is callable across modules" {
+  let session = AnalysisSession::new()
+  session.set_source("base.pkl", "function double(x: Int): Int = x * 2")
+  session.set_source(
+    "main.pkl", "import \"base.pkl\" as Base\nresult = Base.double(5)",
+  )
+  let result = session.eval_path("main.pkl")
+  guard result is EvalOk(ObjectValue(members)) else { panic() }
+  inspect(members.length(), content="1")
+  inspect(members[0].name, content="result")
+  guard members[0].value is IntValue(n) else { panic() }
+  inspect(n, content="10")
+}
+
+///|
+test "PKL-118: imported function call participates in typecheck" {
+  let session = AnalysisSession::new()
+  session.set_source("base.pkl", "function double(x: Int): Int = x * 2")
+  session.set_source(
+    "main.pkl", "import \"base.pkl\" as Base\nresult = Base.double(\"not_int\")",
+  )
+  let result = session.typecheck_path("main.pkl")
+  guard result is TypeError(diagnostics) else { panic() }
+  let messages = diagnostics.iter().map(fn(d) { d.message }).collect()
+  inspect(
+    messages[0],
+    content="method double argument 1 expects Int, got String",
+  )
+}
+
+///|
+test "PKL-118: imported function does not pollute rendered output" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "base.pkl", "function double(x: Int): Int = x * 2\nvisible = 1",
+  )
+  let result = session.eval_path("base.pkl")
+  guard result is EvalOk(ObjectValue(members)) else { panic() }
+  // Only the `visible` binding renders; the `double` function exists
+  // but stays hidden so a pkl eval of the base module shows it
+  // contributes nothing on its own.
+  inspect(members.length(), content="1")
+  inspect(members[0].name, content="visible")
+}
+
+///|
 test "PKL-117: missing abstract method override is reported" {
   let result = typecheck_source(
     "abstract class Bird {\n  abstract function chirp(): String\n}\nclass Sparrow extends Bird {\n}",

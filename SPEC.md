@@ -1,6 +1,6 @@
 # Test SPEC
 
-198 tests across 2 module(s) — 145 pending, 53 active
+199 tests across 2 module(s) — 145 pending, 54 active
 
 ## `specs/`
 
@@ -193,10 +193,11 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **cross-module typecheck round-trip completeness** [draft] — verifies: PKL-118 — tags: typechecker, imports, pkf-pkspec, next
-  > Imported modules' class definitions, type aliases, function signatures, and constraint annotations participate in the importing module's typecheck the same way local declarations do. Today some sites lose precision when crossing the import boundary.
+- [ ] **cross-module typecheck round-trip completeness** — verifies: PKL-118 — tags: typechecker, imports, pkf-pkspec
+  > Module-level `function name(params) = body` declarations now participate in cross-module lookup. An importing module reaches them as `<Import>.<name>` at both the eval layer (the call dispatches the lambda body against the supplied arguments) and the typecheck layer (the function's signature flows through the same `infer_expr_with_bindings` path as a local lambda, so argument type errors surface with the precision a local call would have). The implementation pushes each module-level function as a hidden-prefixed member on the module's `ObjectValue` (eval) and `ObjectType` (typecheck); `render_value`'s existing skip for `is_hidden_member_name` keeps the rendered output unchanged. `AnalysisSession::eval_path`, `eval_source`, and `typecheck_source` strip the hidden entries at their return boundary so the existing test corpus (which asserts on visible-binding equality) keeps passing — only the internal cross-module dispatch sees the full shape. Today's slice covers module-level functions only; imported class definitions, type aliases, and constraint annotations already flow through PKL-006 / PKL-137's earlier work and `qualify_imported_type` (`<Import>.<TypeName>`); a future tightening can layer in cross-module abstract-method coverage once an embedded use case exercises it.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-006
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **diagnostic message text upstream alignment** — verifies: PKL-108 — tags: diagnostics, compatibility
@@ -973,7 +974,7 @@
   - contributes to: GOAL-PKL-PURE
   - body: _not yet implemented_
 
-- [ ] **upstream fixture sweep expansion** [draft] — verifies: PKL-109 — tags: compatibility, upstream
+- [ ] **upstream fixture sweep expansion** [draft] — verifies: PKL-109 — tags: compatibility, upstream, next
   > Walk additional upstream `LanguageSnippetTests/input/*` subtrees (`api/`, `errors/`, `generators/`, `lambdas/`, `listings/`, `mappings/`, `methods/`, `objects/`, `packages/`, `projects/`) and promote every fixture that gold-matches byte-for-byte to the curated list. Tracks rolling coverage of the ~800-fixture upstream suite.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-096
@@ -1008,6 +1009,10 @@
 
 - [x] **cli constraint composition** — verifies: PKL-128c — tags: moonbit, cli, parser, constraints, contract
   > The native CLI evaluates a fixture that composes numeric constraint predicates with `&` (e.g. `Int(isPositive & isLessThan(10))`). Valid values render normally; the dispatcher enforces both halves of the composition independently.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli cross module function** — verifies: PKL-118 — tags: moonbit, cli, imports, typechecker, contract
+  > The native CLI evaluates a module that calls two module-level functions declared in an imported sibling module (`Base.double`, `Base.format`). The eval layer dispatches the lambda bodies against the supplied arguments and the rendered output is the importing module's visible bindings only — the base module's functions are emitted with the hidden-member prefix so a `pkl eval` of the base alone renders nothing extra. Confirms cross-module precision for module-level function exports.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli diagnostic position** — verifies: PKL-107 — tags: moonbit, cli, diagnostics, position, contract

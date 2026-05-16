@@ -1,0 +1,8 @@
+// Base module for PKL-118. Exposes two module-level functions that
+// the importing module calls via `Base.double(...)` /
+// `Base.format(...)`. The functions are not visible in the base
+// module's own rendered output — they're invoked across the import
+// boundary and the rendered base is empty.
+function double(x: Int): Int = x * 2
+
+function format(a: Int, b: Int): String = "(\(a), \(b))"

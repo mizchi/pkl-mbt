@@ -6142,6 +6142,49 @@ fn eval_program(
       }
     }
   }
+  // PKL-118: surface module-level `function f(...) = ...` declarations
+  // as hidden-prefixed exported members so a cross-module reference
+  // (`import "x.pkl" as Base; out = Base.helper(5)`) can resolve them
+  // through `lookup_member`. The hidden prefix keeps the function out
+  // of the rendered output (`render_value` skips
+  // `is_hidden_member_name(field.name)`); internal references inside
+  // the declaring module continue to flow through the bare-named entry
+  // in `bindings` produced by `all_eval_bindings`.
+  for declaration in program.declarations {
+    match declaration {
+      FunctionDeclaration(function_decl) =>
+        match function_decl.body {
+          Some(body) => {
+            let lambda_expr = LambdaExpr(
+              function_decl.parameters,
+              body,
+              function_decl.return_type_name,
+            )
+            match
+              eval_expr_with_bindings(
+                lambda_expr,
+                bindings,
+                env,
+                class_env,
+                cache,
+                [],
+                program.declarations,
+                diagnostics,
+                resolve_import,
+              ) {
+              Some(value) =>
+                members.push({
+                  name: hidden_member_name(function_decl.name),
+                  value,
+                })
+              None => ()
+            }
+          }
+          None => ()
+        }
+      _ => ()
+    }
+  }
   let result = match program.body {
     Some(expr) =>
       eval_expr_with_bindings(
@@ -6449,7 +6492,27 @@ fn relation_kind_name(kind : ModuleRelationKind) -> String {
 
 ///|
 pub fn eval_source(source : String) -> EvalResult {
-  eval_source_with_imports(source, fn(_) { None })
+  // PKL-118: strip the hidden-prefixed function members the evaluator
+  // adds for cross-module dispatch. `eval_source` is the test-facing
+  // entry point and the existing tests assert on visible-binding
+  // equality (`ValueMember::{ name: "result", value: IntValue(3) }`);
+  // surfacing the synthetic function entries here would force every
+  // test that declares a `function` to expand its expected ObjectValue
+  // even though the user-visible render still hides them. The CLI's
+  // `render_value` already skips hidden members, so this filter is the
+  // only place the symmetry needs to be re-stated.
+  match eval_source_with_imports(source, fn(_) { None }) {
+    EvalOk(ObjectValue(members)) => {
+      let visible : Array[ValueMember] = []
+      for field in members {
+        if !is_hidden_member_name(field.name) {
+          visible.push(field)
+        }
+      }
+      EvalOk(ObjectValue(visible))
+    }
+    other => other
+  }
 }
 
 ///| Render a runtime value in the canonical Pkl Configuration Format

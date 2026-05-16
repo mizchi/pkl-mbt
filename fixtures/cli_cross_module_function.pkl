@@ -1,0 +1,17 @@
+// PKL-118: a module-level `function` declared in an imported module
+// is reachable from the importing module as `<Import>.<name>` and
+// participates in the importer's typecheck the same way a local
+// function would. Apple Pkl's stdlib (`pkl:math`, `pkl:semver`,
+// etc.) relies on this — for our own modules the symmetry means a
+// project's helper library can be split across files without
+// downgrading typecheck precision at the import boundary.
+//
+// `pkl eval` renders only the visible bindings (`out`, `pair`); the
+// `double` and `format` helpers contributed by the imported module
+// stay hidden because module-level functions are emitted with the
+// hidden-member prefix, which `render_value` skips by convention.
+import "cli_cross_module_function_base.pkl" as Base
+
+out = Base.double(5)
+
+pair = Base.format(Base.double(3), Base.double(4))
