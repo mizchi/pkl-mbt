@@ -3008,6 +3008,67 @@ test "PKL-108: unknown type annotation uses Apple Pkl wording" {
 }
 
 ///|
+test "PKL-117: missing abstract method override is reported" {
+  let result = typecheck_source(
+    "abstract class Bird {\n  abstract function chirp(): String\n}\nclass Sparrow extends Bird {\n}",
+  )
+  guard result is TypeError(diagnostics) else { panic() }
+  let messages = diagnostics.iter().map(fn(d) { d.message }).collect()
+  inspect(
+    messages[0],
+    content="Class `Sparrow` does not implement abstract method `chirp` inherited from `Bird`.",
+  )
+}
+
+///|
+test "PKL-117: concrete override silences abstract diagnostic" {
+  let result = typecheck_source(
+    "abstract class Bird {\n  abstract function chirp(): String\n}\nclass Sparrow extends Bird {\n  function chirp(): String = \"chirp\"\n}",
+  )
+  guard result is TypeOk(_) else { panic() }
+}
+
+///|
+test "PKL-117: abstract method satisfied by intermediate ancestor" {
+  let result = typecheck_source(
+    "abstract class Bird {\n  abstract function chirp(): String\n}\nclass Songbird extends Bird {\n  function chirp(): String = \"trill\"\n}\nclass Sparrow extends Songbird {\n}",
+  )
+  guard result is TypeOk(_) else { panic() }
+}
+
+///|
+test "PKL-117: override return type covariance violation" {
+  let result = typecheck_source(
+    "class Animal {\n  function name(): String = \"animal\"\n}\nclass Mammal extends Animal {\n  function name(): Int = 42\n}",
+  )
+  guard result is TypeError(diagnostics) else { panic() }
+  inspect(
+    diagnostics[0].message,
+    content="Method `Mammal.name` return type `Int` is not a subtype of `Animal.name` return type `String`.",
+  )
+}
+
+///|
+test "PKL-117: override parameter contravariance violation" {
+  let result = typecheck_source(
+    "class Animal {\n  function speak(x: Int): String = \"\"\n}\nclass Mammal extends Animal {\n  function speak(x: String): String = x\n}",
+  )
+  guard result is TypeError(diagnostics) else { panic() }
+  inspect(
+    diagnostics[0].message,
+    content="Method `Mammal.speak` parameter `x` type `String` is not a supertype of `Animal.speak` parameter type `Int`.",
+  )
+}
+
+///|
+test "PKL-117: abstract class itself may declare abstract methods" {
+  let result = typecheck_source(
+    "abstract class Animal {\n  abstract function name(): String\n}\nabstract class Mammal extends Animal {\n}",
+  )
+  guard result is TypeOk(_) else { panic() }
+}
+
+///|
 test "PKL-108: unresolved import uses Apple Pkl wording" {
   let result = eval_source("import \"not_here.pkl\" as Other\nx = Other.value")
   guard result is EvalError(diagnostics) else { panic() }

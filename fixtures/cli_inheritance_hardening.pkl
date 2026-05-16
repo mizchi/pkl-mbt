@@ -1,0 +1,32 @@
+// PKL-117: drives the inheritance hardening diagnostics surfaced
+// by the typechecker. The fixture intentionally trips both checks
+// the slice added:
+//
+//   - `Sparrow` extends an `abstract class Bird` whose `chirp`
+//     method is abstract; `Sparrow` is concrete and does not
+//     override `chirp`, so the typechecker pushes a
+//     `does not implement abstract method` diagnostic.
+//
+//   - `Mammal.name` overrides `Animal.name` with a return type
+//     (`Int`) that is not a subtype of the parent's return type
+//     (`String`), so the typechecker pushes a return-type
+//     covariance diagnostic.
+//
+// `pkl check` (typecheck-only) prints both diagnostics and exits
+// non-zero; the companion pkspec scenario asserts on both first
+// lines.
+
+abstract class Bird {
+  abstract function chirp(): String
+}
+
+class Sparrow extends Bird {
+}
+
+class Animal {
+  function name(): String = "animal"
+}
+
+class Mammal extends Animal {
+  function name(): Int = 42
+}

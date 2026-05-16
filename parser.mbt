@@ -18,6 +18,13 @@ priv struct Parser {
   // in place; the next `skip_member_header` resets it before parsing
   // the next member's annotation prefix.
   pending_annotations : Array[Annotation]
+  // PKL-117: modifier keywords (`abstract`, `open`, `external`, etc.)
+  // captured by `skip_member_header` for the next declaration. Drained
+  // by the decl parsers that care (`parse_class_decl` /
+  // `parse_function_decl` consult the `abstract` flag); cleared
+  // unconditionally by the next `skip_member_header` so a modifier on
+  // a binding doesn't leak into the following class declaration.
+  pending_modifiers : Array[String]
 }
 
 ///|
@@ -43,6 +50,7 @@ fn Parser::new(source : String) -> Parser {
     diagnostics: [],
     unsupported_syntax: [],
     pending_annotations: [],
+    pending_modifiers: [],
   }
 }
 
@@ -436,12 +444,17 @@ fn Parser::skip_member_header(self : Parser) -> Unit {
   // but the following decl parser declined to take, so they don't
   // bleed into the next member.
   self.pending_annotations.clear()
+  // PKL-117: same lifecycle for modifier keywords — clear before each
+  // header pass so a `abstract` consumed for one member doesn't bleed
+  // into the next.
+  self.pending_modifiers.clear()
   let mut keep_going = true
   while keep_going {
     self.skip_trivia()
     if self.at(at_sign()) {
       ignore(self.parse_annotation())
     } else if self.at(identifier()) && is_modifier_text(self.peek().text()) {
+      self.pending_modifiers.push(self.peek().text())
       ignore(self.bump())
     } else {
       keep_going = false
@@ -463,6 +476,24 @@ fn Parser::take_pending_annotations(self : Parser) -> Array[Annotation] {
   }
   self.pending_annotations.clear()
   out
+}
+
+///|
+/// PKL-117: drain the pending modifier list and return true when the
+/// `abstract` keyword was among them. The bool-returning shape keeps
+/// the call site narrow — today the typechecker only cares about
+/// `abstract` for inheritance enforcement; richer modifier inspection
+/// (`open`, `external`, etc.) can layer in by returning a richer
+/// payload later.
+fn Parser::take_pending_abstract(self : Parser) -> Bool {
+  let mut found = false
+  for modifier in self.pending_modifiers {
+    if modifier == "abstract" {
+      found = true
+    }
+  }
+  self.pending_modifiers.clear()
+  found
 }
 
 ///|
@@ -1001,6 +1032,10 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
   // PKL-128d: drain any pending annotations the surrounding
   // `skip_member_header` collected; they precede the `class` keyword.
   let annotations = self.take_pending_annotations()
+  // PKL-117: drain the `abstract` modifier if present so the
+  // typechecker can refuse instantiation and enforce that
+  // descendant concrete classes override every abstract method.
+  let is_abstract = self.take_pending_abstract()
   self.builder.start_node(class_decl())
   self.expect_text("class", "class")
   let name = match self.expect(identifier(), "class name") {
@@ -1120,6 +1155,7 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
       properties,
       methods,
       annotations,
+      is_abstract,
     })
   }
 }
@@ -1237,6 +1273,12 @@ fn Parser::parse_function_parameter(self : Parser) -> FunctionParameter? {
 fn Parser::parse_function_decl(self : Parser) -> FunctionDecl? {
   // PKL-128d: capture annotations preceding the `function` keyword.
   let annotations = self.take_pending_annotations()
+  // PKL-117: drain the `abstract` modifier collected by
+  // `skip_member_header`. Abstract functions intentionally have no
+  // body — the modifier is the explicit marker the typechecker uses
+  // when checking that concrete subclasses override every inherited
+  // abstract method.
+  let is_abstract = self.take_pending_abstract()
   self.builder.start_node(function_decl())
   self.expect_text("function", "function")
   let name = match self.expect(identifier(), "function name") {
@@ -1342,6 +1384,7 @@ fn Parser::parse_function_decl(self : Parser) -> FunctionDecl? {
       return_type_name,
       body,
       annotations,
+      is_abstract,
     })
   }
 }

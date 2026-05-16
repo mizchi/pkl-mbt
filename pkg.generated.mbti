@@ -290,6 +290,7 @@ pub(all) struct ClassDecl {
   properties : Array[ClassProperty]
   methods : Array[FunctionDecl]
   annotations : Array[Annotation]
+  is_abstract : Bool
 } derive(Eq, @debug.Debug)
 
 pub(all) struct ClassExport {
@@ -360,6 +361,7 @@ pub(all) struct FunctionDecl {
   return_type_name : String?
   body : Expr?
   annotations : Array[Annotation]
+  is_abstract : Bool
 } derive(Eq, @debug.Debug)
 
 pub(all) struct FunctionParameter {

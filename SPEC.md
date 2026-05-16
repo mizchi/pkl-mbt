@@ -1,6 +1,6 @@
 # Test SPEC
 
-197 tests across 2 module(s) — 145 pending, 52 active
+198 tests across 2 module(s) — 145 pending, 53 active
 
 ## `specs/`
 
@@ -193,7 +193,7 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **cross-module typecheck round-trip completeness** [draft] — verifies: PKL-118 — tags: typechecker, imports, pkf-pkspec
+- [ ] **cross-module typecheck round-trip completeness** [draft] — verifies: PKL-118 — tags: typechecker, imports, pkf-pkspec, next
   > Imported modules' class definitions, type aliases, function signatures, and constraint annotations participate in the importing module's typecheck the same way local declarations do. Today some sites lose precision when crossing the import boundary.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-006
@@ -449,10 +449,11 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **inheritance dispatch hardening remaining** [draft] — verifies: PKL-117 — tags: typechecker, inheritance, next
-  > Abstract method enforcement and override-direction type compatibility. Super method calls (`super.method()`) landed as PKL-117a. The remaining items are both typechecker-side: scan all transitive parents for abstract methods that the concrete subclass hasn't overridden, and check that override-direction subtype rules hold (contravariant parameter types, covariant return type).
+- [ ] **inheritance dispatch hardening remaining** — verifies: PKL-117 — tags: typechecker, inheritance
+  > The typechecker now enforces two structural inheritance rules on every locally-declared class. (1) Abstract method coverage: a concrete (non-`abstract`) class extending an ancestor chain that contains at least one `abstract function` must provide an override for every such method — through its own `methods` array or through some intermediate concrete ancestor between the abstract declaration and itself. Missing coverage surfaces as `Class \`<name>\` does not implement abstract method \`<name>\` inherited from \`<parent>\`.`. Abstract classes are exempt — they're explicitly allowed to leave abstract members for downstream concretisation. (2) Override-direction subtype rules: when a child class declares a method with the same name as one declared anywhere in its parent chain, the return type must be covariant (`child_return <: parent_return`) and each parameter type must be contravariant (`parent_param <: child_param`). Violations surface as `Method \`<class>.<name>\` return type \`<child>\` is not a subtype of \`<parent>.<name>\` return type \`<parent_return>\`.` and a parallel parameter form. Both checks walk only locally-declared parents; the imported-parent case still flows through PKL-118's cross-module typecheck round-trip work. The parser captures the `abstract` modifier on both class and function declarations via the same `pending_modifiers` buffer pattern PKL-128d uses for annotations, draining the flag at decl construction so the modifier never leaks between adjacent decls.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-040, PKL-117a
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **inventory unsupported syntax in tolerant parser output** — verifies: PKL-016 — tags: parser
@@ -1083,6 +1084,10 @@
 
 - [x] **cli https URI import** — verifies: PKL-129 — tags: moonbit, cli, imports, pkf-pkspec, contract
   > The native CLI evaluates a fixture whose `import` declaration points at a raw GitHub URL of another fixture in this repo. The HTTP fetch goes through `mizchi/x/http.get` under a `moonbitlang/async` event loop, and the imported module's bindings become available in the importing module's typecheck / evaluation pipeline.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli inheritance hardening** — verifies: PKL-117 — tags: moonbit, cli, typechecker, inheritance, contract
+  > The native CLI's `check` subcommand surfaces the typechecker's PKL-117 diagnostics for a fixture that trips both rules: `Sparrow extends Bird` without overriding `Bird`'s `abstract function chirp`, and `Mammal.name` overrides `Animal.name` with a return type (`Int`) that is not a subtype of the parent's return type (`String`). The fixture intentionally contains both faults so a single scenario exercises the abstract-method coverage and the return-type covariance checks together.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli is operator runtime** — verifies: PKL-114 — tags: moonbit, cli, evaluator, is-operator, contract

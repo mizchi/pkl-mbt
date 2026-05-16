@@ -374,6 +374,21 @@ local cliFloatMagnitudeUnits = new Test {
   timeoutSec = 120
 }
 
+local cliInheritanceHardening = new Test {
+  name = "cli inheritance hardening"
+  description =
+    "The native CLI's `check` subcommand surfaces the typechecker's PKL-117 diagnostics for a fixture that trips both rules: `Sparrow extends Bird` without overriding `Bird`'s `abstract function chirp`, and `Mammal.name` overrides `Animal.name` with a return type (`Int`) that is not a subtype of the parent's return type (`String`). The fixture intentionally contains both faults so a single scenario exercises the abstract-method coverage and the return-type covariance checks together."
+  tags { "moonbit"; "cli"; "typechecker"; "inheritance"; "contract" }
+  specRef { "PKL-117" }
+  cmd = "moon run cmd/main --target native -- check fixtures/cli_inheritance_hardening.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "Class `Sparrow` does not implement abstract method `chirp` inherited from `Bird`."
+    "Method `Mammal.name` return type `Int` is not a subtype of `Animal.name` return type `String`."
+  }
+  timeoutSec = 120
+}
+
 local cliDiagnosticUpstream = new Test {
   name = "cli diagnostic upstream alignment"
   description =
@@ -1021,6 +1036,7 @@ tests {
   cliLintFindings
   cliSandboxFlags
   cliDiagnosticUpstream
+  cliInheritanceHardening
   cliHeredocString
   cliFormat
   cliTestExamplesPass

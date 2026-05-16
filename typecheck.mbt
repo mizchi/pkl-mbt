@@ -1037,6 +1037,209 @@ fn push_constrained_class_property_default_diagnostics(
 }
 
 ///|
+/// PKL-117: enforce two structural inheritance rules on every class
+/// declared locally in `declarations`:
+///
+///   1. Abstract-method coverage. When a concrete (non-abstract)
+///      class extends an ancestor chain containing at least one
+///      abstract method, the concrete class — or some intermediate
+///      ancestor between the abstract method's declaring class and
+///      the concrete class — must provide a method with the same
+///      name. Otherwise the concrete class is unsound: instantiation
+///      would resolve a method call on an absent body.
+///
+///   2. Override-direction subtype rules. When a child class
+///      overrides a parent method (matching by name), the return
+///      type must be covariant (`child_return <: parent_return`)
+///      and each parameter type must be contravariant
+///      (`parent_param <: child_param`). The check uses the
+///      existing `type_accepts` subtype relation so the rules track
+///      the standard Liskov substitution principle.
+///
+/// Both checks walk only locally-declared parents because the
+/// imported-parent case requires cross-module member visibility
+/// that PKL-118 still tracks separately.
+fn push_inheritance_hardening_diagnostics(
+  declarations : Array[Declaration],
+  type_env : Array[TypeBinding],
+  diagnostics : Array[Diagnostic],
+) -> Unit {
+  let by_name : Map[String, ClassDecl] = Map([], capacity=8)
+  for declaration in declarations {
+    match declaration {
+      ClassDeclaration(class_decl) => by_name[class_decl.name] = class_decl
+      _ => ()
+    }
+  }
+  for declaration in declarations {
+    match declaration {
+      ClassDeclaration(class_decl) => {
+        if !class_decl.is_abstract {
+          enforce_abstract_method_coverage(class_decl, by_name, diagnostics)
+        }
+        enforce_method_override_directions(
+          class_decl, by_name, type_env, diagnostics,
+        )
+      }
+      _ => ()
+    }
+  }
+}
+
+///|
+/// Walk the parent chain collecting abstract methods that the
+/// concrete `class_decl` (or some ancestor below the declaring
+/// class) must override. Methods present in any descendant between
+/// the abstract declaration and `class_decl` count as overrides.
+fn enforce_abstract_method_coverage(
+  class_decl : ClassDecl,
+  by_name : Map[String, ClassDecl],
+  diagnostics : Array[Diagnostic],
+) -> Unit {
+  let descendant_methods : Array[String] = []
+  for class_method in class_decl.methods {
+    descendant_methods.push(class_method.name)
+  }
+  let mut current : ClassDecl? = match class_decl.parent_name {
+    Some(name) => by_name.get(name)
+    None => None
+  }
+  while current is Some(parent_decl) {
+    for parent_method in parent_decl.methods {
+      if parent_method.is_abstract &&
+        !array_contains_string(descendant_methods, parent_method.name) {
+        diagnostics.push(
+          diag(
+            "Class `\{class_decl.name}` does not implement abstract method `\{parent_method.name}` inherited from `\{parent_decl.name}`.",
+          ),
+        )
+      }
+    }
+    for parent_method in parent_decl.methods {
+      if !array_contains_string(descendant_methods, parent_method.name) {
+        descendant_methods.push(parent_method.name)
+      }
+    }
+    current = match parent_decl.parent_name {
+      Some(name) => by_name.get(name)
+      None => None
+    }
+  }
+}
+
+///|
+/// For each method in `class_decl`, look up a parent method with the
+/// same name and verify return-type covariance and parameter-type
+/// contravariance. Unresolved type annotations (`Cannot find type`)
+/// don't push a duplicate diagnostic — they were already surfaced by
+/// the class-member typecheck and skipping here keeps the noise
+/// floor low.
+fn enforce_method_override_directions(
+  class_decl : ClassDecl,
+  by_name : Map[String, ClassDecl],
+  type_env : Array[TypeBinding],
+  diagnostics : Array[Diagnostic],
+) -> Unit {
+  for class_method in class_decl.methods {
+    let parent_method = find_inherited_method(
+      class_decl,
+      class_method.name,
+      by_name,
+    )
+    match parent_method {
+      Some((parent_decl, ancestor_method)) => {
+        // Return type: covariant. Child must be a subtype of parent.
+        match
+          (ancestor_method.return_type_name, class_method.return_type_name) {
+          (Some(parent_ret), Some(child_ret)) =>
+            match
+              (
+                type_from_annotation(parent_ret, type_env),
+                type_from_annotation(child_ret, type_env),
+              ) {
+              (Some(parent_type), Some(child_type)) =>
+                if !type_accepts(parent_type, child_type) {
+                  diagnostics.push(
+                    diag(
+                      "Method `\{class_decl.name}.\{class_method.name}` return type `\{child_ret}` is not a subtype of `\{parent_decl.name}.\{ancestor_method.name}` return type `\{parent_ret}`.",
+                    ),
+                  )
+                }
+              _ => ()
+            }
+          _ => ()
+        }
+        let parent_params = ancestor_method.parameters
+        let child_params = class_method.parameters
+        if parent_params.length() == child_params.length() {
+          for i = 0; i < parent_params.length(); i = i + 1 {
+            match (parent_params[i].type_name, child_params[i].type_name) {
+              (Some(parent_param), Some(child_param)) =>
+                match
+                  (
+                    type_from_annotation(parent_param, type_env),
+                    type_from_annotation(child_param, type_env),
+                  ) {
+                  (Some(parent_type), Some(child_type)) =>
+                    if !type_accepts(child_type, parent_type) {
+                      diagnostics.push(
+                        diag(
+                          "Method `\{class_decl.name}.\{class_method.name}` parameter `\{child_params[i].name}` type `\{child_param}` is not a supertype of `\{parent_decl.name}.\{ancestor_method.name}` parameter type `\{parent_param}`.",
+                        ),
+                      )
+                    }
+                  _ => ()
+                }
+              _ => ()
+            }
+          }
+        }
+      }
+      None => ()
+    }
+  }
+}
+
+///|
+/// Look up the nearest ancestor that declares a method named
+/// `method_name`. Returns the declaring class along with the method
+/// itself so the diagnostic can name both. `None` when no ancestor
+/// declares the method (this method is a new addition, not an
+/// override).
+fn find_inherited_method(
+  class_decl : ClassDecl,
+  method_name : String,
+  by_name : Map[String, ClassDecl],
+) -> (ClassDecl, FunctionDecl)? {
+  let mut current : ClassDecl? = match class_decl.parent_name {
+    Some(name) => by_name.get(name)
+    None => None
+  }
+  while current is Some(parent_decl) {
+    for parent_method in parent_decl.methods {
+      if parent_method.name == method_name {
+        return Some((parent_decl, parent_method))
+      }
+    }
+    current = match parent_decl.parent_name {
+      Some(name) => by_name.get(name)
+      None => None
+    }
+  }
+  None
+}
+
+///|
+fn array_contains_string(items : Array[String], needle : String) -> Bool {
+  for item in items {
+    if item == needle {
+      return true
+    }
+  }
+  false
+}
+
+///|
 fn type_from_alias_target_annotation(
   name : String,
   type_env : Array[TypeBinding],
@@ -3746,6 +3949,16 @@ fn infer_program(
     diagnostics,
   )
   push_constrained_callable_return_body_diagnostics(
+    program.declarations,
+    type_env,
+    diagnostics,
+  )
+  // PKL-117: enforce abstract-method coverage on concrete classes and
+  // override-direction subtype rules on every overriding method. The
+  // pass walks only locally-declared parents — abstract methods that
+  // arrive through an imported parent stay deferred; cross-module
+  // visibility is a separate slice (PKL-118 currently tracks it).
+  push_inheritance_hardening_diagnostics(
     program.declarations,
     type_env,
     diagnostics,

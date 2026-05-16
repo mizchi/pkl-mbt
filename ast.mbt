@@ -204,6 +204,10 @@ pub(all) struct ClassDecl {
   // PKL-128d: annotations attached to this `class` declaration in
   // source order. Empty when no annotation precedes the keyword.
   annotations : Array[Annotation]
+  // PKL-117: true when `abstract` preceded the `class` keyword. The
+  // class itself cannot be instantiated and may host abstract methods
+  // that concrete subclasses must override.
+  is_abstract : Bool
 } derive(Eq, Debug)
 
 ///|
@@ -229,6 +233,12 @@ pub(all) struct FunctionDecl {
   // PKL-128d: annotations attached to this `function` declaration in
   // source order. Empty when no annotation precedes the keyword.
   annotations : Array[Annotation]
+  // PKL-117: true when `abstract` preceded the `function` keyword. An
+  // abstract method has no body (`body = None`); the modifier is the
+  // explicit marker, since a body-less function inside an abstract
+  // class declaration would otherwise be ambiguous with a partial
+  // declaration the parser had failed to consume.
+  is_abstract : Bool
 } derive(Eq, Debug)
 
 ///|

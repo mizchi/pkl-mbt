@@ -1812,6 +1812,38 @@ local floatMagnitudeUnits = new Scenario {
   }
 }
 
+local inheritanceDispatchHardeningScenario = new Scenario {
+  id = "PKL-117"
+  name = "inheritance dispatch hardening remaining"
+  description =
+    "The typechecker now enforces two structural inheritance rules on every locally-declared class. (1) Abstract method coverage: a concrete (non-`abstract`) class extending an ancestor chain that contains at least one `abstract function` must provide an override for every such method — through its own `methods` array or through some intermediate concrete ancestor between the abstract declaration and itself. Missing coverage surfaces as `Class \\`<name>\\` does not implement abstract method \\`<name>\\` inherited from \\`<parent>\\`.`. Abstract classes are exempt — they're explicitly allowed to leave abstract members for downstream concretisation. (2) Override-direction subtype rules: when a child class declares a method with the same name as one declared anywhere in its parent chain, the return type must be covariant (`child_return <: parent_return`) and each parameter type must be contravariant (`parent_param <: child_param`). Violations surface as `Method \\`<class>.<name>\\` return type \\`<child>\\` is not a subtype of \\`<parent>.<name>\\` return type \\`<parent_return>\\`.` and a parallel parameter form. Both checks walk only locally-declared parents; the imported-parent case still flows through PKL-118's cross-module typecheck round-trip work. The parser captures the `abstract` modifier on both class and function declarations via the same `pending_modifiers` buffer pattern PKL-128d uses for annotations, draining the flag at decl construction so the modifier never leaks between adjacent decls."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-040"; "PKL-117a" }
+  tags { "typechecker"; "inheritance" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "AST-walking enforcement keyed on local declarations only"
+      rationale =
+        "Threading abstract-method metadata through the `TypeMember` shape would require updating ~60 construction sites across the codebase. Walking `Map[String, ClassDecl]` built once per program scopes the change tightly to the new validator. The trade-off is that abstract methods inherited through an imported parent stay deferred — a class extending an imported abstract base doesn't get the coverage check yet. PKL-118 (cross-module typecheck round-trip completeness) tracks that gap; today the local-only enforcement covers the common case where a project's class hierarchy lives in one module."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Pending-modifier buffer mirrors the PKL-128d annotation buffer"
+      rationale =
+        "An alternative is to thread an `abstract: Bool` parameter through every decl parser (`parse_class_decl` / `parse_function_decl`). The pending-buffer approach centralises the capture/drain contract: `skip_member_header` is the single owner that clears the list before each pass and fills it from `is_modifier_text` tokens; each decl parser pulls via `take_pending_abstract`. Decls that don't carry `abstract` simply leave the buffer in place, and the next header pass resets it before parsing the next member — so an `abstract` consumed for one declaration cannot bleed into the following one."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Override-direction check skips when either annotation is missing or unresolved"
+      rationale =
+        "Method signatures in Pkl don't require explicit type annotations; a body-only `function name() = \"animal\"` has no annotated return type to compare against. Pushing a diagnostic for every unannotated override would force every test fixture to spell out signatures even when the override is trivially compatible. Skipping the comparison when either side is missing keeps the rule advisory rather than viral, and the unannotated case still passes the abstract-method coverage check — only the subtype rule is conditional on annotation presence."
+    }
+  }
+}
+
 local diagnosticUpstreamAlignment = new Scenario {
   id = "PKL-108"
   name = "diagnostic message text upstream alignment"
@@ -3659,5 +3691,6 @@ scenarios {
   analyzeLintSubcommand
   cliSandboxFlagsScenario
   diagnosticUpstreamAlignment
+  inheritanceDispatchHardeningScenario
   ...roadmap.entries
 }

@@ -54,18 +54,6 @@ local upstreamFixtureSweepExpansion: Spec.Scenario = new {
 
 // ── typechecker rounding ────────────────────────────────────────────────────
 
-local inheritanceDispatchHardening: Spec.Scenario = new {
-  id = "PKL-117"
-  name = "inheritance dispatch hardening remaining"
-  description =
-    "Abstract method enforcement and override-direction type compatibility. Super method calls (`super.method()`) landed as PKL-117a. The remaining items are both typechecker-side: scan all transitive parents for abstract methods that the concrete subclass hasn't overridden, and check that override-direction subtype rules hold (contravariant parameter types, covariant return type)."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-040"; "PKL-117a" }
-  tags { "typechecker"; "inheritance"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 local crossModuleTypecheckCompleteness: Spec.Scenario = new {
   id = "PKL-118"
   name = "cross-module typecheck round-trip completeness"
@@ -73,7 +61,7 @@ local crossModuleTypecheckCompleteness: Spec.Scenario = new {
     "Imported modules' class definitions, type aliases, function signatures, and constraint annotations participate in the importing module's typecheck the same way local declarations do. Today some sites lose precision when crossing the import boundary."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-006" }
-  tags { "typechecker"; "imports"; "pkf-pkspec" }
+  tags { "typechecker"; "imports"; "pkf-pkspec"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -200,7 +188,6 @@ local lspServer: Spec.Scenario = new {
 entries: Listing<Spec.Scenario> = new {
   pklRepl
   upstreamFixtureSweepExpansion
-  inheritanceDispatchHardening
   crossModuleTypecheckCompleteness
   setPairMapIntSeqVariants
   pklRendererStdlibModules
