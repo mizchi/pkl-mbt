@@ -31,7 +31,9 @@
 ///   - PKL-132 (LSP)                — out of scope for the library slice
 ///
 /// Active grouping (the ID ranges are conventional, not enforced):
-///   PKL-129b     parser / imports — package:// registry resolution
+///   PKL-129b2    parser / imports — package:// zipball download +
+///                  unpack (PKL-129b1 landed the URI parse +
+///                  metadata fetch + diagnostic)
 ///   PKL-131      checker — codegen bridge (consumes typechecker state)
 ///
 /// PKL-119a/b/c/d (Pair / IntSeq / Set / Map dedicated value
@@ -48,13 +50,13 @@ import "../pkspec/Spec.pkl"
 
 // ── parser / imports ──
 
-local packagePklRegistry: Spec.Scenario = new {
-  id = "PKL-129b"
-  name = "package:// registry resolution"
+local packagePklRegistryUnpack: Spec.Scenario = new {
+  id = "PKL-129b2"
+  name = "package:// zipball download and unpack"
   description =
-    "`import \"package://pkg.pkl-lang.org/...\"` resolves through Apple Pkl's registry protocol: fetch the package metadata JSON, locate the zipball URL, fetch + extract the zipball, then look up the path fragment inside. Today the CLI recognises the URI scheme but always errors with a clear diagnostic; PKL-129 lands the underlying `https://` fetch path. The registry resolution is the follow-up that adds a zip unpacker, fragment routing, and (later) checksum / signature verification."
+    "PKL-129b1 lands the URI parse, metadata fetch, and `packageZipUrl` extraction. PKL-129b2 closes the loop: download the zipball over HTTPS, verify the SHA-256 checksum from `packageZipChecksums`, DEFLATE-decode the archive, cache the extracted tree under `~/.pkl/cache/package-2/<authority>/<path>/<version>/`, then resolve the fragment path against the cache. The DEFLATE decoder is the biggest sub-lift (MoonBit core doesn't ship one); it can either be vendored or hand-rolled inside this slice. Until it lands, users follow the PKL-129b1 diagnostic's workaround (download manually with `pkl download-package` and pass `--module-path`)."
   contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-129" }
+  dependsOn { "PKL-129b1" }
   tags { "parser"; "imports"; "sandbox"; "pkf-pkspec"; "next" }
   reviewStatus = "draft"
   severity = "major"
@@ -75,7 +77,7 @@ local codegenBridge: Spec.Scenario = new {
 }
 
 entries: Listing<Spec.Scenario> = new {
-  packagePklRegistry
+  packagePklRegistryUnpack
   codegenBridge
 }
 

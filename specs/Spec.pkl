@@ -1922,6 +1922,38 @@ local setValueVariantScenario = new Scenario {
   }
 }
 
+local packageRegistryProbeScenario = new Scenario {
+  id = "PKL-129b1"
+  name = "package registry probe and structured diagnostic"
+  description =
+    "The CLI accepts `package://<authority>/<path>@<version>[#<fragment>]` URIs and reports a structured diagnostic naming the package URI, the metadata URL (derived by direct scheme rewrite + drop the fragment), the optional fragment, and the `packageZipUrl` pulled out of the metadata JSON. The fetch path follows up to five 301 / 302 / 303 / 307 / 308 redirects so the `pkg.pkl-lang.org → CDN` hop the registry serves doesn't break the probe. `parse_package_uri` validates the shape (rejects authority-only URIs); `package_metadata_url` performs the rewrite; `extract_package_zip_url` substring-scans the metadata body for the `packageZipUrl` string (no full JSON parser stood up — the field is a simple unescaped URL string). On metadata fetch failure or missing field the diagnostic still surfaces the parsed pieces plus the workaround: download the zip manually (or with `pkl download-package`) and pass `--module-path <dir>`. The CLI exits with status 1 in either case. Full zipball download + DEFLATE unpack + cache + checksum verification land with PKL-129b2."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-129" }
+  tags { "cli"; "parser"; "imports"; "sandbox"; "pkf-pkspec" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Substring scan for `packageZipUrl` instead of a full JSON parser"
+      rationale =
+        "Adding a JSON parser (or threading the body through pkl's own evaluator) is a much larger lift than the slice needs. The metadata response is a single JSON object with `packageZipUrl` as a flat string field whose value (an HTTPS URL) never contains JSON-string escapes; a scan for `\"packageZipUrl\"` followed by `:` and the next quoted string is unambiguous. When PKL-129b2 lands the full registry resolution it'll need a structured JSON walk for `dependencies` / `packageZipChecksums` / `sourceCodeUrlScheme` — that's the natural slice to introduce a real parser; today's probe stays narrow."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Follow redirects in fetch_uri rather than just in the package-probe path"
+      rationale =
+        "The native `pkg.pkl-lang.org` host returns 301 redirects to a CDN before serving the JSON. Patching only the package-probe path would have left the existing https-import surface (PKL-129) silently broken for any URL that ever redirects (e.g. raw GitHub URLs after a tag move). Moving the 5-hop redirect loop into `fetch_uri` itself fixes both cases with one code path."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Split PKL-129b into PKL-129b1 / PKL-129b2"
+      rationale =
+        "The original PKL-129b bundled URI parse + metadata fetch + zipball extract + cache + checksum. The zip extraction needs a DEFLATE decoder that doesn't exist in `moonbitlang/core` today (and would itself be a several-hundred-line slice). Splitting into b1 (parse + diagnostic, this slice) and b2 (download + unpack + cache + checksum) lets the b1 diagnostic ship today and gives users an actionable workaround (`pkl download-package` + `--module-path`) while b2 either lands later or stays deferred if pkl-mbt consumers route through Apple Pkl's CLI for that part."
+    }
+  }
+}
+
 local mapValueVariantScenario = new Scenario {
   id = "PKL-119d"
   name = "Map Value variant for the immutable functional map"
@@ -3935,5 +3967,6 @@ scenarios {
   intSeqValueVariantScenario
   setValueVariantScenario
   mapValueVariantScenario
+  packageRegistryProbeScenario
   ...roadmap.entries
 }

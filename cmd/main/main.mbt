@@ -43,6 +43,171 @@ fn split_pipe(s : String) -> Array[String] {
 }
 
 ///|
+/// PKL-129b1: structural parse of a `package://` URI. Apple Pkl's
+/// registry URLs land in three logical parts: the authority (host),
+/// the registry path (which ends with `@<version>` — pkl-mbt keeps
+/// the path verbatim so the same string round-trips into the
+/// metadata URL), and an optional `#<fragment>` selecting a file
+/// inside the package zip. Returns `None` when the URI doesn't have
+/// the `package://<host>/<path>` shape.
+struct PackageUri {
+  authority : String
+  path : String
+  fragment : String
+}
+
+///|
+fn parse_package_uri(uri : String) -> PackageUri? {
+  if !uri.has_prefix("package://") {
+    return None
+  }
+  let after_scheme = String::unsafe_substring(uri, start=10, end=uri.length())
+  let (without_fragment, fragment) = match after_scheme.find("#") {
+    Some(idx) =>
+      (
+        String::unsafe_substring(after_scheme, start=0, end=idx),
+        String::unsafe_substring(
+          after_scheme,
+          start=idx + 1,
+          end=after_scheme.length(),
+        ),
+      )
+    None => (after_scheme, "")
+  }
+  // The authority ends at the first `/` after the host. A package
+  // URI without a path (`package://host`) isn't a valid registry
+  // reference, so we reject it here rather than building a bogus
+  // metadata URL downstream.
+  match without_fragment.find("/") {
+    None => None
+    Some(0) => None
+    Some(slash) => {
+      let authority = String::unsafe_substring(
+        without_fragment,
+        start=0,
+        end=slash,
+      )
+      let path = String::unsafe_substring(
+        without_fragment,
+        start=slash,
+        end=without_fragment.length(),
+      )
+      Some(PackageUri::{ authority, path, fragment })
+    }
+  }
+}
+
+///|
+/// PKL-129b1: build the HTTPS URL the registry serves the package
+/// metadata JSON at. Apple Pkl's convention is a direct scheme
+/// rewrite + drop the fragment: `package://<authority><path>#fragment`
+/// becomes `https://<authority><path>`. The metadata response carries
+/// `packageZipUrl` (extracted separately).
+fn package_metadata_url(p : PackageUri) -> String {
+  "https://\{p.authority}\{p.path}"
+}
+
+///|
+/// PKL-129b1: pluck the `packageZipUrl` string from a metadata JSON
+/// body without standing up a full JSON parser. The field is a
+/// simple `"packageZipUrl": "<url>"` pair; URLs never contain JSON
+/// string escapes, so a naive substring scan is sufficient. Returns
+/// `None` when the field is absent or malformed.
+fn extract_package_zip_url(body : String) -> String? {
+  let needle = "\"packageZipUrl\""
+  match body.find(needle) {
+    None => None
+    Some(idx) => {
+      let mut i = idx + needle.length()
+      // Skip whitespace then a single `:` then more whitespace.
+      while i < body.length() {
+        let c = body[i].to_int().unsafe_to_char()
+        if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+          i = i + 1
+        } else {
+          break
+        }
+      }
+      if i >= body.length() || body[i].to_int().unsafe_to_char() != ':' {
+        return None
+      }
+      i = i + 1
+      while i < body.length() {
+        let c = body[i].to_int().unsafe_to_char()
+        if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+          i = i + 1
+        } else {
+          break
+        }
+      }
+      if i >= body.length() || body[i].to_int().unsafe_to_char() != '"' {
+        return None
+      }
+      let value_start = i + 1
+      let mut j = value_start
+      while j < body.length() && body[j].to_int().unsafe_to_char() != '"' {
+        j = j + 1
+      }
+      if j >= body.length() {
+        return None
+      }
+      Some(String::unsafe_substring(body, start=value_start, end=j))
+    }
+  }
+}
+
+///|
+/// PKL-129b1: surface an actionable, structured diagnostic when the
+/// loader hits a `package://` URI. Today the registry resolution is
+/// partial — we parse the URI, compute the metadata URL, and fetch
+/// + extract the `packageZipUrl` so the user sees the underlying
+/// zip URL. The actual zipball download + unpack is deferred to
+/// PKL-129b2 (it needs a DEFLATE decoder); the user can either pick
+/// up the zip URL surfaced here and unpack manually, or use Apple
+/// Pkl's `pkl download-package` and point `--module-path` at the
+/// extracted directory.
+async fn diagnose_package_uri(uri : String) -> Unit {
+  match parse_package_uri(uri) {
+    None =>
+      fail(
+        "package:// URI is malformed — expected package://<host>/<path>@<version>[#<fragment>], got: \{uri}",
+      )
+    Some(parsed) => {
+      let metadata = package_metadata_url(parsed)
+      println("package:// import is not fully implemented yet.")
+      println("  package URI:  \{uri}")
+      println("  metadata URL: \{metadata}")
+      if parsed.fragment != "" {
+        println("  fragment:     \{parsed.fragment}")
+      }
+      match fetch_uri(metadata) {
+        None =>
+          println(
+            "  zip URL:      <metadata fetch failed; see http error above>",
+          )
+        Some(body) =>
+          match extract_package_zip_url(body) {
+            Some(zip_url) => println("  zip URL:      \{zip_url}")
+            None =>
+              println(
+                "  zip URL:      <metadata fetched, but `packageZipUrl` not found>",
+              )
+          }
+      }
+      println("")
+      println(
+        "Workaround: download the zip manually (or run `pkl download-package`)",
+      )
+      println(
+        "and pass `--module-path <dir>` pointing at the extracted directory.",
+      )
+      println("Full registry resolution lands with PKL-129b2.")
+      @sys.exit(1)
+    }
+  }
+}
+
+///|
 fn resolve_import_path(from : String, uri : String) -> String {
   if uri.has_prefix("/") || uri.find(":") is Some(_) {
     return uri
@@ -231,9 +396,7 @@ async fn load_path(
       }
     }
   } else if path.has_prefix("package://") {
-    fail(
-      "package:// imports not yet implemented — use the raw https:// URL of the .pkl file instead: \{path}",
-    )
+    diagnose_package_uri(path)
     ""
   } else {
     read_with_module_paths(path)
@@ -520,9 +683,7 @@ async fn main {
       }
     }
   } else if path.has_prefix("package://") {
-    fail(
-      "package:// imports not yet implemented — use the raw https:// URL of the .pkl file instead: \{path}",
-    )
+    diagnose_package_uri(path)
     ""
   } else {
     @fs.read_file_to_string(path) catch {

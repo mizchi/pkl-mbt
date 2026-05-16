@@ -1,6 +1,6 @@
 # Test SPEC
 
-201 tests across 2 module(s) — 144 pending, 57 active
+207 tests across 2 module(s) — 145 pending, 62 active
 
 ## `specs/`
 
@@ -76,10 +76,11 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **IntSeq Value variant** [draft] — verifies: PKL-119b — tags: evaluator, typechecker, stdlib, next
-  > Introduce `IntSeqValue(start, end, step)` and the matching `IntSeq(start, end[, step])` constructor. Today `IntSeq(...)` is not recognised at all — upstream fixtures that use it (range generation in `pListRenderer2.plist.pkl`, several `generators/` cases) trip on `Cannot find property IntSeq`. The dedicated variant gives the renderer the canonical `IntSeq(1, 4, 1)` PCF round-trip and gives the typechecker an `IntSeqType` to keep range-typed bindings distinct from `Listing<Int>`.
+- [ ] **IntSeq Value variant** — verifies: PKL-119b — tags: evaluator, typechecker, stdlib
+  > IntSeq joins the dedicated stdlib value variants. `Value` gains `IntSeqValue(Int, Int, Int)` carrying start / end / step; `IntSeq(start, end)` constructs one with step = 1 and `.step(newValue)` returns a new IntSeq with the step replaced (zero is rejected). Bare property reads `.start` / `.end` / `.step` return the carrier slots as Int values; method calls `.toList()` / `.toListing()` materialize into a `ListingValue` of Ints (the two share the materialization path until PKL-119c/d split List / Map out), `.map(f)` projects each materialized element through the lambda, and `.fold(initial, op)` reduces left-to-right. PCF round-trips through `IntSeq(s, e)` (or `IntSeq(s, e).step(n)` when step != 1) so the rendered output is parser-readable; JSON / YAML / Properties / plist materialize to a sequence of Int elements. The typechecker gains `IntSeqType` (parameter-free since elements are always Int); `IntSeq` annotations resolve directly, `IntSeq(start, end)` call sites infer to `IntSeqType` with both arguments expected to accept `Int`, and `infer_call_expr` intercepts method-form calls so `.toList()`/`.toListing()` return `Listing<Int>`, `.map(f)` returns a Listing of the lambda's return type, `.fold(initial, op)` returns the initial type, and `.step(n)` returns IntSeqType. Empty IntSeq (e.g. ascending `IntSeq(5, 0)` or descending without `step(-1)`) materializes to an empty Listing; full upstream equality semantics (empty sequences are equal regardless of endpoints, step-aware element-set equality) remains a follow-up — the structural `derive(Eq)` lined up well enough for the contracts we have today.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-119a
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **Listing and Mapping element constraint propagation** — verifies: PKL-093 — tags: evaluator, typechecker, constraint, collection
@@ -103,10 +104,11 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **Map Value variant for the immutable functional map** [draft] — verifies: PKL-119d — tags: evaluator, typechecker, stdlib
-  > Apple Pkl distinguishes `Map<K, V>` (immutable functional map built with `Map(k, v, ...)`) from `Mapping<K, V>` (object-style mapping built with `new Mapping { ... }`, which carries constraints and default values). pkl-mbt currently collapses both into `MappingValue`. Introduce `MapValue(Array[ValueEntry])` and `MapType(K, V)` so the typechecker and renderer keep them apart and `Map`-specific methods (`getOrNull`, `keys`, `values`, `entries`, `containsKey`) dispatch off the dedicated variant.
+- [ ] **Map Value variant for the immutable functional map** — verifies: PKL-119d — tags: evaluator, typechecker, stdlib
+  > Apple Pkl's `Map<K, V>` is the immutable functional map (built with `Map(k1, v1, k2, v2, ...)`), distinct from `Mapping<K, V>` (the object-style `new Mapping { ... }` form with constraints / defaults / amends). `Value` gains `MapValue(Array[ValueEntry])`; the `Map(...)` constructor returns it and later duplicate keys overwrite earlier entries (matching upstream functional-map semantics). Bare property reads — `.length` → Int; `.isEmpty` / `.isNotEmpty` → Boolean; `.keys` → SetValue of the keys; `.values` → ListingValue of values; `.entries` → ListingValue of PairValue carriers — flow through the member-access dispatcher. Methods (`.containsKey` / `.getOrNull(k)` / `.getOrThrow(k)` / `.toMap` / `.toMapping` / `.toList` / `.map((k, v) -> Pair<NewKey, NewValue>)` / `.filter((k, v) -> Boolean)` / `.fold(initial, (acc, k, v) -> NewAcc)`) dispatch through `eval_map_method`. Renderer projection: PCF round-trips through `Map(k, v, k, v, ...)` so eval output is parser-readable; JSON / YAML / Properties / plist project as the same object shape MappingValue uses (object / `<dict>` / `key.subkey = value`). Typechecker gains `MapType(Array[TypeEntry])` parallel to `MappingType`. `Map<K, V>` annotations land via `generic_argument_text`; bare `Map` resolves to `MapType([])`. `Map(...)` call sites infer to `MapType` carrying the entry-type pairs; `infer_call_expr` intercepts each method-call form so `.containsKey` → Boolean, `.getOrNull` → `value?`, `.getOrThrow` → value, `.toMap` → identity, `.toMapping` → MappingType, `.toList` → `Listing<Pair<K, V>>`, `.map` → `MapType([])` (richer return-type inference would need a Pair-shape narrowing hook), `.filter` → `Map<K, V>`, `.fold` → initial type. A new `(MapType, MapType)` arm in `type_accepts` mirrors `(MappingType, MappingType)`'s widening so `Map<String, Int>` annotations accept the constructor-inferred carrier shape.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-119a, PKL-119b, PKL-119c
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **Pair Value variant** — verifies: PKL-119a — tags: evaluator, typechecker, stdlib
@@ -123,10 +125,11 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **Set Value variant** [draft] — verifies: PKL-119c — tags: evaluator, typechecker, stdlib
-  > Introduce a dedicated `SetValue(Array[Value])` carrier so `Set(1, 2, 3)` renders as `Set(1, 2, 3)` (PCF) instead of `new Listing { 1; 2; 3 }`, and so `Set<T>` / `Listing<T>` stay distinct at the typecheck layer. Insertion order is preserved (matching Apple Pkl); duplicates are dropped at construction. Operations (`add`, `remove`, `contains`, `union`, `intersection`, `difference`) layer on top.
+- [ ] **Set Value variant** — verifies: PKL-119c — tags: evaluator, typechecker, stdlib
+  > Set joins the dedicated stdlib value variants. `Value` gains `SetValue(Array[Value])` and the `Set(a, b, c)` constructor returns it (duplicates dropped at construction via `contains_value`; insertion order preserved). Bare property reads (`.length` → Int; `.isEmpty` / `.isNotEmpty` → Boolean; `.first` / `.last` → element type with empty-set diagnostic; `.distinct` → identity SetValue) resolve through the member-access dispatcher; method calls (`.contains` → Boolean; `.toList` / `.toListing` → `Listing<element>`; `.toSet` → identity; `.map(f)` → `Listing<lambda return>`; `.filter(p)` → `Set<element>`; `.fold(initial, op)` → initial type; `.join(sep)` → String) dispatch through the dedicated `eval_set_method` evaluator. Renderer projection: PCF round-trips through `Set(a, b, c)` so the eval output is parser-readable; JSON / YAML / Properties / plist materialize as an array of the elements. Typechecker gains `SetType(Array[Type])` parallel to `ListingType`. `Set<T>` annotations land via `generic_argument_text`; bare `Set` resolves to `SetType([])` (accept-any element). `Set(a, b, c)` call sites infer to `SetType` carrying the element types, and `infer_call_expr` intercepts the method-form calls so each method returns the right shape. `type_accepts` adds a `(SetType, SetType)` arm with the same widening rules as `(ListingType, ListingType)` so `Set<Int>` annotations accept the inferred `SetType([IntType, IntType, IntType])` shape from the constructor.
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-119a
+  - depends on: PKL-119a, PKL-119b
+  - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **String constraint predicates** — verifies: PKL-091 — tags: evaluator, typechecker, constraint, string
@@ -561,10 +564,17 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **package:// registry resolution** [draft] — verifies: PKL-129b — tags: parser, imports, sandbox, pkf-pkspec
-  > `import "package://pkg.pkl-lang.org/..."` resolves through Apple Pkl's registry protocol: fetch the package metadata JSON, locate the zipball URL, fetch + extract the zipball, then look up the path fragment inside. Today the CLI recognises the URI scheme but always errors with a clear diagnostic; PKL-129 lands the underlying `https://` fetch path. The registry resolution is the follow-up that adds a zip unpacker, fragment routing, and (later) checksum / signature verification.
+- [ ] **package registry probe and structured diagnostic** — verifies: PKL-129b1 — tags: cli, parser, imports, sandbox, pkf-pkspec
+  > The CLI accepts `package://<authority>/<path>@<version>[#<fragment>]` URIs and reports a structured diagnostic naming the package URI, the metadata URL (derived by direct scheme rewrite + drop the fragment), the optional fragment, and the `packageZipUrl` pulled out of the metadata JSON. The fetch path follows up to five 301 / 302 / 303 / 307 / 308 redirects so the `pkg.pkl-lang.org → CDN` hop the registry serves doesn't break the probe. `parse_package_uri` validates the shape (rejects authority-only URIs); `package_metadata_url` performs the rewrite; `extract_package_zip_url` substring-scans the metadata body for the `packageZipUrl` string (no full JSON parser stood up — the field is a simple unescaped URL string). On metadata fetch failure or missing field the diagnostic still surfaces the parsed pieces plus the workaround: download the zip manually (or with `pkl download-package`) and pass `--module-path <dir>`. The CLI exits with status 1 in either case. Full zipball download + DEFLATE unpack + cache + checksum verification land with PKL-129b2.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-129
+  - decisions: 3 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **package:// zipball download and unpack** [draft] — verifies: PKL-129b2 — tags: parser, imports, sandbox, pkf-pkspec, next
+  > PKL-129b1 lands the URI parse, metadata fetch, and `packageZipUrl` extraction. PKL-129b2 closes the loop: download the zipball over HTTPS, verify the SHA-256 checksum from `packageZipChecksums`, DEFLATE-decode the archive, cache the extracted tree under `~/.pkl/cache/package-2/<authority>/<path>/<version>/`, then resolve the fragment path against the cache. The DEFLATE decoder is the biggest sub-lift (MoonBit core doesn't ship one); it can either be vendored or hand-rolled inside this slice. Until it lands, users follow the PKL-129b1 diagnostic's workaround (download manually with `pkl download-package` and pass `--module-path`).
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-129b1
   - body: _not yet implemented_
 
 - [ ] **parse Pkl call lambda and operator expressions** — verifies: PKL-018 — tags: parser
@@ -1093,6 +1103,10 @@
   > The native CLI's `check` subcommand surfaces the typechecker's PKL-117 diagnostics for a fixture that trips both rules: `Sparrow extends Bird` without overriding `Bird`'s `abstract function chirp`, and `Mammal.name` overrides `Animal.name` with a return type (`Int`) that is not a subtype of the parent's return type (`String`). The fixture intentionally contains both faults so a single scenario exercises the abstract-method coverage and the return-type covariance checks together.
   - body: `cmd` (exit 0 expected)
 
+- [x] **cli int seq value** — verifies: PKL-119b — tags: moonbit, cli, evaluator, typechecker, stdlib, contract
+  > The native CLI evaluates a fixture exercising the dedicated `IntSeqValue` variant: `IntSeq(1, 5)` construction, bare `.start` / `.end` / `.step` property reads, `.toList()` materialization, `.map((x) -> x * 2)` projection, `.fold(0, (acc, x) -> acc + x)` reduction, `.step(2)` to change the step, `.step(-1)` for descending iteration, empty IntSeq materialization, and `IntSeq` annotation participating in typecheck. PCF renders `IntSeq(s, e)` (default step 1) or `IntSeq(s, e).step(n)` (custom step) so the eval output is parser-readable.
+  - body: `cmd` (exit 0 expected)
+
 - [x] **cli is operator runtime** — verifies: PKL-114 — tags: moonbit, cli, evaluator, is-operator, contract
   > The native CLI evaluates a fixture that exercises the `is` operator at runtime: `5 is Int`, `1.5 is Float`, `Number` checks against both Int and Float values, a negative check (`"x" is Int = false`), and an `if (x is Int) ...` branch inside a function. No `parser-only` diagnostic is raised — the evaluator routes through `value_is_type` and produces concrete Bool values.
   - body: `cmd` (exit 0 expected)
@@ -1109,6 +1123,10 @@
   > The native CLI evaluates a fixture that exercises Listing.toList / length / isEmpty, Mapping.toMap / length / keys / values, and the `List<T>` type annotation. Each method returns the expected value and the rendered PCF matches the equivalent literal.
   - body: `cmd` (exit 0 expected)
 
+- [x] **cli map value** — verifies: PKL-119d — tags: moonbit, cli, evaluator, typechecker, stdlib, contract
+  > The native CLI evaluates a fixture exercising the dedicated `MapValue` variant (Apple Pkl's `Map<K, V>`, distinct from `Mapping<K, V>`). `Map("a", 1, ...)` construction, bare property reads (`.length` / `.keys` / `.values` / `.entries`), lookup methods (`.containsKey` / `.getOrNull`), `.map((k, v) -> Pair(...))` projection, `.filter((k, v) -> Boolean)` (keeps Map type), `.fold(0, (acc, k, v) -> ...)` reduction, and `Map<K, V>` annotated bindings whose constructor inference flows through `type_accepts`. PCF renders `Map(k, v, ...)` so the eval output is parser-readable; `.entries` lands as `Listing<Pair<K, V>>` because PKL-119a's PairValue is now part of the value model.
+  - body: `cmd` (exit 0 expected)
+
 - [x] **cli math float ops** — verifies: PKL-120 — tags: moonbit, cli, stdlib, pkl-math, float, contract
   > The native CLI evaluates a fixture that imports `pkl:math` and calls `sqrt`, `pow`, `log`, `exp`, `floor`, `ceil`, `round`, plus reads `pi`. Each call returns the expected Float value computed via MoonBit's math intrinsics.
   - body: `cmd` (exit 0 expected)
@@ -1119,6 +1137,14 @@
 
 - [x] **cli output renderer driver** — verifies: PKL-104 — tags: moonbit, cli, renderer, output, contract
   > The native CLI evaluates a fixture that declares `output { renderer = new JsonRenderer {} }` without passing `-f`. The CLI reads the renderer class from the parsed AST, switches the format to `json`, strips the `output` block from the rendered envelope, and prints the JSON projection of the module's other properties.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli package registry probe** — verifies: PKL-129b1 — tags: moonbit, cli, imports, pkf-pkspec, contract
+  > The native CLI follows redirects to `pkg.pkl-lang.org`'s CDN, fetches the metadata JSON, and extracts the `packageZipUrl` field. Hits the real Apple Pkl registry (same approach as `cli https URI import`); the assertion only pins the zip-url line, so registry path changes that keep the same package alive still pass.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli package uri offline diagnostic** — verifies: PKL-129b1 — tags: moonbit, cli, imports, sandbox, contract
+  > The native CLI parses a `package://` URI structurally even when the network is unreachable. The fixture uses an unresolvable authority `invalid.example.test` so the metadata fetch fails predictably; the diagnostic still surfaces the parsed `package URI`, `metadata URL`, `fragment`, plus the manual-workaround block. Pins the structural parse + diagnostic format independently of any live registry.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli pair value** — verifies: PKL-119a — tags: moonbit, cli, evaluator, typechecker, stdlib, contract
@@ -1159,6 +1185,10 @@
 
 - [x] **cli scientific float** — verifies: PKL-128b — tags: moonbit, cli, parser, lexer, float, contract
   > The native CLI evaluates a fixture with scientific-notation Float literals (`1e10`, `2.5e-3`, `4E+8`, `1.5e2`). Each literal renders as a Float value with the expected magnitude.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli set value** — verifies: PKL-119c — tags: moonbit, cli, evaluator, typechecker, stdlib, contract
+  > The native CLI evaluates a fixture exercising the dedicated `SetValue` variant: `Set(3, 1, 2, 1, 3)` dedupes to `Set(3, 1, 2)` (insertion order preserved), bare property reads (`.length` / `.isEmpty` / `.first` / `.last`), `.contains` lookup, `.toList()` materialization, `.map((n) -> n * 2)` projection (returns Listing per Apple Pkl's signature), `.filter((n) -> n % 2 == 0)` (keeps Set type), `.fold(0, (acc, n) -> acc + n)` reduction, `.join(", ")` concatenation, and `Set<Int>` annotated bindings whose constructor inference flows through `type_accepts`. PCF renders `Set(...)` so the eval output is parser-readable.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli stdlib modifiers** — verifies: PKL-140 — tags: moonbit, cli, parser, stdlib, contract

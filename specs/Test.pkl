@@ -374,6 +374,44 @@ local cliFloatMagnitudeUnits = new Test {
   timeoutSec = 120
 }
 
+local cliPackageUriOffline = new Test {
+  name = "cli package uri offline diagnostic"
+  description =
+    "The native CLI parses a `package://` URI structurally even when the network is unreachable. The fixture uses an unresolvable authority `invalid.example.test` so the metadata fetch fails predictably; the diagnostic still surfaces the parsed `package URI`, `metadata URL`, `fragment`, plus the manual-workaround block. Pins the structural parse + diagnostic format independently of any live registry."
+  tags { "moonbit"; "cli"; "imports"; "sandbox"; "contract" }
+  specRef { "PKL-129b1" }
+  cmd = "moon run cmd/main --target native -- eval package://invalid.example.test/owner/pkg@9.9.9#/file.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "package:// import is not fully implemented yet."
+    "package URI:  package://invalid.example.test/owner/pkg@9.9.9#/file.pkl"
+    "metadata URL: https://invalid.example.test/owner/pkg@9.9.9"
+    "fragment:     /file.pkl"
+    "<metadata fetch failed; see http error above>"
+    "Workaround: download the zip manually"
+    "Full registry resolution lands with PKL-129b2."
+  }
+  timeoutSec = 120
+}
+
+local cliPackageRegistryProbe = new Test {
+  name = "cli package registry probe"
+  description =
+    "The native CLI follows redirects to `pkg.pkl-lang.org`'s CDN, fetches the metadata JSON, and extracts the `packageZipUrl` field. Hits the real Apple Pkl registry (same approach as `cli https URI import`); the assertion only pins the zip-url line, so registry path changes that keep the same package alive still pass."
+  tags { "moonbit"; "cli"; "imports"; "pkf-pkspec"; "contract" }
+  specRef { "PKL-129b1" }
+  cmd = "moon run cmd/main --target native -- eval package://pkg.pkl-lang.org/pkl-pantry/pkl.experimental.uri@1.0.1#/URI.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "package URI:  package://pkg.pkl-lang.org/pkl-pantry/pkl.experimental.uri@1.0.1#/URI.pkl"
+    "metadata URL: https://pkg.pkl-lang.org/pkl-pantry/pkl.experimental.uri@1.0.1"
+    "zip URL:      https://"
+    "pkl.experimental.uri"
+    ".zip"
+  }
+  timeoutSec = 180
+}
+
 local cliMapValue = new Test {
   name = "cli map value"
   description =
@@ -1218,6 +1256,8 @@ tests {
   cliIntSeqValue
   cliSetValue
   cliMapValue
+  cliPackageUriOffline
+  cliPackageRegistryProbe
   cliHeredocString
   cliFormat
   cliTestExamplesPass
