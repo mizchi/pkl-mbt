@@ -1,6 +1,6 @@
 # Test SPEC
 
-211 tests across 2 module(s) — 146 pending, 65 active
+213 tests across 2 module(s) — 148 pending, 65 active
 
 ## `specs/`
 
@@ -81,6 +81,13 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-119a
   - decisions: 3 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **IntSeq sequence equality** — verifies: PKL-119be — tags: evaluator, stdlib
+  > Apple Pkl's `IntSeq` equality compares the *element sequence* the two operands produce, not their carrier shape. Empty IntSeqs are equal regardless of endpoints (`IntSeq(0, -1) == IntSeq(10, -10)`); non-empty IntSeqs are step-aware (`IntSeq(-10, 10).step(2) == IntSeq(-10, 11).step(2)` because both produce -10, -8, ..., 10). The PKL-119b stop-gap relied on the structural `derive(Eq)` the value variant inherits, which mis-answered both cases. `eval_binary` now intercepts `(IntSeqValue, IntSeqValue)` pairs before the generic equality fall-through and routes through `intseq_value_equal`, which materializes both operands and compares them element-by-element. Both-empty short-circuits via the length-mismatch check (zero == zero) plus the zero-iteration loop. Non-Equal binary ops on IntSeq operands aren't defined upstream and emit the standard `operator <op> not defined for IntSeq operands` diagnostic.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-119b
+  - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **Listing and Mapping element constraint propagation** — verifies: PKL-093 — tags: evaluator, typechecker, constraint, collection
@@ -644,6 +651,13 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-104
   - decisions: 2 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **pkl:json.Parser.parse implementation** — verifies: PKL-144 — tags: evaluator, stdlib, json
+  > `pkl:json.Parser.parse(source)` decodes a JSON document into a Pkl `Value`. The evaluator's CallExpr dispatcher intercepts `<receiver>.parse(s)` whenever the receiver is an ObjectValue carrying a `useMapping : Boolean` slot — the distinguishing shape of the pkl:json Parser mirror (no class-level hidden marker because `hidden` on a class property is not yet a recognised modifier; the `useMapping` slot is a sufficient discriminator across the synthetic stdlib). The source string flows through MoonBit core's `@json.parse`, then `json_to_value` projects the resulting `Json` enum onto Pkl Values: `Null` → `NullValue`; `True` / `False` → `BoolValue`; `Number` → `IntValue` when the magnitude fits an Int32 and is integral, else `FloatValue` (matches Apple Pkl's `42` → `Int`, `42.5` → `Float` rule); `String` → `StringValue`; `Array` → `ListingValue` (recursive); `Object` → `ObjectValue` when `useMapping = false` (Apple Pkl's Dynamic-mode default) or `MappingValue` when `useMapping = true`. Parser errors from `@json.parse` surface as `json.Parser.parse: <err>` diagnostics; non-String arguments / wrong arity get their own targeted wording.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-124
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **pkl:math Float operations** (minor) — verifies: PKL-120 — tags: stdlib, pkl-math, float
@@ -1260,7 +1274,7 @@
   > The native CLI evaluates a fixture that declares `output { renderer = new YamlRenderer {} }` and several multiline String values. The YAML output renders them as literal block scalars: `|` (one trailing newline, clip), `|-` (no trailing newline, strip), `|+` (multiple trailing newlines, keep), with two-space content indentation. Strings whose lines start with whitespace fall back to double-quoted form, and listing items in block context also pick up the block-scalar projection.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-080, PKL-081, PKL-082, PKL-083, PKL-084, PKL-085, PKL-086, PKL-087, PKL-088, PKL-089, PKL-090, PKL-091, PKL-092, PKL-093, PKL-098 — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-080, PKL-081, PKL-082, PKL-083, PKL-084, PKL-085, PKL-086, PKL-087, PKL-088, PKL-089, PKL-090, PKL-091, PKL-092, PKL-093, PKL-098, PKL-119be, PKL-144 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 

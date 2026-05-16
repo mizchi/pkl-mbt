@@ -53,7 +53,7 @@ Parked but not closed off — `specs/Roadmap.pkl`'s `deferredEntries` listing ca
 - **`pkl:reflect`** — class / module introspection (`.properties` / `.methods` / `.supertype` / `.classes` / `.isSubclassOf`) is wired (PKL-143), but factories still take a string identifier rather than a real `ClassValue` round-trip.
 - **`pkl:platform`** — deterministic stub values (`stub-os` / `stub-arch`) instead of host-detected.
 - **`pkl:test.catch`** — only the throw branch (returns the message); the no-throw branch evaluates the lambda as if `catch` wasn't there.
-- **`pkl:json` / `pkl:yaml` / `pkl:xml` / `pkl:protobuf`** — type surface only (Parser / Renderer class shells instantiable); actual parsing / rendering bodies aren't wired.
+- **`pkl:yaml` / `pkl:xml` / `pkl:protobuf`** — type surface only (Parser / Renderer class shells instantiable); actual parsing / rendering bodies aren't wired. (`pkl:json.Parser.parse` is wired — PKL-144.)
 
 ## pkl-mbt specific
 

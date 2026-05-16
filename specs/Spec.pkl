@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklJsonParserScenario = new Scenario {
+  id = "PKL-144"
+  name = "pkl:json.Parser.parse implementation"
+  description =
+    "`pkl:json.Parser.parse(source)` decodes a JSON document into a Pkl `Value`. The evaluator's CallExpr dispatcher intercepts `<receiver>.parse(s)` whenever the receiver is an ObjectValue carrying a `useMapping : Boolean` slot — the distinguishing shape of the pkl:json Parser mirror (no class-level hidden marker because `hidden` on a class property is not yet a recognised modifier; the `useMapping` slot is a sufficient discriminator across the synthetic stdlib). The source string flows through MoonBit core's `@json.parse`, then `json_to_value` projects the resulting `Json` enum onto Pkl Values: `Null` → `NullValue`; `True` / `False` → `BoolValue`; `Number` → `IntValue` when the magnitude fits an Int32 and is integral, else `FloatValue` (matches Apple Pkl's `42` → `Int`, `42.5` → `Float` rule); `String` → `StringValue`; `Array` → `ListingValue` (recursive); `Object` → `ObjectValue` when `useMapping = false` (Apple Pkl's Dynamic-mode default) or `MappingValue` when `useMapping = true`. Parser errors from `@json.parse` surface as `json.Parser.parse: <err>` diagnostics; non-String arguments / wrong arity get their own targeted wording."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-124" }
+  tags { "evaluator"; "stdlib"; "json" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "Detect Parser shape via the `useMapping : Boolean` slot, not a class-level kind marker"
+      rationale =
+        "The PKL-143 reflect work stamps a hidden `__kind` member inside lambda-returned `new { ... }` object literals, but `hidden` on a class property is not a recognised modifier in the parser today (`class Parser { hidden __kind: String = \"...\" }` would emit a visible `__kind` member, which leaks into renders). The `useMapping : Boolean` slot is already a load-bearing part of the Parser's public shape and no other synthetic stdlib class exposes both `.parse` and `useMapping`, so it's a stable enough discriminator. If a future synthetic class ends up with the same shape we add a real class-property `hidden` modifier (parser change) and switch the dispatch over."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Reuse moonbitlang/core/json rather than hand-rolling a parser"
+      rationale =
+        "MoonBit core ships a complete JSON parser (`@json.parse` returns the `Json` enum from builtin, builds on all four targets, error wording is reasonable). A hand-rolled parser would either repeat that work or risk subtle divergences (number-representation edge cases, escape sequences, surrogate handling). The cost is one extra import in moon.pkg — already in the standard library, no new dependency."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Number disambiguation: Int when integral and Int32-bounded, Float otherwise"
+      rationale =
+        "Apple Pkl projects `42` to a Pkl `Int` and `42.5` to a `Float`. `@json.parse` always returns `Double`; we widen to Int only when the value is structurally integral (`d.to_int().to_double() == d`) AND fits the Int32 range pkl-mbt's `IntValue` carries. Out-of-range integers (rare in config JSON but possible) fall back to Float to avoid silently truncating; a future slice promoting `IntValue` to Int64 also lifts that bound automatically."
+    }
+  }
+}
+
 local intSeqEqualityScenario = new Scenario {
   id = "PKL-119be"
   name = "IntSeq sequence equality"
@@ -4082,6 +4114,7 @@ scenarios {
   pairValueVariantScenario
   intSeqValueVariantScenario
   intSeqEqualityScenario
+  pklJsonParserScenario
   setValueVariantScenario
   mapValueVariantScenario
   packageRegistryProbeScenario

@@ -228,12 +228,30 @@ let stdlib_probes : Array[StdlibProbe] = [
     source: "import \"pkl:reflect\" as r\nclass A {}\nclass B {}\nv = r.Module(\"self\").classes[1].reflectee",
     expect: "v = \"B\"",
   },
-  // pkl:json — Parser shell only (no parsing logic yet).
+  // pkl:json — Parser shell + parse() implementation.
   {
     group: "pkl:json",
     name: "Parser class instantiable",
     source: "import \"pkl:json\" as json\np = new json.Parser { useMapping = true }\nv = p.useMapping",
     expect: "v = true",
+  },
+  {
+    group: "pkl:json",
+    name: "Parser.parse decodes primitives (Dynamic mode)",
+    source: "import \"pkl:json\" as json\nv = (new json.Parser {}).parse(\"{\\\"n\\\": 42}\").n",
+    expect: "v = 42",
+  },
+  {
+    group: "pkl:json",
+    name: "Parser.parse honors useMapping",
+    source: "import \"pkl:json\" as json\nv = (new json.Parser { useMapping = true }).parse(\"{\\\"k\\\": \\\"v\\\"}\")",
+    expect: "[\"k\"] = \"v\"",
+  },
+  {
+    group: "pkl:json",
+    name: "Parser.parse handles nested arrays + objects",
+    source: "import \"pkl:json\" as json\nv = (new json.Parser {}).parse(\"[1, {\\\"x\\\": [2, 3]}]\")[1].x[0]",
+    expect: "v = 2",
   },
   // pkl:yaml — Parser shell only.
   {

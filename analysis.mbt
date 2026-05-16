@@ -242,15 +242,15 @@ fn builtin_stdlib_source(uri : String) -> String? {
     }
     "pkl:test" => Some("catch = null")
     "pkl:json" => {
-      // PKL-124: minimal synthetic module so `import "pkl:json"`
-      // succeeds and `new json.Parser { ... }` typechecks. The actual
-      // `Parser.parse` body still routes through (forthcoming)
-      // intrinsics; for now the class instantiation surface is what
-      // upstream fixtures lean on through the `output { renderer =
-      // ... }` driver path.
-      //
-      // Apple Pkl's `pkl:json` carries `Parser` and the annotation
-      // class `Property`; the user-facing `JsonRenderer` lives in
+      // PKL-124 / PKL-144: `pkl:json` carries `Parser` (now functional
+      // via the eval-side hijack) and the annotation class `Property`.
+      // The eval path checks the call form `<receiver>.parse(source)`
+      // and treats it as JSON parsing when the receiver carries a
+      // `useMapping: Boolean` member — that pattern is distinctive
+      // enough across the synthetic stdlib (no other class exposes
+      // both `.parse` and `useMapping`). The Json→Value conversion
+      // routes through MoonBit core's `@json.parse` and honours
+      // `useMapping`. The user-facing `JsonRenderer` lives in
       // `pkl:base` (see `builtin_type_from_annotation`).
       let source =
         #|class Parser {

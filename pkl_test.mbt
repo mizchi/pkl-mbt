@@ -3969,6 +3969,67 @@ test "PKL-119b: IntSeq.fold reduces left-to-right" {
 }
 
 ///|
+test "PKL-144: pkl:json.Parser.parse decodes a primitive object (Dynamic mode)" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:json\" as json\np = new json.Parser {}\nv = p.parse(\"{\\\"name\\\": \\\"Alice\\\", \\\"age\\\": 30, \\\"active\\\": true, \\\"meta\\\": null}\")\nname = v.name\nage = v.age\nactive = v.active\nmeta = v.meta",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("name = \"Alice\""), content="true")
+  inspect(rendered.contains("age = 30"), content="true")
+  inspect(rendered.contains("active = true"), content="true")
+  inspect(rendered.contains("meta = null"), content="true")
+}
+
+///|
+test "PKL-144: pkl:json.Parser.parse useMapping=true yields a Mapping" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:json\" as json\np = new json.Parser { useMapping = true }\nm = p.parse(\"{\\\"a\\\": 1, \\\"b\\\": 2}\")",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("[\"a\"] = 1"), content="true")
+  inspect(rendered.contains("[\"b\"] = 2"), content="true")
+}
+
+///|
+test "PKL-144: pkl:json.Parser.parse handles arrays and nested values" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:json\" as json\np = new json.Parser {}\nv = p.parse(\"[1, 2, {\\\"x\\\": [3, 4]}]\")\nfirst = v[0]\nnested = v[2].x[1]",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("first = 1"), content="true")
+  inspect(rendered.contains("nested = 4"), content="true")
+}
+
+///|
+test "PKL-144: pkl:json.Parser.parse distinguishes Int vs Float" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:json\" as json\np = new json.Parser {}\nv = p.parse(\"{\\\"i\\\": 42, \\\"f\\\": 3.14}\")",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("i = 42"), content="true")
+  inspect(rendered.contains("f = 3.14"), content="true")
+}
+
+///|
+test "PKL-144: pkl:json.Parser.parse surfaces parse errors as diagnostics" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:json\" as json\np = new json.Parser {}\nv = p.parse(\"not valid json\")",
+  )
+  guard session.eval_path("main.pkl") is EvalError(diagnostics) else { panic() }
+  let messages = diagnostics.iter().map(fn(d) { d.message }).collect()
+  inspect(messages[0].has_prefix("json.Parser.parse: "), content="true")
+}
+
+///|
 test "PKL-119be: empty IntSeqs are equal regardless of endpoints" {
   guard eval_source("v = IntSeq(0, -1) == IntSeq(10, -10)")
     is EvalOk(ObjectValue(members)) else {

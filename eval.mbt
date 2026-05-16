@@ -1478,6 +1478,68 @@ fn is_map_method_name(name : String) -> Bool {
 }
 
 ///|
+/// PKL-144: convert a `@json.Json` value into the corresponding Pkl
+/// `Value`. `use_mapping` controls how JSON objects project — `true`
+/// → `MappingValue` (key as `StringValue`, matching Apple Pkl's
+/// `Parser { useMapping = true }` mode); `false` → `ObjectValue`
+/// (one property per JSON entry, the Dynamic shape Apple Pkl uses
+/// by default). Numbers convert to Int when integral, Float
+/// otherwise — matches the upstream rule that JSON `42` evaluates
+/// to a Pkl `Int` and `42.5` to a `Float`.
+fn json_to_value(j : Json, use_mapping : Bool) -> Value {
+  match j {
+    Null => NullValue
+    True => BoolValue(true)
+    False => BoolValue(false)
+    Number(d, ..) => {
+      let truncated = d.to_int().to_double()
+      if truncated == d && d >= -2147483648.0 && d <= 2147483647.0 {
+        IntValue(d.to_int())
+      } else {
+        FloatValue(d)
+      }
+    }
+    String(s) => StringValue(s)
+    Array(items) => {
+      let elements : Array[Value] = []
+      for item in items {
+        elements.push(json_to_value(item, use_mapping))
+      }
+      ListingValue(elements)
+    }
+    Object(map) =>
+      if use_mapping {
+        let entries : Array[ValueEntry] = []
+        for k, v in map {
+          entries.push({ key: StringValue(k), value: json_to_value(v, true) })
+        }
+        MappingValue(entries)
+      } else {
+        let members : Array[ValueMember] = []
+        for k, v in map {
+          members.push({ name: k, value: json_to_value(v, false) })
+        }
+        ObjectValue(members)
+      }
+  }
+}
+
+///|
+/// PKL-144: detect the `pkl:json` Parser shape on a member-access
+/// receiver. The Parser is a synthetic stdlib class whose
+/// distinguishing feature is a `useMapping : Boolean` slot; we don't
+/// stamp a class-level kind marker because `hidden` on a class
+/// property isn't a recognised modifier today (the synthetic source
+/// stays renderable). Returns `Some(use_mapping)` when the shape
+/// matches, `None` otherwise.
+fn json_parser_use_mapping(members : Array[ValueMember]) -> Bool? {
+  match lookup_member(members, "useMapping") {
+    Some(BoolValue(b)) => Some(b)
+    _ => None
+  }
+}
+
+///|
 /// PKL-119b: materialize an IntSeq into an Array[Value] of Int
 /// elements. Empty when `step > 0 && start > end` or
 /// `step < 0 && start < end`; `step == 0` would be rejected by the
@@ -6133,7 +6195,8 @@ fn eval_expr_with_bindings(
               is_map_method_name(method_name) ||
               method_name == "toUnit" ||
               method_name == "toBytes" ||
-              method_name == "isSubclassOf" {
+              method_name == "isSubclassOf" ||
+              method_name == "parse" {
               match
                 eval_expr_with_bindings(
                   target_expr, bindings, env, class_env, cache, stack, declarations,
@@ -6146,7 +6209,63 @@ fn eval_expr_with_bindings(
                 // so we check that nested inside the ObjectValue arm
                 // before falling through to other lookups.
                 Some(ObjectValue(receiver_members)) =>
-                  if reflect_kind(receiver_members) is Some("Class") &&
+                  if method_name == "parse" &&
+                    json_parser_use_mapping(receiver_members) is Some(_) {
+                    // PKL-144: `<json.Parser>.parse(source)` — the
+                    // receiver carries a `useMapping: Boolean` slot
+                    // that identifies it as the pkl:json Parser
+                    // mirror (no other synthetic class shares that
+                    // shape today). Eval the source string, parse it
+                    // through MoonBit core's @json.parse, and project
+                    // the result via `json_to_value`.
+                    if arguments.length() != 1 {
+                      diagnostics.push(
+                        diag(
+                          "json.Parser.parse expects 1 argument, got \{arguments.length()}",
+                        ),
+                      )
+                      None
+                    } else {
+                      match
+                        eval_expr_with_bindings(
+                          arguments[0],
+                          bindings,
+                          env,
+                          class_env,
+                          cache,
+                          stack,
+                          declarations,
+                          diagnostics,
+                          resolve_import,
+                        ) {
+                        Some(StringValue(source_text)) => {
+                          let use_mapping = match
+                            json_parser_use_mapping(receiver_members) {
+                            Some(b) => b
+                            None => false
+                          }
+                          try {
+                            let parsed = @json.parse(source_text[:])
+                            Some(json_to_value(parsed, use_mapping))
+                          } catch {
+                            err => {
+                              diagnostics.push(
+                                diag("json.Parser.parse: \{err}"),
+                              )
+                              None
+                            }
+                          }
+                        }
+                        Some(_) => {
+                          diagnostics.push(
+                            diag("json.Parser.parse expects a String argument"),
+                          )
+                          None
+                        }
+                        None => None
+                      }
+                    }
+                  } else if reflect_kind(receiver_members) is Some("Class") &&
                     method_name == "isSubclassOf" {
                     if arguments.length() != 1 {
                       diagnostics.push(
