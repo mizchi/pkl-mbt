@@ -5035,6 +5035,48 @@ fn eval_expr_with_bindings(
         inner, bindings, env, class_env, cache, stack, declarations, diagnostics,
         resolve_import,
       )
+    // PKL-103: `read?(uri)` returns `null` instead of pushing a
+    // diagnostic when the URI is missing or rejected by the sandbox
+    // policy. Today only `read` is wired; other null-safe call
+    // intrinsics will reuse the same arm.
+    NullSafeCallExpr(callee, arguments) =>
+      match callee {
+        Identifier("read") => {
+          if arguments.length() != 1 {
+            diagnostics.push(diag("read? expects exactly one argument"))
+            return None
+          }
+          let uri_value = eval_expr_with_bindings(
+            arguments[0],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          )
+          match uri_value {
+            Some(StringValue(uri)) => {
+              let probe_diagnostics : Array[Diagnostic] = []
+              match eval_read_uri(uri, probe_diagnostics) {
+                Some(value) => Some(value)
+                None => Some(NullValue)
+              }
+            }
+            Some(_) => {
+              diagnostics.push(diag("read? expects a String argument"))
+              None
+            }
+            None => None
+          }
+        }
+        _ => {
+          diagnostics.push(diag("null-safe call is only supported for read?"))
+          None
+        }
+      }
     // PKL-128: render each part of an interpolated string and
     // concatenate. Non-string parts route through
     // `value_to_string_for_join`, which already handles every Value

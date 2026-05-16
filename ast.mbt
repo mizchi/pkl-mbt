@@ -93,6 +93,11 @@ pub(all) enum Expr {
   // collapses back to a plain `StringLiteral` at parse time so the hot
   // path stays untouched.
   InterpolatedString(Array[Expr])
+  // PKL-103: Apple Pkl's `f?(...)` null-safe call form. Today only
+  // `read?(uri)` is wired (returns `null` instead of a diagnostic when
+  // the URI resolves to nothing); the AST node generalises so future
+  // null-safe intrinsics can reuse the dispatch.
+  NullSafeCallExpr(Expr, Array[Expr])
   UnsupportedExpr
   ErrorExpr(String)
 } derive(Eq, Debug)

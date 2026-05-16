@@ -50,18 +50,6 @@ local pklAnalyzeLint: Spec.Scenario = new {
   severity = "minor"
 }
 
-local readNullableParserForm: Spec.Scenario = new {
-  id = "PKL-103"
-  name = "nullable read parser form"
-  description =
-    "Parser support for the `?`-suffixed call form `read?(uri)`. The evaluator returns `null` instead of a diagnostic when the resource is missing or the scheme is rejected, mirroring Apple Pkl's null-safe read."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-098" }
-  tags { "parser"; "evaluator"; "read"; "nullable"; "next" }
-  reviewStatus = "draft"
-  severity = "minor"
-}
-
 local cliAllowedModules: Spec.Scenario = new {
   id = "PKL-106"
   name = "cli sandbox flags"
@@ -147,7 +135,7 @@ local floatMagnitudeDurationDataSize: Spec.Scenario = new {
     "`1.5.s`, `2.5.gib` and other Float-magnitude unit literals parse and evaluate to Duration / DataSize values whose magnitude is Double. Today only Int magnitudes are recognized."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-082"; "PKL-092" }
-  tags { "parser"; "evaluator"; "duration"; "datasize"; "float" }
+  tags { "parser"; "evaluator"; "duration"; "datasize"; "float"; "next" }
   reviewStatus = "draft"
   severity = "minor"
 }
@@ -308,7 +296,6 @@ local lspServer: Spec.Scenario = new {
 entries: Listing<Spec.Scenario> = new {
   pklRepl
   pklAnalyzeLint
-  readNullableParserForm
   cliAllowedModules
   errorMessageUpstreamAlign
   upstreamFixtureSweepExpansion

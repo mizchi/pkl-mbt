@@ -320,6 +320,7 @@ pub(all) enum Expr {
   ForGenerator(String, String?, Expr, Array[ObjectMember])
   WhenSpread(Expr)
   InterpolatedString(Array[Expr])
+  NullSafeCallExpr(Expr, Array[Expr])
   UnsupportedExpr
   ErrorExpr(String)
 } derive(Eq, @debug.Debug)

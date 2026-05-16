@@ -1,0 +1,8 @@
+// PKL-103: `read?(uri)` mirrors `read(uri)` but returns `null`
+// instead of pushing a diagnostic when the URI scheme is rejected by
+// the sandbox or the resource is missing. The fixture exercises both
+// rejection paths: an unknown env var, and a non-`env:` scheme that
+// the sandbox doesn't allow.
+maybe_missing = read?("env:NONEXISTENT_XYZ_VAR")
+
+maybe_bad_scheme = read?("https://example.com/foo")

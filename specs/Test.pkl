@@ -354,6 +354,21 @@ local cliListingMappingStdlib = new Test {
   timeoutSec = 120
 }
 
+local cliReadNullable = new Test {
+  name = "cli read nullable"
+  description =
+    "The native CLI evaluates a fixture that uses `read?(uri)` for both a missing env var and a non-`env:` scheme. Both calls return `null` instead of pushing a diagnostic, matching Apple Pkl's null-safe semantics."
+  tags { "moonbit"; "cli"; "evaluator"; "read"; "nullable"; "contract" }
+  specRef { "PKL-103" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_read_nullable.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "maybe_missing = null"
+    "maybe_bad_scheme = null"
+  }
+  timeoutSec = 120
+}
+
 local cliMathFloatOps = new Test {
   name = "cli math float ops"
   description =
@@ -844,6 +859,7 @@ tests {
   cliConstraintComposition
   cliSuperMethodCall
   cliMathFloatOps
+  cliReadNullable
   cliHeredocString
   cliFormat
   cliTestExamplesPass

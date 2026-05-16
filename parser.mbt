@@ -1655,14 +1655,47 @@ fn Parser::parse_postfix_expr(self : Parser) -> Expr {
       self.builder.finish_node()
       expr = NonNullExpr(expr)
     } else if self.at(question()) {
+      // PKL-103: `f?(...)` is Apple Pkl's null-safe call form. Today
+      // only `read?(uri)` is wired through, but the parser recognises
+      // the generic shape so future null-safe intrinsics share the
+      // dispatch. `?` not followed by `(` keeps the existing
+      // unsupported-syntax behaviour.
       let unsupported_start = self.current_offset()
-      ignore(self.bump())
-      self.record_unsupported_syntax(
-        unsupported_start,
-        self.current_offset(),
-        kind_name(unsupported_expr()),
-      )
-      expr = UnsupportedExpr
+      let after_question = self.peek_non_whitespace_kind(self.pos + 1)
+      if after_question == lparen() {
+        ignore(self.bump())
+        self.skip_whitespace()
+        self.builder.start_node_at(checkpoint, call_expr())
+        ignore(self.expect(lparen(), "("))
+        let arguments : Array[Expr] = []
+        self.skip_whitespace()
+        while !self.at(eof()) && !self.at(rparen()) {
+          arguments.push(self.parse_expr())
+          self.skip_whitespace()
+          if self.at(comma()) {
+            ignore(self.bump())
+            self.skip_whitespace()
+          } else {
+            break
+          }
+        }
+        self.skip_whitespace()
+        if self.at(rparen()) {
+          ignore(self.bump())
+        } else {
+          self.builder.token(error_kind(), "")
+        }
+        self.builder.finish_node()
+        expr = NullSafeCallExpr(expr, arguments)
+      } else {
+        ignore(self.bump())
+        self.record_unsupported_syntax(
+          unsupported_start,
+          self.current_offset(),
+          kind_name(unsupported_expr()),
+        )
+        expr = UnsupportedExpr
+      }
     } else {
       keep_going = false
     }

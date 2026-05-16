@@ -2647,6 +2647,24 @@ test "PKL-105: path-keyed renderer converter rewrites a top-level value" {
 }
 
 ///|
+test "PKL-103: read?(uri) returns null when env var is missing" {
+  guard eval_source("x = read?(\"env:NONEXISTENT_PKL_TEST_VAR_QZQ\")")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  assert_true(members[0].value == NullValue)
+}
+
+///|
+test "PKL-103: read?(uri) returns null when scheme is rejected" {
+  guard eval_source("x = read?(\"https://example.com/missing\")")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  assert_true(members[0].value == NullValue)
+}
+
+///|
 test "PKL-120: pkl:math.sqrt computes square root" {
   let session = AnalysisSession::new()
   session.set_source(

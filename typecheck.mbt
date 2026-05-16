@@ -3565,6 +3565,21 @@ fn infer_expr_with_bindings(
       infer_expr_with_bindings(
         inner, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
       )
+    // PKL-103: `read?(uri)` returns `String?` — null when missing /
+    // rejected, the read value otherwise. The typechecker collapses
+    // to `NullableType(StringType)` so chained access sees a
+    // nullable; further refinement (per-scheme types) is out of
+    // scope for this slice.
+    NullSafeCallExpr(_, args) => {
+      for arg in args {
+        ignore(
+          infer_expr_with_bindings(
+            arg, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+          ),
+        )
+      }
+      NullableType(StringType)
+    }
     // PKL-128: an interpolated string always evaluates to a `String`,
     // regardless of the inner expression types. Walk the inner parts
     // so diagnostics from their typechecking still surface.

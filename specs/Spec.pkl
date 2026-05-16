@@ -1785,6 +1785,32 @@ local listingMappingStdlibCore = new Scenario {
   }
 }
 
+local readNullable = new Scenario {
+  id = "PKL-103"
+  name = "nullable read form"
+  description =
+    "Apple Pkl's `read?(uri)` mirrors `read(uri)` but returns `null` instead of pushing a diagnostic when the URI scheme is rejected by the sandbox or the resource is missing. The parser recognises `?` followed by `(` after a primary expression and emits a new `NullSafeCallExpr(callee, args)` AST node; the evaluator handles the `read?` case by routing through `eval_read_uri` with a throwaway diagnostic sink — anything that would have surfaced an error becomes `NullValue` instead. The typechecker reports the result as `NullableType(StringType)` so downstream nullable chains see the right shape. A `?` not followed by `(` stays the existing unsupported-syntax fall-through."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-098" }
+  tags { "parser"; "evaluator"; "read"; "nullable" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Introduce a generic `NullSafeCallExpr` even though only `read?` is wired"
+      rationale =
+        "Apple Pkl's `f?(...)` is a generic null-safe call form — `read?` is the only intrinsic that uses it today but the AST node generalises so future intrinsics (`import?`, `getProperty?`, etc.) can plug into the same dispatch arm without parser changes. Encoding the form as a separate Expr variant rather than overloading `CallExpr` with a flag keeps every existing CallExpr consumer untouched."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Reuse `eval_read_uri` with a throwaway diagnostic sink"
+      rationale =
+        "The non-nullable `read` path already encodes the sandbox policy and the env-var lookup. Routing `read?` through the same helper with a local `probe_diagnostics : Array[Diagnostic]` avoids duplicating the sandbox-rejection logic. Diagnostics raised during the probe are dropped (they're not user-visible — the user explicitly asked for the null-safe form) and the result is collapsed to `Some(NullValue)` on failure."
+    }
+  }
+}
+
 local pklMathFloatOps = new Scenario {
   id = "PKL-120"
   name = "pkl:math Float operations"
@@ -3379,5 +3405,6 @@ scenarios {
   constraintComposition
   superMethodCall
   pklMathFloatOps
+  readNullable
   ...roadmap.entries
 }

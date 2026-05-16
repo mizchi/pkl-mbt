@@ -1,6 +1,6 @@
 # Test SPEC
 
-188 tests across 2 module(s) — 145 pending, 43 active
+189 tests across 2 module(s) — 145 pending, 44 active
 
 ## `specs/`
 
@@ -55,7 +55,7 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **Float magnitude Duration / DataSize literals** (minor) [draft] — verifies: PKL-121 — tags: parser, evaluator, duration, datasize, float
+- [ ] **Float magnitude Duration / DataSize literals** (minor) [draft] — verifies: PKL-121 — tags: parser, evaluator, duration, datasize, float, next
   > `1.5.s`, `2.5.gib` and other Float-magnitude unit literals parse and evaluate to Duration / DataSize values whose magnitude is Double. Today only Int magnitudes are recognized.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-082, PKL-092
@@ -526,10 +526,11 @@
   - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **nullable read parser form** (minor) [draft] — verifies: PKL-103 — tags: parser, evaluator, read, nullable, next
-  > Parser support for the `?`-suffixed call form `read?(uri)`. The evaluator returns `null` instead of a diagnostic when the resource is missing or the scheme is rejected, mirroring Apple Pkl's null-safe read.
+- [ ] **nullable read form** (minor) — verifies: PKL-103 — tags: parser, evaluator, read, nullable
+  > Apple Pkl's `read?(uri)` mirrors `read(uri)` but returns `null` instead of pushing a diagnostic when the URI scheme is rejected by the sandbox or the resource is missing. The parser recognises `?` followed by `(` after a primary expression and emits a new `NullSafeCallExpr(callee, args)` AST node; the evaluator handles the `read?` case by routing through `eval_read_uri` with a throwaway diagnostic sink — anything that would have surfaced an error becomes `NullValue` instead. The typechecker reports the result as `NullableType(StringType)` so downstream nullable chains see the right shape. A `?` not followed by `(` stays the existing unsupported-syntax fall-through.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-098
+  - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **output renderer driver** — verifies: PKL-104 — tags: renderer, output, driver, pkf-pkspec
@@ -1090,6 +1091,10 @@
 
 - [x] **cli pkspec polish** — verifies: PKL-139 — tags: moonbit, cli, parser, evaluator, stdlib, pkf-pkspec, contract
   > The native CLI evaluates a fixture that exercises the five drive-by gaps that blocked pkspec Test.pkl: brace-bodied `@ModuleInfo` annotation, multi-line typealias RHS, dot-chain across newlines, `module.foo` self-reference, and `List` / `Set` / `Map` / `Pair` constructor functions. The rendered output shows each form producing the expected value.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli read nullable** — verifies: PKL-103 — tags: moonbit, cli, evaluator, read, nullable, contract
+  > The native CLI evaluates a fixture that uses `read?(uri)` for both a missing env var and a non-`env:` scheme. Both calls return `null` instead of pushing a diagnostic, matching Apple Pkl's null-safe semantics.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli reflect minimal stub** — verifies: PKL-080 — tags: moonbit, cli, pkl-reflect, stdlib, contract
