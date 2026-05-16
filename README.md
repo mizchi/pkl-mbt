@@ -35,44 +35,6 @@ Renderers via `-f` / `--format`: `pcf` (default), `json`, `yaml`, `properties`, 
 
 Sandbox flags: `--allowed-modules <pipe|prefixes>`, `--module-path <dir>` (repeatable), `-p NAME=VALUE` (populates `read("prop:NAME")`).
 
-## Library — `@pkl`
-
-23 public items. The high-level shape:
-
-```moonbit
-// Parse / typecheck / eval entry points
-@pkl.parse_source(source : String) -> @pkl.ParseResult
-@pkl.typecheck_source(source : String) -> @pkl.TypecheckResult
-@pkl.eval_source(source : String) -> @pkl.EvalResult
-
-// Incremental analysis (ripple-backed)
-let session = @pkl.AnalysisSession::new()
-session.set_source("main.pkl", source)
-session.typecheck_path("main.pkl")
-session.eval_path("main.pkl")
-
-// Renderers
-@pkl.render_value(value)               // PCF
-@pkl.render_value_as_json(value)
-@pkl.render_value_as_yaml(value)
-@pkl.render_value_as_properties(value)
-@pkl.render_value_as_plist(value)
-@pkl.render_type(typ)
-
-// MoonBit codegen — emit pub(all) struct / typealias skeletons
-@pkl.codegen_moonbit(program) -> String
-
-// Lint
-@pkl.lint_program(program) -> Array[@pkl.LintFinding]
-
-// Sandbox config (mutable module state, read by the loader)
-@pkl.configure_sandbox_props(map)
-@pkl.configure_sandbox_module_paths(dirs)
-@pkl.configure_sandbox_allowed_modules(patterns)
-```
-
-ADTs (`pub(all)`, pattern-matchable from consumer code): `Program`, `Declaration`, `Expr`, `Type`, `Value`, `Diagnostic`, etc. — see `pkg.generated.mbti` for the exhaustive list.
-
 ## Not supported
 
 These slices are intentionally parked — `specs/Roadmap.pkl`'s `deferredEntries` listing carries the rationale.
