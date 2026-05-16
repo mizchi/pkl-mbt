@@ -354,6 +354,21 @@ local cliListingMappingStdlib = new Test {
   timeoutSec = 120
 }
 
+local cliOutputRendererDriver = new Test {
+  name = "cli output renderer driver"
+  description =
+    "The native CLI evaluates a fixture that declares `output { renderer = new JsonRenderer {} }` without passing `-f`. The CLI reads the renderer class from the parsed AST, switches the format to `json`, strips the `output` block from the rendered envelope, and prints the JSON projection of the module's other properties."
+  tags { "moonbit"; "cli"; "renderer"; "output"; "contract" }
+  specRef { "PKL-104" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_output_renderer_driver.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "\"name\": \"alpha\""
+    "\"count\": 5"
+  }
+  timeoutSec = 120
+}
+
 local cliAmendsBaseMerge = new Test {
   name = "cli amends base merge"
   description =
@@ -695,6 +710,7 @@ tests {
   cliHttpsImports
   cliStdlibModifiers
   cliAmendsBaseMerge
+  cliOutputRendererDriver
   cliFormat
   cliTestExamplesPass
   cliTestExamplesFail

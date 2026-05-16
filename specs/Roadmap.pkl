@@ -62,18 +62,6 @@ local readNullableParserForm: Spec.Scenario = new {
   severity = "minor"
 }
 
-local outputRendererDriver: Spec.Scenario = new {
-  id = "PKL-104"
-  name = "output renderer driver path"
-  description =
-    "Recognize module-level `output { renderer = new JsonRenderer { ... } }` declarations and dispatch the chosen renderer (with optional converters) instead of relying on the `-f` CLI flag. Requires class-name tagging on `ObjectValue` so the renderer class can be read at runtime."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-097" }
-  tags { "renderer"; "output"; "driver"; "pkf-pkspec"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 local outputConverters: Spec.Scenario = new {
   id = "PKL-105"
   name = "renderer converters"
@@ -81,7 +69,7 @@ local outputConverters: Spec.Scenario = new {
     "JSON / YAML / Properties renderers honor `converters { [\"path\"] = (value) -> ...; [\"Class\"] = (value) -> ... }`. Converters apply path-first then type-first; the value the converter returns is rendered in place."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-104" }
-  tags { "renderer"; "converter" }
+  tags { "renderer"; "converter"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -357,7 +345,6 @@ entries: Listing<Spec.Scenario> = new {
   pklRepl
   pklAnalyzeLint
   readNullableParserForm
-  outputRendererDriver
   outputConverters
   cliAllowedModules
   diagnosticSourcePosition

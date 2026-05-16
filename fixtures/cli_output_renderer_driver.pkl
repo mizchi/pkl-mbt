@@ -1,0 +1,11 @@
+// PKL-104: `output { renderer = new JsonRenderer { ... } }` drives the
+// CLI's rendered format without `-f`. The renderer class is read from
+// the parsed module's `output.renderer` member; the `output` block
+// itself is stripped from the rendered envelope.
+name = "alpha"
+
+count = 5
+
+output {
+  renderer = new JsonRenderer {}
+}

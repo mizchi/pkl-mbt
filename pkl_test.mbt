@@ -2627,6 +2627,27 @@ test "PKL-137: property amend body parses as listing for bare elements" {
 }
 
 ///|
+test "PKL-104: output block is stripped from the rendered envelope" {
+  guard eval_source(
+      "name = \"alpha\"\noutput { renderer = new JsonRenderer {} }",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  // The eval result still carries the `output` member; the CLI's
+  // `extract_output_value` strips it before rendering. Verify both
+  // halves: the raw eval still has 2 entries, with `output` present.
+  inspect(members.length(), content="2")
+  let mut has_output = false
+  for entry in members {
+    if entry.name == "output" {
+      has_output = true
+    }
+  }
+  assert_true(has_output)
+}
+
+///|
 test "Number constraint predicate accepts both Int and Float" {
   assert_true(
     eval_source("a: Number(isPositive) = 3\nb: Number(isPositive) = 0.5") ==

@@ -254,6 +254,7 @@ async fn main {
   // tokens are treated as positional arguments, which keeps the legacy
   // single-file form working.
   let mut format = "pcf"
+  let mut format_explicit = false
   let mut overwrite = false
   let positional : Array[String] = []
   let mut i = 2
@@ -265,6 +266,7 @@ async fn main {
         @sys.exit(1)
       }
       format = args[i + 1]
+      format_explicit = true
       i = i + 2
     } else if token == "--overwrite" {
       overwrite = true
@@ -336,12 +338,22 @@ async fn main {
         EvalOk(raw) => {
           // PKL-097: Apple Pkl uses a module-level `output { value =
           // ...; renderer = ... }` block to drive what `pkl eval`
-          // returns. We do not yet honor `output.renderer` (the
-          // explicit `-f` flag stays the source of truth), but we do
-          // extract `output.value` so fixtures that route their data
-          // through `output.value` render only that subtree instead
+          // returns. Extract `output.value` so fixtures that route
+          // their data through it render only that subtree instead
           // of the whole module envelope.
           let value = extract_output_value(raw)
+          // PKL-104: when the user didn't pass `-f / --format`, honor
+          // the renderer class declared in `output { renderer = new
+          // JsonRenderer { ... } }`. The class name is read directly
+          // from the parsed AST (the eval result is a generic
+          // ObjectValue that doesn't carry its source class). Explicit
+          // `-f` always wins so existing test fixtures keep behaving.
+          if !format_explicit {
+            match detect_output_renderer_format(source) {
+              Some(detected) => format = detected
+              None => ()
+            }
+          }
           // The format string is validated up-front, so this match is
           // exhaustive at runtime. The explicit `pcf` arm doubles as
           // documentation: a future renderer added here surfaces as a
@@ -586,12 +598,73 @@ fn run_pkl_examples_test(
 /// the whole module envelope. Modules without an `output.value` chain
 /// fall through unchanged so existing single-binding fixtures keep
 /// rendering the entire module the same way they did before.
+/// PKL-104: walk the parsed module's `output { renderer = new
+/// JsonRenderer { ... } }` block and map the renderer's class name
+/// onto the existing CLI format string. Returns `None` when the
+/// module has no `output.renderer` clause, or when the renderer's
+/// class doesn't match a renderer pkl-mbt knows about (plist / xml /
+/// protobuf / pkl-binary land with PKL-126). The format is read from
+/// the parsed AST rather than the eval result because the eval
+/// collapses the renderer class to a plain ObjectValue without
+/// retaining the source class.
+fn detect_output_renderer_format(source : String) -> String? {
+  let parsed = @pkl.parse_source(source)
+  for binding in parsed.program.bindings {
+    if binding.name == "output" {
+      match binding.value {
+        ObjectLiteral(members) =>
+          for field in members {
+            if field.name == "renderer" {
+              match renderer_format_from_expr(field.value) {
+                Some(f) => return Some(f)
+                None => ()
+              }
+            }
+          }
+        _ => ()
+      }
+    }
+  }
+  None
+}
+
+///|
+fn renderer_format_from_expr(expr : @pkl.Expr) -> String? {
+  match expr {
+    TypedObjectLiteral(class_name, _) => renderer_format_from_class(class_name)
+    AmendExpr(base, _) => renderer_format_from_expr(base)
+    _ => None
+  }
+}
+
+///|
+fn renderer_format_from_class(class_name : String) -> String? {
+  // The class name often arrives qualified (`pkl.JsonRenderer` /
+  // `base.PcfRenderer`). Strip a trailing `Renderer` suffix and any
+  // qualifier prefix before matching so both forms work.
+  let raw = class_name
+  let stripped = match raw.rev_find(".") {
+    Some(idx) => String::unsafe_substring(raw, start=idx + 1, end=raw.length())
+    None => raw
+  }
+  match stripped {
+    "JsonRenderer" => Some("json")
+    "YamlRenderer" => Some("yaml")
+    "PropertiesRenderer" => Some("properties")
+    "PcfRenderer" => Some("pcf")
+    _ => None
+  }
+}
+
+///|
 fn extract_output_value(value : @pkl.Value) -> @pkl.Value {
   match value {
     @pkl.ObjectValue(members) => {
       let mut output_value : @pkl.Value? = None
+      let mut has_output = false
       for entry in members {
         if entry.name == "output" {
+          has_output = true
           match entry.value {
             @pkl.ObjectValue(sub_members) =>
               for sub in sub_members {
@@ -605,7 +678,24 @@ fn extract_output_value(value : @pkl.Value) -> @pkl.Value {
       }
       match output_value {
         Some(v) => v
-        None => value
+        None =>
+          // PKL-104: `output { renderer = ... }` without an explicit
+          // `output.value` projects the module's *other* properties,
+          // not the `output` block itself. Strip `output` from the
+          // rendered envelope so the renderer doesn't echo its own
+          // configuration into the output (matches Apple Pkl's
+          // module-body rendering rules).
+          if has_output {
+            let visible : Array[@pkl.ValueMember] = []
+            for entry in members {
+              if entry.name != "output" {
+                visible.push(entry)
+              }
+            }
+            @pkl.ObjectValue(visible)
+          } else {
+            value
+          }
       }
     }
     _ => value

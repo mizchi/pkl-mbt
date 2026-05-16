@@ -1,6 +1,6 @@
 # Test SPEC
 
-175 tests across 2 module(s) — 141 pending, 34 active
+176 tests across 2 module(s) — 141 pending, 35 active
 
 ## `specs/`
 
@@ -519,10 +519,11 @@
   - depends on: PKL-098
   - body: _not yet implemented_
 
-- [ ] **output renderer driver path** [draft] — verifies: PKL-104 — tags: renderer, output, driver, pkf-pkspec, next
-  > Recognize module-level `output { renderer = new JsonRenderer { ... } }` declarations and dispatch the chosen renderer (with optional converters) instead of relying on the `-f` CLI flag. Requires class-name tagging on `ObjectValue` so the renderer class can be read at runtime.
+- [ ] **output renderer driver** — verifies: PKL-104 — tags: renderer, output, driver, pkf-pkspec
+  > The CLI's `eval` command picks its rendered format from the module's `output { renderer = new JsonRenderer { ... } }` block when the user did not pass `-f` / `--format`. The renderer's class name is read directly from the parsed AST — `parse_source(source).program.bindings` is walked for an `output` binding whose `ObjectLiteral` body has a `renderer` member; the renderer's `TypedObjectLiteral(class_name, _)` (or an `AmendExpr` peeling back to one) maps onto the existing format string (`JsonRenderer` → `"json"`, `YamlRenderer` → `"yaml"`, `PropertiesRenderer` → `"properties"`, `PcfRenderer` → `"pcf"`). The eval result's `ObjectValue` does not carry the source class, so this path stays AST-driven rather than tagging values. The `output` block itself is then stripped from the rendered envelope by `extract_output_value` (when there's no explicit `output.value` subtree) so the renderer doesn't echo its own configuration. An explicit `-f` flag still wins over the renderer-class detection so existing fixtures behave unchanged.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-097
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **package:// registry resolution** [draft] — verifies: PKL-129b — tags: parser, imports, sandbox, pkf-pkspec
@@ -712,7 +713,7 @@
   - depends on: PKL-104
   - body: _not yet implemented_
 
-- [ ] **renderer converters** [draft] — verifies: PKL-105 — tags: renderer, converter
+- [ ] **renderer converters** [draft] — verifies: PKL-105 — tags: renderer, converter, next
   > JSON / YAML / Properties renderers honor `converters { ["path"] = (value) -> ...; ["Class"] = (value) -> ... }`. Converters apply path-first then type-first; the value the converter returns is rendered in place.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-104
@@ -1034,6 +1035,10 @@
 
 - [x] **cli new body inference** — verifies: PKL-138 — tags: moonbit, cli, parser, evaluator, pkf-pkspec, contract
   > The native CLI evaluates a fixture that exercises bare `new { ... }` literals dispatched into listing / mapping / object bodies by the first significant token, plus empty `new {}` literals coerced to ListingValue / MappingValue via the binding's type annotation. Chained methods (`emptyListing.toList().map(...)`, `emptyMapping.keys`) succeed because the coercion runs before the method dispatch.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli output renderer driver** — verifies: PKL-104 — tags: moonbit, cli, renderer, output, contract
+  > The native CLI evaluates a fixture that declares `output { renderer = new JsonRenderer {} }` without passing `-f`. The CLI reads the renderer class from the parsed AST, switches the format to `json`, strips the `output` block from the rendered envelope, and prints the JSON projection of the module's other properties.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli pkspec polish** — verifies: PKL-139 — tags: moonbit, cli, parser, evaluator, stdlib, pkf-pkspec, contract

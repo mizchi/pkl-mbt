@@ -1785,6 +1785,38 @@ local listingMappingStdlibCore = new Scenario {
   }
 }
 
+local outputRendererDriver = new Scenario {
+  id = "PKL-104"
+  name = "output renderer driver"
+  description =
+    "The CLI's `eval` command picks its rendered format from the module's `output { renderer = new JsonRenderer { ... } }` block when the user did not pass `-f` / `--format`. The renderer's class name is read directly from the parsed AST — `parse_source(source).program.bindings` is walked for an `output` binding whose `ObjectLiteral` body has a `renderer` member; the renderer's `TypedObjectLiteral(class_name, _)` (or an `AmendExpr` peeling back to one) maps onto the existing format string (`JsonRenderer` → `\"json\"`, `YamlRenderer` → `\"yaml\"`, `PropertiesRenderer` → `\"properties\"`, `PcfRenderer` → `\"pcf\"`). The eval result's `ObjectValue` does not carry the source class, so this path stays AST-driven rather than tagging values. The `output` block itself is then stripped from the rendered envelope by `extract_output_value` (when there's no explicit `output.value` subtree) so the renderer doesn't echo its own configuration. An explicit `-f` flag still wins over the renderer-class detection so existing fixtures behave unchanged."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-097" }
+  tags { "renderer"; "output"; "driver"; "pkf-pkspec" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Read the renderer class from the parsed AST, not from a tagged ObjectValue"
+      rationale =
+        "A more general design tags every `ObjectValue` with its source class name so `new JsonRenderer {...}` survives the eval pipeline as a class-bound value. That would touch every `ObjectValue` pattern match across eval / typecheck / render — a substantial refactor. Reading the class straight from the parsed `TypedObjectLiteral` in the module's `output.renderer` slot is a tight, AST-local solution that lands the user-facing feature without the platform churn. When PKL-119 introduces dedicated value variants for Set / Pair / Map, an OO-aware tag may emerge organically; until then the simpler design pulls its weight."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Strip the `output` block from the rendered envelope"
+      rationale =
+        "Apple Pkl treats `output` as a module-level control block: it doesn't appear in the module's rendered output. The pre-existing `extract_output_value` only stripped the envelope when `output.value` was explicit; now it strips the `output` member whenever it's present (with no `output.value`), so `output { renderer = ... }` no longer round-trips its own configuration into the JSON / YAML / etc. output. The behaviour is consistent across renderers — every format sees the same `value` payload."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Explicit `-f` always wins"
+      rationale =
+        "Test fixtures and the upstream gold-diff workflow rely on `-f json` / `-f yaml` overriding the module's declared renderer. Honoring the `output.renderer` only when `-f` is absent keeps every existing test green while letting end users drop the flag once their module declares its target format."
+    }
+  }
+}
+
 local amendsBaseMerge = new Scenario {
   id = "PKL-137"
   name = "amends base module property and type merge"
@@ -3144,5 +3176,6 @@ scenarios {
   httpsImports
   stdlibModifiers
   amendsBaseMerge
+  outputRendererDriver
   ...roadmap.entries
 }
