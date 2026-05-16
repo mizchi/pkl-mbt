@@ -74,12 +74,14 @@ jobs:
         run: moon update
 
       - name: Set up pkfire (`pkf`)
-        # No floating major tag upstream — pin to the explicit
-        # release. `pkfire@<ver>` is the tag form mizchi/pkfire ships.
-        uses: mizchi/pkfire@pkfire@0.10.0
+        # No floating major tag upstream and the explicit
+        # `pkfire@0.10.0` form contains an `@` that the `uses:`
+        # parser refuses — pin to the resolved commit SHA instead.
+        uses: mizchi/pkfire@74b22e14db6f166738a4a4f9b2962c94209a5603
 
       - name: Set up pkspec
-        uses: mizchi/pkspec@v0.2.1
+        # v0.2.1; SHA-pinned for the same reason consistency.
+        uses: mizchi/pkspec@b1261d5ab553c190e26adc2a3610fca9ea6f9ac0
 
       - name: pkspec spec --check
         run: pkspec spec --check specs/Spec.pkl specs/Test.pkl
