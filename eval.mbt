@@ -121,6 +121,190 @@ fn lookup_value(env : Array[ValueBinding], name : String) -> Value? {
 }
 
 ///|
+/// PKL-143: read the hidden `__kind` marker that `pkl:reflect.Class` /
+/// `Module` / `TypeAlias` factories stamp on their returned mirror.
+/// Returns `None` for an ordinary ObjectValue.
+fn reflect_kind(members : Array[ValueMember]) -> String? {
+  match lookup_member(members, "__kind") {
+    Some(StringValue(kind)) => Some(kind)
+    _ => None
+  }
+}
+
+///|
+/// PKL-143: read the `reflectee` member of a reflect mirror — the
+/// string identifier the user passed to the factory.
+fn reflect_reflectee_name(members : Array[ValueMember]) -> String? {
+  match lookup_member(members, "reflectee") {
+    Some(StringValue(name)) => Some(name)
+    _ => None
+  }
+}
+
+///|
+/// PKL-143: project the property declarations of a class as a
+/// `Listing<{name: String, typeName: String?}>`. Returns an empty
+/// listing when the class isn't found in `declarations`.
+fn reflect_class_properties(
+  class_name : String,
+  declarations : Array[Declaration],
+) -> Value {
+  let result : Array[Value] = []
+  for decl in declarations {
+    match decl {
+      ClassDeclaration(class_decl) =>
+        if class_decl.name == class_name {
+          for prop in class_decl.properties {
+            let type_value = match prop.type_name {
+              Some(t) => StringValue(t)
+              None => NullValue
+            }
+            result.push(
+              ObjectValue([
+                { name: "name", value: StringValue(prop.name) },
+                { name: "typeName", value: type_value },
+              ]),
+            )
+          }
+        }
+      _ => ()
+    }
+  }
+  ListingValue(result)
+}
+
+///|
+/// PKL-143: project the method declarations of a class as a
+/// `Listing<{name: String, returnTypeName: String?, parameterTypeNames: Listing<String?>}>`.
+fn reflect_class_methods(
+  class_name : String,
+  declarations : Array[Declaration],
+) -> Value {
+  let result : Array[Value] = []
+  for decl in declarations {
+    match decl {
+      ClassDeclaration(class_decl) =>
+        if class_decl.name == class_name {
+          for fn_decl in class_decl.methods {
+            let return_value = match fn_decl.return_type_name {
+              Some(t) => StringValue(t)
+              None => NullValue
+            }
+            let parameter_types : Array[Value] = []
+            for parameter in fn_decl.parameters {
+              parameter_types.push(
+                match parameter.type_name {
+                  Some(t) => StringValue(t)
+                  None => NullValue
+                },
+              )
+            }
+            result.push(
+              ObjectValue([
+                { name: "name", value: StringValue(fn_decl.name) },
+                { name: "returnTypeName", value: return_value },
+                {
+                  name: "parameterTypeNames",
+                  value: ListingValue(parameter_types),
+                },
+              ]),
+            )
+          }
+        }
+      _ => ()
+    }
+  }
+  ListingValue(result)
+}
+
+///|
+/// PKL-143: look up a class's declared `parent_name` and wrap it in a
+/// `Class` mirror with the hidden `__kind = "Class"` marker so chained
+/// `.supertype.supertype` walks resolve recursively. Returns `NullValue`
+/// when the class has no parent or isn't found.
+fn reflect_class_supertype(
+  class_name : String,
+  declarations : Array[Declaration],
+) -> Value {
+  for decl in declarations {
+    match decl {
+      ClassDeclaration(class_decl) =>
+        if class_decl.name == class_name {
+          match class_decl.parent_name {
+            Some(parent) =>
+              return ObjectValue([
+                { name: "reflectee", value: StringValue(parent) },
+                {
+                  name: hidden_member_name("__kind"),
+                  value: StringValue("Class"),
+                },
+              ])
+            None => return NullValue
+          }
+        }
+      _ => ()
+    }
+  }
+  NullValue
+}
+
+///|
+/// PKL-143: project the module's class declarations as a
+/// `Listing<Class>` — each element is itself a Class mirror with the
+/// `__kind = "Class"` marker so chained `.classes[i].properties`
+/// walks resolve through the same hijack path.
+fn reflect_module_classes(declarations : Array[Declaration]) -> Value {
+  let result : Array[Value] = []
+  for decl in declarations {
+    match decl {
+      ClassDeclaration(class_decl) =>
+        result.push(
+          ObjectValue([
+            { name: "reflectee", value: StringValue(class_decl.name) },
+            { name: hidden_member_name("__kind"), value: StringValue("Class") },
+          ]),
+        )
+      _ => ()
+    }
+  }
+  ListingValue(result)
+}
+
+///|
+/// PKL-143: walk the parent chain of `child` to determine whether
+/// `parent` is reachable. Same-class returns true (a class is its
+/// own subclass for the purposes of `isSubclassOf`).
+fn reflect_is_subclass_of(
+  child : String,
+  parent : String,
+  declarations : Array[Declaration],
+) -> Bool {
+  if child == parent {
+    return true
+  }
+  let mut current = child
+  // Bound the walk at 256 hops to keep a malformed cyclic chain from
+  // spinning forever; a healthy class hierarchy never reaches it.
+  for _ in 0..<256 {
+    let mut next : String? = None
+    for decl in declarations {
+      match decl {
+        ClassDeclaration(class_decl) =>
+          if class_decl.name == current {
+            next = class_decl.parent_name
+          }
+        _ => ()
+      }
+    }
+    match next {
+      Some(name) => if name == parent { return true } else { current = name }
+      None => return false
+    }
+  }
+  false
+}
+
+///|
 fn lookup_member(members : Array[ValueMember], name : String) -> Value? {
   // Hidden / local members carry the `hidden_member_prefix` marker in their
   // stored name so renderers can skip them. A lookup for the bare name
@@ -5045,12 +5229,65 @@ fn eval_expr_with_bindings(
             resolve_import,
           ) {
           Some(ObjectValue(members)) =>
-            match lookup_member(members, member_name) {
-              Some(value) => Some(value)
-              None => {
-                diagnostics.push(diag("Cannot find property `\{member_name}`."))
-                None
-              }
+            // PKL-143: if the object is a `pkl:reflect` mirror (carries
+            // the hidden `__kind` marker), intercept introspection
+            // members before the generic `lookup_member` path.
+            match reflect_kind(members) {
+              Some("Class") =>
+                match member_name {
+                  "properties" =>
+                    match reflect_reflectee_name(members) {
+                      Some(name) =>
+                        Some(reflect_class_properties(name, declarations))
+                      None => lookup_member(members, member_name)
+                    }
+                  "methods" =>
+                    match reflect_reflectee_name(members) {
+                      Some(name) =>
+                        Some(reflect_class_methods(name, declarations))
+                      None => lookup_member(members, member_name)
+                    }
+                  "supertype" =>
+                    match reflect_reflectee_name(members) {
+                      Some(name) =>
+                        Some(reflect_class_supertype(name, declarations))
+                      None => lookup_member(members, member_name)
+                    }
+                  _ =>
+                    match lookup_member(members, member_name) {
+                      Some(value) => Some(value)
+                      None => {
+                        diagnostics.push(
+                          diag("Cannot find property `\{member_name}`."),
+                        )
+                        None
+                      }
+                    }
+                }
+              Some("Module") =>
+                match member_name {
+                  "classes" => Some(reflect_module_classes(declarations))
+                  _ =>
+                    match lookup_member(members, member_name) {
+                      Some(value) => Some(value)
+                      None => {
+                        diagnostics.push(
+                          diag("Cannot find property `\{member_name}`."),
+                        )
+                        None
+                      }
+                    }
+                }
+              _ =>
+                match lookup_member(members, member_name) {
+                  Some(value) => Some(value)
+                  None => {
+                    diagnostics.push(
+                      diag("Cannot find property `\{member_name}`."),
+                    )
+                    None
+                  }
+                }
             }
           Some(ListingValue(elements)) =>
             if is_listing_property_name(member_name) {
@@ -5867,12 +6104,81 @@ fn eval_expr_with_bindings(
               is_set_method_name(method_name) ||
               is_map_method_name(method_name) ||
               method_name == "toUnit" ||
-              method_name == "toBytes" {
+              method_name == "toBytes" ||
+              method_name == "isSubclassOf" {
               match
                 eval_expr_with_bindings(
                   target_expr, bindings, env, class_env, cache, stack, declarations,
                   diagnostics, resolve_import,
                 ) {
+                // PKL-143: `Class.isSubclassOf(other)` walks the parent
+                // chain of the receiver class against the reflectee of
+                // the argument mirror. The receiver is structurally an
+                // ObjectValue carrying the `__kind = "Class"` marker,
+                // so we check that nested inside the ObjectValue arm
+                // before falling through to other lookups.
+                Some(ObjectValue(receiver_members)) =>
+                  if reflect_kind(receiver_members) is Some("Class") &&
+                    method_name == "isSubclassOf" {
+                    if arguments.length() != 1 {
+                      diagnostics.push(
+                        diag(
+                          "Class.isSubclassOf expects 1 argument, got \{arguments.length()}",
+                        ),
+                      )
+                      None
+                    } else {
+                      match
+                        eval_expr_with_bindings(
+                          arguments[0],
+                          bindings,
+                          env,
+                          class_env,
+                          cache,
+                          stack,
+                          declarations,
+                          diagnostics,
+                          resolve_import,
+                        ) {
+                        Some(ObjectValue(other_members)) =>
+                          match
+                            (
+                              reflect_reflectee_name(receiver_members),
+                              reflect_reflectee_name(other_members),
+                            ) {
+                            (Some(child), Some(parent)) =>
+                              Some(
+                                BoolValue(
+                                  reflect_is_subclass_of(
+                                    child, parent, declarations,
+                                  ),
+                                ),
+                              )
+                            _ => {
+                              diagnostics.push(
+                                diag(
+                                  "Class.isSubclassOf expects a Class mirror argument",
+                                ),
+                              )
+                              None
+                            }
+                          }
+                        _ => {
+                          diagnostics.push(
+                            diag(
+                              "Class.isSubclassOf expects a Class mirror argument",
+                            ),
+                          )
+                          None
+                        }
+                      }
+                    }
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
                 Some(ListingValue(elements)) =>
                   if is_listing_method_name(method_name) {
                     eval_listing_method(

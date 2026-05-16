@@ -374,6 +374,32 @@ local cliFloatMagnitudeUnits = new Test {
   timeoutSec = 120
 }
 
+local cliReflectIntrospection = new Test {
+  name = "cli reflect introspection"
+  description =
+    "The native CLI evaluates a fixture exercising the `pkl:reflect` introspection surface: `reflect.Class(name).properties` returns each property's `name` / `typeName`, `.methods` exposes return types + parameter types, `.supertype.reflectee` follows `parent_name` one hop, `.isSubclassOf(other)` walks the parent chain (`Puppy → Dog → Animal`), and `reflect.Module(\"self\").classes` lists every class declaration. The hidden `__kind` marker that powers the dispatch never reaches the rendered output."
+  tags { "moonbit"; "cli"; "stdlib"; "reflect"; "contract" }
+  specRef { "PKL-143" }
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_reflect_introspection.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "animalMirror {"
+    "reflectee = \"Animal\""
+    "animalProps {"
+    "name = \"name\""
+    "typeName = \"String\""
+    "animalMethods {"
+    "name = \"describe\""
+    "returnTypeName = \"String\""
+    "dogSuper = \"Animal\""
+    "dogIsAnimal = true"
+    "puppyIsAnimal = true"
+    "animalIsDog = false"
+    "moduleClasses {"
+  }
+  timeoutSec = 120
+}
+
 local cliStdlibCheck = new Test {
   name = "cli stdlib coverage probe"
   description =
@@ -395,7 +421,9 @@ local cliStdlibCheck = new Test {
     "[PASS] intType mirror constant"
     "[PASS] Parser class instantiable"
     "[PASS] Renderer class instantiable"
-    "stdlib: 30 / 30 passed"
+    "[PASS] Class.properties walks class declaration"
+    "[PASS] Class.isSubclassOf walks the parent chain"
+    "stdlib: 35 / 35 passed"
   }
   timeoutSec = 180
 }
@@ -1313,6 +1341,7 @@ tests {
   cliPackageUriOffline
   cliPackageRegistryProbe
   cliStdlibCheck
+  cliReflectIntrospection
   cliCodegenMoonbit
   cliHeredocString
   cliFormat

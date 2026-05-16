@@ -1,0 +1,34 @@
+// PKL-143: pkl:reflect mirrors expose class / module introspection
+// via a hidden `__kind` marker stamped on factory-returned mirrors.
+// The evaluator's MemberAccess arm checks the marker before generic
+// lookup and dispatches `.properties` / `.methods` / `.supertype` /
+// `.classes` / `.isSubclassOf` against the module's declarations.
+import "pkl:reflect" as reflect
+
+class Animal {
+  name: String
+  age: Int
+  function describe(): String = name
+}
+
+class Dog extends Animal {
+  breed: String
+}
+
+class Puppy extends Dog {}
+
+animalMirror = reflect.Class("Animal")
+
+animalProps = animalMirror.properties
+
+animalMethods = animalMirror.methods
+
+dogSuper = reflect.Class("Dog").supertype.reflectee
+
+dogIsAnimal = reflect.Class("Dog").isSubclassOf(reflect.Class("Animal"))
+
+puppyIsAnimal = reflect.Class("Puppy").isSubclassOf(reflect.Class("Animal"))
+
+animalIsDog = reflect.Class("Animal").isSubclassOf(reflect.Class("Dog"))
+
+moduleClasses = reflect.Module("self").classes

@@ -173,7 +173,7 @@ let stdlib_probes : Array[StdlibProbe] = [
     source: "import \"pkl:test\"\nv = test.catch(() -> throw(\"boom\"))",
     expect: "v = \"boom\"",
   },
-  // pkl:reflect — minimal stub.
+  // pkl:reflect — mirror constants + introspection.
   {
     group: "pkl:reflect",
     name: "intType mirror constant",
@@ -185,6 +185,36 @@ let stdlib_probes : Array[StdlibProbe] = [
     name: "Class factory reflectee",
     source: "import \"pkl:reflect\" as r\nv = r.Class(\"Foo\").reflectee",
     expect: "v = \"Foo\"",
+  },
+  {
+    group: "pkl:reflect",
+    name: "Class.properties walks class declaration",
+    source: "import \"pkl:reflect\" as r\nclass Person { name: String; age: Int }\nv = r.Class(\"Person\").properties[1].typeName",
+    expect: "v = \"Int\"",
+  },
+  {
+    group: "pkl:reflect",
+    name: "Class.methods walks class declaration",
+    source: "import \"pkl:reflect\" as r\nclass G { function greet(n: String): String = n }\nv = r.Class(\"G\").methods[0].returnTypeName",
+    expect: "v = \"String\"",
+  },
+  {
+    group: "pkl:reflect",
+    name: "Class.supertype follows parent_name",
+    source: "import \"pkl:reflect\" as r\nclass Animal {}\nclass Dog extends Animal {}\nv = r.Class(\"Dog\").supertype.reflectee",
+    expect: "v = \"Animal\"",
+  },
+  {
+    group: "pkl:reflect",
+    name: "Class.isSubclassOf walks the parent chain",
+    source: "import \"pkl:reflect\" as r\nclass A {}\nclass B extends A {}\nv = r.Class(\"B\").isSubclassOf(r.Class(\"A\"))",
+    expect: "v = true",
+  },
+  {
+    group: "pkl:reflect",
+    name: "Module.classes lists declared classes",
+    source: "import \"pkl:reflect\" as r\nclass A {}\nclass B {}\nv = r.Module(\"self\").classes[1].reflectee",
+    expect: "v = \"B\"",
   },
   // pkl:json — Parser shell only (no parsing logic yet).
   {

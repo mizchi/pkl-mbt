@@ -1,6 +1,6 @@
 # Test SPEC
 
-209 tests across 2 module(s) — 145 pending, 64 active
+211 tests across 2 module(s) — 146 pending, 65 active
 
 ## `specs/`
 
@@ -660,6 +660,13 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **pkl:reflect class / module introspection** — verifies: PKL-143 — tags: evaluator, stdlib, reflect
+  > `pkl:reflect` grows from a mirror-constant + factory stub into a usable introspection surface. The synthetic stdlib source stamps a hidden `__kind` marker (`"Class"` / `"Module"` / `"TypeAlias"`) on every factory-returned ObjectValue; the evaluator's `MemberAccess` arm checks for the marker before falling through to generic member lookup and dispatches to dedicated helpers (`reflect_class_properties` / `reflect_class_methods` / `reflect_class_supertype` / `reflect_module_classes`) that walk the surrounding module's `Array[Declaration]`. The same path handles the `isSubclassOf(other)` method call by tracing each receiver's `parent_name` chain against the argument's `reflectee` (with a 256-hop cap as a defensive cycle guard). The `__kind` marker is hidden via the existing `hidden_member_prefix` machinery, so it never reaches the renderer; the user-facing mirror still shows just `reflectee`. The slice deliberately keeps the factories taking a string identifier rather than a real `ClassValue` — that round-trip is the remaining gap once the value model grows a class-value variant. The `mpkl stdlib` probe table grows by five rows (properties / methods / supertype / isSubclassOf / classes) so the introspection surface is mechanically pinned alongside the existing mirror-constant probes.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-080
+  - decisions: 2 entry(ies)
+  - body: _not yet implemented_
+
 - [ ] **plist renderer** — verifies: PKL-126a — tags: renderer, plist
   > The plist renderer emits Apple plist XML (PLIST 1.0 DTD) documents. The output starts with the standard XML 1.0 prolog and `<!DOCTYPE plist PUBLIC ...>` declaration, then wraps the rendered value in `<plist version="1.0">`. Value projection mirrors upstream Apple Pkl: Int → `<integer>N</integer>`, Float → `<real>D</real>`, Bool → `<true/>` / `<false/>`, String → `<string>...</string>` with XML entity escaping (`&` `<` `>`), Object / Mapping → `<dict>` with `<key>` + value pairs, Listing → `<array>`, Duration / DataSize → `<string>N unit</string>` (space-separated form rather than the `.` form used by JSON / YAML for these values), Regex → `<string>pattern</string>`, Bytes → `<string>base64</string>`. Null entries are elided inside dicts (matching Apple's `omitNullProperties` default) and inside arrays (the upstream error-on-null-in-array surface lands with PKL-127's converter machinery, alongside the rest of the renderer-side error pipeline). `-f plist` selects the renderer at the CLI; `output { renderer = new PListRenderer {} }` selects it via the AST-driven detection that already powers `JsonRenderer` / `YamlRenderer`. `pListRenderer1.plist` from the upstream snippet tests now byte-matches the gold file and joins `scripts/upstream-smoke.sh`'s new `PLIST_GOLD_FIXTURES` list.
   - contributes to: GOAL-PKL-PURE
@@ -1167,6 +1174,10 @@
 
 - [x] **cli read nullable** — verifies: PKL-103 — tags: moonbit, cli, evaluator, read, nullable, contract
   > The native CLI evaluates a fixture that uses `read?(uri)` for both a missing env var and a non-`env:` scheme. Both calls return `null` instead of pushing a diagnostic, matching Apple Pkl's null-safe semantics.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli reflect introspection** — verifies: PKL-143 — tags: moonbit, cli, stdlib, reflect, contract
+  > The native CLI evaluates a fixture exercising the `pkl:reflect` introspection surface: `reflect.Class(name).properties` returns each property's `name` / `typeName`, `.methods` exposes return types + parameter types, `.supertype.reflectee` follows `parent_name` one hop, `.isSubclassOf(other)` walks the parent chain (`Puppy → Dog → Animal`), and `reflect.Module("self").classes` lists every class declaration. The hidden `__kind` marker that powers the dispatch never reaches the rendered output.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli reflect minimal stub** — verifies: PKL-080 — tags: moonbit, cli, pkl-reflect, stdlib, contract

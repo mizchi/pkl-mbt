@@ -4687,42 +4687,101 @@ test "pkl:reflect exposes builtin type mirror constants" {
 }
 
 ///|
+test "PKL-143: reflect.Class(name).properties walks the class declaration" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:reflect\" as reflect\nclass Person { name: String; age: Int }\nps = reflect.Class(\"Person\").properties\nfirstName = ps[0].name\nfirstTypeName = ps[0].typeName",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("firstName = \"name\""), content="true")
+  inspect(rendered.contains("firstTypeName = \"String\""), content="true")
+}
+
+///|
+test "PKL-143: reflect.Class(name).methods includes return + parameter types" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:reflect\" as reflect\nclass Greeter {\n  function greet(n: String): String = n\n}\nms = reflect.Class(\"Greeter\").methods\nmname = ms[0].name\nret = ms[0].returnTypeName",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("mname = \"greet\""), content="true")
+  inspect(rendered.contains("ret = \"String\""), content="true")
+}
+
+///|
+test "PKL-143: reflect.Class(name).supertype walks parent_name" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:reflect\" as reflect\nclass Animal { name: String }\nclass Dog extends Animal { breed: String }\nsup = reflect.Class(\"Dog\").supertype.reflectee",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  for entry in members {
+    if entry.name == "sup" {
+      guard entry.value is StringValue(name) else { panic() }
+      inspect(name, content="Animal")
+    }
+  }
+}
+
+///|
+test "PKL-143: reflect.Module(name).classes lists every class declaration" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:reflect\" as reflect\nclass A {}\nclass B {}\nclasses = reflect.Module(\"self\").classes",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  for entry in members {
+    if entry.name == "classes" {
+      guard entry.value is ListingValue(items) else { panic() }
+      inspect(items.length(), content="2")
+    }
+  }
+}
+
+///|
+test "PKL-143: reflect.Class.isSubclassOf walks the parent chain" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:reflect\" as reflect\nclass Animal {}\nclass Dog extends Animal {}\nclass Puppy extends Dog {}\ndogIsAnimal = reflect.Class(\"Dog\").isSubclassOf(reflect.Class(\"Animal\"))\npuppyIsAnimal = reflect.Class(\"Puppy\").isSubclassOf(reflect.Class(\"Animal\"))\nanimalIsDog = reflect.Class(\"Animal\").isSubclassOf(reflect.Class(\"Dog\"))",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  for entry in members {
+    match (entry.name, entry.value) {
+      ("dogIsAnimal", BoolValue(b)) => inspect(b, content="true")
+      ("puppyIsAnimal", BoolValue(b)) => inspect(b, content="true")
+      ("animalIsDog", BoolValue(b)) => inspect(b, content="false")
+      _ => ()
+    }
+  }
+}
+
+///|
 test "pkl:reflect Class factory returns a reflectee container" {
-  // PKL-080 minimal slice: the `Class` / `Module` / `TypeAlias` / `Property`
+  // PKL-080 / PKL-143: the `Class` / `Module` / `TypeAlias` / `Property`
   // factories take a string identifier (rather than a class value) because we
   // do not yet have a `ClassValue` variant to round-trip a class declaration.
-  // The container returned exposes the `reflectee` field, which is enough for
-  // assertions of the form `reflect.Class("Foo").reflectee == "Foo"`.
+  // PKL-143 added a hidden `__kind` marker on each mirror so member-access
+  // hijack can dispatch `.properties` / `.methods` / `.supertype` etc.;
+  // assert only on the rendered output here so the hidden marker stays an
+  // implementation detail rather than a contract.
   let session = AnalysisSession::new()
   session.set_source(
     "main.pkl", "import \"pkl:reflect\" as reflect\nclassMirror = reflect.Class(\"Foo\")\nname = classMirror.reflectee\ndecl = reflect.DeclaredType(reflect.Class(\"Bar\"))\ndeclName = decl.referent.reflectee",
   )
-  assert_true(
-    session.eval_path("main.pkl") ==
-    EvalOk(
-      ObjectValue([
-        ValueMember::{
-          name: "classMirror",
-          value: ObjectValue([
-            ValueMember::{ name: "reflectee", value: StringValue("Foo") },
-          ]),
-        },
-        ValueMember::{ name: "name", value: StringValue("Foo") },
-        ValueMember::{
-          name: "decl",
-          value: ObjectValue([
-            ValueMember::{
-              name: "referent",
-              value: ObjectValue([
-                ValueMember::{ name: "reflectee", value: StringValue("Bar") },
-              ]),
-            },
-          ]),
-        },
-        ValueMember::{ name: "declName", value: StringValue("Bar") },
-      ]),
-    ),
-  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("name = \"Foo\""), content="true")
+  inspect(rendered.contains("declName = \"Bar\""), content="true")
+  inspect(rendered.contains("reflectee = \"Foo\""), content="true")
+  inspect(rendered.contains("reflectee = \"Bar\""), content="true")
 }
 
 ///|

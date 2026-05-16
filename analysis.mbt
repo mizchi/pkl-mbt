@@ -349,9 +349,23 @@ fn builtin_stdlib_source(uri : String) -> String? {
         #|moduleType = "pkl.base#Module"
         #|unknownType = "pkl.base#unknown"
         #|nothingType = "pkl.base#nothing"
-        #|Class = (name) -> new { reflectee = name }
-        #|Module = (name) -> new { reflectee = name }
-        #|TypeAlias = (name) -> new { reflectee = name }
+        // PKL-143: Class / Module mirrors carry a hidden `__kind`
+        // marker that the evaluator uses to hijack `.properties` /
+        // `.methods` / `.supertype` / `.classes` / `.isSubclassOf`
+        // member access. The marker doesn't render (hidden modifier)
+        // and the user-facing surface still exposes `reflectee`.
+        #|Class = (name) -> new {
+        #|  reflectee = name
+        #|  hidden __kind = "Class"
+        #|}
+        #|Module = (name) -> new {
+        #|  reflectee = name
+        #|  hidden __kind = "Module"
+        #|}
+        #|TypeAlias = (name) -> new {
+        #|  reflectee = name
+        #|  hidden __kind = "TypeAlias"
+        #|}
         #|Property = (name) -> new { name = name }
         #|DeclaredType = (referent) -> new { referent = referent }
       Some(source)

@@ -113,7 +113,7 @@ Synthesized in-process (no upstream Pkl JAR required). Run `mpkl stdlib` to veri
 | `pkl:semver` | Full | `parse` / `parseOrNull` / `compare` / ordering — full SemVer pre-release semantics. |
 | `pkl:platform` | Partial (deterministic stub) | Returns fixed `stub-os` / `stub-arch` values; the host-detection intrinsics aren't wired. |
 | `pkl:test` | Partial | `test.catch(() -> throw(...))` returns the thrown message. The no-throw branch evaluates the lambda as if catch wasn't there (the constraints8.pkl flow is the upstream use we pin). |
-| `pkl:reflect` | Stub | Mirror constants (`intType` etc.) + `Class` / `Module` / `TypeAlias` / `Property` / `DeclaredType` factories returning `reflectee` containers. No `isSubclassOf`, no runtime member introspection. |
+| `pkl:reflect` | Partial | Mirror constants (`intType` etc.) + `Class` / `Module` / `TypeAlias` / `Property` / `DeclaredType` factories. Class mirrors expose `.properties` / `.methods` / `.supertype` / `.isSubclassOf(other)`; Module mirrors expose `.classes`. No real `ClassValue` round-trip yet — the factories still take a string identifier rather than a class value. |
 | `pkl:json` / `pkl:yaml` | Type surface only | `Parser` + `Property` class shells instantiable; actual JSON / YAML parsing not implemented. |
 | `pkl:xml` / `pkl:protobuf` | Type surface only | `Renderer` class shells instantiable; rendering itself stays in the deferred slices. |
 
@@ -145,7 +145,7 @@ listing carries the full rationale. One-line summaries:
 Partially landed:
 
 - `IntSeq` equality — structural `derive(Eq)`; Apple Pkl's empty-sequence-equality and step-aware element-set equality stay a follow-up.
-- `pkl:reflect` — minimal mirror-constant + factory stub; `isSubclassOf`, real `ClassValue` round-trip, and runtime member introspection are absent.
+- `pkl:reflect` — class / module introspection (`.properties` / `.methods` / `.supertype` / `.classes` / `.isSubclassOf`) lands via a hidden `__kind` marker; a real `ClassValue` round-trip (so the factories accept the class itself, not a name string) is still absent.
 
 ## Development
 

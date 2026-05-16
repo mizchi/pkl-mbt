@@ -1922,6 +1922,32 @@ local setValueVariantScenario = new Scenario {
   }
 }
 
+local reflectIntrospectionScenario = new Scenario {
+  id = "PKL-143"
+  name = "pkl:reflect class / module introspection"
+  description =
+    "`pkl:reflect` grows from a mirror-constant + factory stub into a usable introspection surface. The synthetic stdlib source stamps a hidden `__kind` marker (`\"Class\"` / `\"Module\"` / `\"TypeAlias\"`) on every factory-returned ObjectValue; the evaluator's `MemberAccess` arm checks for the marker before falling through to generic member lookup and dispatches to dedicated helpers (`reflect_class_properties` / `reflect_class_methods` / `reflect_class_supertype` / `reflect_module_classes`) that walk the surrounding module's `Array[Declaration]`. The same path handles the `isSubclassOf(other)` method call by tracing each receiver's `parent_name` chain against the argument's `reflectee` (with a 256-hop cap as a defensive cycle guard). The `__kind` marker is hidden via the existing `hidden_member_prefix` machinery, so it never reaches the renderer; the user-facing mirror still shows just `reflectee`. The slice deliberately keeps the factories taking a string identifier rather than a real `ClassValue` — that round-trip is the remaining gap once the value model grows a class-value variant. The `mpkl stdlib` probe table grows by five rows (properties / methods / supertype / isSubclassOf / classes) so the introspection surface is mechanically pinned alongside the existing mirror-constant probes."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-080" }
+  tags { "evaluator"; "stdlib"; "reflect" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "Hijack at MemberAccess rather than build a real ClassValue variant"
+      rationale =
+        "Apple Pkl's `pkl:reflect` expects to receive class values directly (`reflect.Class(MyClass)`); supporting that would require a new `ClassValue(ClassDecl)` Value variant plus a way to materialize a class declaration as a runtime value. That's a deep value-model change. The marker-based hijack reaches the same observable behaviour (`.properties` / `.methods` / `.supertype` / `.classes` / `.isSubclassOf` all work against named references) without touching the value-model API consumers depend on. When the real ClassValue variant eventually lands, the marker becomes redundant and the hijack arm collapses into a normal Value-arm match."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "isSubclassOf walks parent_name with a hop cap rather than building a class graph"
+      rationale =
+        "A real implementation would build a Map<String, ClassDecl> per module evaluation and cache parent-chain queries. For the typical project class hierarchy (single-digit depth), the 256-hop linear walk is unobservable and the cache would just be extra state to invalidate when source changes. The hop cap exists purely as a defensive bound against a malformed cyclic declaration; production code never reaches it."
+    }
+  }
+}
+
 local stdlibCoverageProbeScenario = new Scenario {
   id = "PKL-141"
   name = "mpkl stdlib coverage probe"
@@ -4034,5 +4060,6 @@ scenarios {
   packageRegistryProbeScenario
   codegenMoonbitBridgeScenario
   stdlibCoverageProbeScenario
+  reflectIntrospectionScenario
   ...roadmap.entries
 }
