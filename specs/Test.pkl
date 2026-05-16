@@ -354,6 +354,26 @@ local cliListingMappingStdlib = new Test {
   timeoutSec = 120
 }
 
+local cliMathFloatOps = new Test {
+  name = "cli math float ops"
+  description =
+    "The native CLI evaluates a fixture that imports `pkl:math` and calls `sqrt`, `pow`, `log`, `exp`, `floor`, `ceil`, `round`, plus reads `pi`. Each call returns the expected Float value computed via MoonBit's math intrinsics."
+  tags { "moonbit"; "cli"; "stdlib"; "pkl-math"; "float"; "contract" }
+  specRef { "PKL-120" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_math_float_ops.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "sqrt16 = 4.0"
+    "pow_2_10 = 1024.0"
+    "exp_0 = 1.0"
+    "floor_3_7 = 3.0"
+    "ceil_3_2 = 4.0"
+    "round_3_5 = 4.0"
+    "pi_value = 3.141592653589793"
+  }
+  timeoutSec = 120
+}
+
 local cliSuperMethodCall = new Test {
   name = "cli super method call"
   description =
@@ -823,6 +843,7 @@ tests {
   cliScientificFloat
   cliConstraintComposition
   cliSuperMethodCall
+  cliMathFloatOps
   cliHeredocString
   cliFormat
   cliTestExamplesPass

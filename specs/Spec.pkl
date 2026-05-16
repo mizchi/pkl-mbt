@@ -1785,6 +1785,32 @@ local listingMappingStdlibCore = new Scenario {
   }
 }
 
+local pklMathFloatOps = new Scenario {
+  id = "PKL-120"
+  name = "pkl:math Float operations"
+  description =
+    "`pkl:math` exposes the Float-side helpers `sqrt`, `pow`, `log`, `exp`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`, `atan`, `atan2`, plus the constants `pi` and `e`. The synthetic `pkl:math` source forwards each public name to a `_pkl_math_<op>` intrinsic identifier; the CallExpr dispatcher in `eval.mbt` intercepts those names, evaluates the numeric arguments (Int promotes to Double), and computes the result via MoonBit's `math` module (or the `Double` intrinsics for `sqrt` / `floor` / `ceil` / `round`). Existing Int helpers (`maxInt32`, `minInt32`, `abs`, `min`, `max`) stay unchanged."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-092" }
+  tags { "stdlib"; "pkl-math"; "float" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Forward through `_pkl_math_<op>` intrinsics rather than tagging FunctionValues"
+      rationale =
+        "An alternative is to add a `BuiltinFunctionValue(String)` Value variant that the runtime recognises directly. That would duplicate the existing FunctionValue dispatch path and require a new pattern in every place a callee is evaluated. Keeping the public surface as a regular Pkl lambda (`sqrt = (x) -> _pkl_math_sqrt(x)`) lets the existing FunctionValue / CallExpr machinery handle the dispatch; the intrinsic name is just one more case in the global identifier table that already holds `throw`, `read`, `trace`, `Regex`, `List`, `Set`, `Map`, `Pair`."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Reuse MoonBit's Double intrinsics for sqrt / floor / ceil / round"
+      rationale =
+        "`Double::sqrt` / `Double::floor` / `Double::ceil` / `Double::round` are method intrinsics on `Double`, not free functions in `@math`. Calling them as methods keeps each math op a one-liner without indirecting through a wrapper."
+    }
+  }
+}
+
 local superMethodCall = new Scenario {
   id = "PKL-117a"
   name = "super method call"
@@ -3352,5 +3378,6 @@ scenarios {
   scientificFloatAndHeredoc
   constraintComposition
   superMethodCall
+  pklMathFloatOps
   ...roadmap.entries
 }

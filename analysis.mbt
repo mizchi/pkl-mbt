@@ -136,26 +136,46 @@ fn resolve_import_path(from : String, uri : String) -> String {
 fn builtin_stdlib_source(uri : String) -> String? {
   match uri {
     "pkl:math" => {
-      // The math module exposes the Int range constants and a few pure
-      // Int-side helpers. Float-only operations (sqrt / pow / log / exp /
-      // ceil / floor / round) stay deferred until a real `FloatValue` lands
-      // in the value model (PKL-092). `maxInt` and `minInt` track our 32-bit
-      // `Int` representation; once a 64-bit slot exists, they expand to
-      // match the Java-derived Apple Pkl bounds.
+      // The math module exposes Int range constants, pure Int helpers,
+      // and (PKL-120) the Float-side helpers `sqrt` / `pow` / `log` /
+      // `exp` / `floor` / `ceil` / `round` / `sin` / `cos` / `tan` /
+      // `atan` / `atan2`, plus the constants `pi` and `e`. The Float
+      // operations forward to runtime intrinsics declared as
+      // `_pkl_math_<op>` global identifiers; the CallExpr dispatch in
+      // `eval.mbt` intercepts those names and computes the result via
+      // MoonBit's `math` module.
       //
-      // The helpers are declared as top-level lambda bindings rather than
-      // `function` declarations because the parser marks `function ... = ...`
-      // forms as `exported: false`, which keeps them out of the imported
-      // module's `ObjectValue`. Lambda-valued bindings round-trip through
-      // the regular `exported: true` path.
+      // `maxInt` / `minInt` track our 32-bit `Int` representation; once
+      // a 64-bit slot exists, they expand to match the Java-derived
+      // Apple Pkl bounds.
+      //
+      // The helpers are declared as top-level lambda bindings rather
+      // than `function` declarations because the parser marks
+      // `function ... = ...` forms as `exported: false`, which keeps
+      // them out of the imported module's `ObjectValue`. Lambda-valued
+      // bindings round-trip through the regular `exported: true` path.
       let source =
         #|maxInt32 = 2147483647
         #|minInt32 = 0 - 2147483647 - 1
         #|maxInt = 2147483647
         #|minInt = 0 - 2147483647 - 1
+        #|pi = 3.141592653589793
+        #|e = 2.718281828459045
         #|abs = (x) -> if (x < 0) 0 - x else x
         #|min = (a, b) -> if (a < b) a else b
         #|max = (a, b) -> if (a > b) a else b
+        #|sqrt = (x) -> _pkl_math_sqrt(x)
+        #|pow = (x, y) -> _pkl_math_pow(x, y)
+        #|log = (x) -> _pkl_math_log(x)
+        #|exp = (x) -> _pkl_math_exp(x)
+        #|floor = (x) -> _pkl_math_floor(x)
+        #|ceil = (x) -> _pkl_math_ceil(x)
+        #|round = (x) -> _pkl_math_round(x)
+        #|sin = (x) -> _pkl_math_sin(x)
+        #|cos = (x) -> _pkl_math_cos(x)
+        #|tan = (x) -> _pkl_math_tan(x)
+        #|atan = (x) -> _pkl_math_atan(x)
+        #|atan2 = (y, x) -> _pkl_math_atan2(y, x)
       Some(source)
     }
     "pkl:test" => Some("catch = null")

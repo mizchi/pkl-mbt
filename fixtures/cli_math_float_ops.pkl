@@ -1,0 +1,23 @@
+// PKL-120: `pkl:math` exposes the Float-side helpers `sqrt`, `pow`,
+// `log`, `exp`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`,
+// `atan`, `atan2`, plus the constants `pi` and `e`. The synthetic
+// `pkl:math` source forwards each name to a `_pkl_math_<op>`
+// intrinsic that the CallExpr dispatcher computes via MoonBit's
+// math primitives.
+import "pkl:math" as math
+
+sqrt16 = math.sqrt(16.0)
+
+pow_2_10 = math.pow(2.0, 10.0)
+
+log_e = math.log(math.e)
+
+exp_0 = math.exp(0.0)
+
+floor_3_7 = math.floor(3.7)
+
+ceil_3_2 = math.ceil(3.2)
+
+round_3_5 = math.round(3.5)
+
+pi_value = math.pi

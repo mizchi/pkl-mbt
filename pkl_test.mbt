@@ -2647,6 +2647,67 @@ test "PKL-105: path-keyed renderer converter rewrites a top-level value" {
 }
 
 ///|
+test "PKL-120: pkl:math.sqrt computes square root" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:math\" as math\nx = math.sqrt(16.0)",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut got = 0.0
+  for entry in members {
+    if entry.name == "x" {
+      match entry.value {
+        FloatValue(d) => got = d
+        _ => ()
+      }
+    }
+  }
+  inspect(got, content="4")
+}
+
+///|
+test "PKL-120: pkl:math.pow takes two arguments" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:math\" as math\nx = math.pow(2.0, 10.0)",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut got = 0.0
+  for entry in members {
+    if entry.name == "x" {
+      match entry.value {
+        FloatValue(d) => got = d
+        _ => ()
+      }
+    }
+  }
+  inspect(got, content="1024")
+}
+
+///|
+test "PKL-120: pkl:math.pi constant" {
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", "import \"pkl:math\" as math\np = math.pi")
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut got = 0.0
+  for entry in members {
+    if entry.name == "p" {
+      match entry.value {
+        FloatValue(d) => got = d
+        _ => ()
+      }
+    }
+  }
+  inspect(got, content="3.141592653589793")
+}
+
+///|
 test "PKL-117: super method call dispatches to parent class" {
   guard eval_source(
       "class Animal { function describe(): String = \"an animal\" }\nclass Cat extends Animal { function describe(): String = \"fluffy \\(super.describe())\" }\nc = new Cat {}\nmsg = c.describe()",

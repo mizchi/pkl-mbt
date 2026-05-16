@@ -3577,6 +3577,103 @@ fn eval_super_method_call(
 }
 
 ///|
+/// PKL-120: detect a call whose callee is one of the synthetic
+/// `_pkl_math_<op>` intrinsic identifiers and the binding hasn't
+/// been shadowed by a user import.
+fn is_pkl_math_intrinsic_call(
+  callee : Expr,
+  bindings : Array[Binding],
+  stack : Array[String],
+) -> Bool {
+  match callee {
+    Identifier(name) =>
+      pkl_math_intrinsic_arity(name) is Some(_) &&
+      !stack_contains_binding(stack, name) &&
+      find_binding(bindings, name) is None
+    _ => false
+  }
+}
+
+///|
+fn pkl_math_intrinsic_arity(name : String) -> Int? {
+  match name {
+    "_pkl_math_sqrt"
+    | "_pkl_math_log"
+    | "_pkl_math_exp"
+    | "_pkl_math_floor"
+    | "_pkl_math_ceil"
+    | "_pkl_math_round"
+    | "_pkl_math_sin"
+    | "_pkl_math_cos"
+    | "_pkl_math_tan"
+    | "_pkl_math_atan" => Some(1)
+    "_pkl_math_pow" | "_pkl_math_atan2" => Some(2)
+    _ => None
+  }
+}
+
+///|
+fn eval_pkl_math_intrinsic(
+  callee : Expr,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let name = match callee {
+    Identifier(n) => n
+    _ => return None
+  }
+  let arity = match pkl_math_intrinsic_arity(name) {
+    Some(n) => n
+    None => return None
+  }
+  if arguments.length() != arity {
+    diagnostics.push(
+      diag("\{name} expects \{arity} arguments, got \{arguments.length()}"),
+    )
+    return None
+  }
+  let arg_values : Array[Double] = []
+  for argument in arguments {
+    match
+      eval_expr_with_bindings(
+        argument, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      ) {
+      Some(FloatValue(d)) => arg_values.push(d)
+      Some(IntValue(n)) => arg_values.push(n.to_double())
+      Some(_) => {
+        diagnostics.push(diag("\{name} expects numeric arguments"))
+        return None
+      }
+      None => return None
+    }
+  }
+  match name {
+    "_pkl_math_sqrt" => Some(FloatValue(arg_values[0].sqrt()))
+    "_pkl_math_pow" => Some(FloatValue(@math.pow(arg_values[0], arg_values[1])))
+    "_pkl_math_log" => Some(FloatValue(@math.ln(arg_values[0])))
+    "_pkl_math_exp" => Some(FloatValue(@math.exp(arg_values[0])))
+    "_pkl_math_floor" => Some(FloatValue(arg_values[0].floor()))
+    "_pkl_math_ceil" => Some(FloatValue(arg_values[0].ceil()))
+    "_pkl_math_round" => Some(FloatValue(arg_values[0].round()))
+    "_pkl_math_sin" => Some(FloatValue(@math.sin(arg_values[0])))
+    "_pkl_math_cos" => Some(FloatValue(@math.cos(arg_values[0])))
+    "_pkl_math_tan" => Some(FloatValue(@math.tan(arg_values[0])))
+    "_pkl_math_atan" => Some(FloatValue(@math.atan(arg_values[0])))
+    "_pkl_math_atan2" =>
+      Some(FloatValue(@math.atan2(arg_values[0], arg_values[1])))
+    _ => None
+  }
+}
+
+///|
 fn class_method_call_available(
   target_expr : Expr,
   method_name : String,
@@ -4300,6 +4397,18 @@ fn eval_expr_with_bindings(
             _ => None
           }
         }
+      } else if is_pkl_math_intrinsic_call(callee, bindings, stack) {
+        // PKL-120: `pkl:math`'s Float-side helpers route through the
+        // `_pkl_math_<op>` global intrinsic names — `sqrt`, `pow`,
+        // `log`, `exp`, `floor`, `ceil`, `round`, `sin`, `cos`,
+        // `tan`, `atan`, `atan2`. The synthetic `pkl:math` source
+        // defines each public name as a lambda forwarding to the
+        // corresponding intrinsic so the user-facing API stays
+        // `math.sqrt(x)` while the computation lives in MoonBit.
+        eval_pkl_math_intrinsic(
+          callee, arguments, bindings, env, class_env, cache, stack, declarations,
+          diagnostics, resolve_import,
+        )
       } else if callee is Identifier("Regex") &&
         !stack_contains_binding(stack, "Regex") &&
         find_binding(bindings, "Regex") is None {

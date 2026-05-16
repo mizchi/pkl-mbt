@@ -57,7 +57,7 @@ local readNullableParserForm: Spec.Scenario = new {
     "Parser support for the `?`-suffixed call form `read?(uri)`. The evaluator returns `null` instead of a diagnostic when the resource is missing or the scheme is rejected, mirroring Apple Pkl's null-safe read."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-098" }
-  tags { "parser"; "evaluator"; "read"; "nullable" }
+  tags { "parser"; "evaluator"; "read"; "nullable"; "next" }
   reviewStatus = "draft"
   severity = "minor"
 }
@@ -138,18 +138,6 @@ local setPairMapIntSeqVariants: Spec.Scenario = new {
   tags { "evaluator"; "stdlib"; "renderer" }
   reviewStatus = "draft"
   severity = "major"
-}
-
-local pklMathFloatOps: Spec.Scenario = new {
-  id = "PKL-120"
-  name = "pkl:math Float operations"
-  description =
-    "Expose Float-side helpers on `pkl:math`: `sqrt`, `pow`, `log`, `exp`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`, `atan`, `atan2`. Float numerics already exist (PKL-092), so the additions are stdlib wiring."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-092" }
-  tags { "stdlib"; "pkl-math"; "float"; "next" }
-  reviewStatus = "draft"
-  severity = "minor"
 }
 
 local floatMagnitudeDurationDataSize: Spec.Scenario = new {
@@ -327,7 +315,6 @@ entries: Listing<Spec.Scenario> = new {
   inheritanceDispatchHardening
   crossModuleTypecheckCompleteness
   setPairMapIntSeqVariants
-  pklMathFloatOps
   floatMagnitudeDurationDataSize
   stringUnicodeMethods
   pklPlatformSemver

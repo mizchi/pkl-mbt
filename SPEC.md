@@ -1,6 +1,6 @@
 # Test SPEC
 
-187 tests across 2 module(s) — 145 pending, 42 active
+188 tests across 2 module(s) — 145 pending, 43 active
 
 ## `specs/`
 
@@ -526,7 +526,7 @@
   - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **nullable read parser form** (minor) [draft] — verifies: PKL-103 — tags: parser, evaluator, read, nullable
+- [ ] **nullable read parser form** (minor) [draft] — verifies: PKL-103 — tags: parser, evaluator, read, nullable, next
   > Parser support for the `?`-suffixed call form `read?(uri)`. The evaluator returns `null` instead of a diagnostic when the resource is missing or the scheme is rejected, mirroring Apple Pkl's null-safe read.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-098
@@ -616,10 +616,11 @@
   - depends on: PKL-104
   - body: _not yet implemented_
 
-- [ ] **pkl:math Float operations** (minor) [draft] — verifies: PKL-120 — tags: stdlib, pkl-math, float, next
-  > Expose Float-side helpers on `pkl:math`: `sqrt`, `pow`, `log`, `exp`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`, `atan`, `atan2`. Float numerics already exist (PKL-092), so the additions are stdlib wiring.
+- [ ] **pkl:math Float operations** (minor) — verifies: PKL-120 — tags: stdlib, pkl-math, float
+  > `pkl:math` exposes the Float-side helpers `sqrt`, `pow`, `log`, `exp`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`, `atan`, `atan2`, plus the constants `pi` and `e`. The synthetic `pkl:math` source forwards each public name to a `_pkl_math_<op>` intrinsic identifier; the CallExpr dispatcher in `eval.mbt` intercepts those names, evaluates the numeric arguments (Int promotes to Double), and computes the result via MoonBit's `math` module (or the `Double` intrinsics for `sqrt` / `floor` / `ceil` / `round`). Existing Int helpers (`maxInt32`, `minInt32`, `abs`, `min`, `max`) stay unchanged.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-092
+  - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **pkl:platform and pkl:semver stdlib modules** (minor) [draft] — verifies: PKL-123 — tags: stdlib, platform, semver
@@ -1073,6 +1074,10 @@
 
 - [x] **cli listing mapping stdlib** — verifies: PKL-134 — tags: moonbit, cli, stdlib, pkf-pkspec, contract
   > The native CLI evaluates a fixture that exercises Listing.toList / length / isEmpty, Mapping.toMap / length / keys / values, and the `List<T>` type annotation. Each method returns the expected value and the rendered PCF matches the equivalent literal.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli math float ops** — verifies: PKL-120 — tags: moonbit, cli, stdlib, pkl-math, float, contract
+  > The native CLI evaluates a fixture that imports `pkl:math` and calls `sqrt`, `pow`, `log`, `exp`, `floor`, `ceil`, `round`, plus reads `pi`. Each call returns the expected Float value computed via MoonBit's math intrinsics.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli new body inference** — verifies: PKL-138 — tags: moonbit, cli, parser, evaluator, pkf-pkspec, contract
