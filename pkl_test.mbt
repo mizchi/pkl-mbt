@@ -2696,6 +2696,137 @@ test "PKL-103: read?(uri) returns null when scheme is rejected" {
 }
 
 ///|
+test "PKL-123: pkl:platform exposes stub OS / architecture" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:platform\" as platform\nos = platform.current.operatingSystem.name\narch = platform.current.architecture.name",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut os = ""
+  let mut arch = ""
+  for entry in members {
+    if entry.name == "os" {
+      guard entry.value is StringValue(s) else { panic() }
+      os = s
+    }
+    if entry.name == "arch" {
+      guard entry.value is StringValue(s) else { panic() }
+      arch = s
+    }
+  }
+  inspect(os, content="stub-os")
+  inspect(arch, content="stub-arch")
+}
+
+///|
+test "PKL-123: pkl:semver parse decomposes major.minor.patch" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:semver\" as semver\nv = semver.parse(\"1.2.3\")\nmaj = v.major\nmin = v.minor\npat = v.patch",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut maj = 0
+  let mut min = 0
+  let mut pat = 0
+  for entry in members {
+    if entry.name == "maj" {
+      guard entry.value is IntValue(n) else { panic() }
+      maj = n
+    }
+    if entry.name == "min" {
+      guard entry.value is IntValue(n) else { panic() }
+      min = n
+    }
+    if entry.name == "pat" {
+      guard entry.value is IntValue(n) else { panic() }
+      pat = n
+    }
+  }
+  inspect(maj, content="1")
+  inspect(min, content="2")
+  inspect(pat, content="3")
+}
+
+///|
+test "PKL-123: pkl:semver parse captures preRelease and build" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:semver\" as semver\nv = semver.parse(\"1.0.0-alpha.1+build.42\")\npre = v.preRelease\nbld = v.build",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut pre = ""
+  let mut bld = ""
+  for entry in members {
+    if entry.name == "pre" {
+      guard entry.value is StringValue(s) else { panic() }
+      pre = s
+    }
+    if entry.name == "bld" {
+      guard entry.value is StringValue(s) else { panic() }
+      bld = s
+    }
+  }
+  inspect(pre, content="alpha.1")
+  inspect(bld, content="build.42")
+}
+
+///|
+test "PKL-123: pkl:semver parseOrNull returns null on bad input" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:semver\" as semver\nv = semver.parseOrNull(\"not-a-version\")",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  assert_true(members[0].value == NullValue)
+}
+
+///|
+test "PKL-123: pkl:semver isLessThan orders by major.minor.patch" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:semver\" as semver\na = semver.parse(\"1.2.3\")\nb = semver.parse(\"1.10.0\")\nlt = semver.isLessThan(a, b)",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut lt = false
+  for entry in members {
+    if entry.name == "lt" {
+      guard entry.value is BoolValue(b) else { panic() }
+      lt = b
+    }
+  }
+  inspect(lt, content="true")
+}
+
+///|
+test "PKL-123: pkl:semver pre-release ranks below release" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:semver\" as semver\na = semver.parse(\"1.0.0-rc.1\")\nb = semver.parse(\"1.0.0\")\nlt = semver.isLessThan(a, b)",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut lt = false
+  for entry in members {
+    if entry.name == "lt" {
+      guard entry.value is BoolValue(b) else { panic() }
+      lt = b
+    }
+  }
+  inspect(lt, content="true")
+}
+
+///|
 test "PKL-120: pkl:math.sqrt computes square root" {
   let session = AnalysisSession::new()
   session.set_source(

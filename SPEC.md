@@ -1,6 +1,6 @@
 # Test SPEC
 
-189 tests across 2 module(s) — 145 pending, 44 active
+191 tests across 2 module(s) — 145 pending, 46 active
 
 ## `specs/`
 
@@ -55,10 +55,11 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **Float magnitude Duration / DataSize literals** (minor) [draft] — verifies: PKL-121 — tags: parser, evaluator, duration, datasize, float, next
-  > `1.5.s`, `2.5.gib` and other Float-magnitude unit literals parse and evaluate to Duration / DataSize values whose magnitude is Double. Today only Int magnitudes are recognized.
+- [ ] **Float magnitude Duration and DataSize literals** (minor) — verifies: PKL-121 — tags: parser, evaluator, duration, datasize, float
+  > `1.5.s`, `2.5.gib`, `0.5.h` and other Float-magnitude unit literals parse and evaluate to Duration / DataSize values whose magnitude is `Double`. The `DurationValue` / `DataSizeValue` variants were widened from `Int` to `Double` so both Int and Float magnitudes round-trip through the same Value, and the conversion helpers (`duration_in_unit`, `datasize_in_unit`) now compute in Double. Int-magnitude call sites promote on the way in. The `.value` property projects back to `IntValue` when the magnitude is integral and `FloatValue` otherwise so existing Int-magnitude observations stay byte-identical.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-082, PKL-092
+  - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **Float numerics and constraint predicates** (minor) — verifies: PKL-092 — tags: evaluator, typechecker, renderer, constraint, float
@@ -122,7 +123,7 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **String unicode and codepoint methods** (minor) [draft] — verifies: PKL-122 — tags: stdlib, string, unicode
+- [ ] **String unicode and codepoint methods** (minor) [draft] — verifies: PKL-122 — tags: stdlib, string, unicode, next
   > `String.codePoints`, `String.normalize`, `String.toRunes`, surrogate-pair aware `length`, and case-folding methods. Today `length` and indexing operate on UTF-16 code units.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-077
@@ -624,10 +625,11 @@
   - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **pkl:platform and pkl:semver stdlib modules** (minor) [draft] — verifies: PKL-123 — tags: stdlib, platform, semver
-  > `pkl:platform` exposes the host OS / arch fields (`current.operatingSystem`, `current.architecture`). `pkl:semver` provides `Version`, `parse(s)`, comparison helpers. Both are read-only stubs from the evaluator's perspective.
+- [ ] **pkl:platform and pkl:semver stdlib modules** (minor) — verifies: PKL-123 — tags: stdlib, platform, semver
+  > `pkl:platform` is a synthetic stdlib module that exposes a read-only stub view of the host VM (`current.operatingSystem.name`, `current.operatingSystem.version`, `current.architecture.name`, `current.language.version`). The stub hard-codes `stub-os` / `stub-arch` so fixtures are deterministic across CI hosts; a future slice can swap in host-detected values via intrinsics without breaking the API shape. `pkl:semver` exposes the canonical `Version(major, minor, patch)` constructor plus `parse(s)` / `parseOrNull(s)` / `compare(a, b)` / `isLessThan` / `isGreaterThan` / `isEqualTo`. Both `parse` paths forward to `_pkl_semver_parse(_or_null)` intrinsics that decompose the SemVer 2.0 grammar (`MAJOR.MINOR.PATCH[-PRE][+BUILD]`) into a `{ major, minor, patch, preRelease, build }` ObjectValue. The comparison helpers forward through `_pkl_semver_compare`, which compares numeric core fields and then applies SemVer pre-release ordering (numeric identifiers numerically; alphanumeric lexicographically; numeric < alphanumeric; fewer identifiers < more; pre-release < release).
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-080
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **pkldoc documentation generation** (minor) [draft] — verifies: PKL-130 — tags: cli, pkldoc
@@ -1029,6 +1031,10 @@
   > The native CLI emits a YAML document when invoked with `-f yaml`.
   - body: `cmd` (exit 0 expected)
 
+- [x] **cli float magnitude units** — verifies: PKL-121 — tags: moonbit, cli, parser, duration, datasize, float, contract
+  > The native CLI evaluates a fixture using Float-magnitude Duration and DataSize literals (`0.5.s`, `2.5.gib`, `1.h`, `5.gib`). The rendered output preserves the magnitude and unit, and accessing `.value` projects back to Int when integral or Float when fractional.
+  - body: `cmd` (exit 0 expected)
+
 - [x] **cli float numerics and constraints** — verifies: PKL-092 — tags: moonbit, cli, float, constraint, contract
   > The native CLI evaluates a Float-heavy fixture, exercising Float literals, mixed Int / Float arithmetic, `Int / Int` widening to Float, and `Float(isPositive)` / `Float(isBetween(...))` / `Number(isPositive)` constraint predicates.
   - body: `cmd` (exit 0 expected)
@@ -1091,6 +1097,10 @@
 
 - [x] **cli pkspec polish** — verifies: PKL-139 — tags: moonbit, cli, parser, evaluator, stdlib, pkf-pkspec, contract
   > The native CLI evaluates a fixture that exercises the five drive-by gaps that blocked pkspec Test.pkl: brace-bodied `@ModuleInfo` annotation, multi-line typealias RHS, dot-chain across newlines, `module.foo` self-reference, and `List` / `Set` / `Map` / `Pair` constructor functions. The rendered output shows each form producing the expected value.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli platform semver** — verifies: PKL-123 — tags: moonbit, cli, stdlib, platform, semver, contract
+  > The native CLI evaluates a fixture that imports `pkl:platform` and `pkl:semver`. The platform stub yields deterministic `stub-os` / `stub-arch` values; semver `parse("1.2.3-rc.1+build.42")` populates major / minor / patch / preRelease / build, `isLessThan` orders `1.0.0-alpha < 1.0.0` (pre-release ranks below release), and `parseOrNull("not-a-version")` returns null.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli read nullable** — verifies: PKL-103 — tags: moonbit, cli, evaluator, read, nullable, contract

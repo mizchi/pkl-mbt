@@ -178,6 +178,52 @@ fn builtin_stdlib_source(uri : String) -> String? {
         #|atan2 = (y, x) -> _pkl_math_atan2(y, x)
       Some(source)
     }
+    "pkl:platform" => {
+      // PKL-123: read-only stub. Apple Pkl's `pkl:platform` reads the
+      // host VM (`System.getProperty("os.name")` etc.); we hard-code
+      // portable stub values so fixtures are deterministic across CI
+      // hosts. A future slice can swap in host-detected values via
+      // intrinsics without breaking the existing API shape.
+      let source =
+        #|current = new {
+        #|  operatingSystem = new {
+        #|    name = "stub-os"
+        #|    version = "0.0.0"
+        #|  }
+        #|  architecture = new {
+        #|    name = "stub-arch"
+        #|  }
+        #|  language = new {
+        #|    version = "0.30.0"
+        #|  }
+        #|}
+      Some(source)
+    }
+    "pkl:semver" => {
+      // PKL-123: `Version` constructor builds the canonical record
+      // (major / minor / patch / preRelease / build). `parse` and
+      // `parseOrNull` forward to the `_pkl_semver_parse(_or_null)`
+      // intrinsics so the lexer logic stays in MoonBit; `parse` raises
+      // a diagnostic on bad input while `parseOrNull` returns null.
+      // Comparison helpers wrap `_pkl_semver_compare` (`<0` / `0` /
+      // `>0` style) so pre-release ordering follows the SemVer spec
+      // without re-implementing it in pkl.
+      let source =
+        #|Version = (major, minor, patch) -> new {
+        #|  major = major
+        #|  minor = minor
+        #|  patch = patch
+        #|  preRelease = null
+        #|  build = null
+        #|}
+        #|parse = (s) -> _pkl_semver_parse(s)
+        #|parseOrNull = (s) -> _pkl_semver_parse_or_null(s)
+        #|compare = (a, b) -> _pkl_semver_compare(a, b)
+        #|isLessThan = (a, b) -> _pkl_semver_compare(a, b) < 0
+        #|isGreaterThan = (a, b) -> _pkl_semver_compare(a, b) > 0
+        #|isEqualTo = (a, b) -> _pkl_semver_compare(a, b) == 0
+      Some(source)
+    }
     "pkl:test" => Some("catch = null")
     "pkl:reflect" => {
       // PKL-080 minimal slice. Apple's `pkl:reflect` is ~460 lines and built

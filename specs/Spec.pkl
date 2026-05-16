@@ -1812,6 +1812,38 @@ local floatMagnitudeUnits = new Scenario {
   }
 }
 
+local pklPlatformSemver = new Scenario {
+  id = "PKL-123"
+  name = "pkl:platform and pkl:semver stdlib modules"
+  description =
+    "`pkl:platform` is a synthetic stdlib module that exposes a read-only stub view of the host VM (`current.operatingSystem.name`, `current.operatingSystem.version`, `current.architecture.name`, `current.language.version`). The stub hard-codes `stub-os` / `stub-arch` so fixtures are deterministic across CI hosts; a future slice can swap in host-detected values via intrinsics without breaking the API shape. `pkl:semver` exposes the canonical `Version(major, minor, patch)` constructor plus `parse(s)` / `parseOrNull(s)` / `compare(a, b)` / `isLessThan` / `isGreaterThan` / `isEqualTo`. Both `parse` paths forward to `_pkl_semver_parse(_or_null)` intrinsics that decompose the SemVer 2.0 grammar (`MAJOR.MINOR.PATCH[-PRE][+BUILD]`) into a `{ major, minor, patch, preRelease, build }` ObjectValue. The comparison helpers forward through `_pkl_semver_compare`, which compares numeric core fields and then applies SemVer pre-release ordering (numeric identifiers numerically; alphanumeric lexicographically; numeric < alphanumeric; fewer identifiers < more; pre-release < release)."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-080" }
+  tags { "stdlib"; "platform"; "semver" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Hard-code platform stub values rather than detect host OS via intrinsics"
+      rationale =
+        "MoonBit's `@env` exposes env-vars but no host OS / arch detection. Adding an FFI shim per backend (js / native / wasm) would balloon the slice; the alternative — leaving the call returning `null` until a backend lands — would block fixtures from observing any deterministic value at all. Hard-coding `stub-os` / `stub-arch` keeps the API surface intact and gives fixtures stable assertions. A future slice can replace the constants with `_pkl_platform_os_name()` intrinsics without changing user-facing pkl code."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Implement SemVer parsing and comparison as MoonBit intrinsics, not pure pkl"
+      rationale =
+        "Parsing `1.0.0-alpha.1+build.42` in pure pkl would require a `String.toInt()` helper plus error-recovery logic for `parseOrNull`; the SemVer pre-release ordering rule (numeric < alphanumeric, fewer < more) is non-trivial enough that mirroring it twice (in pkl and in tests) would risk drift. Routing through `_pkl_semver_parse` / `_pkl_semver_compare` intrinsics keeps the spec-compliant logic in MoonBit where unit tests can target it directly, while the public surface (`semver.parse`, `semver.isLessThan`) remains identical to Apple Pkl's."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Represent Version as an anonymous ObjectValue, not a dedicated Value variant"
+      rationale =
+        "A dedicated `SemverValue` variant would buy nothing — every consumer (renderer, .field access, equality) already handles ObjectValue uniformly. The five-field shape `{ major, minor, patch, preRelease, build }` round-trips through the existing ObjectValue / ValueMember plumbing. The trade-off is type-checking: a typed `Version` class with property declarations would let the typechecker reject `v.banana`, but adding that requires either a real ClassValue or a synthetic class binding the import system doesn't have yet. Deferred to a follow-up."
+    }
+  }
+}
+
 local readNullable = new Scenario {
   id = "PKL-103"
   name = "nullable read form"
@@ -3434,5 +3466,6 @@ scenarios {
   pklMathFloatOps
   readNullable
   floatMagnitudeUnits
+  pklPlatformSemver
   ...roadmap.entries
 }

@@ -135,19 +135,7 @@ local stringUnicodeMethods: Spec.Scenario = new {
     "`String.codePoints`, `String.normalize`, `String.toRunes`, surrogate-pair aware `length`, and case-folding methods. Today `length` and indexing operate on UTF-16 code units."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-077" }
-  tags { "stdlib"; "string"; "unicode" }
-  reviewStatus = "draft"
-  severity = "minor"
-}
-
-local pklPlatformSemver: Spec.Scenario = new {
-  id = "PKL-123"
-  name = "pkl:platform and pkl:semver stdlib modules"
-  description =
-    "`pkl:platform` exposes the host OS / arch fields (`current.operatingSystem`, `current.architecture`). `pkl:semver` provides `Version`, `parse(s)`, comparison helpers. Both are read-only stubs from the evaluator's perspective."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-080" }
-  tags { "stdlib"; "platform"; "semver"; "next" }
+  tags { "stdlib"; "string"; "unicode"; "next" }
   reviewStatus = "draft"
   severity = "minor"
 }
@@ -291,7 +279,6 @@ entries: Listing<Spec.Scenario> = new {
   crossModuleTypecheckCompleteness
   setPairMapIntSeqVariants
   stringUnicodeMethods
-  pklPlatformSemver
   pklRendererStdlibModules
   yamlBlockScalars
   plistXmlProtobufRenderers

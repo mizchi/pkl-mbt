@@ -374,6 +374,28 @@ local cliFloatMagnitudeUnits = new Test {
   timeoutSec = 120
 }
 
+local cliPlatformSemver = new Test {
+  name = "cli platform semver"
+  description =
+    "The native CLI evaluates a fixture that imports `pkl:platform` and `pkl:semver`. The platform stub yields deterministic `stub-os` / `stub-arch` values; semver `parse(\"1.2.3-rc.1+build.42\")` populates major / minor / patch / preRelease / build, `isLessThan` orders `1.0.0-alpha < 1.0.0` (pre-release ranks below release), and `parseOrNull(\"not-a-version\")` returns null."
+  tags { "moonbit"; "cli"; "stdlib"; "platform"; "semver"; "contract" }
+  specRef { "PKL-123" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_platform_semver.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "os_name = \"stub-os\""
+    "arch_name = \"stub-arch\""
+    "major = 1"
+    "minor = 2"
+    "patch = 3"
+    "pre_release = \"rc.1\""
+    "build = \"build.42\""
+    "is_lt = true"
+    "bad = null"
+  }
+  timeoutSec = 120
+}
+
 local cliReadNullable = new Test {
   name = "cli read nullable"
   description =
@@ -881,6 +903,7 @@ tests {
   cliMathFloatOps
   cliReadNullable
   cliFloatMagnitudeUnits
+  cliPlatformSemver
   cliHeredocString
   cliFormat
   cliTestExamplesPass

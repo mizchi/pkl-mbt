@@ -1,0 +1,31 @@
+// PKL-123: `pkl:platform` exposes a read-only stub of the host OS /
+// arch surface (`current.operatingSystem.name`,
+// `current.architecture.name`). `pkl:semver` exposes `Version`,
+// `parse(s)`, `parseOrNull(s)`, and the comparison helpers
+// `isLessThan` / `isGreaterThan` / `isEqualTo`. Parsing forwards to
+// `_pkl_semver_parse(_or_null)` intrinsics and comparison routes
+// through `_pkl_semver_compare`, so SemVer pre-release ordering
+// follows the spec (`1.0.0-rc.1 < 1.0.0`) without re-implementing it
+// in pkl.
+import "pkl:platform" as platform
+import "pkl:semver" as semver
+
+os_name = platform.current.operatingSystem.name
+
+arch_name = platform.current.architecture.name
+
+v = semver.parse("1.2.3-rc.1+build.42")
+
+major = v.major
+
+minor = v.minor
+
+patch = v.patch
+
+pre_release = v.preRelease
+
+build = v.build
+
+is_lt = semver.isLessThan(semver.parse("1.0.0-alpha"), semver.parse("1.0.0"))
+
+bad = semver.parseOrNull("not-a-version")
