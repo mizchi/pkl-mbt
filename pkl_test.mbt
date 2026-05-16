@@ -2982,6 +2982,43 @@ test "PKL-106: sandbox_is_module_allowed exempts bare filesystem paths" {
 }
 
 ///|
+test "PKL-108: unbound identifier uses Apple Pkl wording" {
+  let result = eval_source("x = no_such")
+  guard result is EvalError(diagnostics) else { panic() }
+  inspect(diagnostics[0].message, content="Cannot find property `no_such`.")
+}
+
+///|
+test "PKL-108: unknown member on Listing uses upstream wording" {
+  let result = eval_source(
+    "list = new Listing { 1; 2; 3 }\nlength = list.nonexistent",
+  )
+  guard result is EvalError(diagnostics) else { panic() }
+  inspect(
+    diagnostics[0].message,
+    content="Cannot find property `nonexistent` in object of type `Listing`.",
+  )
+}
+
+///|
+test "PKL-108: unknown type annotation uses Apple Pkl wording" {
+  let result = typecheck_source("typed: NotDeclared = 1")
+  guard result is TypeError(diagnostics) else { panic() }
+  inspect(diagnostics[0].message, content="Cannot find type `NotDeclared`.")
+}
+
+///|
+test "PKL-108: unresolved import uses Apple Pkl wording" {
+  let result = eval_source("import \"not_here.pkl\" as Other\nx = Other.value")
+  guard result is EvalError(diagnostics) else { panic() }
+  let messages = diagnostics.iter().map(fn(d) { d.message }).collect()
+  // The first diagnostic surfaces the unresolved import; later
+  // diagnostics may follow from the cascade through the body
+  // referencing `Other`. The assertion only pins the first line.
+  inspect(messages[0], content="Cannot find module `not_here.pkl`.")
+}
+
+///|
 test "PKL-106: module-paths are stored in CLI order" {
   configure_sandbox_module_paths(["dir-a", "dir-b"])
   let dirs = sandbox_module_paths()
@@ -6139,7 +6176,7 @@ test "typecheck Pkl rich is and as type operands" {
   guard typecheck_source("ok = 1 is Missing") is TypeError(diagnostics) else {
     panic()
   }
-  inspect(diagnostics[0].message, content="unknown type annotation Missing")
+  inspect(diagnostics[0].message, content="Cannot find type `Missing`.")
 }
 
 ///|

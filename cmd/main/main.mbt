@@ -164,7 +164,7 @@ fn read_with_module_paths(path : String) -> String {
     return direct
   }
   if path.has_prefix("/") || path.find(":") is Some(_) {
-    fail("failed to read \{path}")
+    fail("Cannot find module `\{path}`.")
     return ""
   }
   for dir in @pkl.sandbox_module_paths() {
@@ -178,7 +178,7 @@ fn read_with_module_paths(path : String) -> String {
       return body
     }
   }
-  fail("failed to read \{path}")
+  fail("Cannot find module `\{path}`.")
   ""
 }
 
@@ -526,7 +526,7 @@ async fn main {
   } else {
     @fs.read_file_to_string(path) catch {
       _ => {
-        fail("failed to read \{path}")
+        fail("Cannot find module `\{path}`.")
         ""
       }
     }

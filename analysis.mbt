@@ -315,7 +315,7 @@ fn typecheck_module_path(
           }
         },
       )
-    None => TypeError([diag("unresolved import \{path}")])
+    None => TypeError([diag("Cannot find module `\{path}`.")])
   }
 }
 
@@ -348,6 +348,6 @@ fn eval_module_path(
           }
         },
       )
-    None => EvalError([diag("unresolved import \{path}")])
+    None => EvalError([diag("Cannot find module `\{path}`.")])
   }
 }

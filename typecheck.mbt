@@ -1558,7 +1558,7 @@ fn apply_type_annotation(
             UnknownType
           }
         None => {
-          diagnostics.push(diag("unknown type annotation \{name}"))
+          diagnostics.push(diag("Cannot find type `\{name}`."))
           UnknownType
         }
       }
@@ -1624,7 +1624,7 @@ fn function_parameter_types(
         match parameter_type_from_annotation(type_name, type_env) {
           Some(typ) => types.push(typ)
           None => {
-            diagnostics.push(diag("unknown type annotation \{type_name}"))
+            diagnostics.push(diag("Cannot find type `\{type_name}`."))
             types.push(UnknownType)
           }
         }
@@ -1645,7 +1645,7 @@ fn function_return_type(
       match type_from_annotation(type_name, type_env) {
         Some(typ) => typ
         None => {
-          diagnostics.push(diag("unknown type annotation \{type_name}"))
+          diagnostics.push(diag("Cannot find type `\{type_name}`."))
           UnknownType
         }
       }
@@ -2201,7 +2201,7 @@ fn class_properties_to_members(
         match type_from_annotation(type_name, type_env) {
           Some(resolved) => resolved
           None => {
-            diagnostics.push(diag("unknown type annotation \{type_name}"))
+            diagnostics.push(diag("Cannot find type `\{type_name}`."))
             UnknownType
           }
         }
@@ -2316,8 +2316,7 @@ fn validate_class_method_body(
                   ),
                 )
               }
-            None =>
-              diagnostics.push(diag("unknown type annotation \{type_name}"))
+            None => diagnostics.push(diag("Cannot find type `\{type_name}`."))
           }
         None => ()
       }
@@ -2399,7 +2398,7 @@ fn class_decl_to_members(
           own_members
         }
         None => {
-          diagnostics.push(diag("unknown type annotation \{parent_name}"))
+          diagnostics.push(diag("Cannot find type `\{parent_name}`."))
           own_members
         }
       }
@@ -2539,9 +2538,7 @@ fn collect_declared_types_with_imports(
               bound: None,
             })
           None =>
-            diagnostics.push(
-              diag("unknown type annotation \{type_alias.target}"),
-            )
+            diagnostics.push(diag("Cannot find type `\{type_alias.target}`."))
         }
       }
       FunctionDeclaration(_) => ()
@@ -2809,7 +2806,7 @@ fn infer_lambda_application(
               return UnknownType
             }
           None => {
-            diagnostics.push(diag("unknown type annotation \{type_name}"))
+            diagnostics.push(diag("Cannot find type `\{type_name}`."))
             UnknownType
           }
         }
@@ -2848,7 +2845,7 @@ fn infer_lambda_application(
           }
         }
         None => {
-          diagnostics.push(diag("unknown type annotation \{type_name}"))
+          diagnostics.push(diag("Cannot find type `\{type_name}`."))
           UnknownType
         }
       }
@@ -3321,7 +3318,7 @@ fn infer_expr_with_bindings(
         ) {
         Some(typ) => typ
         None => {
-          diagnostics.push(diag("unbound identifier \{name}"))
+          diagnostics.push(diag("Cannot find property `\{name}`."))
           UnknownType
         }
       }
@@ -3335,7 +3332,7 @@ fn infer_expr_with_bindings(
           match type_from_annotation(type_name, type_env) {
             Some(typ) => typ
             None => {
-              diagnostics.push(diag("unknown type annotation \{type_name}"))
+              diagnostics.push(diag("Cannot find type `\{type_name}`."))
               UnknownType
             }
           }
@@ -3392,7 +3389,7 @@ fn infer_expr_with_bindings(
             match type_from_annotation(name, type_env) {
               Some(_) => return BoolType
               None => {
-                diagnostics.push(diag("unknown type annotation \{name}"))
+                diagnostics.push(diag("Cannot find type `\{name}`."))
                 return UnknownType
               }
             }
@@ -3410,7 +3407,7 @@ fn infer_expr_with_bindings(
             match type_from_annotation(name, type_env) {
               Some(typ) => return typ
               None => {
-                diagnostics.push(diag("unknown type annotation \{name}"))
+                diagnostics.push(diag("Cannot find type `\{name}`."))
                 return UnknownType
               }
             }
@@ -3714,7 +3711,7 @@ fn infer_program(
   // unqualified type scope. Without this, the child sees the base's
   // property types (via `infer_module_relation`) but writing a
   // `class Test` from the base as a bare `Test` annotation in the
-  // child errors with `unknown type annotation Test`.
+  // child errors with `Cannot find type `Test``.
   let relation_types : Array[TypeBinding] = []
   match program.module_relation {
     Some(relation) =>

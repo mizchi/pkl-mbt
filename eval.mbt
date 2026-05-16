@@ -1531,7 +1531,9 @@ fn eval_bytes_property(
     "length" => Some(IntValue(bytes.length()))
     "base64" => Some(StringValue(@base64.encode(bytes[:])))
     _ => {
-      diagnostics.push(diag("unknown Bytes property \{name}"))
+      diagnostics.push(
+        diag("Cannot find property `\{name}` in object of type `Bytes`."),
+      )
       None
     }
   }
@@ -1597,7 +1599,9 @@ fn eval_bytes_method(
         None
       }
     _ => {
-      diagnostics.push(diag("unknown Bytes method \{method_name}"))
+      diagnostics.push(
+        diag("Cannot find method `\{method_name}` in object of type `Bytes`."),
+      )
       None
     }
   }
@@ -2374,7 +2378,9 @@ fn eval_mapping_property(
       Some(ListingValue(values))
     }
     _ => {
-      diagnostics.push(diag("unknown Mapping property \{name}"))
+      diagnostics.push(
+        diag("Cannot find property `\{name}` in object of type `Mapping`."),
+      )
       None
     }
   }
@@ -2644,7 +2650,9 @@ fn eval_int_property(
     "isEven" => Some(BoolValue(n % 2 == 0))
     "isOdd" => Some(BoolValue(n % 2 != 0))
     _ => {
-      diagnostics.push(diag("unknown Int property \{name}"))
+      diagnostics.push(
+        diag("Cannot find property `\{name}` in object of type `Int`."),
+      )
       None
     }
   }
@@ -2662,7 +2670,9 @@ fn eval_duration_property(
     "unit" => Some(StringValue(unit))
     "isPositive" => Some(BoolValue(magnitude >= 0.0))
     _ => {
-      diagnostics.push(diag("unknown Duration property \{name}"))
+      diagnostics.push(
+        diag("Cannot find property `\{name}` in object of type `Duration`."),
+      )
       None
     }
   }
@@ -2680,7 +2690,9 @@ fn eval_datasize_property(
     "unit" => Some(StringValue(unit))
     "isPositive" => Some(BoolValue(magnitude >= 0.0))
     _ => {
-      diagnostics.push(diag("unknown DataSize property \{name}"))
+      diagnostics.push(
+        diag("Cannot find property `\{name}` in object of type `DataSize`."),
+      )
       None
     }
   }
@@ -2862,7 +2874,11 @@ fn eval_duration_method(
         None
       }
     _ => {
-      diagnostics.push(diag("unknown Duration method \{method_name}"))
+      diagnostics.push(
+        diag(
+          "Cannot find method `\{method_name}` in object of type `Duration`.",
+        ),
+      )
       None
     }
   }
@@ -2925,7 +2941,11 @@ fn eval_datasize_method(
         None
       }
     _ => {
-      diagnostics.push(diag("unknown DataSize method \{method_name}"))
+      diagnostics.push(
+        diag(
+          "Cannot find method `\{method_name}` in object of type `DataSize`.",
+        ),
+      )
       None
     }
   }
@@ -2940,7 +2960,9 @@ fn eval_regex_property(
   match name {
     "pattern" => Some(StringValue(pattern))
     _ => {
-      diagnostics.push(diag("unknown Regex property \{name}"))
+      diagnostics.push(
+        diag("Cannot find property `\{name}` in object of type `Regex`."),
+      )
       None
     }
   }
@@ -3063,7 +3085,9 @@ fn eval_regex_method(
         None
       }
     _ => {
-      diagnostics.push(diag("unknown Regex method \{method_name}"))
+      diagnostics.push(
+        diag("Cannot find method `\{method_name}` in object of type `Regex`."),
+      )
       None
     }
   }
@@ -3100,7 +3124,9 @@ fn eval_string_property(
       Some(ListingValue(chars))
     }
     _ => {
-      diagnostics.push(diag("unknown String property \{name}"))
+      diagnostics.push(
+        diag("Cannot find property `\{name}` in object of type `String`."),
+      )
       None
     }
   }
@@ -3527,7 +3553,7 @@ fn eval_class_method_call(
               }
             }
             None => {
-              diagnostics.push(diag("unknown member \{method_name}"))
+              diagnostics.push(diag("Cannot find method `\{method_name}`."))
               None
             }
           }
@@ -4204,7 +4230,7 @@ fn eval_expr_with_bindings(
           None
         }
         None => {
-          diagnostics.push(diag("unresolved import \{uri}"))
+          diagnostics.push(diag("Cannot find module `\{uri}`."))
           None
         }
       }
@@ -4344,7 +4370,7 @@ fn eval_expr_with_bindings(
             match lookup_member(members, member_name) {
               Some(value) => Some(value)
               None => {
-                diagnostics.push(diag("unknown member \{member_name}"))
+                diagnostics.push(diag("Cannot find property `\{member_name}`."))
                 None
               }
             }
@@ -4352,21 +4378,33 @@ fn eval_expr_with_bindings(
             if is_listing_property_name(member_name) {
               eval_listing_property(elements, member_name, diagnostics)
             } else {
-              diagnostics.push(diag("unknown Listing property \{member_name}"))
+              diagnostics.push(
+                diag(
+                  "Cannot find property `\{member_name}` in object of type `Listing`.",
+                ),
+              )
               None
             }
           Some(MappingValue(entries)) =>
             if is_mapping_property_name(member_name) {
               eval_mapping_property(entries, member_name, diagnostics)
             } else {
-              diagnostics.push(diag("unknown Mapping property \{member_name}"))
+              diagnostics.push(
+                diag(
+                  "Cannot find property `\{member_name}` in object of type `Mapping`.",
+                ),
+              )
               None
             }
           Some(StringValue(s)) =>
             if is_string_property_name(member_name) {
               eval_string_property(s, member_name, diagnostics)
             } else {
-              diagnostics.push(diag("unknown String property \{member_name}"))
+              diagnostics.push(
+                diag(
+                  "Cannot find property `\{member_name}` in object of type `String`.",
+                ),
+              )
               None
             }
           Some(IntValue(n)) =>
@@ -4377,7 +4415,11 @@ fn eval_expr_with_bindings(
             } else if is_int_property_name(member_name) {
               eval_int_property(n, member_name, diagnostics)
             } else {
-              diagnostics.push(diag("unknown Int property \{member_name}"))
+              diagnostics.push(
+                diag(
+                  "Cannot find property `\{member_name}` in object of type `Int`.",
+                ),
+              )
               None
             }
           // PKL-121: same dispatch for Float magnitudes (`1.5.s`,
@@ -4389,7 +4431,11 @@ fn eval_expr_with_bindings(
             } else if is_datasize_unit_name(member_name) {
               Some(DataSizeValue(d, member_name))
             } else {
-              diagnostics.push(diag("unknown Float property \{member_name}"))
+              diagnostics.push(
+                diag(
+                  "Cannot find property `\{member_name}` in object of type `Float`.",
+                ),
+              )
               None
             }
           Some(DurationValue(n, unit)) =>
@@ -4418,7 +4464,7 @@ fn eval_expr_with_bindings(
           match lookup_member(members, member_name) {
             Some(value) => Some(value)
             None => {
-              diagnostics.push(diag("unknown member \{member_name}"))
+              diagnostics.push(diag("Cannot find property `\{member_name}`."))
               None
             }
           }
@@ -4426,21 +4472,33 @@ fn eval_expr_with_bindings(
           if is_listing_property_name(member_name) {
             eval_listing_property(elements, member_name, diagnostics)
           } else {
-            diagnostics.push(diag("unknown Listing property \{member_name}"))
+            diagnostics.push(
+              diag(
+                "Cannot find property `\{member_name}` in object of type `Listing`.",
+              ),
+            )
             None
           }
         Some(MappingValue(entries)) =>
           if is_mapping_property_name(member_name) {
             eval_mapping_property(entries, member_name, diagnostics)
           } else {
-            diagnostics.push(diag("unknown Mapping property \{member_name}"))
+            diagnostics.push(
+              diag(
+                "Cannot find property `\{member_name}` in object of type `Mapping`.",
+              ),
+            )
             None
           }
         Some(StringValue(s)) =>
           if is_string_property_name(member_name) {
             eval_string_property(s, member_name, diagnostics)
           } else {
-            diagnostics.push(diag("unknown String property \{member_name}"))
+            diagnostics.push(
+              diag(
+                "Cannot find property `\{member_name}` in object of type `String`.",
+              ),
+            )
             None
           }
         Some(IntValue(n)) =>
@@ -4451,7 +4509,11 @@ fn eval_expr_with_bindings(
           } else if is_int_property_name(member_name) {
             eval_int_property(n, member_name, diagnostics)
           } else {
-            diagnostics.push(diag("unknown Int property \{member_name}"))
+            diagnostics.push(
+              diag(
+                "Cannot find property `\{member_name}` in object of type `Int`.",
+              ),
+            )
             None
           }
         // PKL-121: SafeMemberAccess version of the Float-magnitude
@@ -4462,7 +4524,11 @@ fn eval_expr_with_bindings(
           } else if is_datasize_unit_name(member_name) {
             Some(DataSizeValue(d, member_name))
           } else {
-            diagnostics.push(diag("unknown Float property \{member_name}"))
+            diagnostics.push(
+              diag(
+                "Cannot find property `\{member_name}` in object of type `Float`.",
+              ),
+            )
             None
           }
         Some(DurationValue(n, unit)) =>
@@ -4547,7 +4613,7 @@ fn eval_expr_with_bindings(
         ) {
         Some(value) => Some(value)
         None => {
-          diagnostics.push(diag("unbound identifier \{name}"))
+          diagnostics.push(diag("Cannot find property `\{name}`."))
           None
         }
       }
@@ -5844,7 +5910,7 @@ fn eval_imports(
         for error in errors {
           diagnostics.push(error)
         }
-      None => diagnostics.push(diag("unresolved import \{decl.uri}"))
+      None => diagnostics.push(diag("Cannot find module `\{decl.uri}`."))
     }
   }
 }
@@ -5870,7 +5936,7 @@ fn eval_module_relation(
       []
     }
     None => {
-      diagnostics.push(diag("unresolved import \{relation.uri}"))
+      diagnostics.push(diag("Cannot find module `\{relation.uri}`."))
       []
     }
   }

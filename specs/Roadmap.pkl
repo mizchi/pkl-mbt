@@ -40,18 +40,6 @@ local pklRepl: Spec.Scenario = new {
 
 // ── diagnostics, upstream compatibility ─────────────────────────────────────
 
-local errorMessageUpstreamAlign: Spec.Scenario = new {
-  id = "PKL-108"
-  name = "error message text upstream alignment"
-  description =
-    "Rephrase constraint / type rejection / read-failure messages to match Apple Pkl's exact wording so upstream error-fixture diffs become byte-exact. Today's diagnostics are functional but use project-local phrasing."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-107" }
-  tags { "diagnostics"; "compatibility"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 local upstreamFixtureSweepExpansion: Spec.Scenario = new {
   id = "PKL-109"
   name = "upstream fixture sweep expansion"
@@ -73,7 +61,7 @@ local inheritanceDispatchHardening: Spec.Scenario = new {
     "Abstract method enforcement and override-direction type compatibility. Super method calls (`super.method()`) landed as PKL-117a. The remaining items are both typechecker-side: scan all transitive parents for abstract methods that the concrete subclass hasn't overridden, and check that override-direction subtype rules hold (contravariant parameter types, covariant return type)."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-040"; "PKL-117a" }
-  tags { "typechecker"; "inheritance" }
+  tags { "typechecker"; "inheritance"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -211,7 +199,6 @@ local lspServer: Spec.Scenario = new {
 
 entries: Listing<Spec.Scenario> = new {
   pklRepl
-  errorMessageUpstreamAlign
   upstreamFixtureSweepExpansion
   inheritanceDispatchHardening
   crossModuleTypecheckCompleteness

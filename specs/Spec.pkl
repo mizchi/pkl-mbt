@@ -1812,6 +1812,38 @@ local floatMagnitudeUnits = new Scenario {
   }
 }
 
+local diagnosticUpstreamAlignment = new Scenario {
+  id = "PKL-108"
+  name = "diagnostic message text upstream alignment"
+  description =
+    "First-line phrasing for the most common diagnostic families now matches Apple Pkl's wording verbatim: `Cannot find property \\`<name>\\`.`, `Cannot find property \\`<name>\\` in object of type \\`<Type>\\`.`, `Cannot find method \\`<name>\\` in object of type \\`<Type>\\`.`, `Cannot find type \\`<name>\\`.`, `Cannot find module \\`<uri>\\`.`. The alignment covers `unbound identifier`, `unknown member`, `unknown <Type> property / method` (Listing / Mapping / String / Int / Float / Duration / DataSize / Regex / Bytes), `unknown type annotation`, and `unresolved import` — both inside the evaluator and at the loader boundary that bails on missing imports before evaluation runs. Source-position arrows and value-trace blocks (the multi-line decoration around the first-line message in Apple Pkl's `.err` fixtures) stay deferred; pinning the first line is enough for an upstream-error-fixture sweep to diff against without false positives from prose differences."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-107" }
+  tags { "diagnostics"; "compatibility" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Align first-line phrasing only; leave source-position / value-trace decorations as a follow-up"
+      rationale =
+        "Apple Pkl error fixtures include caret-anchored source excerpts (`xx | foo`) and value-trace blocks (`(it: T) -> ...` with `│` blame lines) that depend on infrastructure we don't have yet — full source position propagation lands incrementally with PKL-107 and value tracing has no concrete slice yet. Pinning the first-line wording immediately is the highest-value chunk: a future fixture sweep can diff our output against `<fixture>.err`'s line 2 (the `Pkl Error` banner sits on line 1) and the byte-exact match becomes a regression test for the alignment as new error sites get added. The decorations can layer in without invalidating this work."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Loader bail message aligns with the evaluator's `Cannot find module` wording"
+      rationale =
+        "Our CLI loads transitive imports up-front via `load_path`, which bails through `fail()` (writes to stdout + `exit(1)`) before the evaluator runs. That meant a missing import surfaced as `failed to read <path>` rather than `Cannot find module <uri>` — even though the evaluator's `Cannot find module` arm exists for the cases where the loader can't run (synthetic / embedded use). Aligning the loader message keeps the contract single-source: every `missing module` failure prints the same first line regardless of which layer caught it."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Typed-property errors carry the host type for context"
+      rationale =
+        "Generic property misses use `Cannot find property \\`<name>\\`.` (no type qualifier — the receiver is dynamically typed at the failure site). When the receiver IS typed at miss time (`Listing`, `Mapping`, `String`, `Int`, `Float`, `Duration`, `DataSize`, `Regex`, `Bytes`), the diagnostic adds ` in object of type \\`<Type>\\`.` to match Apple Pkl's two-form distinction. This is a single edit per branch and aligns with Apple Pkl's behaviour: the bare form fires only when the typechecker hasn't constrained the receiver, the qualified form when it has."
+    }
+  }
+}
+
 local cliSandboxFlagsScenario = new Scenario {
   id = "PKL-106"
   name = "cli sandbox flags"
@@ -3626,5 +3658,6 @@ scenarios {
   annotationClassCapture
   analyzeLintSubcommand
   cliSandboxFlagsScenario
+  diagnosticUpstreamAlignment
   ...roadmap.entries
 }

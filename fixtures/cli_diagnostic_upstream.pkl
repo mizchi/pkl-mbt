@@ -1,0 +1,18 @@
+// PKL-108: drives the upstream-aligned diagnostic surface for the
+// in-evaluator messages — property / method / type lookups that
+// miss. The companion pkspec scenario asserts that the printed
+// diagnostics use Apple Pkl's wording verbatim (`Cannot find
+// property`, `Cannot find method`, `Cannot find type`). Source-
+// position arrows and value-trace blocks stay deferred; this slice
+// pins the first-line phrasing only so a future upstream-error-
+// fixture sweep can diff against our output without false positives
+// from prose differences. The `Cannot find module` wording is
+// covered by a sibling fixture that intentionally references a
+// missing import, since the loader bails ahead of the evaluator.
+shadow = missing_property + 1
+
+list = new Listing { 1; 2; 3 }
+
+length = list.nonexistent()
+
+typed: NotDeclared = 1

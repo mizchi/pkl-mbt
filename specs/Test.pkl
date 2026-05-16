@@ -374,6 +374,21 @@ local cliFloatMagnitudeUnits = new Test {
   timeoutSec = 120
 }
 
+local cliDiagnosticUpstream = new Test {
+  name = "cli diagnostic upstream alignment"
+  description =
+    "The native CLI prints first-line diagnostic messages that match Apple Pkl's wording verbatim. The fixture is a module with intentional property and method misses; `pkl eval` surfaces them as `Cannot find property \\`<name>\\`.` and `Cannot find property \\`<name>\\` in object of type \\`Listing\\`.`. Source-position arrows and value-trace blocks stay deferred — pinning the first line is enough for a future upstream-`errors`-fixture sweep to diff against without false positives from prose differences."
+  tags { "moonbit"; "cli"; "diagnostics"; "upstream"; "contract" }
+  specRef { "PKL-108" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_diagnostic_upstream.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "Cannot find property `missing_property`."
+    "Cannot find property `nonexistent` in object of type `Listing`."
+  }
+  timeoutSec = 120
+}
+
 local cliSandboxFlags = new Test {
   name = "cli sandbox flags"
   description =
@@ -1005,6 +1020,7 @@ tests {
   cliAnnotationCapture
   cliLintFindings
   cliSandboxFlags
+  cliDiagnosticUpstream
   cliHeredocString
   cliFormat
   cliTestExamplesPass

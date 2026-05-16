@@ -1,6 +1,6 @@
 # Test SPEC
 
-196 tests across 2 module(s) — 145 pending, 51 active
+197 tests across 2 module(s) — 145 pending, 52 active
 
 ## `specs/`
 
@@ -199,6 +199,13 @@
   - depends on: PKL-006
   - body: _not yet implemented_
 
+- [ ] **diagnostic message text upstream alignment** — verifies: PKL-108 — tags: diagnostics, compatibility
+  > First-line phrasing for the most common diagnostic families now matches Apple Pkl's wording verbatim: `Cannot find property \`<name>\`.`, `Cannot find property \`<name>\` in object of type \`<Type>\`.`, `Cannot find method \`<name>\` in object of type \`<Type>\`.`, `Cannot find type \`<name>\`.`, `Cannot find module \`<uri>\`.`. The alignment covers `unbound identifier`, `unknown member`, `unknown <Type> property / method` (Listing / Mapping / String / Int / Float / Duration / DataSize / Regex / Bytes), `unknown type annotation`, and `unresolved import` — both inside the evaluator and at the loader boundary that bails on missing imports before evaluation runs. Source-position arrows and value-trace blocks (the multi-line decoration around the first-line message in Apple Pkl's `.err` fixtures) stay deferred; pinning the first line is enough for an upstream-error-fixture sweep to diff against without false positives from prose differences.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-107
+  - decisions: 3 entry(ies)
+  - body: _not yet implemented_
+
 - [ ] **diff JSON evaluation output against apple/pkl gold files** — verifies: PKL-097 — tags: compatibility, upstream, renderer
   > `scripts/upstream-smoke.sh` gains a `JSON_GOLD_FIXTURES` list and an `eval_json_matches_gold` helper that runs the native CLI with `eval -f json`, byte-diffs the output against `LanguageSnippetTests/output/<dir>/<name>.json`, and prints `upstream json eval ok: <label> (gold match)` on success. The CLI's new `extract_output_value` helper unwraps a top-level `output { value = ... }` member before the renderer dispatches, mirroring the `output.value`-on-renderer invocation Apple Pkl uses for its renderer-test fixtures. Fixtures that route their data through `output.value` therefore render only the inner subtree, so `api/jsonRenderer1.json.pkl` matches the gold byte-for-byte. The remaining upstream JSON-renderer fixtures (`jsonRenderer2.json.pkl` / `3.json.pkl` / `6.json.pkl`) all need converters, Float numerics, or stdlib types (List / Set / Map / Pair / IntSeq / Dynamic) outside the implemented slice; those stay off the list and are picked up incrementally as the related slices land.
   - contributes to: GOAL-PKL-PURE
@@ -225,12 +232,6 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-004
   - decisions: 4 entry(ies)
-  - body: _not yet implemented_
-
-- [ ] **error message text upstream alignment** [draft] — verifies: PKL-108 — tags: diagnostics, compatibility, next
-  > Rephrase constraint / type rejection / read-failure messages to match Apple Pkl's exact wording so upstream error-fixture diffs become byte-exact. Today's diagnostics are functional but use project-local phrasing.
-  - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-107
   - body: _not yet implemented_
 
 - [ ] **evaluate Pkl callable return annotations** — verifies: PKL-063 — tags: evaluator, callable
@@ -448,7 +449,7 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **inheritance dispatch hardening remaining** [draft] — verifies: PKL-117 — tags: typechecker, inheritance
+- [ ] **inheritance dispatch hardening remaining** [draft] — verifies: PKL-117 — tags: typechecker, inheritance, next
   > Abstract method enforcement and override-direction type compatibility. Super method calls (`super.method()`) landed as PKL-117a. The remaining items are both typechecker-side: scan all transitive parents for abstract methods that the concrete subclass hasn't overridden, and check that override-direction subtype rules hold (contravariant parameter types, covariant return type).
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-040, PKL-117a
@@ -1010,6 +1011,10 @@
 
 - [x] **cli diagnostic position** — verifies: PKL-107 — tags: moonbit, cli, diagnostics, position, contract
   > The native CLI parses a fixture with a deliberate syntax error and the output carries a `path:line:column: message` prefix. The diagnostic's byte offset is projected onto a line:column pair so editors can jump to the failing token. The broken fixture lives under `fixtures/error_cases/` so the project formatter doesn't try to round-trip it.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli diagnostic upstream alignment** — verifies: PKL-108 — tags: moonbit, cli, diagnostics, upstream, contract
+  > The native CLI prints first-line diagnostic messages that match Apple Pkl's wording verbatim. The fixture is a module with intentional property and method misses; `pkl eval` surfaces them as `Cannot find property \`<name>\`.` and `Cannot find property \`<name>\` in object of type \`Listing\`.`. Source-position arrows and value-trace blocks stay deferred — pinning the first line is enough for a future upstream-`errors`-fixture sweep to diff against without false positives from prose differences.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli equality type match** — verifies: PKL-113 — tags: moonbit, cli, typechecker, equality, contract
