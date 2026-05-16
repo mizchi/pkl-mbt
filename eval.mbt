@@ -5860,6 +5860,30 @@ fn eval_expr_with_bindings(
           )
           None
         }
+      } else if (
+          callee is MemberAccess(Identifier("module"), "catch") ||
+          callee is MemberAccess(Identifier("test"), "catch")
+        ) &&
+        !stack_contains_binding(stack, "catch") &&
+        find_binding(bindings, "catch") is None &&
+        arguments.length() == 1 {
+        // PKL-147: snippetTest fixtures call `module.catch(lambda)` to
+        // probe whether the lambda throws. Reuse the binding-time
+        // intercept by reconstructing the surface form recognised by
+        // `pkl_test_catch_lambda_body` and routing through
+        // `eval_pkl_test_catch_binding_value`. Lambdas with non-zero
+        // arity fall through to the generic CallExpr path so a future
+        // proper `catch` member can take over.
+        eval_pkl_test_catch_binding_value(
+          CallExpr(callee, arguments),
+          bindings,
+          env,
+          class_env,
+          cache,
+          stack,
+          declarations,
+          resolve_import,
+        )
       } else if callee is Identifier("throw") &&
         !stack_contains_binding(stack, "throw") &&
         find_binding(bindings, "throw") is None {
@@ -7483,18 +7507,23 @@ fn eval_read_uri(uri : String, diagnostics : Array[Diagnostic]) -> Value? {
 
 ///|
 fn pkl_test_catch_lambda_body(expr : Expr) -> Expr? {
-  match expr {
-    CallExpr(MemberAccess(Identifier("test"), "catch"), arguments) =>
-      if arguments.length() == 1 {
-        match arguments[0] {
-          LambdaExpr(parameters, body, _) =>
-            if parameters.length() == 0 {
-              Some(body)
-            } else {
-              None
-            }
-          _ => None
-        }
+  // PKL-147: snippetTest fixtures call `module.catch(() -> ...)` where
+  // `catch` is inherited via `extends "pkl:test"`. Recognise both the
+  // bare `test.catch(...)` form (binding-time intercept on the top
+  // binding) and the `module.catch(...)` form so a fixture that uses
+  // the module-self reference still routes through this stub.
+  let arguments = match expr {
+    CallExpr(MemberAccess(Identifier("test"), "catch"), args) => args
+    CallExpr(MemberAccess(Identifier("module"), "catch"), args) => args
+    _ => return None
+  }
+  if arguments.length() != 1 {
+    return None
+  }
+  match arguments[0] {
+    LambdaExpr(parameters, body, _) =>
+      if parameters.length() == 0 {
+        Some(body)
       } else {
         None
       }
@@ -8463,13 +8492,49 @@ fn visible_members(members : Array[ValueMember]) -> Array[ValueMember] {
 }
 
 ///|
+/// PKL-147: when the module declares
+/// `output { renderer = new PcfRenderer { omitNullProperties = true } }`,
+/// the PCF render drops every module-level property whose value is `null`.
+/// snippetTest fixtures rely on this so the inherited stub `catch = null`
+/// doesn't leak into the rendered output; without the omit pass each
+/// snippetTest fixture's output would begin with `catch = null` and never
+/// match upstream byte-for-byte.
+fn pcf_omit_null_properties(members : Array[ValueMember]) -> Bool {
+  match lookup_member(members, "output") {
+    Some(ObjectValue(output_members)) =>
+      match lookup_member(output_members, "renderer") {
+        Some(ObjectValue(renderer_members)) =>
+          match lookup_member(renderer_members, "omitNullProperties") {
+            Some(BoolValue(value)) => value
+            _ => false
+          }
+        _ => false
+      }
+    _ => false
+  }
+}
+
+///|
 fn render_pcf_module(members : Array[ValueMember], buf : StringBuilder) -> Unit {
+  let omit_null = pcf_omit_null_properties(members)
   let visible = visible_members(members)
+  let mut emitted = 0
   for i = 0; i < visible.length(); i = i + 1 {
-    if i > 0 {
+    if omit_null && visible[i].value is NullValue {
+      continue
+    }
+    // The `output` member is the renderer/value configuration block,
+    // not data — Apple Pkl's PCF render strips it from the top-level
+    // output. Without this filter `pkl eval` on a snippetTest fixture
+    // would include the inherited `output { renderer = ... }` block.
+    if visible[i].name == "output" {
+      continue
+    }
+    if emitted > 0 {
       buf.write_char('\n')
     }
     render_pcf_object_member(visible[i], 0, buf)
+    emitted = emitted + 1
   }
 }
 

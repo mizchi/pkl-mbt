@@ -47,6 +47,16 @@ fn is_digit(c : Char) -> Bool {
 }
 
 ///|
+fn is_hex_digit(c : Char) -> Bool {
+  is_digit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F')
+}
+
+///|
+fn is_octal_digit(c : Char) -> Bool {
+  c >= '0' && c <= '7'
+}
+
+///|
 fn is_alnum(c : Char) -> Bool {
   is_alpha(c) || is_digit(c)
 }
@@ -134,7 +144,51 @@ fn Lexer::next_token(self : Lexer) -> Token {
   }
   if is_digit(c) {
     self.pos += 1
-    while self.pos < self.len && is_digit(self.char_at(self.pos)) {
+    // PKL-147: Apple Pkl integer literals support `0x` / `0b` / `0o`
+    // base prefixes plus `_` digit separators (`0xFF_FF`, `0b1010`,
+    // `1_000_000`). Detect the prefix immediately after a leading `0`
+    // and consume the base-specific digit run. Without this branch the
+    // lexer splits `0xABC` into `0` + identifier `xABC`, which surfaces
+    // as a spurious parse error inside snippetTest fixtures.
+    if c == '0' && self.pos < self.len {
+      let next = self.char_at(self.pos)
+      if next == 'x' || next == 'X' {
+        self.pos += 1
+        while self.pos < self.len &&
+              (
+                is_hex_digit(self.char_at(self.pos)) ||
+                self.char_at(self.pos) == '_'
+              ) {
+          self.pos += 1
+        }
+        return Token::new(int_token(), self.slice_from(start))
+      }
+      if next == 'b' || next == 'B' {
+        self.pos += 1
+        while self.pos < self.len &&
+              (
+                self.char_at(self.pos) == '0' ||
+                self.char_at(self.pos) == '1' ||
+                self.char_at(self.pos) == '_'
+              ) {
+          self.pos += 1
+        }
+        return Token::new(int_token(), self.slice_from(start))
+      }
+      if next == 'o' || next == 'O' {
+        self.pos += 1
+        while self.pos < self.len &&
+              (
+                is_octal_digit(self.char_at(self.pos)) ||
+                self.char_at(self.pos) == '_'
+              ) {
+          self.pos += 1
+        }
+        return Token::new(int_token(), self.slice_from(start))
+      }
+    }
+    while self.pos < self.len &&
+          (is_digit(self.char_at(self.pos)) || self.char_at(self.pos) == '_') {
       self.pos += 1
     }
     // PKL-092: a `.digit` immediately after the integer run promotes the

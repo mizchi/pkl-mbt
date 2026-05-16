@@ -1896,6 +1896,44 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local snippetTestHarnessScenario = new Scenario {
+  id = "PKL-147"
+  name = "snippetTest harness foundation"
+  description =
+    "Four small fixes that let upstream `LanguageSnippetTests/input/<dir>/<name>.pkl` fixtures whose body amends `snippetTest.pkl` produce shape-correct output. (1) `parse_mapping_entry` now dispatches the `[\"k\"] { body }` amend form through `parse_inferred_new_body` so a `Mapping<String, Listing<T>>` entry's body parses as a Listing (bare elements) instead of an ObjectLiteral that silently drops every non-property line — this alone unblocks every fixture whose body is a Listing of expressions. (2) The CallExpr dispatcher recognises `module.catch(() -> ...)` alongside `test.catch(() -> ...)` and reuses `eval_pkl_test_catch_binding_value` to materialise the no-throw / throw branches. (3) The lexer accepts `0x` / `0b` / `0o` integer prefixes plus `_` digit separators (`0xFF_FF`, `0b1010`, `1_000_000`) — without this the upstream `(0x110000).toChar()` test in `api/int.pkl` errored out at parse time. (4) The CLI's eval handler honours `output { text = \"…\" }` (verbatim string projection) and `output.renderer.omitNullProperties = true` (recursive null-property strip on the value tree). Method-coverage and diagnostic-message-wording gaps inside the snippetTest body bodies still keep most fixtures off the byte-match list; this slice is the harness foundation that PKL-148 / PKL-153 can build on."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-095"; "PKL-104"; "PKL-126"; "PKL-137" }
+  tags { "parser"; "lexer"; "evaluator"; "cli" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "omitNullProperties pre-processes the value tree at the CLI boundary"
+      rationale =
+        "Threading the omit-null flag through every render function (`render_pcf_module` / `render_pcf_block_body` / `render_pcf_inline`) would touch ~30 call sites for one renderer flag. Pre-walking the value tree before render with `strip_null_object_properties` keeps the renderer pristine and the same pre-walk will work for future per-renderer flags (renderer.indent, renderer.extension) when they land."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "module.catch routes through the existing test.catch intercept"
+      rationale =
+        "`module.catch` and `test.catch` have identical semantics — the only difference is the receiver token (`module` is the self-module, `test` is the imported pkl:test alias). Reconstructing the call as `CallExpr(callee, arguments)` and dispatching through `eval_pkl_test_catch_binding_value` lets a single implementation cover both surfaces. When a real first-class `catch` member lands, both routes drop out together."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Hex / binary / octal int literals live in the lexer + parse_int_text"
+      rationale =
+        "Apple Pkl's lexer already recognises these prefixes; without them the upstream parser suite reports `expected ), got identifier` on `(0x110000)` because the lexer splits `0x110000` into `0` + identifier `x110000`. Underscores are accepted in every base for Apple Pkl parity (`1_000_000`, `0xFF_FF`)."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "output.text bypasses the renderer entirely"
+      rationale =
+        "When `output { text = \"…\" }` is set, Apple Pkl writes the string verbatim — no quotes, no PCF escaping, no module envelope. The CLI's `extract_output_text` is checked before `extract_output_value` so the bypass beats both format dispatch and renderer-class auto-detection."
+    }
+  }
+}
+
 local pklYamlParserScenario = new Scenario {
   id = "PKL-146"
   name = "pkl:yaml.Parser.parse implementation"
@@ -4181,5 +4219,6 @@ scenarios {
   codegenMoonbitBridgeScenario
   stdlibCoverageProbeScenario
   reflectIntrospectionScenario
+  snippetTestHarnessScenario
   ...roadmap.entries
 }

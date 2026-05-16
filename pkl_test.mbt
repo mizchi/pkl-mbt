@@ -3969,6 +3969,53 @@ test "PKL-119b: IntSeq.fold reduces left-to-right" {
 }
 
 ///|
+test "PKL-147: nested amend body in mapping entry preserves listing elements" {
+  // Regression: `parse_mapping_entry`'s no-`=` brace form used to call
+  // `parse_object_body` which silently dropped bare-element listing
+  // contents. snippetTest's `examples { [\"k\"] { true; false } }` body
+  // depends on this dispatching through `parse_inferred_new_body`.
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "m : Mapping<String, Listing<Boolean>>?\nm {\n  [\"literal\"] {\n    true\n    false\n  }\n}",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("[\"literal\"] {"), content="true")
+  inspect(rendered.contains("true"), content="true")
+  inspect(rendered.contains("false"), content="true")
+}
+
+///|
+test "PKL-147: module.catch routes through the test.catch intercept" {
+  // The CallExpr dispatcher recognises both `test.catch(...)` and
+  // `module.catch(...)`. snippetTest fixtures use the `module` form to
+  // probe exception-throwing expressions inside an `examples` body.
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", "out = module.catch(() -> throw(\"boom\"))")
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("out = \"boom\""), content="true")
+}
+
+///|
+test "PKL-147: hex / binary / octal integer literals lex through parse_int_text" {
+  // Apple Pkl's `0xFF_FF` / `0b1010` / `0o17` literal forms were
+  // lexed as `0` + identifier before this slice. snippetTest fixtures
+  // like `api/int.pkl` lean on `(0x110000).toChar()`.
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "h = 0xFF\nh2 = 0xFF_FF\nb = 0b1010\no = 0o17\nu = 1_000_000",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("h = 255"), content="true")
+  inspect(rendered.contains("h2 = 65535"), content="true")
+  inspect(rendered.contains("b = 10"), content="true")
+  inspect(rendered.contains("o = 15"), content="true")
+  inspect(rendered.contains("u = 1000000"), content="true")
+}
+
+///|
 test "PKL-146: pkl:yaml.Parser.parse decodes a primitive document (Dynamic mode)" {
   let session = AnalysisSession::new()
   session.set_source(

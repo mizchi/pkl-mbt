@@ -2289,7 +2289,11 @@ fn Parser::parse_mapping_entry(self : Parser) -> MappingEntry? {
       self.skip_whitespace()
       self.at(lbrace())
     }) {
-    self.parse_object_body()
+    // PKL-147: `["k"] { body }` is the amend form for the entry's
+    // existing value — dispatch by the first significant brace token
+    // so a Mapping<String, Listing<T>> entry parses its body as a
+    // Listing (bare elements) instead of an ObjectLiteral.
+    self.parse_inferred_new_body()
   } else {
     self.parse_empty_unsupported_expr()
   }
@@ -2592,8 +2596,60 @@ fn Parser::parse_object_member(self : Parser) -> ObjectMember? {
 
 ///|
 fn parse_int_text(text : String) -> Int {
+  // PKL-147: Apple Pkl integer literals come in four shapes:
+  //   1. decimal `123`, with optional `_` separators (`1_000_000`),
+  //   2. hex `0xFF_FF` / `0X1A`,
+  //   3. binary `0b1010` / `0B1010`,
+  //   4. octal `0o17` / `0O17`.
+  // The lexer keeps the prefix in the token text, so dispatch on
+  // `text[0..1]` and accumulate the digits in the matching base.
+  // Underscores are skipped in every form.
+  let len = text.length()
+  if len >= 2 && text[0].to_int().unsafe_to_char() == '0' {
+    let prefix = text[1].to_int().unsafe_to_char()
+    if prefix == 'x' || prefix == 'X' {
+      let mut value = 0
+      for i = 2; i < len; i = i + 1 {
+        let c = text[i].to_int().unsafe_to_char()
+        if c == '_' {
+          continue
+        }
+        let d = if c >= '0' && c <= '9' {
+          c.to_int() - '0'.to_int()
+        } else if c >= 'a' && c <= 'f' {
+          c.to_int() - 'a'.to_int() + 10
+        } else if c >= 'A' && c <= 'F' {
+          c.to_int() - 'A'.to_int() + 10
+        } else {
+          continue
+        }
+        value = value * 16 + d
+      }
+      return value
+    }
+    if prefix == 'b' || prefix == 'B' {
+      let mut value = 0
+      for i = 2; i < len; i = i + 1 {
+        let c = text[i].to_int().unsafe_to_char()
+        if c == '0' || c == '1' {
+          value = value * 2 + c.to_int() - '0'.to_int()
+        }
+      }
+      return value
+    }
+    if prefix == 'o' || prefix == 'O' {
+      let mut value = 0
+      for i = 2; i < len; i = i + 1 {
+        let c = text[i].to_int().unsafe_to_char()
+        if c >= '0' && c <= '7' {
+          value = value * 8 + c.to_int() - '0'.to_int()
+        }
+      }
+      return value
+    }
+  }
   let mut value = 0
-  for i = 0; i < text.length(); i = i + 1 {
+  for i = 0; i < len; i = i + 1 {
     let c = text[i].to_int().unsafe_to_char()
     if c >= '0' && c <= '9' {
       value = value * 10 + c.to_int() - '0'.to_int()

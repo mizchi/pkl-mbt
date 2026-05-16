@@ -37,9 +37,9 @@
 /// Active entries focus on upstream Apple Pkl compatibility — the
 /// 2026-05-17 probe across 488 candidate fixtures surfaced concrete
 /// gaps the slices below address in projected uplift order
-/// (`PKL-147` first). The deferred listing tracks the slices we
-/// consciously parked; revive one of them into `entries` when a
-/// concrete library consumer asks for the shape.
+/// (`PKL-148` first now that PKL-147 has landed). The deferred listing
+/// tracks the slices we consciously parked; revive one of them into
+/// `entries` when a concrete library consumer asks for the shape.
 ///
 /// Recently landed:
 ///   PKL-119a/b/c/d/be Pair / IntSeq / Set / Map / IntSeq-eq value-variant work
@@ -48,6 +48,10 @@
 ///   PKL-143           pkl:reflect class / module introspection
 ///   PKL-144 / 145     pkl:json.Parser.parse + hidden class-property modifier
 ///   PKL-146           pkl:yaml.Parser.parse via moonbit-community/yaml
+///   PKL-147           snippetTest harness foundation (parser amend body
+///                     dispatch, module.catch, hex/bin/oct ints,
+///                     output.text / omitNullProperties; +3 gold-match
+///                     fixtures, 33 → 35)
 @ModuleInfo { minPklVersion = "0.31.0" }
 module specs.Roadmap
 
@@ -64,26 +68,14 @@ import "../pkspec/Spec.pkl"
 // fixture category it should unblock so progress is measurable
 // against `scripts/upstream-smoke.sh` after each landing.
 
-local snippetTestHarness: Spec.Scenario = new {
-  id = "PKL-147"
-  name = "snippetTest harness support"
-  description =
-    "Most upstream `basic/*.pkl` / `lambdas/*.pkl` / `listings/*.pkl` etc. fixtures `amends \"snippetTest.pkl\"` and run themselves as `facts: Mapping<String, Listing<Boolean>>` + `examples: Mapping<String, Listing<Any>>` assertion catalogs. The gold output is the deeply-evaluated `facts` / `examples` content; pkl-mbt today renders the unresolved `catch = null` (from the `pkl:test` default) plus empty `examples {}` blocks because the test harness module isn't resolvable. Wiring snippetTest support means: load the snippetTest base module out of the same directory as the fixture, propagate its `output { value = facts }` projection, and lower the `examples` annotation chain so each catalog entry surfaces in the rendered output. Highest single-slice uplift on the upstream gold-match KPI (~100+ fixtures evaluate cleanly but byte-mismatch today)."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-138" }
-  tags { "evaluator"; "upstream"; "compat"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 local pklBaseMethodSurface: Spec.Scenario = new {
   id = "PKL-148"
   name = "pkl:base method surface expansion"
   description =
     "Upstream fixtures lean on `pkl:base` properties / methods pkl-mbt hasn't yet wired — the diagnostic categorization showed 96 `Cannot find property` failures across `api/annotationConverters`, projection helpers (`.toMap()` shape conversions), and various Listing / Mapping / String accessors. Survey the failing fixtures, group the missing names by container (Listing / Mapping / String / Int / Class / Module), and fill in the implementations against Apple Pkl's base.pkl as the spec. The slice can ship in waves (Listing first, Mapping second, ...) since each method addition is independent."
   contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-075" }
-  tags { "evaluator"; "stdlib"; "upstream"; "compat" }
+  dependsOn { "PKL-075"; "PKL-147" }
+  tags { "evaluator"; "stdlib"; "upstream"; "compat"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -149,7 +141,6 @@ local silentMismatchSurvey: Spec.Scenario = new {
 }
 
 entries: Listing<Spec.Scenario> = new {
-  snippetTestHarness
   pklBaseMethodSurface
   upstreamResourceType
   asAndPipeRuntime

@@ -1,6 +1,6 @@
 # Test SPEC
 
-215 tests across 2 module(s) — 150 pending, 65 active
+222 tests across 2 module(s) — 157 pending, 65 active
 
 ## `specs/`
 
@@ -11,6 +11,12 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-004
   - decisions: 4 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **Any type accepts every runtime value** (minor) [draft] — verifies: PKL-152 — tags: evaluator, typechecker, upstream, compat
+  > The runtime annotation validator rejects `String` / `Listing` etc. against an `Any` return type annotation (`method o return type annotation Any does not accept String`). `AnyType` already exists at the typecheck layer (PKL-133); the runtime side needs to treat `Any` as accept-everything, matching Apple Pkl's top-type semantics. One-arm fix in `eval_value_accepts_type_annotation`. Unblocks the `methods/methodParameterTypes2` cluster plus several `pkl:reflect`-flavoured fixtures that round-trip through `Any` returns.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-133
   - body: _not yet implemented_
 
 - [ ] **Apple Pkl stdlib declaration modifiers** — verifies: PKL-140 — tags: parser, evaluator, typechecker, stdlib
@@ -90,6 +96,12 @@
   - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **List Value variant split from Listing** [draft] — verifies: PKL-151 — tags: evaluator, typechecker, stdlib, upstream, compat
+  > PKL-119a/b/c/d split Pair / IntSeq / Set / Map out of the legacy `ListingValue` / `MappingValue` collapse, but `List(a, b, c)` still produces a `ListingValue` (the PKL-139 stop-gap). Methods that expect `List` reject the synthesized Listing (`method l return type annotation List<String> does not accept Listing` in `methods/methodParameterTypes3`). Introduce `ListValue(Array[Value])` parallel to `SetValue`, route the `List(...)` constructor through it, mirror the typechecker `ListType(Array[Type])`, and make `(ListingType, ListType)` interconvertible per Apple Pkl's `List <: Listing` rule.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-119d
+  - body: _not yet implemented_
+
 - [ ] **Listing and Mapping element constraint propagation** — verifies: PKL-093 — tags: evaluator, typechecker, constraint, collection
   > `pkl_constrained_type_annotation_has_supported_constraint` recurses into the `Listing<T>` and `Mapping<K, V>` wrappers so element-level constraint annotations register as supported. The value-rejection cascade gains a collection branch after the Int / String branches: for a `Listing<T>` annotation on a `ListingValue`, every element re-enters the cascade with `T` as both display and source name; for a `Mapping<K, V>` annotation on a `MappingValue`, each entry's key is checked against `K` and each entry's value against `V`. The first rejecting element produces the diagnostic and short-circuits the cascade so error messages name a single failing predicate rather than a list. Nested wrappers (`Listing<Listing<Int(isPositive)>>`, `Mapping<String, Listing<Int(isBetween(0, 9))>>`) compose naturally because each recursion uses the same entry point; depth is capped at 8 to keep cycle-like aliases bounded.
   - contributes to: GOAL-PKL-PURE
@@ -132,11 +144,23 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **Resource type for read return values** [draft] — verifies: PKL-149 — tags: evaluator, stdlib, upstream, compat
+  > Apple Pkl's `read("file:...")` returns a `Resource` value carrying `.uri` / `.text` / `.base64` / `.md5` / `.sha256` accessors; pkl-mbt currently returns the file contents as a bare `String`. Introduce a `ResourceValue` variant, route `read("file:...")` through it, and wire the property accessors. Also stop rejecting bare paths (the upstream `api/Resource` fixture passes `read("empty.txt")` without a scheme — Apple Pkl treats it as `file:` relative to the module). Required for the `api/Resource*` / `api/read*` upstream fixture cluster.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-098
+  - body: _not yet implemented_
+
 - [ ] **Set Value variant** — verifies: PKL-119c — tags: evaluator, typechecker, stdlib
   > Set joins the dedicated stdlib value variants. `Value` gains `SetValue(Array[Value])` and the `Set(a, b, c)` constructor returns it (duplicates dropped at construction via `contains_value`; insertion order preserved). Bare property reads (`.length` → Int; `.isEmpty` / `.isNotEmpty` → Boolean; `.first` / `.last` → element type with empty-set diagnostic; `.distinct` → identity SetValue) resolve through the member-access dispatcher; method calls (`.contains` → Boolean; `.toList` / `.toListing` → `Listing<element>`; `.toSet` → identity; `.map(f)` → `Listing<lambda return>`; `.filter(p)` → `Set<element>`; `.fold(initial, op)` → initial type; `.join(sep)` → String) dispatch through the dedicated `eval_set_method` evaluator. Renderer projection: PCF round-trips through `Set(a, b, c)` so the eval output is parser-readable; JSON / YAML / Properties / plist materialize as an array of the elements. Typechecker gains `SetType(Array[Type])` parallel to `ListingType`. `Set<T>` annotations land via `generic_argument_text`; bare `Set` resolves to `SetType([])` (accept-any element). `Set(a, b, c)` call sites infer to `SetType` carrying the element types, and `infer_call_expr` intercepts the method-form calls so each method returns the right shape. `type_accepts` adds a `(SetType, SetType)` arm with the same widening rules as `(ListingType, ListingType)` so `Set<Int>` annotations accept the inferred `SetType([IntType, IntType, IntType])` shape from the constructor.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-119a, PKL-119b
   - decisions: 2 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **Silent-mismatch survey** (minor) [draft] — verifies: PKL-153 — tags: renderer, upstream, compat
+  > The 148 upstream fixtures that evaluate without diagnostic but don't byte-match the gold output are the long tail — typically rendering subtleties (whitespace, member ordering, string-escape choices, Listing element separator), output-block extraction edge cases, or trivial Float-format / number-stringification differences. Each one usually reads as a one-or-two-line PCF-renderer fix. The slice's deliverable is a tabulated categorization (by diff signature, captured into a checked-in CSV under `scripts/`) plus the highest-uplift bucket fixed end-to-end. Subsequent buckets land as their own micro-slices.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-096
   - body: _not yet implemented_
 
 - [ ] **String constraint predicates** — verifies: PKL-091 — tags: evaluator, typechecker, constraint, string
@@ -186,6 +210,12 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-001, PKL-128a, PKL-128b, PKL-128c
   - decisions: 3 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **as and pipe operator runtime semantics** [draft] — verifies: PKL-150 — tags: evaluator, operator, upstream, compat
+  > The parser already recognises `value as Type` and `lhs |> rhs` (PKL-114 / PKL-128) but the evaluator returns `operator <op> is parser-only`. Wire the runtime: `as` performs a type coercion matching the type-coercion path Apple Pkl uses (Int → Float widening, NullableType narrowing, ClassType cast); `|>` desugars to `rhs(lhs)` at eval time. Surfaces in `api/protobuf` and `generators/forGeneratorInMixins` plus several `lambdas/` fixtures.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-114, PKL-128
   - body: _not yet implemented_
 
 - [ ] **call-site generic inference** — verifies: PKL-110 — tags: typechecker, generics, inference
@@ -653,6 +683,12 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **pkl:base method surface expansion** [draft] — verifies: PKL-148 — tags: evaluator, stdlib, upstream, compat, next
+  > Upstream fixtures lean on `pkl:base` properties / methods pkl-mbt hasn't yet wired — the diagnostic categorization showed 96 `Cannot find property` failures across `api/annotationConverters`, projection helpers (`.toMap()` shape conversions), and various Listing / Mapping / String accessors. Survey the failing fixtures, group the missing names by container (Listing / Mapping / String / Int / Class / Module), and fill in the implementations against Apple Pkl's base.pkl as the spec. The slice can ship in waves (Listing first, Mapping second, ...) since each method addition is independent.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-075, PKL-147
+  - body: _not yet implemented_
+
 - [ ] **pkl:json / pkl:yaml / pkl:xml / pkl:protobuf stdlib modules** — verifies: PKL-124 — tags: stdlib, renderer
   > The renderer-driver classes the `output { renderer = ... }` path looks up are now part of the typechecker's stdlib surface. `JsonRenderer`, `YamlRenderer`, `PcfRenderer`, `PropertiesRenderer`, and `PListRenderer` are seeded as unqualified `ClassType` entries in `builtin_type_from_annotation` because Apple Pkl re-exports them through the implicitly-imported `pkl:base`; references like `new JsonRenderer { indent = "    " }` typecheck without an explicit import. Four synthetic stdlib modules — `pkl:json`, `pkl:yaml`, `pkl:xml`, `pkl:protobuf` — are added to `builtin_stdlib_source` so `import "pkl:json" as json` succeeds and `new json.Parser { ... }` / `new xml.Renderer { ... }` / `new protobuf.Renderer { ... }` reach the qualified-type lookup. Each renderer class is declared with an empty (or default-only) member surface; field-level typing for `converters`, `extension`, etc. is deferred to PKL-127 where the converter machinery actually consumes those properties. Unknown renderer names still trip `Cannot find type` — the surface is opt-in, not a silent open-world fallback. The CLI's existing `renderer_format_from_class` mapping is unchanged; the format dispatch was already AST-driven and the typecheck visibility was the missing link.
   - contributes to: GOAL-PKL-PURE
@@ -788,6 +824,13 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-001, PKL-128a
   - decisions: 2 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **snippetTest harness foundation** — verifies: PKL-147 — tags: parser, lexer, evaluator, cli
+  > Four small fixes that let upstream `LanguageSnippetTests/input/<dir>/<name>.pkl` fixtures whose body amends `snippetTest.pkl` produce shape-correct output. (1) `parse_mapping_entry` now dispatches the `["k"] { body }` amend form through `parse_inferred_new_body` so a `Mapping<String, Listing<T>>` entry's body parses as a Listing (bare elements) instead of an ObjectLiteral that silently drops every non-property line — this alone unblocks every fixture whose body is a Listing of expressions. (2) The CallExpr dispatcher recognises `module.catch(() -> ...)` alongside `test.catch(() -> ...)` and reuses `eval_pkl_test_catch_binding_value` to materialise the no-throw / throw branches. (3) The lexer accepts `0x` / `0b` / `0o` integer prefixes plus `_` digit separators (`0xFF_FF`, `0b1010`, `1_000_000`) — without this the upstream `(0x110000).toChar()` test in `api/int.pkl` errored out at parse time. (4) The CLI's eval handler honours `output { text = "…" }` (verbatim string projection) and `output.renderer.omitNullProperties = true` (recursive null-property strip on the value tree). Method-coverage and diagnostic-message-wording gaps inside the snippetTest body bodies still keep most fixtures off the byte-match list; this slice is the harness foundation that PKL-148 / PKL-153 can build on.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-095, PKL-104, PKL-126, PKL-137
+  - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **source position in diagnostics** — verifies: PKL-107 — tags: diagnostics, position
@@ -1288,11 +1331,11 @@
   > The native CLI evaluates a fixture that declares `output { renderer = new YamlRenderer {} }` and several multiline String values. The YAML output renders them as literal block scalars: `|` (one trailing newline, clip), `|-` (no trailing newline, strip), `|+` (multiple trailing newlines, keep), with two-space content indentation. Strings whose lines start with whitespace fall back to double-quoted form, and listing items in block context also pick up the block-scalar projection.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-080, PKL-081, PKL-082, PKL-083, PKL-084, PKL-085, PKL-086, PKL-087, PKL-088, PKL-089, PKL-090, PKL-091, PKL-092, PKL-093, PKL-098, PKL-119be, PKL-144, PKL-145, PKL-146 — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-080, PKL-081, PKL-082, PKL-083, PKL-084, PKL-085, PKL-086, PKL-087, PKL-088, PKL-089, PKL-090, PKL-091, PKL-092, PKL-093, PKL-098, PKL-119be, PKL-144, PKL-145, PKL-146, PKL-147 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
-- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144 — tags: moonbit, upstream, compatibility, contract
+- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147 — tags: moonbit, upstream, compatibility, contract
   > Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF and JSON).
   - body: `cmd` (exit 0 expected)
 

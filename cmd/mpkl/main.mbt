@@ -746,6 +746,18 @@ async fn main {
       load_path(session, path, [], Map([], capacity=32))
       match session.eval_path(path) {
         EvalOk(raw) => {
+          // PKL-147: `output { text = "..." }` short-circuits the
+          // renderer entirely — Apple Pkl writes the string verbatim.
+          // Detect the slot before extract_output_value so the bypass
+          // beats both the format dispatch and the renderer-class
+          // auto-detection.
+          match extract_output_text(raw) {
+            Some(text) => {
+              println(text)
+              return
+            }
+            None => ()
+          }
           // PKL-097: Apple Pkl uses a module-level `output { value =
           // ...; renderer = ... }` block to drive what `pkl eval`
           // returns. Extract `output.value` so fixtures that route
@@ -1128,6 +1140,7 @@ fn extract_output_value(value : @pkl.Value) -> @pkl.Value {
     @pkl.ObjectValue(members) => {
       let mut output_value : @pkl.Value? = None
       let mut has_output = false
+      let mut omit_null = false
       for entry in members {
         if entry.name == "output" {
           has_output = true
@@ -1137,12 +1150,30 @@ fn extract_output_value(value : @pkl.Value) -> @pkl.Value {
                 if sub.name == "value" {
                   output_value = Some(sub.value)
                 }
+                // PKL-147: read `output.renderer.omitNullProperties`
+                // so the env strip below can drop null members at the
+                // module-body level — snippetTest's inherited renderer
+                // sets this to true.
+                if sub.name == "renderer" {
+                  match sub.value {
+                    @pkl.ObjectValue(renderer_members) =>
+                      for r in renderer_members {
+                        if r.name == "omitNullProperties" {
+                          match r.value {
+                            @pkl.BoolValue(b) => omit_null = b
+                            _ => ()
+                          }
+                        }
+                      }
+                    _ => ()
+                  }
+                }
               }
             _ => ()
           }
         }
       }
-      match output_value {
+      let projected = match output_value {
         Some(v) => v
         None =>
           // PKL-104: `output { renderer = ... }` without an explicit
@@ -1154,16 +1185,97 @@ fn extract_output_value(value : @pkl.Value) -> @pkl.Value {
           if has_output {
             let visible : Array[@pkl.ValueMember] = []
             for entry in members {
-              if entry.name != "output" {
-                visible.push(entry)
+              if entry.name == "output" {
+                continue
               }
+              visible.push(entry)
             }
             @pkl.ObjectValue(visible)
           } else {
             value
           }
       }
+      // PKL-147: when the inherited renderer requested
+      // `omitNullProperties = true`, scrub null members at every
+      // nesting depth before handing the value off to the renderer.
+      // Apple Pkl's PcfRenderer pulls this directly from the renderer
+      // settings rather than the surrounding value; we approximate by
+      // pre-processing the value tree at the CLI boundary.
+      if omit_null {
+        strip_null_object_properties(projected)
+      } else {
+        projected
+      }
     }
     _ => value
   }
+}
+
+///|
+/// PKL-147: recursively drop members whose value is `null` from every
+/// nested ObjectValue inside the given value. ListingValue / MappingValue
+/// elements are not touched — Apple Pkl's `omitNullProperties` only
+/// affects object properties.
+fn strip_null_object_properties(value : @pkl.Value) -> @pkl.Value {
+  match value {
+    @pkl.ObjectValue(members) => {
+      let kept : Array[@pkl.ValueMember] = []
+      for entry in members {
+        if entry.value is @pkl.NullValue {
+          continue
+        }
+        kept.push({
+          name: entry.name,
+          value: strip_null_object_properties(entry.value),
+        })
+      }
+      @pkl.ObjectValue(kept)
+    }
+    @pkl.ListingValue(elements) => {
+      let mapped : Array[@pkl.Value] = []
+      for element in elements {
+        mapped.push(strip_null_object_properties(element))
+      }
+      @pkl.ListingValue(mapped)
+    }
+    @pkl.MappingValue(entries) => {
+      let mapped : Array[@pkl.ValueEntry] = []
+      for entry in entries {
+        mapped.push({
+          key: entry.key,
+          value: strip_null_object_properties(entry.value),
+        })
+      }
+      @pkl.MappingValue(mapped)
+    }
+    other => other
+  }
+}
+
+///|
+/// PKL-147: extract `output.text` if set. The CLI emits this string
+/// verbatim (bypassing the renderer), matching Apple Pkl's text-output
+/// projection. snippetTest fixtures lean on this slot.
+fn extract_output_text(value : @pkl.Value) -> String? {
+  match value {
+    @pkl.ObjectValue(members) =>
+      for entry in members {
+        if entry.name == "output" {
+          match entry.value {
+            @pkl.ObjectValue(sub_members) =>
+              for sub in sub_members {
+                if sub.name == "text" {
+                  match sub.value {
+                    @pkl.StringValue(text) => return Some(text)
+                    _ => ()
+                  }
+                }
+              }
+            _ => ()
+          }
+        }
+      }
+    _ => ()
+  }
+  None
 }
