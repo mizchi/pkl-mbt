@@ -124,20 +124,26 @@ Synthesized in-process (no upstream Pkl JAR required):
 - **Eval gold-match**: 32 PCF + 1 JSON + 1 plist fixtures byte-for-byte against the upstream `.pcf` / `.json` / `.plist` files
 - **Diagnostic wording**: aligned with Apple Pkl's first-line phrasing (`Cannot find type \`X\`.` / `Cannot find property \`x\`.` / `Cannot find module \`...\`.` etc.)
 
-## Project layout
+## Not yet supported
 
-```
-.
-├── *.mbt                # @pkl library (parser, AST, evaluator, typechecker, codegen, lint, sandbox)
-├── cmd/mpkl/            # mpkl CLI
-├── fixtures/            # CLI-driven contract fixtures
-├── specs/               # pkspec scenarios (Spec.pkl + Roadmap.pkl)
-├── pkspec/              # vendored pkspec authoring schemas
-├── scripts/             # upstream-smoke.sh, upstream-parse-suite.sh
-├── third_party/apple-pkl/  # upstream submodule for gold-match
-├── Taskfile.pkl         # pkfire task graph
-└── SPEC.md              # rendered spec document
-```
+Intentionally deferred — `specs/Roadmap.pkl`'s `deferredEntries`
+listing carries the full rationale. One-line summaries:
+
+| Slice | Status | Workaround |
+| --- | --- | --- |
+| LSP server | Out of scope (library focus). | Use Apple Pkl's `pkl-lsp`. |
+| `mpkl repl` (interactive REPL) | Deferred. | Wrap `eval` in a shell loop. |
+| `mpkl doc` / pkldoc generation | Deferred. | Use upstream `pkldoc`. |
+| XML renderer (`-f xml` / `xml.Renderer`) | Deferred — type surface only. | `pkl eval -f xml` upstream. |
+| Protobuf renderer | Deferred — type surface only. | `pkl eval -f protobuf` upstream. |
+| Renderer `converters { ... }` machinery | Deferred. | `pkl eval` upstream. |
+| `package://` zipball download + unpack | Deferred — URI parse + metadata probe land. | `pkl download-package` + `--module-path`. |
+
+Partially landed:
+
+- `read?(uri)` null-returning variant — only `read(uri)` (sandbox-bounded) is wired.
+- `IntSeq` equality — structural `derive(Eq)`; Apple Pkl's empty-sequence-equality and step-aware element-set equality stay a follow-up.
+- `pkl:reflect` — minimal mirror-constant + factory stub; `isSubclassOf`, real `ClassValue` round-trip, and runtime member introspection are absent.
 
 ## Development
 
@@ -162,4 +168,4 @@ git submodule update --init --recursive
 
 ## Status
 
-144 implemented pkspec scenarios; active roadmap is empty (parser / typechecker / evaluator / codegen core has landed). Slices intentionally deferred — repl, pkldoc, LSP, xml / protobuf renderers, renderer converter machinery, `package://` zipball unpack — live in `specs/Roadmap.pkl`'s `deferredEntries` listing with rationale, ready to revive when a concrete consumer surfaces. See `SPEC.md` for the full rendered spec.
+144 implemented pkspec scenarios; active roadmap is empty (parser / typechecker / evaluator / codegen core has landed). See `SPEC.md` for the full rendered spec. Deferred slices live in `specs/Roadmap.pkl`'s `deferredEntries` listing and can revive on demand.
