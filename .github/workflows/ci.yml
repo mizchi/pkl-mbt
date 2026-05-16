@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build & test (MoonBit-only)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Toolchain versions
+        run: moon version --all
+
+      - name: Install MoonBit deps
+        run: moon update
+
+      - name: moon check --deny-warn (native)
+        run: moon check --deny-warn --target native
+
+      - name: moon check --deny-warn (js)
+        run: moon check --deny-warn --target js
+
+      - name: moon check --deny-warn (wasm)
+        run: moon check --deny-warn --target wasm
+
+      - name: moon check --deny-warn (wasm-gc)
+        run: moon check --deny-warn --target wasm-gc
+
+      - name: moon test (native)
+        run: moon test --target native
+
+      - name: moon test (js)
+        run: moon test --target js
+
+      - name: Release build (native)
+        run: moon build --target native --release
+
+      - name: mpkl smoke (eval + stdlib)
+        run: |
+          moon run cmd/mpkl --target native -- eval fixtures/cli.pkl
+          moon run cmd/mpkl --target native -- stdlib
+
+  contracts:
+    name: pkspec contracts
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # third_party/apple-pkl submodule is required for
+          # `upstream apple pkl fixture smoke` and
+          # `upstream apple pkl parser suite`.
+          submodules: recursive
+
+      - name: Set up MoonBit
+        run: |
+          curl -fsSL https://cli.moonbitlang.com/install/unix.sh | bash
+          echo "$HOME/.moon/bin" >> "$GITHUB_PATH"
+
+      - name: Install MoonBit deps
+        run: moon update
+
+      - name: Set up pkfire (`pkf`)
+        uses: mizchi/pkfire@v0
+
+      - name: Set up pkspec
+        uses: mizchi/pkspec@v0
+
+      - name: pkspec spec --check
+        run: pkspec spec --check specs/Spec.pkl specs/Test.pkl
+
+      - name: pkspec contracts
+        run: pkspec exec -f specs/Test.pkl

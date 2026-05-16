@@ -169,6 +169,8 @@ git submodule update --init --recursive
 ./scripts/upstream-parse-suite.sh
 ```
 
+CI runs the same gate (`moon check --deny-warn` on all four targets + `moon test` on native + js + the pkspec contract suite) on every push and pull request — see `.github/workflows/ci.yml`.
+
 ## Status
 
 144 implemented pkspec scenarios; active roadmap is empty (parser / typechecker / evaluator / codegen core has landed). See `SPEC.md` for the full rendered spec. Deferred slices live in `specs/Roadmap.pkl`'s `deferredEntries` listing and can revive on demand.
