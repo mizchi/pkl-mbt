@@ -50,4 +50,4 @@ while IFS= read -r file; do
   fi
 done < <(find "$UPSTREAM" -type f -name '*.pkl' | sort)
 
-moon run cmd/main --target native -- parse-many "${files[@]}"
+moon run cmd/mpkl --target native -- parse-many "${files[@]}"

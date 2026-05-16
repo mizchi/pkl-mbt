@@ -11,7 +11,7 @@ local moonSources: Listing<String> = new {
 
 local generatedInterfaces: Listing<String> = new {
   "pkg.generated.mbti"
-  "cmd/main/pkg.generated.mbti"
+  "cmd/mpkl/pkg.generated.mbti"
 }
 
 local specSources: Listing<String> = new {

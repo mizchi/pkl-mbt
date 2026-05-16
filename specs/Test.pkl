@@ -108,7 +108,7 @@ local cliEval = new Test {
   description = "The native CLI evaluates a Pkl file and prints module object properties."
   tags { "moonbit"; "cli"; "contract" }
   specRef { "PKL-009" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli.pkl"
   workdir = ".."
   expectStdoutContains { "name = \"hawk\"" }
   timeoutSec = 120
@@ -119,7 +119,7 @@ local cliEvalJson = new Test {
   description = "The native CLI emits a JSON document when invoked with `-f json`."
   tags { "moonbit"; "cli"; "renderer"; "json"; "contract" }
   specRef { "PKL-072"; "PKL-094" }
-  cmd = "moon run cmd/main --target native -- eval -f json fixtures/cli.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval -f json fixtures/cli.pkl"
   workdir = ".."
   expectStdoutContains { "\"name\": \"hawk\""; "\"age\": 2" }
   timeoutSec = 120
@@ -131,7 +131,7 @@ local cliEvalFormatLong = new Test {
     "The native CLI accepts the `--format` long-form flag and dispatches to the JSON renderer."
   tags { "moonbit"; "cli"; "renderer"; "json"; "contract" }
   specRef { "PKL-094" }
-  cmd = "moon run cmd/main --target native -- eval --format json fixtures/cli.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval --format json fixtures/cli.pkl"
   workdir = ".."
   expectStdoutContains { "\"name\": \"hawk\""; "\"age\": 2" }
   timeoutSec = 120
@@ -143,7 +143,7 @@ local cliEvalFormatPcf = new Test {
     "The native CLI accepts `--format pcf` explicitly and emits the same PCF output as the default."
   tags { "moonbit"; "cli"; "renderer"; "pcf"; "contract" }
   specRef { "PKL-094" }
-  cmd = "moon run cmd/main --target native -- eval --format pcf fixtures/cli.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval --format pcf fixtures/cli.pkl"
   workdir = ".."
   expectStdoutContains { "name = \"hawk\""; "age = 2" }
   timeoutSec = 120
@@ -154,7 +154,7 @@ local cliEvalYaml = new Test {
   description = "The native CLI emits a YAML document when invoked with `-f yaml`."
   tags { "moonbit"; "cli"; "renderer"; "yaml"; "contract" }
   specRef { "PKL-073"; "PKL-094" }
-  cmd = "moon run cmd/main --target native -- eval -f yaml fixtures/cli.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval -f yaml fixtures/cli.pkl"
   workdir = ".."
   expectStdoutContains { "name: hawk"; "age: 2" }
   timeoutSec = 120
@@ -165,7 +165,7 @@ local cliEvalProperties = new Test {
   description = "The native CLI emits a Java Properties document when invoked with `-f properties`."
   tags { "moonbit"; "cli"; "renderer"; "properties"; "contract" }
   specRef { "PKL-074"; "PKL-094" }
-  cmd = "moon run cmd/main --target native -- eval -f properties fixtures/cli.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval -f properties fixtures/cli.pkl"
   workdir = ".."
   expectStdoutContains { "name = hawk"; "age = 2" }
   timeoutSec = 120
@@ -177,7 +177,7 @@ local cliGenerics = new Test {
     "The native CLI evaluates a fixture that declares `class Box<T>`, `class Pair<A, B>`, `function identity<T>(x: T): T`, and `function pair_first<A, B>(a: A, b: B): A`, then instantiates and calls each. Type parameters are tolerated as UnknownType in the typechecker and accept-any in the evaluator's runtime annotation validators."
   tags { "moonbit"; "cli"; "generics"; "contract" }
   specRef { "PKL-089"; "PKL-090" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_generics.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_generics.pkl"
   workdir = ".."
   expectStdoutContains {
     "intBox {"
@@ -199,7 +199,7 @@ local cliFloatPower = new Test {
     "The native CLI evaluates a fixture that exercises `**`, `~/`, and `%` with Float operands, matching Apple Pkl's golden output: `2.0 ** 3 = 8.0`, `5.0 ~/ 3.0 = 1`, `5.5 % 6.5 = 5.5`, `5 % 6.5 = 5.0`."
   tags { "moonbit"; "cli"; "float"; "operator"; "contract" }
   specRef { "PKL-111" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_float_power.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_float_power.pkl"
   workdir = ".."
   expectStdoutContains {
     "power_int = 8.0"
@@ -218,7 +218,7 @@ local cliFloatThresholdConstraints = new Test {
     "The native CLI evaluates a fixture that exercises Float thresholds in numeric constraint predicates (`isBetween(0.5, 1.5)`, `isGreaterThan(0.5)`, `isLessThan(1.5)`, `isGreaterThan(-1.5)`) and prints the bindings without raising a constraint diagnostic."
   tags { "moonbit"; "cli"; "constraint"; "float"; "contract" }
   specRef { "PKL-112" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_float_threshold_constraints.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_float_threshold_constraints.pkl"
   workdir = ".."
   expectStdoutContains {
     "midRange = 1.0"
@@ -235,7 +235,7 @@ local cliEqualityTypeMatch = new Test {
     "The native CLI evaluates a fixture that exercises `==` and `!=` against compatible operand types — Int vs Int, Int vs Float (Apple Pkl admits this), Float vs Float, Bool vs Bool, and a nullable binding against `null`. The evaluation produces the expected booleans without raising a typecheck diagnostic, demonstrating that PKL-113 leaves valid programs untouched."
   tags { "moonbit"; "cli"; "typechecker"; "equality"; "contract" }
   specRef { "PKL-113" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_equality_type_match.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_equality_type_match.pkl"
   workdir = ".."
   expectStdoutContains {
     "intMatch = true"
@@ -253,7 +253,7 @@ local cliIsOperator = new Test {
     "The native CLI evaluates a fixture that exercises the `is` operator at runtime: `5 is Int`, `1.5 is Float`, `Number` checks against both Int and Float values, a negative check (`\"x\" is Int = false`), and an `if (x is Int) ...` branch inside a function. No `parser-only` diagnostic is raised — the evaluator routes through `value_is_type` and produces concrete Bool values."
   tags { "moonbit"; "cli"; "evaluator"; "is-operator"; "contract" }
   specRef { "PKL-114" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_is_operator.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_is_operator.pkl"
   workdir = ".."
   expectStdoutContains {
     "intCheck = true"
@@ -273,7 +273,7 @@ local cliGenericTypealias = new Test {
     "The native CLI evaluates a fixture that declares `typealias Box<T> = Listing<T>` and `typealias Pair<K, V> = Mapping<K, V>`, then instantiates `Box<Int>`, `Box<String>`, and `Pair<String, Int>`. Each declaration resolves through `try_generic_alias_substitution`, the listing / mapping elements typecheck against the substituted element types, and the evaluator emits the same PCF as the equivalent non-aliased annotation."
   tags { "moonbit"; "cli"; "typealias"; "generics"; "contract" }
   specRef { "PKL-115" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_generic_typealias.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_generic_typealias.pkl"
   workdir = ".."
   expectStdoutContains {
     "ints {"
@@ -296,7 +296,7 @@ local cliTypeParameterBounds = new Test {
     "The native CLI evaluates a fixture that exercises `<T : Number>` on a generic function and a generic class: `clamp(5)` returns `5`, `clamp(2.5)` returns `2.5`, and `new Container { value = 42 }` / `{ value = 3.14 }` produce the expected ObjectValue. The fixture intentionally only uses arguments that satisfy the bound; bound rejection is covered by the unit tests."
   tags { "moonbit"; "cli"; "generics"; "bounds"; "contract" }
   specRef { "PKL-116" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_type_parameter_bounds.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_type_parameter_bounds.pkl"
   workdir = ".."
   expectStdoutContains {
     "intResult = 5"
@@ -315,7 +315,7 @@ local cliAnyType = new Test {
     "The native CLI evaluates a fixture that exercises `Any`-typed bindings (Int / String / Bool), a nullable `Any?` defaulted to null, and a `Mapping<String, Any>` carrying heterogeneous value types. Every binding typechecks (via the new `AnyType` short-circuit in `type_accepts`) and the evaluator emits the same PCF as the concrete annotations would."
   tags { "moonbit"; "cli"; "typechecker"; "any"; "pkf-pkspec"; "contract" }
   specRef { "PKL-133" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_any_type.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_any_type.pkl"
   workdir = ".."
   expectStdoutContains {
     "intHolder = 5"
@@ -336,7 +336,7 @@ local cliListingMappingStdlib = new Test {
     "The native CLI evaluates a fixture that exercises Listing.toList / length / isEmpty, Mapping.toMap / length / keys / values, and the `List<T>` type annotation. Each method returns the expected value and the rendered PCF matches the equivalent literal."
   tags { "moonbit"; "cli"; "stdlib"; "pkf-pkspec"; "contract" }
   specRef { "PKL-134" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_listing_mapping_stdlib.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_listing_mapping_stdlib.pkl"
   workdir = ".."
   expectStdoutContains {
     "xs {"
@@ -360,7 +360,7 @@ local cliFloatMagnitudeUnits = new Test {
     "The native CLI evaluates a fixture using Float-magnitude Duration and DataSize literals (`0.5.s`, `2.5.gib`, `1.h`, `5.gib`). The rendered output preserves the magnitude and unit, and accessing `.value` projects back to Int when integral or Float when fractional."
   tags { "moonbit"; "cli"; "parser"; "duration"; "datasize"; "float"; "contract" }
   specRef { "PKL-121" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_float_magnitude_units.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_float_magnitude_units.pkl"
   workdir = ".."
   expectStdoutContains {
     "half_second = 0.5.s"
@@ -380,7 +380,7 @@ local cliCodegenMoonbit = new Test {
     "The native CLI's `codegen` subcommand lowers a Pkl fixture to MoonBit source. The fixture covers the common shape — scalar + nullable properties, references between classes, Listing / Mapping / Set / IntSeq / Pair generics, and typealias declarations. The expected output exercises the scalar mapping, the recursive generic translation (including the `Array[T] /* Set */` and `Array[Int] /* IntSeq */` fallbacks), nullable round-trip, and the `pub typealias <target> as <name>` form."
   tags { "moonbit"; "cli"; "codegen"; "typechecker"; "contract" }
   specRef { "PKL-131" }
-  cmd = "moon run cmd/main --target native -- codegen fixtures/cli_codegen_moonbit.pkl"
+  cmd = "moon run cmd/mpkl --target native -- codegen fixtures/cli_codegen_moonbit.pkl"
   workdir = ".."
   expectStdoutContains {
     "pub(all) struct Person {"
@@ -408,7 +408,7 @@ local cliPackageUriOffline = new Test {
     "The native CLI parses a `package://` URI structurally even when the network is unreachable. The fixture uses an unresolvable authority `invalid.example.test` so the metadata fetch fails predictably; the diagnostic still surfaces the parsed `package URI`, `metadata URL`, `fragment`, plus the manual-workaround block. Pins the structural parse + diagnostic format independently of any live registry."
   tags { "moonbit"; "cli"; "imports"; "sandbox"; "contract" }
   specRef { "PKL-129b1" }
-  cmd = "moon run cmd/main --target native -- eval package://invalid.example.test/owner/pkg@9.9.9#/file.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval package://invalid.example.test/owner/pkg@9.9.9#/file.pkl"
   workdir = ".."
   expectStdoutContains {
     "package:// import is not fully implemented yet."
@@ -428,7 +428,7 @@ local cliPackageRegistryProbe = new Test {
     "The native CLI follows redirects to `pkg.pkl-lang.org`'s CDN, fetches the metadata JSON, and extracts the `packageZipUrl` field. Hits the real Apple Pkl registry (same approach as `cli https URI import`); the assertion only pins the zip-url line, so registry path changes that keep the same package alive still pass."
   tags { "moonbit"; "cli"; "imports"; "pkf-pkspec"; "contract" }
   specRef { "PKL-129b1" }
-  cmd = "moon run cmd/main --target native -- eval package://pkg.pkl-lang.org/pkl-pantry/pkl.experimental.uri@1.0.1#/URI.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval package://pkg.pkl-lang.org/pkl-pantry/pkl.experimental.uri@1.0.1#/URI.pkl"
   workdir = ".."
   expectStdoutContains {
     "package URI:  package://pkg.pkl-lang.org/pkl-pantry/pkl.experimental.uri@1.0.1#/URI.pkl"
@@ -446,7 +446,7 @@ local cliMapValue = new Test {
     "The native CLI evaluates a fixture exercising the dedicated `MapValue` variant (Apple Pkl's `Map<K, V>`, distinct from `Mapping<K, V>`). `Map(\"a\", 1, ...)` construction, bare property reads (`.length` / `.keys` / `.values` / `.entries`), lookup methods (`.containsKey` / `.getOrNull`), `.map((k, v) -> Pair(...))` projection, `.filter((k, v) -> Boolean)` (keeps Map type), `.fold(0, (acc, k, v) -> ...)` reduction, and `Map<K, V>` annotated bindings whose constructor inference flows through `type_accepts`. PCF renders `Map(k, v, ...)` so the eval output is parser-readable; `.entries` lands as `Listing<Pair<K, V>>` because PKL-119a's PairValue is now part of the value model."
   tags { "moonbit"; "cli"; "evaluator"; "typechecker"; "stdlib"; "contract" }
   specRef { "PKL-119d" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_map_value.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_map_value.pkl"
   workdir = ".."
   expectStdoutContains {
     "counts = Map(\"a\", 1, \"b\", 2, \"c\", 3)"
@@ -470,7 +470,7 @@ local cliSetValue = new Test {
     "The native CLI evaluates a fixture exercising the dedicated `SetValue` variant: `Set(3, 1, 2, 1, 3)` dedupes to `Set(3, 1, 2)` (insertion order preserved), bare property reads (`.length` / `.isEmpty` / `.first` / `.last`), `.contains` lookup, `.toList()` materialization, `.map((n) -> n * 2)` projection (returns Listing per Apple Pkl's signature), `.filter((n) -> n % 2 == 0)` (keeps Set type), `.fold(0, (acc, n) -> acc + n)` reduction, `.join(\", \")` concatenation, and `Set<Int>` annotated bindings whose constructor inference flows through `type_accepts`. PCF renders `Set(...)` so the eval output is parser-readable."
   tags { "moonbit"; "cli"; "evaluator"; "typechecker"; "stdlib"; "contract" }
   specRef { "PKL-119c" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_set_value.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_set_value.pkl"
   workdir = ".."
   expectStdoutContains {
     "deduped = Set(3, 1, 2)"
@@ -493,7 +493,7 @@ local cliIntSeqValue = new Test {
     "The native CLI evaluates a fixture exercising the dedicated `IntSeqValue` variant: `IntSeq(1, 5)` construction, bare `.start` / `.end` / `.step` property reads, `.toList()` materialization, `.map((x) -> x * 2)` projection, `.fold(0, (acc, x) -> acc + x)` reduction, `.step(2)` to change the step, `.step(-1)` for descending iteration, empty IntSeq materialization, and `IntSeq` annotation participating in typecheck. PCF renders `IntSeq(s, e)` (default step 1) or `IntSeq(s, e).step(n)` (custom step) so the eval output is parser-readable."
   tags { "moonbit"; "cli"; "evaluator"; "typechecker"; "stdlib"; "contract" }
   specRef { "PKL-119b" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_int_seq_value.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_int_seq_value.pkl"
   workdir = ".."
   expectStdoutContains {
     "ascending = IntSeq(1, 5)"
@@ -515,7 +515,7 @@ local cliPairValue = new Test {
     "The native CLI evaluates a fixture exercising the dedicated `PairValue` variant: top-level `Pair(\"alpha\", 42)`, `.first` / `.second` member access (Pkl scalars), nested `Pair(Pair(...), Pair(...))` (deep member access via `.first.second`), and `Pair<String, Int>` annotated bindings whose typed `.first: String` / `.second: Int` lookups participate in typecheck. PCF renders each Pair through Apple Pkl's `Pair(a, b)` constructor form rather than the previous PKL-139 `new Listing { a; b }` stop-gap."
   tags { "moonbit"; "cli"; "evaluator"; "typechecker"; "stdlib"; "contract" }
   specRef { "PKL-119a" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_pair_value.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_pair_value.pkl"
   workdir = ".."
   expectStdoutContains {
     "single = Pair(\"alpha\", 42)"
@@ -536,7 +536,7 @@ local cliRendererPlist = new Test {
     "The native CLI evaluates a fixture whose `output { renderer = new PListRenderer {} }` block routes the rendered envelope through the plist renderer. The output starts with the XML 1.0 prolog, the Apple PLIST 1.0 DOCTYPE, and a `<plist version=\"1.0\">` wrapper; scalars map to `<integer>` / `<real>` / `<true/>` / `<false/>` / `<string>` nodes; XML entities (`<`, `>`, `&`) escape inside `<string>` contents; null entries elide inside `<dict>`; Listings render as `<array>`; Duration / DataSize project as space-separated `<string>3 s</string>` / `<string>4 mb</string>` rather than the `.` form JSON / YAML use. The renderer is selected from the AST without `-f plist`, mirroring the JsonRenderer driver path."
   tags { "moonbit"; "cli"; "renderer"; "plist"; "contract" }
   specRef { "PKL-126a" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_renderer_plist.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_renderer_plist.pkl"
   workdir = ".."
   expectStdoutContains {
     "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
@@ -566,7 +566,7 @@ local cliRendererStdlibModules = new Test {
     "The native CLI evaluates a fixture that instantiates every renderer-driver class the `output { renderer = ... }` path looks up. `JsonRenderer`, `YamlRenderer`, `PcfRenderer`, `PropertiesRenderer`, and `PListRenderer` are reached unqualified (pkl:base re-exports seeded into `builtin_type_from_annotation`); `xml.Renderer` and `protobuf.Renderer` come through the synthetic `pkl:xml` / `pkl:protobuf` stdlib modules; `json.Parser` rides on the synthetic `pkl:json` module. The rendered output shows each renderer's default-only field surface plus the user-supplied overrides, confirming both typecheck visibility and the import-binding round-trip."
   tags { "moonbit"; "cli"; "stdlib"; "renderer"; "contract" }
   specRef { "PKL-124" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_renderer_stdlib_modules.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_renderer_stdlib_modules.pkl"
   workdir = ".."
   expectStdoutContains {
     "baseRenderers {"
@@ -593,7 +593,7 @@ local cliCrossModuleFunction = new Test {
     "The native CLI evaluates a module that calls two module-level functions declared in an imported sibling module (`Base.double`, `Base.format`). The eval layer dispatches the lambda bodies against the supplied arguments and the rendered output is the importing module's visible bindings only — the base module's functions are emitted with the hidden-member prefix so a `pkl eval` of the base alone renders nothing extra. Confirms cross-module precision for module-level function exports."
   tags { "moonbit"; "cli"; "imports"; "typechecker"; "contract" }
   specRef { "PKL-118" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_cross_module_function.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_cross_module_function.pkl"
   workdir = ".."
   expectStdoutContains {
     "out = 10"
@@ -608,7 +608,7 @@ local cliInheritanceHardening = new Test {
     "The native CLI's `check` subcommand surfaces the typechecker's PKL-117 diagnostics for a fixture that trips both rules: `Sparrow extends Bird` without overriding `Bird`'s `abstract function chirp`, and `Mammal.name` overrides `Animal.name` with a return type (`Int`) that is not a subtype of the parent's return type (`String`). The fixture intentionally contains both faults so a single scenario exercises the abstract-method coverage and the return-type covariance checks together."
   tags { "moonbit"; "cli"; "typechecker"; "inheritance"; "contract" }
   specRef { "PKL-117" }
-  cmd = "moon run cmd/main --target native -- check fixtures/cli_inheritance_hardening.pkl"
+  cmd = "moon run cmd/mpkl --target native -- check fixtures/cli_inheritance_hardening.pkl"
   workdir = ".."
   expectStdoutContains {
     "Class `Sparrow` does not implement abstract method `chirp` inherited from `Bird`."
@@ -623,7 +623,7 @@ local cliDiagnosticUpstream = new Test {
     "The native CLI prints first-line diagnostic messages that match Apple Pkl's wording verbatim. The fixture is a module with intentional property and method misses; `pkl eval` surfaces them as `Cannot find property \\`<name>\\`.` and `Cannot find property \\`<name>\\` in object of type \\`Listing\\`.`. Source-position arrows and value-trace blocks stay deferred — pinning the first line is enough for a future upstream-`errors`-fixture sweep to diff against without false positives from prose differences."
   tags { "moonbit"; "cli"; "diagnostics"; "upstream"; "contract" }
   specRef { "PKL-108" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_diagnostic_upstream.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_diagnostic_upstream.pkl"
   workdir = ".."
   expectStdoutContains {
     "Cannot find property `missing_property`."
@@ -639,7 +639,7 @@ local cliSandboxFlags = new Test {
   tags { "moonbit"; "cli"; "sandbox"; "prop"; "contract" }
   specRef { "PKL-106" }
   cmd =
-    "moon run cmd/main --target native -- eval -p API_KEY=secret-token -p REGION=us-west-2 fixtures/cli_sandbox_flags.pkl"
+    "moon run cmd/mpkl --target native -- eval -p API_KEY=secret-token -p REGION=us-west-2 fixtures/cli_sandbox_flags.pkl"
   workdir = ".."
   expectStdoutContains {
     "api_key = \"secret-token\""
@@ -654,7 +654,7 @@ local cliLintFindings = new Test {
     "The native CLI's `analyze` subcommand runs lint checks over the parsed module and prints one `path: rule: message` line per finding. The fixture intentionally exercises all four rules: an unused `local` binding, an unused import, an unused property on an unreferenced class, and a binding name that shadows an import. (Exit-code propagation through `moon run` is lossy, so the contract pins on stdout output rather than on the exit code; running the binary directly produces a non-zero exit when any finding surfaces.)"
   tags { "moonbit"; "cli"; "lint"; "analyze"; "contract" }
   specRef { "PKL-102" }
-  cmd = "moon run cmd/main --target native -- analyze fixtures/cli_lint_findings.pkl"
+  cmd = "moon run cmd/mpkl --target native -- analyze fixtures/cli_lint_findings.pkl"
   workdir = ".."
   expectStdoutContains {
     "unused-local-binding: local binding `unusedLocal` is never referenced"
@@ -671,7 +671,7 @@ local cliAnnotationCapture = new Test {
     "The native CLI's `parse` subcommand prints one summary line per captured annotation when at least one was found, identifying the declaration it attaches to (module / class / function / typealias) and the body shape (NoBody / ParenBody / BraceBody) plus the verbatim body text. Annotation-free sources keep the existing one-line `ok` output for byte-identity with prior fixtures."
   tags { "moonbit"; "cli"; "parser"; "annotation"; "contract" }
   specRef { "PKL-128d" }
-  cmd = "moon run cmd/main --target native -- parse fixtures/cli_annotation_capture.pkl"
+  cmd = "moon run cmd/mpkl --target native -- parse fixtures/cli_annotation_capture.pkl"
   workdir = ".."
   expectStdoutContains {
     "annotation ModuleInfo on module: BraceBody=( minPklVersion = \"0.31.0\" )"
@@ -689,7 +689,7 @@ local cliYamlBlockScalars = new Test {
     "The native CLI evaluates a fixture that declares `output { renderer = new YamlRenderer {} }` and several multiline String values. The YAML output renders them as literal block scalars: `|` (one trailing newline, clip), `|-` (no trailing newline, strip), `|+` (multiple trailing newlines, keep), with two-space content indentation. Strings whose lines start with whitespace fall back to double-quoted form, and listing items in block context also pick up the block-scalar projection."
   tags { "moonbit"; "cli"; "renderer"; "yaml"; "block-scalar"; "contract" }
   specRef { "PKL-125" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_yaml_block_scalars.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_yaml_block_scalars.pkl"
   workdir = ".."
   expectStdoutContains {
     "poem: |"
@@ -717,7 +717,7 @@ local cliStringUnicode = new Test {
     "The native CLI evaluates a fixture that observes a String whose last glyph is a supplementary-plane code point (`🍣`, U+1F363). `length` keeps the existing UTF-16 code-unit count (5) for byte-identity with prior fixtures, while `codePointCount` reports the Unicode code-point count (4), `codePoints` and `chars` walk the code-point stream, and `codePointAt(3)` returns the supplementary code point as an Int."
   tags { "moonbit"; "cli"; "stdlib"; "string"; "unicode"; "contract" }
   specRef { "PKL-122" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_string_unicode.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_string_unicode.pkl"
   workdir = ".."
   expectStdoutContains {
     "u16_length = 5"
@@ -735,7 +735,7 @@ local cliPlatformSemver = new Test {
     "The native CLI evaluates a fixture that imports `pkl:platform` and `pkl:semver`. The platform stub yields deterministic `stub-os` / `stub-arch` values; semver `parse(\"1.2.3-rc.1+build.42\")` populates major / minor / patch / preRelease / build, `isLessThan` orders `1.0.0-alpha < 1.0.0` (pre-release ranks below release), and `parseOrNull(\"not-a-version\")` returns null."
   tags { "moonbit"; "cli"; "stdlib"; "platform"; "semver"; "contract" }
   specRef { "PKL-123" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_platform_semver.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_platform_semver.pkl"
   workdir = ".."
   expectStdoutContains {
     "os_name = \"stub-os\""
@@ -757,7 +757,7 @@ local cliReadNullable = new Test {
     "The native CLI evaluates a fixture that uses `read?(uri)` for both a missing env var and a non-`env:` scheme. Both calls return `null` instead of pushing a diagnostic, matching Apple Pkl's null-safe semantics."
   tags { "moonbit"; "cli"; "evaluator"; "read"; "nullable"; "contract" }
   specRef { "PKL-103" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_read_nullable.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_read_nullable.pkl"
   workdir = ".."
   expectStdoutContains {
     "maybe_missing = null"
@@ -772,7 +772,7 @@ local cliMathFloatOps = new Test {
     "The native CLI evaluates a fixture that imports `pkl:math` and calls `sqrt`, `pow`, `log`, `exp`, `floor`, `ceil`, `round`, plus reads `pi`. Each call returns the expected Float value computed via MoonBit's math intrinsics."
   tags { "moonbit"; "cli"; "stdlib"; "pkl-math"; "float"; "contract" }
   specRef { "PKL-120" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_math_float_ops.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_math_float_ops.pkl"
   workdir = ".."
   expectStdoutContains {
     "sqrt16 = 4.0"
@@ -792,7 +792,7 @@ local cliSuperMethodCall = new Test {
     "The native CLI evaluates a fixture where a subclass method body calls `super.method()` to chain into the parent class. The rendered output joins the subclass-side prefix with the parent-side return value."
   tags { "moonbit"; "cli"; "evaluator"; "inheritance"; "contract" }
   specRef { "PKL-117a" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_super_method_call.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_super_method_call.pkl"
   workdir = ".."
   expectStdoutContains { "msg = \"fluffy an animal\"" }
   timeoutSec = 120
@@ -804,7 +804,7 @@ local cliConstraintComposition = new Test {
     "The native CLI evaluates a fixture that composes numeric constraint predicates with `&` (e.g. `Int(isPositive & isLessThan(10))`). Valid values render normally; the dispatcher enforces both halves of the composition independently."
   tags { "moonbit"; "cli"; "parser"; "constraints"; "contract" }
   specRef { "PKL-128c" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_constraint_composition.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_constraint_composition.pkl"
   workdir = ".."
   expectStdoutContains {
     "small = 5"
@@ -820,7 +820,7 @@ local cliScientificFloat = new Test {
     "The native CLI evaluates a fixture with scientific-notation Float literals (`1e10`, `2.5e-3`, `4E+8`, `1.5e2`). Each literal renders as a Float value with the expected magnitude."
   tags { "moonbit"; "cli"; "parser"; "lexer"; "float"; "contract" }
   specRef { "PKL-128b" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_scientific_float.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_scientific_float.pkl"
   workdir = ".."
   expectStdoutContains {
     "big = 10000000000.0"
@@ -837,7 +837,7 @@ local cliHeredocString = new Test {
     "The native CLI evaluates a fixture with triple-quoted heredoc strings. The leading newline is dropped and every line is dedented by the closing delimiter's indentation; the rendered output joins each line back with `\\n` separators."
   tags { "moonbit"; "cli"; "parser"; "lexer"; "string"; "contract" }
   specRef { "PKL-128b" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_heredoc_string.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_heredoc_string.pkl"
   workdir = ".."
   expectStdoutContains {
     "greeting = \"hello\\nworld\\n\""
@@ -852,7 +852,7 @@ local cliStringInterpolation = new Test {
     "The native CLI evaluates a fixture that uses `\"... \\(expr) ...\"` interpolation with arithmetic, method calls, and an inner `\", \"` separator string. The rendered output shows each interpolation site replaced with its evaluated value."
   tags { "moonbit"; "cli"; "parser"; "evaluator"; "string"; "contract" }
   specRef { "PKL-128a" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_string_interpolation.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_string_interpolation.pkl"
   workdir = ".."
   expectStdoutContains {
     "greeting = \"hello alpha, count is 4\""
@@ -868,7 +868,7 @@ local cliDiagnosticPosition = new Test {
     "The native CLI parses a fixture with a deliberate syntax error and the output carries a `path:line:column: message` prefix. The diagnostic's byte offset is projected onto a line:column pair so editors can jump to the failing token. The broken fixture lives under `fixtures/error_cases/` so the project formatter doesn't try to round-trip it."
   tags { "moonbit"; "cli"; "diagnostics"; "position"; "contract" }
   specRef { "PKL-107" }
-  cmd = "moon run cmd/main --target native -- parse fixtures/error_cases/diagnostic_position.pkl"
+  cmd = "moon run cmd/mpkl --target native -- parse fixtures/error_cases/diagnostic_position.pkl"
   workdir = ".."
   expectStdoutContains {
     "fixtures/error_cases/diagnostic_position.pkl:11:"
@@ -883,7 +883,7 @@ local cliRendererConverters = new Test {
     "The native CLI evaluates a fixture whose `output { renderer = new JsonRenderer { converters { ... } } }` declares two path-keyed converters: `[\"count\"] = (v) -> v * 10` and `[\"server.port\"] = (p) -> p + 1`. The post-eval pass rewrites both values before the JSON renderer fires, so `count = 5` shows as 50 and `server.port = 8080` shows as 8081 in the rendered output."
   tags { "moonbit"; "cli"; "renderer"; "converter"; "contract" }
   specRef { "PKL-105" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_renderer_converters.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_renderer_converters.pkl"
   workdir = ".."
   expectStdoutContains {
     "\"count\": 50"
@@ -898,7 +898,7 @@ local cliOutputRendererDriver = new Test {
     "The native CLI evaluates a fixture that declares `output { renderer = new JsonRenderer {} }` without passing `-f`. The CLI reads the renderer class from the parsed AST, switches the format to `json`, strips the `output` block from the rendered envelope, and prints the JSON projection of the module's other properties."
   tags { "moonbit"; "cli"; "renderer"; "output"; "contract" }
   specRef { "PKL-104" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_output_renderer_driver.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_output_renderer_driver.pkl"
   workdir = ".."
   expectStdoutContains {
     "\"name\": \"alpha\""
@@ -913,7 +913,7 @@ local cliAmendsBaseMerge = new Test {
     "The native CLI evaluates a child fixture that `amends` a sibling base module. The base provides a `Test` class, a `Severity` string-literal union typealias, and an empty `tests: Listing<Test>` slot; the child adds one entry referencing the base's class by its bare name. The child's typecheck succeeds (no `unknown type annotation Test`) and the rendered output shows the merged listing."
   tags { "moonbit"; "cli"; "evaluator"; "amends"; "pkf-pkspec"; "contract" }
   specRef { "PKL-137" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_amends_base_merge.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_amends_base_merge.pkl"
   workdir = ".."
   expectStdoutContains {
     "tests {"
@@ -928,7 +928,7 @@ local cliStdlibModifiers = new Test {
     "The native CLI evaluates a fixture using stdlib-style declarations: `external` modifier, abstract property slots (no `=` default), `<in T>` / `<out T>` variance modifiers, function type annotations, and a declarations-only module footprint. The rendered output skips abstract slots and keeps the regular bindings; declarations-only fragments evaluate to the empty ObjectValue."
   tags { "moonbit"; "cli"; "parser"; "stdlib"; "contract" }
   specRef { "PKL-140" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_stdlib_modifiers.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_stdlib_modifiers.pkl"
   workdir = ".."
   expectStdoutContains {
     "comparator = <function>"
@@ -943,7 +943,7 @@ local cliHttpsImports = new Test {
     "The native CLI evaluates a fixture whose `import` declaration points at a raw GitHub URL of another fixture in this repo. The HTTP fetch goes through `mizchi/x/http.get` under a `moonbitlang/async` event loop, and the imported module's bindings become available in the importing module's typecheck / evaluation pipeline."
   tags { "moonbit"; "cli"; "imports"; "pkf-pkspec"; "contract" }
   specRef { "PKL-129" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_https_import.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_https_import.pkl"
   workdir = ".."
   expectStdoutContains { "result = \"ok\"" }
   timeoutSec = 120
@@ -955,7 +955,7 @@ local cliPkspecPolish = new Test {
     "The native CLI evaluates a fixture that exercises the five drive-by gaps that blocked pkspec Test.pkl: brace-bodied `@ModuleInfo` annotation, multi-line typealias RHS, dot-chain across newlines, `module.foo` self-reference, and `List` / `Set` / `Map` / `Pair` constructor functions. The rendered output shows each form producing the expected value."
   tags { "moonbit"; "cli"; "parser"; "evaluator"; "stdlib"; "pkf-pkspec"; "contract" }
   specRef { "PKL-139" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_pkspec_polish.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_pkspec_polish.pkl"
   workdir = ".."
   expectStdoutContains {
     "doubled {"
@@ -976,7 +976,7 @@ local cliNewBodyInference = new Test {
     "The native CLI evaluates a fixture that exercises bare `new { ... }` literals dispatched into listing / mapping / object bodies by the first significant token, plus empty `new {}` literals coerced to ListingValue / MappingValue via the binding's type annotation. Chained methods (`emptyListing.toList().map(...)`, `emptyMapping.keys`) succeed because the coercion runs before the method dispatch."
   tags { "moonbit"; "cli"; "parser"; "evaluator"; "pkf-pkspec"; "contract" }
   specRef { "PKL-138" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_new_body_inference.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_new_body_inference.pkl"
   workdir = ".."
   expectStdoutContains {
     "xs {"
@@ -998,7 +998,7 @@ local cliWhenConditional = new Test {
     "The native CLI evaluates a fixture that uses `when (cond) { ... } [else { ... }]` inside Listing, Mapping, and object bodies, plus `new Listing<T> { ... }` literals. Each conditional emits its inner body when the condition is true, skips it when false, falls back to the else branch when present, and produces the empty collection when no condition fires."
   tags { "moonbit"; "cli"; "parser"; "evaluator"; "pkf-pkspec"; "contract" }
   specRef { "PKL-136" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_when_conditional.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_when_conditional.pkl"
   workdir = ".."
   expectStdoutContains {
     "xs {"
@@ -1019,7 +1019,7 @@ local cliListingMappingFunctional = new Test {
     "The native CLI evaluates a fixture that exercises `Listing.flatMap` / `count` / `every` / `any` / `none` / `find` / `findLast` / `findOrNull`, plus `Mapping.every` / `any` / `none` / `count`. Each method routes through `apply_function_value` per element and returns the value Apple Pkl produces for the equivalent call."
   tags { "moonbit"; "cli"; "stdlib"; "pkf-pkspec"; "contract" }
   specRef { "PKL-135" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_listing_mapping_functional.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_listing_mapping_functional.pkl"
   workdir = ".."
   expectStdoutContains {
     "countEven = 2"
@@ -1044,7 +1044,7 @@ local cliGenericInference = new Test {
     "The native CLI evaluates a fixture that depends on substituted generic types: `identity(7) + 1` typechecks and evaluates to `8` because T binds Int at the call site, and `intBox.value + 100` typechecks and evaluates to `105` because Box<T>'s value member instantiates as Int from the literal."
   tags { "moonbit"; "cli"; "generics"; "inference"; "contract" }
   specRef { "PKL-110" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_generic_inference.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_generic_inference.pkl"
   workdir = ".."
   expectStdoutContains {
     "intResult = 8"
@@ -1061,7 +1061,7 @@ local cliTestExamplesPass = new Test {
     "The native CLI `test` subcommand walks the `examples` member alongside `facts` and reports `PASS examples (N examples)` when the rendered envelope matches the `<file>-expected.pcf` golden byte-for-byte."
   tags { "moonbit"; "cli"; "pkl-test"; "examples"; "contract" }
   specRef { "PKL-100" }
-  cmd = "moon run cmd/main --target native -- test fixtures/cli_test_examples.pkl"
+  cmd = "moon run cmd/mpkl --target native -- test fixtures/cli_test_examples.pkl"
   workdir = ".."
   expectStdoutContains { "PASS examples (2 examples)" }
   timeoutSec = 120
@@ -1073,7 +1073,7 @@ local cliTestExamplesFail = new Test {
     "When the rendered `examples` envelope diverges from the `<file>-expected.pcf` golden the runner emits `FAIL examples diff against <path>` and contributes to the non-zero exit."
   tags { "moonbit"; "cli"; "pkl-test"; "examples"; "contract" }
   specRef { "PKL-100" }
-  cmd = "moon run cmd/main --target native -- test fixtures/cli_test_examples_fail.pkl"
+  cmd = "moon run cmd/mpkl --target native -- test fixtures/cli_test_examples_fail.pkl"
   workdir = ".."
   expectStdoutContains {
     "FAIL examples diff against fixtures/cli_test_examples_fail.pkl-expected.pcf"
@@ -1087,7 +1087,7 @@ local cliFormat = new Test {
     "The native CLI `format` subcommand re-emits the source through the PCF renderer, normalizing whitespace and indentation. Today the formatter operates on the evaluated module value; trivia-preserving idempotent reformatting is a follow-up."
   tags { "moonbit"; "cli"; "format"; "contract" }
   specRef { "PKL-099" }
-  cmd = "moon run cmd/main --target native -- format fixtures/cli_format.pkl"
+  cmd = "moon run cmd/mpkl --target native -- format fixtures/cli_format.pkl"
   workdir = ".."
   expectStdoutContains {
     "name = \"hawk\""
@@ -1104,7 +1104,7 @@ local cliFloat = new Test {
     "The native CLI evaluates a Float-heavy fixture, exercising Float literals, mixed Int / Float arithmetic, `Int / Int` widening to Float, and `Float(isPositive)` / `Float(isBetween(...))` / `Number(isPositive)` constraint predicates."
   tags { "moonbit"; "cli"; "float"; "constraint"; "contract" }
   specRef { "PKL-092" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_float.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_float.pkl"
   workdir = ".."
   expectStdoutContains {
     "pi = 3.14"
@@ -1123,7 +1123,7 @@ local cliTrace = new Test {
     "The native CLI evaluates a fixture where `trace(value)` wraps its argument; the rendered output shows the inner values unchanged, confirming the builtin pass-through semantics ship as part of PKL-084."
   tags { "moonbit"; "cli"; "trace"; "contract" }
   specRef { "PKL-084" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_trace.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_trace.pkl"
   workdir = ".."
   expectStdoutContains { "passed = 42"; "sum = 5" }
   timeoutSec = 120
@@ -1135,7 +1135,7 @@ local cliReflectStub = new Test {
     "The native CLI evaluates a fixture that imports `pkl:reflect` and reads mirror constants plus the `Class` factory `reflectee` field, exercising the minimal stub registered in `builtin_stdlib_source`."
   tags { "moonbit"; "cli"; "pkl-reflect"; "stdlib"; "contract" }
   specRef { "PKL-080" }
-  cmd = "moon run cmd/main --target native -- eval fixtures/cli_reflect.pkl"
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_reflect.pkl"
   workdir = ".."
   expectStdoutContains {
     "intMirror = \"pkl.base#Int\""
@@ -1152,7 +1152,7 @@ local cliTestPass = new Test {
     "The native CLI `test` subcommand walks a `facts: Mapping<String, Listing<Boolean>>` member, reports a PASS line per fact, and ends with the pass / fail summary."
   tags { "moonbit"; "cli"; "pkl-test"; "contract" }
   specRef { "PKL-095" }
-  cmd = "moon run cmd/main --target native -- test fixtures/cli_test_pass.pkl"
+  cmd = "moon run cmd/mpkl --target native -- test fixtures/cli_test_pass.pkl"
   workdir = ".."
   expectStdoutContains {
     "PASS addition (2 assertions)"
@@ -1168,7 +1168,7 @@ local cliTestFail = new Test {
     "The native CLI `test` subcommand reports a FAIL line for any fact whose Listing contains a non-true value, naming the offending assertion index, and prints the pass / fail summary."
   tags { "moonbit"; "cli"; "pkl-test"; "contract" }
   specRef { "PKL-095" }
-  cmd = "moon run cmd/main --target native -- test fixtures/cli_test_fail.pkl"
+  cmd = "moon run cmd/mpkl --target native -- test fixtures/cli_test_fail.pkl"
   workdir = ".."
   expectStdoutContains {
     "PASS addition (1 assertions)"

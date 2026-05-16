@@ -67,7 +67,7 @@ local pklRepl: Spec.Scenario = new {
   id = "PKL-101"
   name = "pkl repl interactive evaluator"
   description =
-    "`moon run cmd/main -- repl` opens an interactive read-eval-print loop: each line parses as either a binding (`x = 5`) or an expression and prints the rendered result. Reuses the `AnalysisSession` so each entry incrementally extends the module."
+    "`moon run cmd/mpkl -- repl` opens an interactive read-eval-print loop: each line parses as either a binding (`x = 5`) or an expression and prints the rendered result. Reuses the `AnalysisSession` so each entry incrementally extends the module."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-009" }
   tags { "cli"; "repl"; "deferred" }
@@ -115,7 +115,7 @@ local pkldoc: Spec.Scenario = new {
   id = "PKL-130"
   name = "pkldoc documentation generation"
   description =
-    "`moon run cmd/main -- doc <module>` renders the module's class / typealias / function declarations as Markdown / HTML, using the doc-comment text already captured by the parser. Deferred because Apple Pkl's own `pkldoc` covers this surface; revisit if pkl-mbt-only authoring becomes a regular workflow."
+    "`moon run cmd/mpkl -- doc <module>` renders the module's class / typealias / function declarations as Markdown / HTML, using the doc-comment text already captured by the parser. Deferred because Apple Pkl's own `pkldoc` covers this surface; revisit if pkl-mbt-only authoring becomes a regular workflow."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-080" }
   tags { "cli"; "pkldoc"; "deferred" }

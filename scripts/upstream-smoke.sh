@@ -87,7 +87,7 @@ parse_ok() {
   local label="$1"
   local file="$2"
   local output
-  output="$(moon run cmd/main --target native -- parse "$file")"
+  output="$(moon run cmd/mpkl --target native -- parse "$file")"
   if ! grep -Fxq "ok" <<<"$output"; then
     printf 'upstream parse failed: %s\n%s\n' "$label" "$output" >&2
     exit 1
@@ -100,7 +100,7 @@ eval_matches_gold() {
   local input="$2"
   local gold="$3"
   local actual
-  actual="$(moon run cmd/main --target native -- eval "$input")"
+  actual="$(moon run cmd/mpkl --target native -- eval "$input")"
   if ! diff -u "$gold" <(printf '%s\n' "$actual") >/tmp/upstream-smoke-diff.$$; then
     printf 'upstream eval mismatch: %s\n' "$label" >&2
     cat /tmp/upstream-smoke-diff.$$ >&2
@@ -116,7 +116,7 @@ eval_contains() {
   local file="$2"
   local expected="$3"
   local output
-  output="$(moon run cmd/main --target native -- eval "$file")"
+  output="$(moon run cmd/mpkl --target native -- eval "$file")"
   if ! grep -Fq "$expected" <<<"$output"; then
     printf 'upstream eval failed: %s\nexpected: %s\n%s\n' "$label" "$expected" "$output" >&2
     exit 1
@@ -134,7 +134,7 @@ eval_json_matches_gold() {
   local input="$2"
   local gold="$3"
   local actual
-  actual="$(moon run cmd/main --target native -- eval -f json "$input")"
+  actual="$(moon run cmd/mpkl --target native -- eval -f json "$input")"
   if ! diff -u "$gold" <(printf '%s\n' "$actual") >/tmp/upstream-smoke-json-diff.$$; then
     printf 'upstream json eval mismatch: %s\n' "$label" >&2
     cat /tmp/upstream-smoke-json-diff.$$ >&2

@@ -92,7 +92,7 @@ Overall, this is roughly 40%+ complete as a pure MoonBit Pkl core (parser + type
 pkf run ci
 pkf run release-check
 pkf run spec
-moon run cmd/main --target native -- eval fixtures/cli.pkl
+moon run cmd/mpkl --target native -- eval fixtures/cli.pkl
 ```
 
 Useful direct commands:

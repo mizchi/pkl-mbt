@@ -189,7 +189,7 @@
   - body: _not yet implemented_
 
 - [ ] **cli format subcommand** — verifies: PKL-099 — tags: cli, renderer, format
-  > `moon run cmd/main -- format <file>` parses and evaluates the source through the existing `AnalysisSession`, then re-emits the resolved module via the PCF renderer. Whitespace and indentation collapse to the renderer's canonical form (`name = "hawk"`, two-space indent inside blocks, separator after `=`). Parse failures and evaluation failures short-circuit with the diagnostic surface used by the other CLI subcommands. The first cut deliberately operates on the evaluated module value rather than the CST, so default values from class declarations and amend chains land in the output; a trivia-preserving idempotent formatter (`render_cst_with_comments`) is a follow-up that reuses the existing CST infrastructure.
+  > `moon run cmd/mpkl -- format <file>` parses and evaluates the source through the existing `AnalysisSession`, then re-emits the resolved module via the PCF renderer. Whitespace and indentation collapse to the renderer's canonical form (`name = "hawk"`, two-space indent inside blocks, separator after `=`). Parse failures and evaluation failures short-circuit with the diagnostic surface used by the other CLI subcommands. The first cut deliberately operates on the evaluated module value rather than the CST, so default values from class declarations and amend chains land in the output; a trivia-preserving idempotent formatter (`render_cst_with_comments`) is a follow-up that reuses the existing CST infrastructure.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-070
   - decisions: 2 entry(ies)
@@ -618,7 +618,7 @@
   - body: _not yet implemented_
 
 - [ ] **pkl analyze lint subcommand** (minor) — verifies: PKL-102 — tags: cli, lint, analyze
-  > `moon run cmd/main -- analyze <file>` parses the module and runs a lint pass over the resulting `Program`. Four rules ship: `unused-local-binding` (a module-level `local` whose name never appears on any expression), `unused-import` (an import name never referenced), `unused-class-property` (a property of a class whose own name is never referenced — public schema classes are exempt to avoid noise), and `shadowed-identifier` (a binding whose name collides with an import / function / class / typealias at module scope). Findings render as `path: rule: message` one per line and the command exits non-zero when any finding surfaces, so editor integrations and CI can fail on lint regressions. Source positions become useful once PKL-107 propagates byte offsets into the AST; today's output is rule-driven.
+  > `moon run cmd/mpkl -- analyze <file>` parses the module and runs a lint pass over the resulting `Program`. Four rules ship: `unused-local-binding` (a module-level `local` whose name never appears on any expression), `unused-import` (an import name never referenced), `unused-class-property` (a property of a class whose own name is never referenced — public schema classes are exempt to avoid noise), and `shadowed-identifier` (a binding whose name collides with an import / function / class / typealias at module scope). Findings render as `path: rule: message` one per line and the command exits non-zero when any finding surfaces, so editor integrations and CI can fail on lint regressions. Source positions become useful once PKL-107 propagates byte offsets into the AST; today's output is rule-driven.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-009
   - decisions: 3 entry(ies)
