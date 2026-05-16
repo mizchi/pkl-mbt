@@ -354,6 +354,21 @@ local cliListingMappingStdlib = new Test {
   timeoutSec = 120
 }
 
+local cliRendererConverters = new Test {
+  name = "cli renderer converters"
+  description =
+    "The native CLI evaluates a fixture whose `output { renderer = new JsonRenderer { converters { ... } } }` declares two path-keyed converters: `[\"count\"] = (v) -> v * 10` and `[\"server.port\"] = (p) -> p + 1`. The post-eval pass rewrites both values before the JSON renderer fires, so `count = 5` shows as 50 and `server.port = 8080` shows as 8081 in the rendered output."
+  tags { "moonbit"; "cli"; "renderer"; "converter"; "contract" }
+  specRef { "PKL-105" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_renderer_converters.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "\"count\": 50"
+    "\"port\": 8081"
+  }
+  timeoutSec = 120
+}
+
 local cliOutputRendererDriver = new Test {
   name = "cli output renderer driver"
   description =
@@ -711,6 +726,7 @@ tests {
   cliStdlibModifiers
   cliAmendsBaseMerge
   cliOutputRendererDriver
+  cliRendererConverters
   cliFormat
   cliTestExamplesPass
   cliTestExamplesFail

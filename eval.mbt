@@ -5407,7 +5407,7 @@ fn eval_program(
       }
     }
   }
-  match program.body {
+  let result = match program.body {
     Some(expr) =>
       eval_expr_with_bindings(
         expr,
@@ -5437,6 +5437,246 @@ fn eval_program(
     // an empty ObjectValue keeps the eval pipeline happy.
     None => Some(ObjectValue([]))
   }
+  // PKL-105: post-process the result by applying any path-keyed
+  // `output.renderer.converters` lambdas. Each converter is a
+  // `(value) -> newValue` callback the user attached to a dotted path
+  // on the module's `output.value` (or directly on the module body).
+  // Class-keyed converters (`["MyClass"] = ...`) are deferred until
+  // ObjectValue carries its source class.
+  match result {
+    Some(value) => {
+      let converters = collect_path_converters(value)
+      if converters.length() == 0 {
+        Some(value)
+      } else {
+        Some(
+          apply_path_converters(
+            value,
+            converters,
+            bindings,
+            env,
+            class_env,
+            cache,
+            program.declarations,
+            diagnostics,
+            resolve_import,
+          ),
+        )
+      }
+    }
+    None => None
+  }
+}
+
+///|
+/// PKL-105: extract path-keyed converter callbacks from
+/// `result.output.renderer.converters`. Returns an `(path, callback)`
+/// list; class-keyed entries (those without a `.` and not starting
+/// with `[` style) are recognised but skipped — the runtime doesn't
+/// carry an object's source class yet.
+fn collect_path_converters(value : Value) -> Array[(String, Value)] {
+  let converters : Array[(String, Value)] = []
+  match value {
+    ObjectValue(members) =>
+      for entry in members {
+        if entry.name == "output" {
+          match entry.value {
+            ObjectValue(output_members) =>
+              for output_member in output_members {
+                if output_member.name == "renderer" {
+                  match output_member.value {
+                    ObjectValue(renderer_members) =>
+                      for renderer_member in renderer_members {
+                        if renderer_member.name == "converters" {
+                          match renderer_member.value {
+                            MappingValue(entries) =>
+                              for entry in entries {
+                                match entry.key {
+                                  StringValue(path) =>
+                                    converters.push((path, entry.value))
+                                  _ => ()
+                                }
+                              }
+                            _ => ()
+                          }
+                        }
+                      }
+                    _ => ()
+                  }
+                }
+              }
+            _ => ()
+          }
+        }
+      }
+    _ => ()
+  }
+  converters
+}
+
+///|
+fn apply_path_converters(
+  value : Value,
+  converters : Array[(String, Value)],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  let mut current = value
+  for entry in converters {
+    let (path, callback) = entry
+    current = rewrite_at_path(
+      current, path, callback, bindings, env, class_env, cache, declarations, diagnostics,
+      resolve_import,
+    )
+  }
+  current
+}
+
+///|
+/// Walk `value`, find the node at the dotted path, and replace it
+/// with `callback(node)`. Paths that don't exist are silently
+/// skipped — Apple Pkl matches this lenient behaviour.
+fn rewrite_at_path(
+  value : Value,
+  path : String,
+  callback : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  let segments = split_path(path)
+  if segments.length() == 0 {
+    return value
+  }
+  rewrite_walk(
+    value, segments, 0, callback, bindings, env, class_env, cache, declarations,
+    diagnostics, resolve_import,
+  )
+}
+
+///|
+fn rewrite_walk(
+  value : Value,
+  segments : Array[String],
+  idx : Int,
+  callback : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  if idx >= segments.length() {
+    match
+      apply_function_value(
+        "renderer converter",
+        callback,
+        [value],
+        bindings,
+        env,
+        class_env,
+        cache,
+        [],
+        declarations,
+        diagnostics,
+        resolve_import,
+      ) {
+      Some(converted) => converted
+      None => value
+    }
+  } else {
+    let segment = segments[idx]
+    match value {
+      ObjectValue(members) => {
+        let next : Array[ValueMember] = []
+        for field in members {
+          if field.name == segment {
+            next.push({
+              name: field.name,
+              value: rewrite_walk(
+                field.value,
+                segments,
+                idx + 1,
+                callback,
+                bindings,
+                env,
+                class_env,
+                cache,
+                declarations,
+                diagnostics,
+                resolve_import,
+              ),
+            })
+          } else {
+            next.push(field)
+          }
+        }
+        ObjectValue(next)
+      }
+      MappingValue(entries) => {
+        let next : Array[ValueEntry] = []
+        for entry in entries {
+          let key_matches = match entry.key {
+            StringValue(k) => k == segment
+            _ => false
+          }
+          if key_matches {
+            next.push({
+              key: entry.key,
+              value: rewrite_walk(
+                entry.value,
+                segments,
+                idx + 1,
+                callback,
+                bindings,
+                env,
+                class_env,
+                cache,
+                declarations,
+                diagnostics,
+                resolve_import,
+              ),
+            })
+          } else {
+            next.push(entry)
+          }
+        }
+        MappingValue(next)
+      }
+      _ => value
+    }
+  }
+}
+
+///|
+fn split_path(path : String) -> Array[String] {
+  let segments : Array[String] = []
+  let buf = StringBuilder::new()
+  for i = 0; i < path.length(); i = i + 1 {
+    let c = path[i].to_int().unsafe_to_char()
+    if c == '.' {
+      segments.push(buf.to_string())
+      buf.reset()
+    } else {
+      buf.write_char(c)
+    }
+  }
+  let last = buf.to_string()
+  if last != "" || segments.length() > 0 {
+    segments.push(last)
+  }
+  segments
 }
 
 ///|

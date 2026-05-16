@@ -1,6 +1,6 @@
 # Test SPEC
 
-176 tests across 2 module(s) — 141 pending, 35 active
+177 tests across 2 module(s) — 141 pending, 36 active
 
 ## `specs/`
 
@@ -713,13 +713,14 @@
   - depends on: PKL-104
   - body: _not yet implemented_
 
-- [ ] **renderer converters** [draft] — verifies: PKL-105 — tags: renderer, converter, next
-  > JSON / YAML / Properties renderers honor `converters { ["path"] = (value) -> ...; ["Class"] = (value) -> ... }`. Converters apply path-first then type-first; the value the converter returns is rendered in place.
+- [ ] **renderer converters** — verifies: PKL-105 — tags: renderer, converter
+  > `output { renderer = new JsonRenderer { converters { ["path.to.field"] = (value) -> ... } } }` rewrites the value at the named dotted path before the renderer serialises the module. Each converter is a `(value) -> newValue` lambda; `eval_program` collects the path-keyed converters from the post-eval result's `output.renderer.converters` MappingValue, then walks the value tree applying `apply_function_value(callback, [matched_node])` at each matching path. Both `ObjectValue` members and `MappingValue` entries with `StringValue` keys participate; unmatched paths are silently skipped (matching Apple Pkl's lenient behaviour). Class-keyed converters (`["MyClass"] = ...`) are recognised but deferred — pkl-mbt's `ObjectValue` doesn't yet carry its source class. The `parse_object_member` brace-body parser now delegates to `parse_inferred_new_body` (mirroring the property-decl fix in PKL-137) so `converters { ["k"] = v }` parses as a mapping rather than an object body that silently drops bracket-keyed entries.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-104
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **source position in diagnostics** [draft] — verifies: PKL-107 — tags: diagnostics, position
+- [ ] **source position in diagnostics** [draft] — verifies: PKL-107 — tags: diagnostics, position, next
   > Every `Diagnostic` carries `start` / `end` / `line` / `column` so error messages point at the offending token. The parser already carries the CST positions; the typechecker / evaluator need the relevant Expr node to thread the position into the diagnostic.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-004
@@ -1047,6 +1048,10 @@
 
 - [x] **cli reflect minimal stub** — verifies: PKL-080 — tags: moonbit, cli, pkl-reflect, stdlib, contract
   > The native CLI evaluates a fixture that imports `pkl:reflect` and reads mirror constants plus the `Class` factory `reflectee` field, exercising the minimal stub registered in `builtin_stdlib_source`.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli renderer converters** — verifies: PKL-105 — tags: moonbit, cli, renderer, converter, contract
+  > The native CLI evaluates a fixture whose `output { renderer = new JsonRenderer { converters { ... } } }` declares two path-keyed converters: `["count"] = (v) -> v * 10` and `["server.port"] = (p) -> p + 1`. The post-eval pass rewrites both values before the JSON renderer fires, so `count = 5` shows as 50 and `server.port = 8080` shows as 8081 in the rendered output.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli stdlib modifiers** — verifies: PKL-140 — tags: moonbit, cli, parser, stdlib, contract

@@ -1785,6 +1785,38 @@ local listingMappingStdlibCore = new Scenario {
   }
 }
 
+local rendererConverters = new Scenario {
+  id = "PKL-105"
+  name = "renderer converters"
+  description =
+    "`output { renderer = new JsonRenderer { converters { [\"path.to.field\"] = (value) -> ... } } }` rewrites the value at the named dotted path before the renderer serialises the module. Each converter is a `(value) -> newValue` lambda; `eval_program` collects the path-keyed converters from the post-eval result's `output.renderer.converters` MappingValue, then walks the value tree applying `apply_function_value(callback, [matched_node])` at each matching path. Both `ObjectValue` members and `MappingValue` entries with `StringValue` keys participate; unmatched paths are silently skipped (matching Apple Pkl's lenient behaviour). Class-keyed converters (`[\"MyClass\"] = ...`) are recognised but deferred — pkl-mbt's `ObjectValue` doesn't yet carry its source class. The `parse_object_member` brace-body parser now delegates to `parse_inferred_new_body` (mirroring the property-decl fix in PKL-137) so `converters { [\"k\"] = v }` parses as a mapping rather than an object body that silently drops bracket-keyed entries."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-104" }
+  tags { "renderer"; "converter" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Apply converters in eval_program's post-processing pass rather than at render time"
+      rationale =
+        "An alternative is to thread converters into the renderers themselves (`render_value_as_json` etc.) so each format applies them just before serialising each node. That's the design Apple Pkl uses, but it requires every renderer to accept an `Array[(path, callback)]` parameter and an eval context to invoke the callback. Doing it once at the end of `eval_program` keeps the converters in the eval pipeline where `apply_function_value` is already in scope, and every renderer downstream sees the already-converted tree. The cost is that converters can't see the partially-rendered form of a node (they always see the source Value) — that's exactly Apple Pkl's contract."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Defer class-keyed converters until ObjectValue carries source class"
+      rationale =
+        "PKL-104 chose AST-side detection of the renderer class precisely because ObjectValue doesn't tag its source class. Class-keyed converters (`[\"MyClass\"] = ...`) need that tag to match values. Wiring class-keyed entries today would require visiting every TypedObjectLiteral eval site to attach the class name — a much bigger change. Apple Pkl's path-keyed form covers the common cases (single-field rewrites, format conversions) and unblocks the renderer.converters surface; class-keyed lands when PKL-119's variant split arrives or when an explicit class tag is added."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Walk `parse_object_member` brace bodies through `parse_inferred_new_body`"
+      rationale =
+        "Without this change, `converters { [\"k\"] = v }` inside `new JsonRenderer { ... }` parses as an empty ObjectLiteral — the object-body parser doesn't know about bracket-keyed entries. Delegating to the same inferred-body dispatcher PKL-137 uses for module-level property bodies fixes nested mappings (and listings) inside class amend bodies as a free side effect. The behaviour was already correct for module-level `tests { ... }` after PKL-137; this slice extends it to nested members."
+    }
+  }
+}
+
 local outputRendererDriver = new Scenario {
   id = "PKL-104"
   name = "output renderer driver"
@@ -3177,5 +3209,6 @@ scenarios {
   stdlibModifiers
   amendsBaseMerge
   outputRendererDriver
+  rendererConverters
   ...roadmap.entries
 }

@@ -1,0 +1,20 @@
+// PKL-105: `output.renderer.converters` rewrites values at the named
+// paths before the renderer serialises the module. Path-keyed
+// converters apply to module-level dotted paths; class-keyed entries
+// land with a later slice when ObjectValue carries its source class.
+name = "alpha"
+
+count = 5
+
+server {
+  port = 8080
+}
+
+output {
+  renderer = new JsonRenderer {
+    converters {
+      ["count"] = (v) -> v * 10
+      ["server.port"] = (p) -> p + 1
+    }
+  }
+}

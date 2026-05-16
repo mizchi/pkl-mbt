@@ -62,18 +62,6 @@ local readNullableParserForm: Spec.Scenario = new {
   severity = "minor"
 }
 
-local outputConverters: Spec.Scenario = new {
-  id = "PKL-105"
-  name = "renderer converters"
-  description =
-    "JSON / YAML / Properties renderers honor `converters { [\"path\"] = (value) -> ...; [\"Class\"] = (value) -> ... }`. Converters apply path-first then type-first; the value the converter returns is rendered in place."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-104" }
-  tags { "renderer"; "converter"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 local cliAllowedModules: Spec.Scenario = new {
   id = "PKL-106"
   name = "cli sandbox flags"
@@ -95,7 +83,7 @@ local diagnosticSourcePosition: Spec.Scenario = new {
     "Every `Diagnostic` carries `start` / `end` / `line` / `column` so error messages point at the offending token. The parser already carries the CST positions; the typechecker / evaluator need the relevant Expr node to thread the position into the diagnostic."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-004" }
-  tags { "diagnostics"; "position" }
+  tags { "diagnostics"; "position"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -345,7 +333,6 @@ entries: Listing<Spec.Scenario> = new {
   pklRepl
   pklAnalyzeLint
   readNullableParserForm
-  outputConverters
   cliAllowedModules
   diagnosticSourcePosition
   errorMessageUpstreamAlign

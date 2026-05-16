@@ -2385,7 +2385,11 @@ fn Parser::parse_object_member(self : Parser) -> ObjectMember? {
       self.skip_whitespace()
       self.at(lbrace())
     }) {
-    self.parse_object_body()
+    // PKL-105 / PKL-137: nested brace body uses the inferred-body
+    // dispatcher so a `converters { ["k"] = v }` mapping inside a
+    // renderer object isn't silently dropped (object-body parsing
+    // would skip the bracket-keyed entries as unknown members).
+    self.parse_inferred_new_body()
   } else if ({
       self.skip_whitespace()
       self.at(eq())

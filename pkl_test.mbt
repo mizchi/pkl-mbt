@@ -2627,6 +2627,54 @@ test "PKL-137: property amend body parses as listing for bare elements" {
 }
 
 ///|
+test "PKL-105: path-keyed renderer converter rewrites a top-level value" {
+  guard eval_source(
+      "count = 5\noutput { renderer = new JsonRenderer { converters { [\"count\"] = (v) -> v * 10 } } }",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut count_value = -1
+  for entry in members {
+    if entry.name == "count" {
+      match entry.value {
+        IntValue(n) => count_value = n
+        _ => ()
+      }
+    }
+  }
+  inspect(count_value, content="50")
+}
+
+///|
+test "PKL-105: nested-path converter rewrites a nested value" {
+  guard eval_source(
+      "server { port = 8080 }\noutput { renderer = new JsonRenderer { converters { [\"server.port\"] = (p) -> p + 1 } } }",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut port = -1
+  for entry in members {
+    if entry.name == "server" {
+      match entry.value {
+        ObjectValue(server_members) =>
+          for sub in server_members {
+            if sub.name == "port" {
+              match sub.value {
+                IntValue(n) => port = n
+                _ => ()
+              }
+            }
+          }
+        _ => ()
+      }
+    }
+  }
+  inspect(port, content="8081")
+}
+
+///|
 test "PKL-104: output block is stripped from the rendered envelope" {
   guard eval_source(
       "name = \"alpha\"\noutput { renderer = new JsonRenderer {} }",
