@@ -35,6 +35,8 @@ pub fn comment() -> @cst.SyntaxKind
 
 pub fn conditional_expr() -> @cst.SyntaxKind
 
+pub fn diag(String) -> Diagnostic
+
 pub fn dot() -> @cst.SyntaxKind
 
 pub fn else_kw() -> @cst.SyntaxKind
@@ -284,6 +286,8 @@ pub(all) enum Declaration {
 
 pub(all) struct Diagnostic {
   message : String
+  start : Int
+  end : Int
 } derive(Eq, @debug.Debug)
 
 pub(all) enum EvalResult {

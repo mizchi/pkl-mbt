@@ -200,9 +200,52 @@ async fn load_path(
 
 ///|
 fn print_diagnostics(diagnostics : Array[@pkl.Diagnostic]) -> Unit {
+  print_diagnostics_with_source(diagnostics, "", "")
+}
+
+///|
+/// PKL-107: when a diagnostic carries a byte offset (`start >= 0`),
+/// project it onto a `line:column` pair by walking `source` once.
+/// The output format is `path:line:column: message` so editors / IDEs
+/// can jump to the location. Diagnostics without positions render
+/// as just `message`, matching the pre-PKL-107 behaviour.
+fn print_diagnostics_with_source(
+  diagnostics : Array[@pkl.Diagnostic],
+  path : String,
+  source : String,
+) -> Unit {
   for diagnostic in diagnostics {
-    println(diagnostic.message)
+    if diagnostic.start >= 0 && source != "" {
+      let (line, column) = offset_to_line_column(source, diagnostic.start)
+      let prefix = if path == "" {
+        "\{line}:\{column}"
+      } else {
+        "\{path}:\{line}:\{column}"
+      }
+      println("\{prefix}: \{diagnostic.message}")
+    } else {
+      println(diagnostic.message)
+    }
   }
+}
+
+///|
+fn offset_to_line_column(source : String, offset : Int) -> (Int, Int) {
+  let mut line = 1
+  let mut column = 1
+  let mut i = 0
+  let cap = if offset < source.length() { offset } else { source.length() }
+  while i < cap {
+    let c = source[i].to_int().unsafe_to_char()
+    if c == '\n' {
+      line = line + 1
+      column = 1
+    } else {
+      column = column + 1
+    }
+    i = i + 1
+  }
+  (line, column)
 }
 
 ///|
@@ -215,8 +258,7 @@ fn parse_file(path : String) -> Bool {
   }
   let parsed = @pkl.parse_source(source)
   if parsed.diagnostics.length() > 0 {
-    println("\{path}:")
-    print_diagnostics(parsed.diagnostics)
+    print_diagnostics_with_source(parsed.diagnostics, path, source)
     false
   } else {
     true
@@ -315,7 +357,7 @@ async fn main {
     "parse" => {
       let parsed = @pkl.parse_source(source)
       if parsed.diagnostics.length() > 0 {
-        print_diagnostics(parsed.diagnostics)
+        print_diagnostics_with_source(parsed.diagnostics, path, source)
         @sys.exit(1)
       }
       println("ok")

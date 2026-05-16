@@ -4,6 +4,11 @@ priv struct Parser {
   tokens : Array[Token]
   len : Int
   mut pos : Int
+  // PKL-107: running byte offset into `source`. Maintained incrementally
+  // by `bump` / direct `pos` writes so `current_offset` is O(1) instead
+  // of summing all preceding token texts on every call (which previously
+  // made parser diagnostics-with-positions an O(N) extra cost per emit).
+  mut byte_offset : Int
   builder : @cst.GreenNodeBuilder
   diagnostics : Array[Diagnostic]
   unsupported_syntax : Array[UnsupportedSyntax]
@@ -23,6 +28,7 @@ fn Parser::new(source : String) -> Parser {
     tokens,
     len: tokens.length(),
     pos: 0,
+    byte_offset: 0,
     builder: @cst.GreenNodeBuilder::new(),
     diagnostics: [],
     unsupported_syntax: [],
@@ -287,17 +293,18 @@ fn Parser::lambda_arrow_after_parameter_list(
 
 ///|
 fn Parser::add_error(self : Parser, message : String) -> Unit {
-  self.diagnostics.push(Diagnostic::{ message, })
+  // PKL-107: anchor parse errors at the parser's current byte offset
+  // so the CLI can project them onto a line:column pair. `end` falls
+  // back to `start` because the failing token text isn't always
+  // bumped by the time `add_error` fires; that's good enough for
+  // pointing at the right line, and refinement can come later.
+  let start = self.byte_offset
+  self.diagnostics.push({ message, start, end: start })
 }
 
 ///|
 fn Parser::current_offset(self : Parser) -> Int {
-  let mut offset = 0
-  let limit = if self.pos < self.len { self.pos } else { self.len }
-  for i = 0; i < limit; i = i + 1 {
-    offset += self.tokens[i].text().length()
-  }
-  offset
+  self.byte_offset
 }
 
 ///|
@@ -338,6 +345,7 @@ fn Parser::bump(self : Parser) -> Token {
   let tok = self.peek()
   self.builder.token(tok.kind(), tok.text())
   self.pos += 1
+  self.byte_offset += tok.text().length()
   tok
 }
 
@@ -1565,6 +1573,13 @@ fn Parser::parse_postfix_expr(self : Parser) -> Expr {
       self.tokens[trivia_end].kind()
     }
     if next_kind == dot() || next_kind == qdot() {
+      // PKL-107: pull byte_offset along with self.pos so subsequent
+      // position-tagged diagnostics still point at the right source
+      // location. The trivia tokens are NOT pushed to the cst here
+      // (existing behaviour for dot-chain continuation).
+      for i = self.pos; i < trivia_end; i = i + 1 {
+        self.byte_offset += self.tokens[i].text().length()
+      }
       self.pos = trivia_end
     } else {
       self.skip_whitespace()

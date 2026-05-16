@@ -354,6 +354,21 @@ local cliListingMappingStdlib = new Test {
   timeoutSec = 120
 }
 
+local cliDiagnosticPosition = new Test {
+  name = "cli diagnostic position"
+  description =
+    "The native CLI parses a fixture with a deliberate syntax error and the output carries a `path:line:column: message` prefix. The diagnostic's byte offset is projected onto a line:column pair so editors can jump to the failing token. The broken fixture lives under `fixtures/error_cases/` so the project formatter doesn't try to round-trip it."
+  tags { "moonbit"; "cli"; "diagnostics"; "position"; "contract" }
+  specRef { "PKL-107" }
+  cmd = "moon run cmd/main --target native -- parse fixtures/error_cases/diagnostic_position.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "fixtures/error_cases/diagnostic_position.pkl:11:"
+    "expected ), got eq"
+  }
+  timeoutSec = 120
+}
+
 local cliRendererConverters = new Test {
   name = "cli renderer converters"
   description =
@@ -727,6 +742,7 @@ tests {
   cliAmendsBaseMerge
   cliOutputRendererDriver
   cliRendererConverters
+  cliDiagnosticPosition
   cliFormat
   cliTestExamplesPass
   cliTestExamplesFail

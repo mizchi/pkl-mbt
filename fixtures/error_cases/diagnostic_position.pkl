@@ -1,0 +1,11 @@
+// PKL-107: parser diagnostics carry a byte offset; the CLI projects
+// it onto `path:line:column: message` so editors can jump to the
+// failing token. This fixture intentionally has an unclosed paren so
+// the parser emits a positioned diagnostic the CLI can render.
+name = "alpha"
+
+count = 5
+
+bad = (1 +
+
+result = "ok"

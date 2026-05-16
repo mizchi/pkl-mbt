@@ -48,9 +48,7 @@ pub fn AnalysisSession::new() -> AnalysisSession {
       counters.typecheck_count = counters.typecheck_count + 1
       typecheck_module_path(parses, types_ref, rt, path)
     },
-    fn(_rt, path) {
-      TypeError([Diagnostic::{ message: "cyclic import \{path}" }])
-    },
+    fn(_rt, path) { TypeError([diag("cyclic import \{path}")]) },
   )
   types_ref.val = Some(types)
   types.register(rt)
@@ -251,7 +249,7 @@ fn typecheck_module_path(
           }
         },
       )
-    None => TypeError([Diagnostic::{ message: "unresolved import \{path}" }])
+    None => TypeError([diag("unresolved import \{path}")])
   }
 }
 
@@ -263,7 +261,7 @@ fn eval_module_path(
   stack : Array[String],
 ) -> EvalResult {
   if stack_contains(stack, path) {
-    return EvalError([Diagnostic::{ message: "cyclic import \{path}" }])
+    return EvalError([diag("cyclic import \{path}")])
   }
   match get_module_source(sources, rt, path) {
     Some(source) =>
@@ -284,6 +282,6 @@ fn eval_module_path(
           }
         },
       )
-    None => EvalError([Diagnostic::{ message: "unresolved import \{path}" }])
+    None => EvalError([diag("unresolved import \{path}")])
   }
 }

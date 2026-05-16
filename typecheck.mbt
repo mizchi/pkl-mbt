@@ -709,7 +709,7 @@ fn push_constrained_type_annotation_expr_diagnostic(
     constrained_type_annotation_expr_rejection_message(
       type_name, expr, type_env,
     ) {
-    Some(message) => diagnostics.push(Diagnostic::{ message, })
+    Some(message) => diagnostics.push(diag(message))
     None => ()
   }
 }
@@ -725,7 +725,7 @@ fn push_user_defined_constrained_type_annotation_expr_diagnostic(
     pkl_user_defined_constrained_type_annotation_expr_rejection_message(
       type_name, expr, declarations,
     ) {
-    Some(message) => diagnostics.push(Diagnostic::{ message, })
+    Some(message) => diagnostics.push(diag(message))
     None => ()
   }
 }
@@ -837,15 +837,13 @@ fn push_constrained_callable_return_body_diagnostic(
     constrained_type_annotation_expr_rejection_message(
       return_type_name, body, type_env,
     ) {
-    Some(message) =>
-      diagnostics.push(Diagnostic::{ message: "\{label} return \{message}" })
+    Some(message) => diagnostics.push(diag("\{label} return \{message}"))
     None =>
       match
         pkl_user_defined_constrained_type_annotation_expr_rejection_message(
           return_type_name, body, declarations,
         ) {
-        Some(message) =>
-          diagnostics.push(Diagnostic::{ message: "\{label} return \{message}" })
+        Some(message) => diagnostics.push(diag("\{label} return \{message}"))
         None => ()
       }
   }
@@ -908,7 +906,7 @@ fn push_constrained_class_property_expr_diagnostics(
             field.value,
             declarations,
           ) {
-          Some(message) => diagnostics.push(Diagnostic::{ message, })
+          Some(message) => diagnostics.push(diag(message))
           None => ()
         }
         push_constrained_class_property_expr_diagnostics(
@@ -1027,7 +1025,7 @@ fn push_constrained_class_property_default_diagnostics(
                   default_expr,
                   declarations,
                 ) {
-                Some(message) => diagnostics.push(Diagnostic::{ message, })
+                Some(message) => diagnostics.push(diag(message))
                 None => ()
               }
             None => ()
@@ -1365,9 +1363,11 @@ fn unify_for_substitution(
           match binding.bound {
             Some(bound_type) =>
               if !type_accepts(bound_type, actual) {
-                diagnostics.push(Diagnostic::{
-                  message: "type parameter \{name} bound \{render_type(bound_type)} rejects \{render_type(actual)}",
-                })
+                diagnostics.push(
+                  diag(
+                    "type parameter \{name} bound \{render_type(bound_type)} rejects \{render_type(actual)}",
+                  ),
+                )
               }
             None => ()
           }
@@ -1554,13 +1554,11 @@ fn apply_type_annotation(
               None =>
                 "type annotation \{name} does not accept \{render_type(inferred)}"
             }
-            diagnostics.push(Diagnostic::{ message, })
+            diagnostics.push(diag(message))
             UnknownType
           }
         None => {
-          diagnostics.push(Diagnostic::{
-            message: "unknown type annotation \{name}",
-          })
+          diagnostics.push(diag("unknown type annotation \{name}"))
           UnknownType
         }
       }
@@ -1626,9 +1624,7 @@ fn function_parameter_types(
         match parameter_type_from_annotation(type_name, type_env) {
           Some(typ) => types.push(typ)
           None => {
-            diagnostics.push(Diagnostic::{
-              message: "unknown type annotation \{type_name}",
-            })
+            diagnostics.push(diag("unknown type annotation \{type_name}"))
             types.push(UnknownType)
           }
         }
@@ -1649,9 +1645,7 @@ fn function_return_type(
       match type_from_annotation(type_name, type_env) {
         Some(typ) => typ
         None => {
-          diagnostics.push(Diagnostic::{
-            message: "unknown type annotation \{type_name}",
-          })
+          diagnostics.push(diag("unknown type annotation \{type_name}"))
           UnknownType
         }
       }
@@ -2207,9 +2201,7 @@ fn class_properties_to_members(
         match type_from_annotation(type_name, type_env) {
           Some(resolved) => resolved
           None => {
-            diagnostics.push(Diagnostic::{
-              message: "unknown type annotation \{type_name}",
-            })
+            diagnostics.push(diag("unknown type annotation \{type_name}"))
             UnknownType
           }
         }
@@ -2318,14 +2310,14 @@ fn validate_class_method_body(
           match type_from_annotation(type_name, type_env) {
             Some(expected) =>
               if !type_accepts(expected, inferred_return) {
-                diagnostics.push(Diagnostic::{
-                  message: "method \{class_name}.\{function_decl.name} return annotation \{type_name} does not accept \{render_type(inferred_return)}",
-                })
+                diagnostics.push(
+                  diag(
+                    "method \{class_name}.\{function_decl.name} return annotation \{type_name} does not accept \{render_type(inferred_return)}",
+                  ),
+                )
               }
             None =>
-              diagnostics.push(Diagnostic::{
-                message: "unknown type annotation \{type_name}",
-              })
+              diagnostics.push(diag("unknown type annotation \{type_name}"))
           }
         None => ()
       }
@@ -2401,15 +2393,13 @@ fn class_decl_to_members(
         Some(ClassType(_, base_members)) =>
           merge_type_members(base_members, own_members)
         Some(_) => {
-          diagnostics.push(Diagnostic::{
-            message: "class \{class_decl.name} extends non-class \{parent_name}",
-          })
+          diagnostics.push(
+            diag("class \{class_decl.name} extends non-class \{parent_name}"),
+          )
           own_members
         }
         None => {
-          diagnostics.push(Diagnostic::{
-            message: "unknown type annotation \{parent_name}",
-          })
+          diagnostics.push(diag("unknown type annotation \{parent_name}"))
           own_members
         }
       }
@@ -2549,9 +2539,9 @@ fn collect_declared_types_with_imports(
               bound: None,
             })
           None =>
-            diagnostics.push(Diagnostic::{
-              message: "unknown type annotation \{type_alias.target}",
-            })
+            diagnostics.push(
+              diag("unknown type annotation \{type_alias.target}"),
+            )
         }
       }
       FunctionDeclaration(_) => ()
@@ -2609,9 +2599,7 @@ fn resolve_binding_type(
       match find_type_binding(bindings, name) {
         Some(binding) =>
           if stack_contains_type_binding(stack, name) {
-            diagnostics.push(Diagnostic::{
-              message: "cyclic property reference \{name}",
-            })
+            diagnostics.push(diag("cyclic property reference \{name}"))
             None
           } else {
             let inferred = infer_expr_with_bindings(
@@ -2725,9 +2713,11 @@ fn validate_higher_order_constrained_call(
                                 type_env,
                               ) {
                               Some(message) => {
-                                diagnostics.push(Diagnostic::{
-                                  message: "\{label} argument \{argument_index + 1} \{message}",
-                                })
+                                diagnostics.push(
+                                  diag(
+                                    "\{label} argument \{argument_index + 1} \{message}",
+                                  ),
+                                )
                                 return false
                               }
                               None => ()
@@ -2765,9 +2755,11 @@ fn infer_lambda_application(
   resolve_import : (String) -> TypecheckResult?,
 ) -> Type {
   if parameters.length() != arguments.length() {
-    diagnostics.push(Diagnostic::{
-      message: "\{label} expects \{parameters.length()} arguments, got \{arguments.length()}",
-    })
+    diagnostics.push(
+      diag(
+        "\{label} expects \{parameters.length()} arguments, got \{arguments.length()}",
+      ),
+    )
     return UnknownType
   }
   let argument_types = infer_argument_types(
@@ -2793,9 +2785,9 @@ fn infer_lambda_application(
                   type_env,
                 ) {
                 Some(message) => {
-                  diagnostics.push(Diagnostic::{
-                    message: "\{label} argument \{i + 1} \{message}",
-                  })
+                  diagnostics.push(
+                    diag("\{label} argument \{i + 1} \{message}"),
+                  )
                   return UnknownType
                 }
                 None => ()
@@ -2809,15 +2801,15 @@ fn infer_lambda_application(
               )
               substitute_type(expected, substitutions)
             } else {
-              diagnostics.push(Diagnostic::{
-                message: "\{label} argument \{i + 1} expects \{render_type(expected)}, got \{render_type(argument_types[i])}",
-              })
+              diagnostics.push(
+                diag(
+                  "\{label} argument \{i + 1} expects \{render_type(expected)}, got \{render_type(argument_types[i])}",
+                ),
+              )
               return UnknownType
             }
           None => {
-            diagnostics.push(Diagnostic::{
-              message: "unknown type annotation \{type_name}",
-            })
+            diagnostics.push(diag("unknown type annotation \{type_name}"))
             UnknownType
           }
         }
@@ -2847,16 +2839,16 @@ fn infer_lambda_application(
           if type_accepts(expected, inferred_return) {
             expected
           } else {
-            diagnostics.push(Diagnostic::{
-              message: "\{label} return annotation \{type_name} does not accept \{render_type(inferred_return)}",
-            })
+            diagnostics.push(
+              diag(
+                "\{label} return annotation \{type_name} does not accept \{render_type(inferred_return)}",
+              ),
+            )
             UnknownType
           }
         }
         None => {
-          diagnostics.push(Diagnostic::{
-            message: "unknown type annotation \{type_name}",
-          })
+          diagnostics.push(diag("unknown type annotation \{type_name}"))
           UnknownType
         }
       }
@@ -2889,9 +2881,11 @@ fn infer_function_type_call(
   resolve_import : (String) -> TypecheckResult?,
 ) -> Type {
   if parameter_types.length() != arguments.length() {
-    diagnostics.push(Diagnostic::{
-      message: "\{label} expects \{parameter_types.length()} arguments, got \{arguments.length()}",
-    })
+    diagnostics.push(
+      diag(
+        "\{label} expects \{parameter_types.length()} arguments, got \{arguments.length()}",
+      ),
+    )
     return UnknownType
   }
   let argument_types = infer_argument_types(
@@ -2901,9 +2895,11 @@ fn infer_function_type_call(
   for i = 0; i < parameter_types.length(); i = i + 1 {
     let expected = parameter_types[i]
     if expected != UnknownType && !type_accepts(expected, argument_types[i]) {
-      diagnostics.push(Diagnostic::{
-        message: "\{label} argument \{i + 1} expects \{render_type(expected)}, got \{render_type(argument_types[i])}",
-      })
+      diagnostics.push(
+        diag(
+          "\{label} argument \{i + 1} expects \{render_type(expected)}, got \{render_type(argument_types[i])}",
+        ),
+      )
       return UnknownType
     }
     unify_for_substitution(
@@ -2922,9 +2918,7 @@ fn infer_function_type_call(
             type_env,
           ) {
           Some(message) => {
-            diagnostics.push(Diagnostic::{
-              message: "\{label} argument \{i + 1} \{message}",
-            })
+            diagnostics.push(diag("\{label} argument \{i + 1} \{message}"))
             return UnknownType
           }
           None => ()
@@ -3029,13 +3023,13 @@ fn infer_call_expr(
       match callee {
         SafeMemberAccess(_, _) => NullType
         _ => {
-          diagnostics.push(Diagnostic::{ message: "call expects Function" })
+          diagnostics.push(diag("call expects Function"))
           UnknownType
         }
       }
     UnknownType => UnknownType
     _ => {
-      diagnostics.push(Diagnostic::{ message: "call expects Function" })
+      diagnostics.push(diag("call expects Function"))
       UnknownType
     }
   }
@@ -3068,9 +3062,7 @@ fn infer_boolean_condition_expr(
       if left == BoolType && right == BoolType {
         BoolType
       } else {
-        diagnostics.push(Diagnostic::{
-          message: "operator && expects Boolean operands",
-        })
+        diagnostics.push(diag("operator && expects Boolean operands"))
         UnknownType
       }
     }
@@ -3089,9 +3081,7 @@ fn infer_boolean_condition_expr(
       if left == BoolType && right == BoolType {
         BoolType
       } else {
-        diagnostics.push(Diagnostic::{
-          message: "operator || expects Boolean operands",
-        })
+        diagnostics.push(diag("operator || expects Boolean operands"))
         UnknownType
       }
     }
@@ -3129,7 +3119,7 @@ fn infer_expr_with_bindings(
           UnknownType
         }
         None => {
-          diagnostics.push(Diagnostic::{ message: "unresolved import \{uri}" })
+          diagnostics.push(diag("unresolved import \{uri}"))
           UnknownType
         }
       }
@@ -3194,9 +3184,7 @@ fn infer_expr_with_bindings(
           match lookup_member_type(members, member_name) {
             Some(typ) => member_contract_type(typ)
             None => {
-              diagnostics.push(Diagnostic::{
-                message: "unknown member \{member_name}",
-              })
+              diagnostics.push(diag("unknown member \{member_name}"))
               UnknownType
             }
           }
@@ -3204,17 +3192,13 @@ fn infer_expr_with_bindings(
           match lookup_member_type(members, member_name) {
             Some(typ) => member_contract_type(typ)
             None => {
-              diagnostics.push(Diagnostic::{
-                message: "unknown member \{member_name}",
-              })
+              diagnostics.push(diag("unknown member \{member_name}"))
               UnknownType
             }
           }
         UnknownType => UnknownType
         _ => {
-          diagnostics.push(Diagnostic::{
-            message: "member access expects Object",
-          })
+          diagnostics.push(diag("member access expects Object"))
           UnknownType
         }
       }
@@ -3227,9 +3211,7 @@ fn infer_expr_with_bindings(
           match lookup_member_type(members, member_name) {
             Some(typ) => member_contract_type(typ)
             None => {
-              diagnostics.push(Diagnostic::{
-                message: "unknown member \{member_name}",
-              })
+              diagnostics.push(diag("unknown member \{member_name}"))
               UnknownType
             }
           }
@@ -3237,9 +3219,7 @@ fn infer_expr_with_bindings(
           match lookup_member_type(members, member_name) {
             Some(typ) => member_contract_type(typ)
             None => {
-              diagnostics.push(Diagnostic::{
-                message: "unknown member \{member_name}",
-              })
+              diagnostics.push(diag("unknown member \{member_name}"))
               UnknownType
             }
           }
@@ -3247,9 +3227,7 @@ fn infer_expr_with_bindings(
           match lookup_member_type(members, member_name) {
             Some(typ) => nullable_type(member_contract_type(typ))
             None => {
-              diagnostics.push(Diagnostic::{
-                message: "unknown member \{member_name}",
-              })
+              diagnostics.push(diag("unknown member \{member_name}"))
               UnknownType
             }
           }
@@ -3257,18 +3235,14 @@ fn infer_expr_with_bindings(
           match lookup_member_type(members, member_name) {
             Some(typ) => nullable_type(member_contract_type(typ))
             None => {
-              diagnostics.push(Diagnostic::{
-                message: "unknown member \{member_name}",
-              })
+              diagnostics.push(diag("unknown member \{member_name}"))
               UnknownType
             }
           }
         NullType => NullType
         UnknownType => UnknownType
         _ => {
-          diagnostics.push(Diagnostic::{
-            message: "safe member access expects Object",
-          })
+          diagnostics.push(diag("safe member access expects Object"))
           UnknownType
         }
       }
@@ -3287,34 +3261,26 @@ fn infer_expr_with_bindings(
                 if index >= 0 && index < items.length() {
                   items[index]
                 } else {
-                  diagnostics.push(Diagnostic::{
-                    message: "listing index out of bounds \{index}",
-                  })
+                  diagnostics.push(diag("listing index out of bounds \{index}"))
                   UnknownType
                 }
               _ => common_type(items)
             }
           } else {
-            diagnostics.push(Diagnostic::{
-              message: "listing index expects Int",
-            })
+            diagnostics.push(diag("listing index expects Int"))
             UnknownType
           }
         MappingType(entries) =>
           match lookup_mapping_value_type(entries, key) {
             Some(value) => value
             None => {
-              diagnostics.push(Diagnostic::{
-                message: "unknown mapping key type",
-              })
+              diagnostics.push(diag("unknown mapping key type"))
               UnknownType
             }
           }
         UnknownType => UnknownType
         _ => {
-          diagnostics.push(Diagnostic::{
-            message: "subscript access expects Listing or Mapping",
-          })
+          diagnostics.push(diag("subscript access expects Listing or Mapping"))
           UnknownType
         }
       }
@@ -3344,9 +3310,7 @@ fn infer_expr_with_bindings(
           )
         UnknownType => UnknownType
         _ => {
-          diagnostics.push(Diagnostic::{
-            message: "object amendment expects Object",
-          })
+          diagnostics.push(diag("object amendment expects Object"))
           UnknownType
         }
       }
@@ -3357,7 +3321,7 @@ fn infer_expr_with_bindings(
         ) {
         Some(typ) => typ
         None => {
-          diagnostics.push(Diagnostic::{ message: "unbound identifier \{name}" })
+          diagnostics.push(diag("unbound identifier \{name}"))
           UnknownType
         }
       }
@@ -3371,9 +3335,7 @@ fn infer_expr_with_bindings(
           match type_from_annotation(type_name, type_env) {
             Some(typ) => typ
             None => {
-              diagnostics.push(Diagnostic::{
-                message: "unknown type annotation \{type_name}",
-              })
+              diagnostics.push(diag("unknown type annotation \{type_name}"))
               UnknownType
             }
           }
@@ -3391,9 +3353,7 @@ fn infer_expr_with_bindings(
         ) {
         NullableType(inner) => inner
         NullType => {
-          diagnostics.push(Diagnostic::{
-            message: "non-null assertion rejects Null",
-          })
+          diagnostics.push(diag("non-null assertion rejects Null"))
           UnknownType
         }
         UnknownType => UnknownType
@@ -3408,18 +3368,14 @@ fn infer_expr_with_bindings(
           if inner == IntType {
             IntType
           } else {
-            diagnostics.push(Diagnostic::{
-              message: "operator - expects Int operand",
-            })
+            diagnostics.push(diag("operator - expects Int operand"))
             UnknownType
           }
         Not =>
           if inner == BoolType {
             BoolType
           } else {
-            diagnostics.push(Diagnostic::{
-              message: "operator ! expects Boolean operand",
-            })
+            diagnostics.push(diag("operator ! expects Boolean operand"))
             UnknownType
           }
       }
@@ -3436,9 +3392,7 @@ fn infer_expr_with_bindings(
             match type_from_annotation(name, type_env) {
               Some(_) => return BoolType
               None => {
-                diagnostics.push(Diagnostic::{
-                  message: "unknown type annotation \{name}",
-                })
+                diagnostics.push(diag("unknown type annotation \{name}"))
                 return UnknownType
               }
             }
@@ -3456,9 +3410,7 @@ fn infer_expr_with_bindings(
             match type_from_annotation(name, type_env) {
               Some(typ) => return typ
               None => {
-                diagnostics.push(Diagnostic::{
-                  message: "unknown type annotation \{name}",
-                })
+                diagnostics.push(diag("unknown type annotation \{name}"))
                 return UnknownType
               }
             }
@@ -3466,7 +3418,7 @@ fn infer_expr_with_bindings(
         }
       }
       if op == Pipe {
-        diagnostics.push(Diagnostic::{ message: "operator |> is parser-only" })
+        diagnostics.push(diag("operator |> is parser-only"))
         return UnknownType
       }
       if op == And || op == Or {
@@ -3505,9 +3457,9 @@ fn infer_expr_with_bindings(
               FloatType
             }
           } else {
-            diagnostics.push(Diagnostic::{
-              message: "operator \{operator_name(op)} expects Int operands",
-            })
+            diagnostics.push(
+              diag("operator \{operator_name(op)} expects Int operands"),
+            )
             UnknownType
           }
         Divide =>
@@ -3517,9 +3469,7 @@ fn infer_expr_with_bindings(
             (right == IntType || right == FloatType) {
             FloatType
           } else {
-            diagnostics.push(Diagnostic::{
-              message: "operator / expects numeric operands",
-            })
+            diagnostics.push(diag("operator / expects numeric operands"))
             UnknownType
           }
         LessThan | LessOrEqual | GreaterThan | GreaterOrEqual =>
@@ -3528,9 +3478,9 @@ fn infer_expr_with_bindings(
             (right == IntType || right == FloatType) {
             BoolType
           } else {
-            diagnostics.push(Diagnostic::{
-              message: "operator \{operator_name(op)} expects numeric operands",
-            })
+            diagnostics.push(
+              diag("operator \{operator_name(op)} expects numeric operands"),
+            )
             UnknownType
           }
         Equal | NotEqual =>
@@ -3540,9 +3490,11 @@ fn infer_expr_with_bindings(
           if equality_compatible(left, right) {
             BoolType
           } else {
-            diagnostics.push(Diagnostic::{
-              message: "operator \{operator_name(op)} expects operands of matching types",
-            })
+            diagnostics.push(
+              diag(
+                "operator \{operator_name(op)} expects operands of matching types",
+              ),
+            )
             UnknownType
           }
         And | Or => panic()
@@ -3572,7 +3524,7 @@ fn infer_expr_with_bindings(
         condition_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
       )
       if condition != BoolType {
-        diagnostics.push(Diagnostic::{ message: "if condition expects Boolean" })
+        diagnostics.push(diag("if condition expects Boolean"))
       }
       let then_cache = copy_type_bindings(cache)
       let else_cache = copy_type_bindings(cache)
@@ -3598,11 +3550,11 @@ fn infer_expr_with_bindings(
       // typechecking contexts; treat them as opaque object bodies.
       UnknownType
     ErrorExpr(message) => {
-      diagnostics.push(Diagnostic::{ message, })
+      diagnostics.push(diag(message))
       UnknownType
     }
     UnsupportedExpr => {
-      diagnostics.push(Diagnostic::{ message: "unsupported expression" })
+      diagnostics.push(diag("unsupported expression"))
       UnknownType
     }
     // PKL-136: a `WhenSpread` outside a Listing/Mapping body simply
@@ -3673,10 +3625,7 @@ fn infer_imports(
         for error in errors {
           diagnostics.push(error)
         }
-      None =>
-        diagnostics.push(Diagnostic::{
-          message: "unresolved import \{decl.uri}",
-        })
+      None => diagnostics.push(diag("unresolved import \{decl.uri}"))
     }
   }
 }
@@ -3699,9 +3648,11 @@ fn infer_module_relation(
     Some(TypeOk(ObjectType(members))) => members
     Some(TypeOk(ClassType(_, members))) => members
     Some(TypeOk(_)) => {
-      diagnostics.push(Diagnostic::{
-        message: "module \{relation_kind_name_for_typecheck(relation.kind)} expects Object",
-      })
+      diagnostics.push(
+        diag(
+          "module \{relation_kind_name_for_typecheck(relation.kind)} expects Object",
+        ),
+      )
       []
     }
     Some(TypeError(errors)) => {
@@ -3711,9 +3662,7 @@ fn infer_module_relation(
       []
     }
     None => {
-      diagnostics.push(Diagnostic::{
-        message: "unresolved import \{relation.uri}",
-      })
+      diagnostics.push(diag("unresolved import \{relation.uri}"))
       []
     }
   }

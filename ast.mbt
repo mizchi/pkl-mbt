@@ -1,7 +1,22 @@
 ///|
 pub(all) struct Diagnostic {
   message : String
+  // PKL-107: optional source position. `start` / `end` are absolute
+  // byte offsets into the originating source; -1 means "unknown"
+  // (synthetic diagnostic, post-eval rewrite, or a site that hasn't
+  // been wired through yet). The CLI projects `start` onto a
+  // `line:column` pair by walking the source.
+  start : Int
+  end : Int
 } derive(Eq, Debug)
+
+///|
+/// Helper for the common path: a diagnostic with no recorded position.
+/// Sites that have a CST node in hand should construct
+/// `Diagnostic::{ message, start, end }` directly instead.
+pub fn diag(message : String) -> Diagnostic {
+  { message, start: -1, end: -1 }
+}
 
 ///|
 pub(all) struct UnsupportedSyntax {

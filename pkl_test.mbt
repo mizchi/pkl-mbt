@@ -2647,6 +2647,14 @@ test "PKL-105: path-keyed renderer converter rewrites a top-level value" {
 }
 
 ///|
+test "PKL-107: parser diagnostic carries a non-negative start offset" {
+  let parsed = @pkl.parse_source("bad = (1 +")
+  assert_true(parsed.diagnostics.length() > 0)
+  let diagnostic = parsed.diagnostics[0]
+  assert_true(diagnostic.start >= 0)
+}
+
+///|
 test "PKL-105: nested-path converter rewrites a nested value" {
   guard eval_source(
       "server { port = 8080 }\noutput { renderer = new JsonRenderer { converters { [\"server.port\"] = (p) -> p + 1 } } }",

@@ -76,18 +76,6 @@ local cliAllowedModules: Spec.Scenario = new {
 
 // ── diagnostics, upstream compatibility ─────────────────────────────────────
 
-local diagnosticSourcePosition: Spec.Scenario = new {
-  id = "PKL-107"
-  name = "source position in diagnostics"
-  description =
-    "Every `Diagnostic` carries `start` / `end` / `line` / `column` so error messages point at the offending token. The parser already carries the CST positions; the typechecker / evaluator need the relevant Expr node to thread the position into the diagnostic."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-004" }
-  tags { "diagnostics"; "position"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 local errorMessageUpstreamAlign: Spec.Scenario = new {
   id = "PKL-108"
   name = "error message text upstream alignment"
@@ -259,7 +247,7 @@ local parserSurfaceExpansion: Spec.Scenario = new {
     "String interpolation `\\(expr)`, scientific notation Float (`1e10` / `2.5e-3`), triple-quoted heredoc strings, annotation classes (`@Deprecated`, `@Since`), and constraint predicate composition (`Int(isPositive & isLessThan(10))`). Each is a parser-side extension; downstream stages are mostly ready."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-001" }
-  tags { "parser" }
+  tags { "parser"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -334,7 +322,6 @@ entries: Listing<Spec.Scenario> = new {
   pklAnalyzeLint
   readNullableParserForm
   cliAllowedModules
-  diagnosticSourcePosition
   errorMessageUpstreamAlign
   upstreamFixtureSweepExpansion
   inheritanceDispatchHardening

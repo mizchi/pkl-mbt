@@ -1,6 +1,6 @@
 # Test SPEC
 
-177 tests across 2 module(s) — 141 pending, 36 active
+178 tests across 2 module(s) — 141 pending, 37 active
 
 ## `specs/`
 
@@ -572,7 +572,7 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **parser surface expansion** [draft] — verifies: PKL-128 — tags: parser
+- [ ] **parser surface expansion** [draft] — verifies: PKL-128 — tags: parser, next
   > String interpolation `\(expr)`, scientific notation Float (`1e10` / `2.5e-3`), triple-quoted heredoc strings, annotation classes (`@Deprecated`, `@Since`), and constraint predicate composition (`Int(isPositive & isLessThan(10))`). Each is a parser-side extension; downstream stages are mostly ready.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-001
@@ -720,10 +720,11 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **source position in diagnostics** [draft] — verifies: PKL-107 — tags: diagnostics, position, next
-  > Every `Diagnostic` carries `start` / `end` / `line` / `column` so error messages point at the offending token. The parser already carries the CST positions; the typechecker / evaluator need the relevant Expr node to thread the position into the diagnostic.
+- [ ] **source position in diagnostics** — verifies: PKL-107 — tags: diagnostics, position
+  > Every `Diagnostic` carries `start` / `end` byte offsets into the originating source. The parser sets the offset on every `add_error` site so syntax errors point at the failing token. The CLI's `print_diagnostics_with_source` projects the offset onto a `path:line:column: message` format that editors and IDEs can jump to. Sites that don't have a position yet (most typechecker / evaluator emissions) keep `start = -1`; those still render as just `message` — the migration is incremental. `Parser::current_offset` is now O(1) (cached on the parser struct, incremented by `bump`) instead of summing all preceding token texts on every emit. The helper `diag(message)` covers the common case of an unknown position; explicit `Diagnostic::{ message, start, end }` construction is the path for positioned diagnostics.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-004
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **support Pkl class inheritance defaults** — verifies: PKL-038 — tags: parser, typechecker, evaluator
@@ -960,6 +961,10 @@
 
 - [x] **cli any top type** — verifies: PKL-133 — tags: moonbit, cli, typechecker, any, pkf-pkspec, contract
   > The native CLI evaluates a fixture that exercises `Any`-typed bindings (Int / String / Bool), a nullable `Any?` defaulted to null, and a `Mapping<String, Any>` carrying heterogeneous value types. Every binding typechecks (via the new `AnyType` short-circuit in `type_accepts`) and the evaluator emits the same PCF as the concrete annotations would.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli diagnostic position** — verifies: PKL-107 — tags: moonbit, cli, diagnostics, position, contract
+  > The native CLI parses a fixture with a deliberate syntax error and the output carries a `path:line:column: message` prefix. The diagnostic's byte offset is projected onto a line:column pair so editors can jump to the failing token. The broken fixture lives under `fixtures/error_cases/` so the project formatter doesn't try to round-trip it.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli equality type match** — verifies: PKL-113 — tags: moonbit, cli, typechecker, equality, contract

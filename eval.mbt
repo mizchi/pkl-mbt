@@ -369,7 +369,7 @@ fn eval_constrained_type_annotation_value_is_valid(
               display_name, source_name, value,
             ) {
             Some(message) => {
-              diagnostics.push(Diagnostic::{ message, })
+              diagnostics.push(diag(message))
               false
             }
             None => true
@@ -392,7 +392,7 @@ fn eval_user_defined_constrained_type_annotation_value_is_valid(
       type_name, value, declarations,
     ) {
     Some(message) => {
-      diagnostics.push(Diagnostic::{ message, })
+      diagnostics.push(diag(message))
       false
     }
     None => true
@@ -548,7 +548,7 @@ fn eval_class_property_default_constraints_are_valid_with_depth(
                   declarations,
                 ) {
                 Some(message) => {
-                  diagnostics.push(Diagnostic::{ message, })
+                  diagnostics.push(diag(message))
                   ok = false
                 }
                 None => ()
@@ -597,7 +597,7 @@ fn eval_expr_class_property_constraints_are_valid(
                 declarations,
               ) {
               Some(message) => {
-                diagnostics.push(Diagnostic::{ message, })
+                diagnostics.push(diag(message))
                 ok = false
               }
               None => ()
@@ -798,9 +798,7 @@ fn resolve_binding_value(
       match find_binding(bindings, name) {
         Some(binding) =>
           if stack_contains_binding(stack, name) {
-            diagnostics.push(Diagnostic::{
-              message: "cyclic property reference \{name}",
-            })
+            diagnostics.push(diag("cyclic property reference \{name}"))
             None
           } else {
             match
@@ -1029,7 +1027,7 @@ fn eval_callable_return_value(
       label, return_type_name, value, declarations,
     ) {
     Some(message) => {
-      diagnostics.push(Diagnostic::{ message, })
+      diagnostics.push(diag(message))
       None
     }
     None => Some(value)
@@ -1054,9 +1052,11 @@ fn eval_lambda_application(
   resolve_import : (String) -> EvalResult?,
 ) -> Value? {
   if parameters.length() != arguments.length() {
-    diagnostics.push(Diagnostic::{
-      message: "\{label} expects \{parameters.length()} arguments, got \{arguments.length()}",
-    })
+    diagnostics.push(
+      diag(
+        "\{label} expects \{parameters.length()} arguments, got \{arguments.length()}",
+      ),
+    )
     return None
   }
   let argument_values : Array[Value] = []
@@ -1083,9 +1083,7 @@ fn eval_lambda_application(
         declarations,
       ) {
       Some(message) => {
-        diagnostics.push(Diagnostic::{
-          message: "\{label} argument \{i + 1} \{message}",
-        })
+        diagnostics.push(diag("\{label} argument \{i + 1} \{message}"))
         return None
       }
       None => ()
@@ -1142,9 +1140,11 @@ fn apply_function_value(
   match fn_value {
     FunctionValue(parameters, body, return_type_name, captured_env) => {
       if parameters.length() != args.length() {
-        diagnostics.push(Diagnostic::{
-          message: "\{label} expects \{parameters.length()} arguments, got \{args.length()}",
-        })
+        diagnostics.push(
+          diag(
+            "\{label} expects \{parameters.length()} arguments, got \{args.length()}",
+          ),
+        )
         return None
       }
       let call_cache = copy_value_bindings(captured_env)
@@ -1156,9 +1156,7 @@ fn apply_function_value(
             declarations,
           ) {
           Some(message) => {
-            diagnostics.push(Diagnostic::{
-              message: "\{label} argument \{i + 1} \{message}",
-            })
+            diagnostics.push(diag("\{label} argument \{i + 1} \{message}"))
             return None
           }
           None => ()
@@ -1178,7 +1176,7 @@ fn apply_function_value(
       }
     }
     _ => {
-      diagnostics.push(Diagnostic::{ message: "\{label} expects Function" })
+      diagnostics.push(diag("\{label} expects Function"))
       None
     }
   }
@@ -1486,17 +1484,17 @@ fn build_bytes_from_int_listing(
     match element {
       IntValue(n) =>
         if n < 0 || n > 255 {
-          diagnostics.push(Diagnostic::{
-            message: "Bytes element \{n} is out of range 0..255",
-          })
+          diagnostics.push(diag("Bytes element \{n} is out of range 0..255"))
           return None
         } else {
           buf.push(n.to_byte())
         }
       _ => {
-        diagnostics.push(Diagnostic::{
-          message: "Bytes element must be Int, got \{eval_value_type_name(element)}",
-        })
+        diagnostics.push(
+          diag(
+            "Bytes element must be Int, got \{eval_value_type_name(element)}",
+          ),
+        )
         return None
       }
     }
@@ -1514,7 +1512,7 @@ fn eval_bytes_property(
     "length" => Some(IntValue(bytes.length()))
     "base64" => Some(StringValue(@base64.encode(bytes[:])))
     _ => {
-      diagnostics.push(Diagnostic::{ message: "unknown Bytes property \{name}" })
+      diagnostics.push(diag("unknown Bytes property \{name}"))
       None
     }
   }
@@ -1560,16 +1558,12 @@ fn eval_bytes_method(
               Some(IntValue(bytes[index].to_int()))
             }
           _ => {
-            diagnostics.push(Diagnostic::{
-              message: "Bytes.getOrNull expects an Int argument",
-            })
+            diagnostics.push(diag("Bytes.getOrNull expects an Int argument"))
             None
           }
         }
       } else {
-        diagnostics.push(Diagnostic::{
-          message: "Bytes.getOrNull expects exactly one argument",
-        })
+        diagnostics.push(diag("Bytes.getOrNull expects exactly one argument"))
         None
       }
     "toList" =>
@@ -1580,15 +1574,11 @@ fn eval_bytes_method(
         }
         Some(ListingValue(elements))
       } else {
-        diagnostics.push(Diagnostic::{
-          message: "Bytes.toList takes no arguments",
-        })
+        diagnostics.push(diag("Bytes.toList takes no arguments"))
         None
       }
     _ => {
-      diagnostics.push(Diagnostic::{
-        message: "unknown Bytes method \{method_name}",
-      })
+      diagnostics.push(diag("unknown Bytes method \{method_name}"))
       None
     }
   }
@@ -1605,7 +1595,7 @@ fn compile_regex_pattern(
 ) -> @regexp.Regexp? {
   Some(@regexp.compile(pattern)) catch {
     err => {
-      diagnostics.push(Diagnostic::{ message: "invalid Regex pattern: \{err}" })
+      diagnostics.push(diag("invalid Regex pattern: \{err}"))
       None
     }
   }
@@ -1789,18 +1779,14 @@ fn eval_listing_property(
     "isEmpty" => Some(BoolValue(elements.length() == 0))
     "first" =>
       if elements.length() == 0 {
-        diagnostics.push(Diagnostic::{
-          message: "Listing.first on empty Listing",
-        })
+        diagnostics.push(diag("Listing.first on empty Listing"))
         None
       } else {
         Some(elements[0])
       }
     "last" =>
       if elements.length() == 0 {
-        diagnostics.push(Diagnostic::{
-          message: "Listing.last on empty Listing",
-        })
+        diagnostics.push(diag("Listing.last on empty Listing"))
         None
       } else {
         Some(elements[elements.length() - 1])
@@ -1850,18 +1836,22 @@ fn eval_listing_method(
   match method_name {
     "contains" => {
       if arg_values.length() != 1 {
-        diagnostics.push(Diagnostic::{
-          message: "Listing.contains expects 1 argument, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag(
+            "Listing.contains expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
         return None
       }
       Some(BoolValue(contains_value(elements, arg_values[0])))
     }
     "reverse" => {
       if arg_values.length() != 0 {
-        diagnostics.push(Diagnostic::{
-          message: "Listing.reverse expects 0 arguments, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag(
+            "Listing.reverse expects 0 arguments, got \{arg_values.length()}",
+          ),
+        )
         return None
       }
       let reversed : Array[Value] = []
@@ -1874,9 +1864,9 @@ fn eval_listing_method(
     }
     "take" => {
       if arg_values.length() != 1 {
-        diagnostics.push(Diagnostic::{
-          message: "Listing.take expects 1 argument, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("Listing.take expects 1 argument, got \{arg_values.length()}"),
+        )
         return None
       }
       match arg_values[0] {
@@ -1895,18 +1885,16 @@ fn eval_listing_method(
           Some(ListingValue(result))
         }
         _ => {
-          diagnostics.push(Diagnostic::{
-            message: "Listing.take expects Int argument",
-          })
+          diagnostics.push(diag("Listing.take expects Int argument"))
           None
         }
       }
     }
     "drop" => {
       if arg_values.length() != 1 {
-        diagnostics.push(Diagnostic::{
-          message: "Listing.drop expects 1 argument, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("Listing.drop expects 1 argument, got \{arg_values.length()}"),
+        )
         return None
       }
       match arg_values[0] {
@@ -1925,18 +1913,16 @@ fn eval_listing_method(
           Some(ListingValue(result))
         }
         _ => {
-          diagnostics.push(Diagnostic::{
-            message: "Listing.drop expects Int argument",
-          })
+          diagnostics.push(diag("Listing.drop expects Int argument"))
           None
         }
       }
     }
     "join" => {
       if arg_values.length() != 1 {
-        diagnostics.push(Diagnostic::{
-          message: "Listing.join expects 1 argument, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("Listing.join expects 1 argument, got \{arg_values.length()}"),
+        )
         return None
       }
       match arg_values[0] {
@@ -1951,18 +1937,16 @@ fn eval_listing_method(
           Some(StringValue(buf.to_string()))
         }
         _ => {
-          diagnostics.push(Diagnostic::{
-            message: "Listing.join expects String separator",
-          })
+          diagnostics.push(diag("Listing.join expects String separator"))
           None
         }
       }
     }
     "map" => {
       if arg_values.length() != 1 {
-        diagnostics.push(Diagnostic::{
-          message: "Listing.map expects 1 argument, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("Listing.map expects 1 argument, got \{arg_values.length()}"),
+        )
         return None
       }
       let result : Array[Value] = []
@@ -1989,9 +1973,9 @@ fn eval_listing_method(
     }
     "filter" => {
       if arg_values.length() != 1 {
-        diagnostics.push(Diagnostic::{
-          message: "Listing.filter expects 1 argument, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("Listing.filter expects 1 argument, got \{arg_values.length()}"),
+        )
         return None
       }
       let result : Array[Value] = []
@@ -2013,9 +1997,9 @@ fn eval_listing_method(
           Some(BoolValue(true)) => result.push(element)
           Some(BoolValue(false)) => ()
           Some(_) => {
-            diagnostics.push(Diagnostic::{
-              message: "Listing.filter predicate must return Boolean",
-            })
+            diagnostics.push(
+              diag("Listing.filter predicate must return Boolean"),
+            )
             return None
           }
           None => return None
@@ -2025,9 +2009,9 @@ fn eval_listing_method(
     }
     "fold" => {
       if arg_values.length() != 2 {
-        diagnostics.push(Diagnostic::{
-          message: "Listing.fold expects 2 arguments, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("Listing.fold expects 2 arguments, got \{arg_values.length()}"),
+        )
         return None
       }
       let mut acc = arg_values[0]
@@ -2061,18 +2045,18 @@ fn eval_listing_method(
     // Listing-of-Pair (Pair lands with PKL-119).
     "toList" => {
       if arg_values.length() != 0 {
-        diagnostics.push(Diagnostic::{
-          message: "Listing.toList expects 0 arguments, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("Listing.toList expects 0 arguments, got \{arg_values.length()}"),
+        )
         return None
       }
       Some(ListingValue(elements))
     }
     "toMap" => {
       if arg_values.length() != 0 {
-        diagnostics.push(Diagnostic::{
-          message: "Listing.toMap expects 0 arguments, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("Listing.toMap expects 0 arguments, got \{arg_values.length()}"),
+        )
         return None
       }
       Some(MappingValue([]))
@@ -2082,9 +2066,9 @@ fn eval_listing_method(
     // pkl-mbt collapses those into ListingValue, so the shape stays consistent.
     "flatMap" => {
       if arg_values.length() != 1 {
-        diagnostics.push(Diagnostic::{
-          message: "Listing.flatMap expects 1 argument, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("Listing.flatMap expects 1 argument, got \{arg_values.length()}"),
+        )
         return None
       }
       let result : Array[Value] = []
@@ -2108,9 +2092,9 @@ fn eval_listing_method(
               result.push(v)
             }
           Some(_) => {
-            diagnostics.push(Diagnostic::{
-              message: "Listing.flatMap callback must return Listing",
-            })
+            diagnostics.push(
+              diag("Listing.flatMap callback must return Listing"),
+            )
             return None
           }
           None => return None
@@ -2120,9 +2104,9 @@ fn eval_listing_method(
     }
     "count" => {
       if arg_values.length() != 1 {
-        diagnostics.push(Diagnostic::{
-          message: "Listing.count expects 1 argument, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("Listing.count expects 1 argument, got \{arg_values.length()}"),
+        )
         return None
       }
       let mut n = 0
@@ -2144,9 +2128,9 @@ fn eval_listing_method(
           Some(BoolValue(true)) => n = n + 1
           Some(BoolValue(false)) => ()
           Some(_) => {
-            diagnostics.push(Diagnostic::{
-              message: "Listing.count predicate must return Boolean",
-            })
+            diagnostics.push(
+              diag("Listing.count predicate must return Boolean"),
+            )
             return None
           }
           None => return None
@@ -2156,9 +2140,9 @@ fn eval_listing_method(
     }
     "every" => {
       if arg_values.length() != 1 {
-        diagnostics.push(Diagnostic::{
-          message: "Listing.every expects 1 argument, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("Listing.every expects 1 argument, got \{arg_values.length()}"),
+        )
         return None
       }
       for element in elements {
@@ -2179,9 +2163,9 @@ fn eval_listing_method(
           Some(BoolValue(true)) => ()
           Some(BoolValue(false)) => return Some(BoolValue(false))
           Some(_) => {
-            diagnostics.push(Diagnostic::{
-              message: "Listing.every predicate must return Boolean",
-            })
+            diagnostics.push(
+              diag("Listing.every predicate must return Boolean"),
+            )
             return None
           }
           None => return None
@@ -2191,9 +2175,9 @@ fn eval_listing_method(
     }
     "any" => {
       if arg_values.length() != 1 {
-        diagnostics.push(Diagnostic::{
-          message: "Listing.any expects 1 argument, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("Listing.any expects 1 argument, got \{arg_values.length()}"),
+        )
         return None
       }
       for element in elements {
@@ -2214,9 +2198,7 @@ fn eval_listing_method(
           Some(BoolValue(true)) => return Some(BoolValue(true))
           Some(BoolValue(false)) => ()
           Some(_) => {
-            diagnostics.push(Diagnostic::{
-              message: "Listing.any predicate must return Boolean",
-            })
+            diagnostics.push(diag("Listing.any predicate must return Boolean"))
             return None
           }
           None => return None
@@ -2226,9 +2208,9 @@ fn eval_listing_method(
     }
     "none" => {
       if arg_values.length() != 1 {
-        diagnostics.push(Diagnostic::{
-          message: "Listing.none expects 1 argument, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("Listing.none expects 1 argument, got \{arg_values.length()}"),
+        )
         return None
       }
       for element in elements {
@@ -2249,9 +2231,7 @@ fn eval_listing_method(
           Some(BoolValue(true)) => return Some(BoolValue(false))
           Some(BoolValue(false)) => ()
           Some(_) => {
-            diagnostics.push(Diagnostic::{
-              message: "Listing.none predicate must return Boolean",
-            })
+            diagnostics.push(diag("Listing.none predicate must return Boolean"))
             return None
           }
           None => return None
@@ -2261,9 +2241,11 @@ fn eval_listing_method(
     }
     "find" | "findOrNull" => {
       if arg_values.length() != 1 {
-        diagnostics.push(Diagnostic::{
-          message: "Listing.\{method_name} expects 1 argument, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag(
+            "Listing.\{method_name} expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
         return None
       }
       for element in elements {
@@ -2284,9 +2266,9 @@ fn eval_listing_method(
           Some(BoolValue(true)) => return Some(element)
           Some(BoolValue(false)) => ()
           Some(_) => {
-            diagnostics.push(Diagnostic::{
-              message: "Listing.\{method_name} predicate must return Boolean",
-            })
+            diagnostics.push(
+              diag("Listing.\{method_name} predicate must return Boolean"),
+            )
             return None
           }
           None => return None
@@ -2296,17 +2278,17 @@ fn eval_listing_method(
       if method_name == "findOrNull" {
         Some(NullValue)
       } else {
-        diagnostics.push(Diagnostic::{
-          message: "Listing.find did not match any element",
-        })
+        diagnostics.push(diag("Listing.find did not match any element"))
         None
       }
     }
     "findLast" | "findLastOrNull" => {
       if arg_values.length() != 1 {
-        diagnostics.push(Diagnostic::{
-          message: "Listing.\{method_name} expects 1 argument, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag(
+            "Listing.\{method_name} expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
         return None
       }
       let mut i = elements.length() - 1
@@ -2329,9 +2311,9 @@ fn eval_listing_method(
           Some(BoolValue(true)) => return Some(element)
           Some(BoolValue(false)) => ()
           Some(_) => {
-            diagnostics.push(Diagnostic::{
-              message: "Listing.\{method_name} predicate must return Boolean",
-            })
+            diagnostics.push(
+              diag("Listing.\{method_name} predicate must return Boolean"),
+            )
             return None
           }
           None => return None
@@ -2341,9 +2323,7 @@ fn eval_listing_method(
       if method_name == "findLastOrNull" {
         Some(NullValue)
       } else {
-        diagnostics.push(Diagnostic::{
-          message: "Listing.findLast did not match any element",
-        })
+        diagnostics.push(diag("Listing.findLast did not match any element"))
         None
       }
     }
@@ -2375,9 +2355,7 @@ fn eval_mapping_property(
       Some(ListingValue(values))
     }
     _ => {
-      diagnostics.push(Diagnostic::{
-        message: "unknown Mapping property \{name}",
-      })
+      diagnostics.push(diag("unknown Mapping property \{name}"))
       None
     }
   }
@@ -2415,18 +2393,22 @@ fn eval_mapping_method(
   match method_name {
     "containsKey" => {
       if arg_values.length() != 1 {
-        diagnostics.push(Diagnostic::{
-          message: "Mapping.containsKey expects 1 argument, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag(
+            "Mapping.containsKey expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
         return None
       }
       Some(BoolValue(contains_entry_key(entries, arg_values[0])))
     }
     "getOrNull" => {
       if arg_values.length() != 1 {
-        diagnostics.push(Diagnostic::{
-          message: "Mapping.getOrNull expects 1 argument, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag(
+            "Mapping.getOrNull expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
         return None
       }
       match lookup_entry(entries, arg_values[0]) {
@@ -2436,9 +2418,9 @@ fn eval_mapping_method(
     }
     "fold" => {
       if arg_values.length() != 2 {
-        diagnostics.push(Diagnostic::{
-          message: "Mapping.fold expects 2 arguments, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("Mapping.fold expects 2 arguments, got \{arg_values.length()}"),
+        )
         return None
       }
       let mut acc = arg_values[0]
@@ -2469,18 +2451,18 @@ fn eval_mapping_method(
     // `Map.values.toList()` shape closely enough for shape-only chains).
     "toMap" => {
       if arg_values.length() != 0 {
-        diagnostics.push(Diagnostic::{
-          message: "Mapping.toMap expects 0 arguments, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("Mapping.toMap expects 0 arguments, got \{arg_values.length()}"),
+        )
         return None
       }
       Some(MappingValue(entries))
     }
     "toList" => {
       if arg_values.length() != 0 {
-        diagnostics.push(Diagnostic::{
-          message: "Mapping.toList expects 0 arguments, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("Mapping.toList expects 0 arguments, got \{arg_values.length()}"),
+        )
         return None
       }
       let values : Array[Value] = []
@@ -2493,9 +2475,9 @@ fn eval_mapping_method(
     // `(Key, Value) -> Boolean` for every / any; pkl-mbt mirrors that.
     "every" => {
       if arg_values.length() != 1 {
-        diagnostics.push(Diagnostic::{
-          message: "Mapping.every expects 1 argument, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("Mapping.every expects 1 argument, got \{arg_values.length()}"),
+        )
         return None
       }
       for entry in entries {
@@ -2516,9 +2498,9 @@ fn eval_mapping_method(
           Some(BoolValue(true)) => ()
           Some(BoolValue(false)) => return Some(BoolValue(false))
           Some(_) => {
-            diagnostics.push(Diagnostic::{
-              message: "Mapping.every predicate must return Boolean",
-            })
+            diagnostics.push(
+              diag("Mapping.every predicate must return Boolean"),
+            )
             return None
           }
           None => return None
@@ -2528,9 +2510,9 @@ fn eval_mapping_method(
     }
     "any" => {
       if arg_values.length() != 1 {
-        diagnostics.push(Diagnostic::{
-          message: "Mapping.any expects 1 argument, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("Mapping.any expects 1 argument, got \{arg_values.length()}"),
+        )
         return None
       }
       for entry in entries {
@@ -2551,9 +2533,7 @@ fn eval_mapping_method(
           Some(BoolValue(true)) => return Some(BoolValue(true))
           Some(BoolValue(false)) => ()
           Some(_) => {
-            diagnostics.push(Diagnostic::{
-              message: "Mapping.any predicate must return Boolean",
-            })
+            diagnostics.push(diag("Mapping.any predicate must return Boolean"))
             return None
           }
           None => return None
@@ -2563,9 +2543,9 @@ fn eval_mapping_method(
     }
     "none" => {
       if arg_values.length() != 1 {
-        diagnostics.push(Diagnostic::{
-          message: "Mapping.none expects 1 argument, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("Mapping.none expects 1 argument, got \{arg_values.length()}"),
+        )
         return None
       }
       for entry in entries {
@@ -2586,9 +2566,7 @@ fn eval_mapping_method(
           Some(BoolValue(true)) => return Some(BoolValue(false))
           Some(BoolValue(false)) => ()
           Some(_) => {
-            diagnostics.push(Diagnostic::{
-              message: "Mapping.none predicate must return Boolean",
-            })
+            diagnostics.push(diag("Mapping.none predicate must return Boolean"))
             return None
           }
           None => return None
@@ -2598,9 +2576,9 @@ fn eval_mapping_method(
     }
     "count" => {
       if arg_values.length() != 1 {
-        diagnostics.push(Diagnostic::{
-          message: "Mapping.count expects 1 argument, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("Mapping.count expects 1 argument, got \{arg_values.length()}"),
+        )
         return None
       }
       let mut n = 0
@@ -2622,9 +2600,9 @@ fn eval_mapping_method(
           Some(BoolValue(true)) => n = n + 1
           Some(BoolValue(false)) => ()
           Some(_) => {
-            diagnostics.push(Diagnostic::{
-              message: "Mapping.count predicate must return Boolean",
-            })
+            diagnostics.push(
+              diag("Mapping.count predicate must return Boolean"),
+            )
             return None
           }
           None => return None
@@ -2647,7 +2625,7 @@ fn eval_int_property(
     "isEven" => Some(BoolValue(n % 2 == 0))
     "isOdd" => Some(BoolValue(n % 2 != 0))
     _ => {
-      diagnostics.push(Diagnostic::{ message: "unknown Int property \{name}" })
+      diagnostics.push(diag("unknown Int property \{name}"))
       None
     }
   }
@@ -2665,9 +2643,7 @@ fn eval_duration_property(
     "unit" => Some(StringValue(unit))
     "isPositive" => Some(BoolValue(magnitude > 0 || magnitude == 0))
     _ => {
-      diagnostics.push(Diagnostic::{
-        message: "unknown Duration property \{name}",
-      })
+      diagnostics.push(diag("unknown Duration property \{name}"))
       None
     }
   }
@@ -2685,9 +2661,7 @@ fn eval_datasize_property(
     "unit" => Some(StringValue(unit))
     "isPositive" => Some(BoolValue(magnitude > 0 || magnitude == 0))
     _ => {
-      diagnostics.push(Diagnostic::{
-        message: "unknown DataSize property \{name}",
-      })
+      diagnostics.push(diag("unknown DataSize property \{name}"))
       None
     }
   }
@@ -2756,37 +2730,37 @@ fn eval_int_method(
         match arg_values[0] {
           IntValue(radix) =>
             if radix < 2 || radix > 36 {
-              diagnostics.push(Diagnostic::{
-                message: "Int.toString radix must be between 2 and 36, got \{radix}",
-              })
+              diagnostics.push(
+                diag(
+                  "Int.toString radix must be between 2 and 36, got \{radix}",
+                ),
+              )
               None
             } else {
               Some(StringValue(int_to_string_radix(n, radix)))
             }
           _ => {
-            diagnostics.push(Diagnostic::{
-              message: "Int.toString radix must be Int",
-            })
+            diagnostics.push(diag("Int.toString radix must be Int"))
             None
           }
         }
       } else {
-        diagnostics.push(Diagnostic::{
-          message: "Int.toString expects 0 or 1 arguments, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag(
+            "Int.toString expects 0 or 1 arguments, got \{arg_values.length()}",
+          ),
+        )
         None
       }
     "toChar" => {
       if arg_values.length() != 0 {
-        diagnostics.push(Diagnostic::{
-          message: "Int.toChar expects 0 arguments, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("Int.toChar expects 0 arguments, got \{arg_values.length()}"),
+        )
         return None
       }
       if n < 0 || n > 0x10FFFF {
-        diagnostics.push(Diagnostic::{
-          message: "Int.toChar code point out of range: \{n}",
-        })
+        diagnostics.push(diag("Int.toChar code point out of range: \{n}"))
         return None
       }
       let buf = StringBuilder::new()
@@ -2837,28 +2811,24 @@ fn eval_duration_method(
                 DurationValue(duration_in_unit(magnitude, unit, target), target),
               )
             } else {
-              diagnostics.push(Diagnostic::{
-                message: "Duration.toUnit expects one of ns/us/ms/s/min/h/d, got \{target}",
-              })
+              diagnostics.push(
+                diag(
+                  "Duration.toUnit expects one of ns/us/ms/s/min/h/d, got \{target}",
+                ),
+              )
               None
             }
           _ => {
-            diagnostics.push(Diagnostic::{
-              message: "Duration.toUnit expects a String argument",
-            })
+            diagnostics.push(diag("Duration.toUnit expects a String argument"))
             None
           }
         }
       } else {
-        diagnostics.push(Diagnostic::{
-          message: "Duration.toUnit expects exactly one argument",
-        })
+        diagnostics.push(diag("Duration.toUnit expects exactly one argument"))
         None
       }
     _ => {
-      diagnostics.push(Diagnostic::{
-        message: "unknown Duration method \{method_name}",
-      })
+      diagnostics.push(diag("unknown Duration method \{method_name}"))
       None
     }
   }
@@ -2904,28 +2874,24 @@ fn eval_datasize_method(
                 DataSizeValue(datasize_in_unit(magnitude, unit, target), target),
               )
             } else {
-              diagnostics.push(Diagnostic::{
-                message: "DataSize.toUnit expects one of b/kb/kib/mb/mib/gb/gib/tb/tib/pb/pib, got \{target}",
-              })
+              diagnostics.push(
+                diag(
+                  "DataSize.toUnit expects one of b/kb/kib/mb/mib/gb/gib/tb/tib/pb/pib, got \{target}",
+                ),
+              )
               None
             }
           _ => {
-            diagnostics.push(Diagnostic::{
-              message: "DataSize.toUnit expects a String argument",
-            })
+            diagnostics.push(diag("DataSize.toUnit expects a String argument"))
             None
           }
         }
       } else {
-        diagnostics.push(Diagnostic::{
-          message: "DataSize.toUnit expects exactly one argument",
-        })
+        diagnostics.push(diag("DataSize.toUnit expects exactly one argument"))
         None
       }
     _ => {
-      diagnostics.push(Diagnostic::{
-        message: "unknown DataSize method \{method_name}",
-      })
+      diagnostics.push(diag("unknown DataSize method \{method_name}"))
       None
     }
   }
@@ -2940,7 +2906,7 @@ fn eval_regex_property(
   match name {
     "pattern" => Some(StringValue(pattern))
     _ => {
-      diagnostics.push(Diagnostic::{ message: "unknown Regex property \{name}" })
+      diagnostics.push(diag("unknown Regex property \{name}"))
       None
     }
   }
@@ -2985,16 +2951,12 @@ fn eval_regex_method(
         match arg_values[0] {
           StringValue(input) => Some(BoolValue(regex_matches_full(re, input)))
           _ => {
-            diagnostics.push(Diagnostic::{
-              message: "Regex.matches expects a String argument",
-            })
+            diagnostics.push(diag("Regex.matches expects a String argument"))
             None
           }
         }
       } else {
-        diagnostics.push(Diagnostic::{
-          message: "Regex.matches expects exactly one argument",
-        })
+        diagnostics.push(diag("Regex.matches expects exactly one argument"))
         None
       }
     "find" =>
@@ -3006,16 +2968,12 @@ fn eval_regex_method(
               None => Some(NullValue)
             }
           _ => {
-            diagnostics.push(Diagnostic::{
-              message: "Regex.find expects a String argument",
-            })
+            diagnostics.push(diag("Regex.find expects a String argument"))
             None
           }
         }
       } else {
-        diagnostics.push(Diagnostic::{
-          message: "Regex.find expects exactly one argument",
-        })
+        diagnostics.push(diag("Regex.find expects exactly one argument"))
         None
       }
     "findAll" =>
@@ -3030,16 +2988,12 @@ fn eval_regex_method(
             Some(ListingValue(elements))
           }
           _ => {
-            diagnostics.push(Diagnostic::{
-              message: "Regex.findAll expects a String argument",
-            })
+            diagnostics.push(diag("Regex.findAll expects a String argument"))
             None
           }
         }
       } else {
-        diagnostics.push(Diagnostic::{
-          message: "Regex.findAll expects exactly one argument",
-        })
+        diagnostics.push(diag("Regex.findAll expects exactly one argument"))
         None
       }
     "replace" =>
@@ -3048,16 +3002,14 @@ fn eval_regex_method(
           (StringValue(input), StringValue(repl)) =>
             Some(StringValue(regex_replace_first(re, input, repl)))
           _ => {
-            diagnostics.push(Diagnostic::{
-              message: "Regex.replace expects (String, String) arguments",
-            })
+            diagnostics.push(
+              diag("Regex.replace expects (String, String) arguments"),
+            )
             None
           }
         }
       } else {
-        diagnostics.push(Diagnostic::{
-          message: "Regex.replace expects exactly two arguments",
-        })
+        diagnostics.push(diag("Regex.replace expects exactly two arguments"))
         None
       }
     "replaceAll" =>
@@ -3066,22 +3018,18 @@ fn eval_regex_method(
           (StringValue(input), StringValue(repl)) =>
             Some(StringValue(regex_replace_all(re, input, repl)))
           _ => {
-            diagnostics.push(Diagnostic::{
-              message: "Regex.replaceAll expects (String, String) arguments",
-            })
+            diagnostics.push(
+              diag("Regex.replaceAll expects (String, String) arguments"),
+            )
             None
           }
         }
       } else {
-        diagnostics.push(Diagnostic::{
-          message: "Regex.replaceAll expects exactly two arguments",
-        })
+        diagnostics.push(diag("Regex.replaceAll expects exactly two arguments"))
         None
       }
     _ => {
-      diagnostics.push(Diagnostic::{
-        message: "unknown Regex method \{method_name}",
-      })
+      diagnostics.push(diag("unknown Regex method \{method_name}"))
       None
     }
   }
@@ -3097,9 +3045,7 @@ fn eval_string_property(
     "length" => Some(IntValue(s.length()))
     "isEmpty" => Some(BoolValue(s.length() == 0))
     _ => {
-      diagnostics.push(Diagnostic::{
-        message: "unknown String property \{name}",
-      })
+      diagnostics.push(diag("unknown String property \{name}"))
       None
     }
   }
@@ -3172,27 +3118,31 @@ fn eval_string_method(
   match method_name {
     "toUpperCase" => {
       if arg_values.length() != 0 {
-        diagnostics.push(Diagnostic::{
-          message: "String.toUpperCase expects 0 arguments, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag(
+            "String.toUpperCase expects 0 arguments, got \{arg_values.length()}",
+          ),
+        )
         return None
       }
       Some(StringValue(s.to_upper()))
     }
     "toBytes" => {
       if arg_values.length() != 0 {
-        diagnostics.push(Diagnostic::{
-          message: "String.toBytes expects 0 arguments, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("String.toBytes expects 0 arguments, got \{arg_values.length()}"),
+        )
         return None
       }
       Some(BytesValue(@utf8.encode(s[:])))
     }
     "toLowerCase" => {
       if arg_values.length() != 0 {
-        diagnostics.push(Diagnostic::{
-          message: "String.toLowerCase expects 0 arguments, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag(
+            "String.toLowerCase expects 0 arguments, got \{arg_values.length()}",
+          ),
+        )
         return None
       }
       Some(StringValue(s.to_lower()))
@@ -3218,45 +3168,45 @@ fn eval_string_method(
       })
     "replaceAll" => {
       if arg_values.length() != 2 {
-        diagnostics.push(Diagnostic::{
-          message: "String.replaceAll expects 2 arguments, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag(
+            "String.replaceAll expects 2 arguments, got \{arg_values.length()}",
+          ),
+        )
         return None
       }
       match (arg_values[0], arg_values[1]) {
         (StringValue(old), StringValue(new_value)) =>
           Some(StringValue(s.replace_all(old~, new=new_value)))
         _ => {
-          diagnostics.push(Diagnostic::{
-            message: "String.replaceAll expects String arguments",
-          })
+          diagnostics.push(diag("String.replaceAll expects String arguments"))
           None
         }
       }
     }
     "replaceFirst" => {
       if arg_values.length() != 2 {
-        diagnostics.push(Diagnostic::{
-          message: "String.replaceFirst expects 2 arguments, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag(
+            "String.replaceFirst expects 2 arguments, got \{arg_values.length()}",
+          ),
+        )
         return None
       }
       match (arg_values[0], arg_values[1]) {
         (StringValue(old), StringValue(new_value)) =>
           Some(StringValue(s.replace(old~, new=new_value)))
         _ => {
-          diagnostics.push(Diagnostic::{
-            message: "String.replaceFirst expects String arguments",
-          })
+          diagnostics.push(diag("String.replaceFirst expects String arguments"))
           None
         }
       }
     }
     "take" => {
       if arg_values.length() != 1 {
-        diagnostics.push(Diagnostic::{
-          message: "String.take expects 1 argument, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("String.take expects 1 argument, got \{arg_values.length()}"),
+        )
         return None
       }
       match arg_values[0] {
@@ -3271,18 +3221,16 @@ fn eval_string_method(
           Some(StringValue(String::unsafe_substring(s, start=0, end=n)))
         }
         _ => {
-          diagnostics.push(Diagnostic::{
-            message: "String.take expects Int argument",
-          })
+          diagnostics.push(diag("String.take expects Int argument"))
           None
         }
       }
     }
     "drop" => {
       if arg_values.length() != 1 {
-        diagnostics.push(Diagnostic::{
-          message: "String.drop expects 1 argument, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("String.drop expects 1 argument, got \{arg_values.length()}"),
+        )
         return None
       }
       match arg_values[0] {
@@ -3299,9 +3247,7 @@ fn eval_string_method(
           )
         }
         _ => {
-          diagnostics.push(Diagnostic::{
-            message: "String.drop expects Int argument",
-          })
+          diagnostics.push(diag("String.drop expects Int argument"))
           None
         }
       }
@@ -3316,36 +3262,38 @@ fn eval_string_method(
       })
     "padStart" => {
       if arg_values.length() != 2 {
-        diagnostics.push(Diagnostic::{
-          message: "String.padStart expects 2 arguments, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag(
+            "String.padStart expects 2 arguments, got \{arg_values.length()}",
+          ),
+        )
         return None
       }
       match (arg_values[0], arg_values[1]) {
         (IntValue(width), StringValue(pad)) =>
           Some(StringValue(pad_string(s, width, pad, true)))
         _ => {
-          diagnostics.push(Diagnostic::{
-            message: "String.padStart expects (Int, String) arguments",
-          })
+          diagnostics.push(
+            diag("String.padStart expects (Int, String) arguments"),
+          )
           None
         }
       }
     }
     "padEnd" => {
       if arg_values.length() != 2 {
-        diagnostics.push(Diagnostic::{
-          message: "String.padEnd expects 2 arguments, got \{arg_values.length()}",
-        })
+        diagnostics.push(
+          diag("String.padEnd expects 2 arguments, got \{arg_values.length()}"),
+        )
         return None
       }
       match (arg_values[0], arg_values[1]) {
         (IntValue(width), StringValue(pad)) =>
           Some(StringValue(pad_string(s, width, pad, false)))
         _ => {
-          diagnostics.push(Diagnostic::{
-            message: "String.padEnd expects (Int, String) arguments",
-          })
+          diagnostics.push(
+            diag("String.padEnd expects (Int, String) arguments"),
+          )
           None
         }
       }
@@ -3362,17 +3310,15 @@ fn one_string_arg(
   body : (String) -> Value?,
 ) -> Value? {
   if arg_values.length() != 1 {
-    diagnostics.push(Diagnostic::{
-      message: "\{label} expects 1 argument, got \{arg_values.length()}",
-    })
+    diagnostics.push(
+      diag("\{label} expects 1 argument, got \{arg_values.length()}"),
+    )
     return None
   }
   match arg_values[0] {
     StringValue(s) => body(s)
     _ => {
-      diagnostics.push(Diagnostic::{
-        message: "\{label} expects String argument",
-      })
+      diagnostics.push(diag("\{label} expects String argument"))
       None
     }
   }
@@ -3402,7 +3348,7 @@ fn eval_class_method_call(
       if null_safe {
         Some(NullValue)
       } else {
-        diagnostics.push(Diagnostic::{ message: "method call expects Object" })
+        diagnostics.push(diag("method call expects Object"))
         None
       }
     Some(ObjectValue(receiver_members)) =>
@@ -3411,9 +3357,11 @@ fn eval_class_method_call(
           match lookup_class_method(class_env, type_name, method_name) {
             Some(function_decl) => {
               if function_decl.parameters.length() != arguments.length() {
-                diagnostics.push(Diagnostic::{
-                  message: "method \{method_name} expects \{function_decl.parameters.length()} arguments, got \{arguments.length()}",
-                })
+                diagnostics.push(
+                  diag(
+                    "method \{method_name} expects \{function_decl.parameters.length()} arguments, got \{arguments.length()}",
+                  ),
+                )
                 return None
               }
               let argument_values : Array[Value] = []
@@ -3443,9 +3391,11 @@ fn eval_class_method_call(
                         declarations,
                       ) {
                       Some(message) => {
-                        diagnostics.push(Diagnostic::{
-                          message: "method \{method_name} argument \{i + 1} \{message}",
-                        })
+                        diagnostics.push(
+                          diag(
+                            "method \{method_name} argument \{i + 1} \{message}",
+                          ),
+                        )
                         return None
                       }
                       None => ()
@@ -3472,29 +3422,23 @@ fn eval_class_method_call(
                   }
                 }
                 None => {
-                  diagnostics.push(Diagnostic::{
-                    message: "method \{method_name} has no body",
-                  })
+                  diagnostics.push(diag("method \{method_name} has no body"))
                   None
                 }
               }
             }
             None => {
-              diagnostics.push(Diagnostic::{
-                message: "unknown member \{method_name}",
-              })
+              diagnostics.push(diag("unknown member \{method_name}"))
               None
             }
           }
         None => {
-          diagnostics.push(Diagnostic::{
-            message: "call expressions are parser-only",
-          })
+          diagnostics.push(diag("call expressions are parser-only"))
           None
         }
       }
     Some(_) => {
-      diagnostics.push(Diagnostic::{ message: "method call expects Object" })
+      diagnostics.push(diag("method call expects Object"))
       None
     }
     None => None
@@ -3562,12 +3506,12 @@ fn eval_callable_call(
       match callee {
         SafeMemberAccess(_, _) => Some(NullValue)
         _ => {
-          diagnostics.push(Diagnostic::{ message: "call expects Function" })
+          diagnostics.push(diag("call expects Function"))
           None
         }
       }
     Some(_) => {
-      diagnostics.push(Diagnostic::{ message: "call expects Function" })
+      diagnostics.push(diag("call expects Function"))
       None
     }
     None => None
@@ -3602,7 +3546,7 @@ fn eval_expr_with_bindings(
           None
         }
         None => {
-          diagnostics.push(Diagnostic::{ message: "unresolved import \{uri}" })
+          diagnostics.push(diag("unresolved import \{uri}"))
           None
         }
       }
@@ -3648,9 +3592,9 @@ fn eval_expr_with_bindings(
                   values.push(v)
                 }
               Some(_) =>
-                diagnostics.push(Diagnostic::{
-                  message: "when block inside Listing must produce a Listing",
-                })
+                diagnostics.push(
+                  diag("when block inside Listing must produce a Listing"),
+                )
               None => ()
             }
           _ =>
@@ -3684,9 +3628,9 @@ fn eval_expr_with_bindings(
                   values.push(e)
                 }
               Some(_) =>
-                diagnostics.push(Diagnostic::{
-                  message: "when block inside Mapping must produce a Mapping",
-                })
+                diagnostics.push(
+                  diag("when block inside Mapping must produce a Mapping"),
+                )
               None => ()
             }
           _ => {
@@ -3742,9 +3686,7 @@ fn eval_expr_with_bindings(
             match lookup_member(members, member_name) {
               Some(value) => Some(value)
               None => {
-                diagnostics.push(Diagnostic::{
-                  message: "unknown member \{member_name}",
-                })
+                diagnostics.push(diag("unknown member \{member_name}"))
                 None
               }
             }
@@ -3752,27 +3694,21 @@ fn eval_expr_with_bindings(
             if is_listing_property_name(member_name) {
               eval_listing_property(elements, member_name, diagnostics)
             } else {
-              diagnostics.push(Diagnostic::{
-                message: "unknown Listing property \{member_name}",
-              })
+              diagnostics.push(diag("unknown Listing property \{member_name}"))
               None
             }
           Some(MappingValue(entries)) =>
             if is_mapping_property_name(member_name) {
               eval_mapping_property(entries, member_name, diagnostics)
             } else {
-              diagnostics.push(Diagnostic::{
-                message: "unknown Mapping property \{member_name}",
-              })
+              diagnostics.push(diag("unknown Mapping property \{member_name}"))
               None
             }
           Some(StringValue(s)) =>
             if is_string_property_name(member_name) {
               eval_string_property(s, member_name, diagnostics)
             } else {
-              diagnostics.push(Diagnostic::{
-                message: "unknown String property \{member_name}",
-              })
+              diagnostics.push(diag("unknown String property \{member_name}"))
               None
             }
           Some(IntValue(n)) =>
@@ -3783,9 +3719,7 @@ fn eval_expr_with_bindings(
             } else if is_int_property_name(member_name) {
               eval_int_property(n, member_name, diagnostics)
             } else {
-              diagnostics.push(Diagnostic::{
-                message: "unknown Int property \{member_name}",
-              })
+              diagnostics.push(diag("unknown Int property \{member_name}"))
               None
             }
           Some(DurationValue(n, unit)) =>
@@ -3797,9 +3731,7 @@ fn eval_expr_with_bindings(
           Some(BytesValue(bytes)) =>
             eval_bytes_property(bytes, member_name, diagnostics)
           Some(_) => {
-            diagnostics.push(Diagnostic::{
-              message: "member access expects Object",
-            })
+            diagnostics.push(diag("member access expects Object"))
             None
           }
           None => None
@@ -3816,9 +3748,7 @@ fn eval_expr_with_bindings(
           match lookup_member(members, member_name) {
             Some(value) => Some(value)
             None => {
-              diagnostics.push(Diagnostic::{
-                message: "unknown member \{member_name}",
-              })
+              diagnostics.push(diag("unknown member \{member_name}"))
               None
             }
           }
@@ -3826,27 +3756,21 @@ fn eval_expr_with_bindings(
           if is_listing_property_name(member_name) {
             eval_listing_property(elements, member_name, diagnostics)
           } else {
-            diagnostics.push(Diagnostic::{
-              message: "unknown Listing property \{member_name}",
-            })
+            diagnostics.push(diag("unknown Listing property \{member_name}"))
             None
           }
         Some(MappingValue(entries)) =>
           if is_mapping_property_name(member_name) {
             eval_mapping_property(entries, member_name, diagnostics)
           } else {
-            diagnostics.push(Diagnostic::{
-              message: "unknown Mapping property \{member_name}",
-            })
+            diagnostics.push(diag("unknown Mapping property \{member_name}"))
             None
           }
         Some(StringValue(s)) =>
           if is_string_property_name(member_name) {
             eval_string_property(s, member_name, diagnostics)
           } else {
-            diagnostics.push(Diagnostic::{
-              message: "unknown String property \{member_name}",
-            })
+            diagnostics.push(diag("unknown String property \{member_name}"))
             None
           }
         Some(IntValue(n)) =>
@@ -3857,9 +3781,7 @@ fn eval_expr_with_bindings(
           } else if is_int_property_name(member_name) {
             eval_int_property(n, member_name, diagnostics)
           } else {
-            diagnostics.push(Diagnostic::{
-              message: "unknown Int property \{member_name}",
-            })
+            diagnostics.push(diag("unknown Int property \{member_name}"))
             None
           }
         Some(DurationValue(n, unit)) =>
@@ -3871,9 +3793,7 @@ fn eval_expr_with_bindings(
         Some(BytesValue(bytes)) =>
           eval_bytes_property(bytes, member_name, diagnostics)
         Some(_) => {
-          diagnostics.push(Diagnostic::{
-            message: "safe member access expects Object",
-          })
+          diagnostics.push(diag("safe member access expects Object"))
           None
         }
         None => None
@@ -3892,27 +3812,23 @@ fn eval_expr_with_bindings(
           if index >= 0 && index < elements.length() {
             Some(elements[index])
           } else {
-            diagnostics.push(Diagnostic::{
-              message: "listing index out of bounds \{index}",
-            })
+            diagnostics.push(diag("listing index out of bounds \{index}"))
             None
           }
         (Some(ListingValue(_)), Some(_)) => {
-          diagnostics.push(Diagnostic::{ message: "listing index expects Int" })
+          diagnostics.push(diag("listing index expects Int"))
           None
         }
         (Some(MappingValue(entries)), Some(key_value)) =>
           match lookup_entry(entries, key_value) {
             Some(value) => Some(value)
             None => {
-              diagnostics.push(Diagnostic::{ message: "unknown mapping key" })
+              diagnostics.push(diag("unknown mapping key"))
               None
             }
           }
         (Some(_), Some(_)) => {
-          diagnostics.push(Diagnostic::{
-            message: "subscript access expects Listing or Mapping",
-          })
+          diagnostics.push(diag("subscript access expects Listing or Mapping"))
           None
         }
         _ => None
@@ -3937,9 +3853,7 @@ fn eval_expr_with_bindings(
             ),
           )
         Some(_) => {
-          diagnostics.push(Diagnostic::{
-            message: "object amendment expects Object",
-          })
+          diagnostics.push(diag("object amendment expects Object"))
           None
         }
         None => None
@@ -3952,7 +3866,7 @@ fn eval_expr_with_bindings(
         ) {
         Some(value) => Some(value)
         None => {
-          diagnostics.push(Diagnostic::{ message: "unbound identifier \{name}" })
+          diagnostics.push(diag("unbound identifier \{name}"))
           None
         }
       }
@@ -3979,17 +3893,13 @@ fn eval_expr_with_bindings(
             Some(ListingValue(elements)) =>
               build_bytes_from_int_listing(elements, diagnostics)
             Some(_) => {
-              diagnostics.push(Diagnostic::{
-                message: "Bytes expects a Listing of Int",
-              })
+              diagnostics.push(diag("Bytes expects a Listing of Int"))
               None
             }
             None => None
           }
         } else {
-          diagnostics.push(Diagnostic::{
-            message: "Bytes expects exactly one argument",
-          })
+          diagnostics.push(diag("Bytes expects exactly one argument"))
           None
         }
       } else if callee is MemberAccess(Identifier("Bytes"), "fromBase64") &&
@@ -4014,24 +3924,24 @@ fn eval_expr_with_bindings(
             Some(StringValue(encoded)) =>
               Some(BytesValue(@base64.decode(encoded[:]))) catch {
                 _ => {
-                  diagnostics.push(Diagnostic::{
-                    message: "Bytes.fromBase64: malformed base64 input",
-                  })
+                  diagnostics.push(
+                    diag("Bytes.fromBase64: malformed base64 input"),
+                  )
                   None
                 }
               }
             Some(_) => {
-              diagnostics.push(Diagnostic::{
-                message: "Bytes.fromBase64 expects a String argument",
-              })
+              diagnostics.push(
+                diag("Bytes.fromBase64 expects a String argument"),
+              )
               None
             }
             None => None
           }
         } else {
-          diagnostics.push(Diagnostic::{
-            message: "Bytes.fromBase64 expects exactly one argument",
-          })
+          diagnostics.push(
+            diag("Bytes.fromBase64 expects exactly one argument"),
+          )
           None
         }
       } else if callee is Identifier("throw") &&
@@ -4056,21 +3966,17 @@ fn eval_expr_with_bindings(
               resolve_import,
             ) {
             Some(StringValue(message)) => {
-              diagnostics.push(Diagnostic::{ message, })
+              diagnostics.push(diag(message))
               None
             }
             Some(_) => {
-              diagnostics.push(Diagnostic::{
-                message: "throw expects a String argument",
-              })
+              diagnostics.push(diag("throw expects a String argument"))
               None
             }
             None => None
           }
         } else {
-          diagnostics.push(Diagnostic::{
-            message: "throw expects exactly one argument",
-          })
+          diagnostics.push(diag("throw expects exactly one argument"))
           None
         }
       } else if callee is Identifier("read") &&
@@ -4098,17 +4004,13 @@ fn eval_expr_with_bindings(
             ) {
             Some(StringValue(uri)) => eval_read_uri(uri, diagnostics)
             Some(_) => {
-              diagnostics.push(Diagnostic::{
-                message: "read expects a String argument",
-              })
+              diagnostics.push(diag("read expects a String argument"))
               None
             }
             None => None
           }
         } else {
-          diagnostics.push(Diagnostic::{
-            message: "read expects exactly one argument",
-          })
+          diagnostics.push(diag("read expects exactly one argument"))
           None
         }
       } else if callee is Identifier("trace") &&
@@ -4133,9 +4035,7 @@ fn eval_expr_with_bindings(
             resolve_import,
           )
         } else {
-          diagnostics.push(Diagnostic::{
-            message: "trace expects exactly one argument",
-          })
+          diagnostics.push(diag("trace expects exactly one argument"))
           None
         }
       } else if (callee is Identifier("List") || callee is Identifier("Set")) &&
@@ -4192,9 +4092,11 @@ fn eval_expr_with_bindings(
         // alternating `key, value` pairs; the result is a `MappingValue`
         // until PKL-119 introduces a dedicated MapValue.
         if arguments.length() % 2 != 0 {
-          diagnostics.push(Diagnostic::{
-            message: "Map expects an even number of arguments (alternating key, value)",
-          })
+          diagnostics.push(
+            diag(
+              "Map expects an even number of arguments (alternating key, value)",
+            ),
+          )
           None
         } else {
           let entries : Array[ValueEntry] = []
@@ -4245,9 +4147,7 @@ fn eval_expr_with_bindings(
         // the constructor itself is at least no longer a hard parser-
         // surface error.
         if arguments.length() != 2 {
-          diagnostics.push(Diagnostic::{
-            message: "Pair expects exactly two arguments",
-          })
+          diagnostics.push(diag("Pair expects exactly two arguments"))
           None
         } else {
           let first = eval_expr_with_bindings(
@@ -4302,17 +4202,13 @@ fn eval_expr_with_bindings(
             ) {
             Some(StringValue(pattern)) => Some(RegexValue(pattern))
             Some(_) => {
-              diagnostics.push(Diagnostic::{
-                message: "Regex expects a String argument",
-              })
+              diagnostics.push(diag("Regex expects a String argument"))
               None
             }
             None => None
           }
         } else {
-          diagnostics.push(Diagnostic::{
-            message: "Regex expects exactly one argument",
-          })
+          diagnostics.push(diag("Regex expects exactly one argument"))
           None
         }
       } else {
@@ -4543,7 +4439,7 @@ fn eval_expr_with_bindings(
           resolve_import,
         ) {
         Some(NullValue) => {
-          diagnostics.push(Diagnostic::{ message: "non-null assertion failed" })
+          diagnostics.push(diag("non-null assertion failed"))
           None
         }
         Some(value) => Some(value)
@@ -4563,15 +4459,11 @@ fn eval_expr_with_bindings(
           Some(DataSizeValue(0 - value, unit))
         (Not, Some(BoolValue(value))) => Some(BoolValue(!value))
         (Negate, Some(_)) => {
-          diagnostics.push(Diagnostic::{
-            message: "operator - expects numeric operand",
-          })
+          diagnostics.push(diag("operator - expects numeric operand"))
           None
         }
         (Not, Some(_)) => {
-          diagnostics.push(Diagnostic::{
-            message: "operator ! expects Boolean operand",
-          })
+          diagnostics.push(diag("operator ! expects Boolean operand"))
           None
         }
         (_, None) => None
@@ -4588,9 +4480,7 @@ fn eval_expr_with_bindings(
             Some(BoolValue(false)) => return Some(BoolValue(false))
             Some(BoolValue(true)) => ()
             Some(_) => {
-              diagnostics.push(Diagnostic::{
-                message: "operator && expects Boolean operands",
-              })
+              diagnostics.push(diag("operator && expects Boolean operands"))
               return None
             }
             None => return None
@@ -4602,9 +4492,7 @@ fn eval_expr_with_bindings(
             ) {
             Some(BoolValue(value)) => return Some(BoolValue(value))
             Some(_) => {
-              diagnostics.push(Diagnostic::{
-                message: "operator && expects Boolean operands",
-              })
+              diagnostics.push(diag("operator && expects Boolean operands"))
               return None
             }
             None => return None
@@ -4619,9 +4507,7 @@ fn eval_expr_with_bindings(
             Some(BoolValue(true)) => return Some(BoolValue(true))
             Some(BoolValue(false)) => ()
             Some(_) => {
-              diagnostics.push(Diagnostic::{
-                message: "operator || expects Boolean operands",
-              })
+              diagnostics.push(diag("operator || expects Boolean operands"))
               return None
             }
             None => return None
@@ -4633,9 +4519,7 @@ fn eval_expr_with_bindings(
             ) {
             Some(BoolValue(value)) => return Some(BoolValue(value))
             Some(_) => {
-              diagnostics.push(Diagnostic::{
-                message: "operator || expects Boolean operands",
-              })
+              diagnostics.push(diag("operator || expects Boolean operands"))
               return None
             }
             None => return None
@@ -4675,16 +4559,14 @@ fn eval_expr_with_bindings(
                 None => return None
               }
             _ => {
-              diagnostics.push(Diagnostic::{
-                message: "operator is right operand must be a type name",
-              })
+              diagnostics.push(
+                diag("operator is right operand must be a type name"),
+              )
               return None
             }
           }
         As | Pipe => {
-          diagnostics.push(Diagnostic::{
-            message: "operator \{operator_name(op)} is parser-only",
-          })
+          diagnostics.push(diag("operator \{operator_name(op)} is parser-only"))
           return None
         }
         _ => ()
@@ -4707,21 +4589,21 @@ fn eval_expr_with_bindings(
               // PKL-092: `/` widens to Float when both operands are Int,
               // mirroring Apple Pkl's `Int.div` semantics (`5 / 2 = 2.5`).
               if b == 0 {
-                diagnostics.push(Diagnostic::{ message: "division by zero" })
+                diagnostics.push(diag("division by zero"))
                 None
               } else {
                 Some(FloatValue(a.to_double() / b.to_double()))
               }
             IntDivide =>
               if b == 0 {
-                diagnostics.push(Diagnostic::{ message: "division by zero" })
+                diagnostics.push(diag("division by zero"))
                 None
               } else {
                 Some(IntValue(a / b))
               }
             Modulo =>
               if b == 0 {
-                diagnostics.push(Diagnostic::{ message: "division by zero" })
+                diagnostics.push(diag("division by zero"))
                 None
               } else {
                 Some(IntValue(a % b))
@@ -4730,9 +4612,9 @@ fn eval_expr_with_bindings(
               match int_pow(a, b) {
                 Some(value) => Some(IntValue(value))
                 None => {
-                  diagnostics.push(Diagnostic::{
-                    message: "operator ** expects non-negative exponent",
-                  })
+                  diagnostics.push(
+                    diag("operator ** expects non-negative exponent"),
+                  )
                   None
                 }
               }
@@ -4768,9 +4650,11 @@ fn eval_expr_with_bindings(
               Equal => Some(BoolValue(av == bv))
               NotEqual => Some(BoolValue(av != bv))
               _ => {
-                diagnostics.push(Diagnostic::{
-                  message: "operator \{operator_name(op)} not defined for Duration operands",
-                })
+                diagnostics.push(
+                  diag(
+                    "operator \{operator_name(op)} not defined for Duration operands",
+                  ),
+                )
                 None
               }
             }
@@ -4788,9 +4672,11 @@ fn eval_expr_with_bindings(
               Equal => Some(BoolValue(a_in == b_in))
               NotEqual => Some(BoolValue(a_in != b_in))
               _ => {
-                diagnostics.push(Diagnostic::{
-                  message: "operator \{operator_name(op)} not defined for Duration operands",
-                })
+                diagnostics.push(
+                  diag(
+                    "operator \{operator_name(op)} not defined for Duration operands",
+                  ),
+                )
                 None
               }
             }
@@ -4807,9 +4693,11 @@ fn eval_expr_with_bindings(
               Equal => Some(BoolValue(av == bv))
               NotEqual => Some(BoolValue(av != bv))
               _ => {
-                diagnostics.push(Diagnostic::{
-                  message: "operator \{operator_name(op)} not defined for DataSize operands",
-                })
+                diagnostics.push(
+                  diag(
+                    "operator \{operator_name(op)} not defined for DataSize operands",
+                  ),
+                )
                 None
               }
             }
@@ -4827,9 +4715,11 @@ fn eval_expr_with_bindings(
               Equal => Some(BoolValue(a_in == b_in))
               NotEqual => Some(BoolValue(a_in != b_in))
               _ => {
-                diagnostics.push(Diagnostic::{
-                  message: "operator \{operator_name(op)} not defined for DataSize operands",
-                })
+                diagnostics.push(
+                  diag(
+                    "operator \{operator_name(op)} not defined for DataSize operands",
+                  ),
+                )
                 None
               }
             }
@@ -4852,7 +4742,7 @@ fn eval_expr_with_bindings(
               "operator \{operator_name(op)} expects Int operands"
             _ => "operator \{operator_name(op)} expects compatible operands"
           }
-          diagnostics.push(Diagnostic::{ message, })
+          diagnostics.push(diag(message))
           None
         }
         _ => None
@@ -4875,9 +4765,7 @@ fn eval_expr_with_bindings(
             resolve_import,
           )
         Some(_) => {
-          diagnostics.push(Diagnostic::{
-            message: "if condition expects Boolean",
-          })
+          diagnostics.push(diag("if condition expects Boolean"))
           None
         }
         None => None
@@ -4888,11 +4776,11 @@ fn eval_expr_with_bindings(
         declarations, diagnostics, resolve_import,
       )
     ErrorExpr(message) => {
-      diagnostics.push(Diagnostic::{ message, })
+      diagnostics.push(diag(message))
       None
     }
     UnsupportedExpr => {
-      diagnostics.push(Diagnostic::{ message: "unsupported expression" })
+      diagnostics.push(diag("unsupported expression"))
       None
     }
     // PKL-136: a stray `WhenSpread` outside a Listing/Mapping body
@@ -4953,9 +4841,11 @@ fn eval_for_generator(
             iter_cache.push({ name: name2, value: entry.value })
           }
           None => {
-            diagnostics.push(Diagnostic::{
-              message: "for-generator over Mapping requires two variables (key, value)",
-            })
+            diagnostics.push(
+              diag(
+                "for-generator over Mapping requires two variables (key, value)",
+              ),
+            )
             return None
           }
         }
@@ -4966,9 +4856,7 @@ fn eval_for_generator(
         accumulated = merge_value_members(accumulated, iter_members)
       }
     Some(_) => {
-      diagnostics.push(Diagnostic::{
-        message: "for-generator source must be Listing or Mapping",
-      })
+      diagnostics.push(diag("for-generator source must be Listing or Mapping"))
       return None
     }
     None => return None
@@ -5016,9 +4904,9 @@ fn eval_object_members(
                 values.push(branch_member)
               }
             _ =>
-              diagnostics.push(Diagnostic::{
-                message: "object-body generator must produce an object body",
-              })
+              diagnostics.push(
+                diag("object-body generator must produce an object body"),
+              )
           }
         } else if pkl_constrained_type_annotation_value_is_valid(
             field.type_name,
@@ -5175,10 +5063,7 @@ fn eval_imports(
         for error in errors {
           diagnostics.push(error)
         }
-      None =>
-        diagnostics.push(Diagnostic::{
-          message: "unresolved import \{decl.uri}",
-        })
+      None => diagnostics.push(diag("unresolved import \{decl.uri}"))
     }
   }
 }
@@ -5192,9 +5077,9 @@ fn eval_module_relation(
   match resolve_import(relation.uri) {
     Some(EvalOk(ObjectValue(members))) => members
     Some(EvalOk(_)) => {
-      diagnostics.push(Diagnostic::{
-        message: "module \{relation_kind_name(relation.kind)} expects Object",
-      })
+      diagnostics.push(
+        diag("module \{relation_kind_name(relation.kind)} expects Object"),
+      )
       []
     }
     Some(EvalError(errors)) => {
@@ -5204,9 +5089,7 @@ fn eval_module_relation(
       []
     }
     None => {
-      diagnostics.push(Diagnostic::{
-        message: "unresolved import \{relation.uri}",
-      })
+      diagnostics.push(diag("unresolved import \{relation.uri}"))
       []
     }
   }
@@ -5222,9 +5105,7 @@ fn eval_read_uri(uri : String, diagnostics : Array[Diagnostic]) -> Value? {
   // honest until that follow-up slice.
   match uri.find(":") {
     None => {
-      diagnostics.push(Diagnostic::{
-        message: "read: missing URI scheme in \"\{uri}\"",
-      })
+      diagnostics.push(diag("read: missing URI scheme in \"\{uri}\""))
       None
     }
     Some(idx) => {
@@ -5234,16 +5115,14 @@ fn eval_read_uri(uri : String, diagnostics : Array[Diagnostic]) -> Value? {
         match @env.get_env_var(rest) {
           Some(value) => Some(StringValue(value))
           None => {
-            diagnostics.push(Diagnostic::{
-              message: "read: env variable \{rest} is not set",
-            })
+            diagnostics.push(diag("read: env variable \{rest} is not set"))
             None
           }
         }
       } else {
-        diagnostics.push(Diagnostic::{
-          message: "read: scheme \{scheme}: is not allowed by the sandbox policy",
-        })
+        diagnostics.push(
+          diag("read: scheme \{scheme}: is not allowed by the sandbox policy"),
+        )
         None
       }
     }
@@ -5787,7 +5666,7 @@ fn eval_float_binary(
     Multiply => Some(FloatValue(a * b))
     Divide =>
       if b == 0.0 {
-        diagnostics.push(Diagnostic::{ message: "division by zero" })
+        diagnostics.push(diag("division by zero"))
         None
       } else {
         Some(FloatValue(a / b))
@@ -5806,14 +5685,14 @@ fn eval_float_binary(
     Power => Some(FloatValue(@math.pow(a, b)))
     IntDivide =>
       if b == 0.0 {
-        diagnostics.push(Diagnostic::{ message: "division by zero" })
+        diagnostics.push(diag("division by zero"))
         None
       } else {
         Some(IntValue(double_trunc(a / b).to_int()))
       }
     Modulo =>
       if b == 0.0 {
-        diagnostics.push(Diagnostic::{ message: "division by zero" })
+        diagnostics.push(diag("division by zero"))
         None
       } else {
         Some(FloatValue(a - b * double_trunc(a / b)))

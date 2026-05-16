@@ -1785,6 +1785,38 @@ local listingMappingStdlibCore = new Scenario {
   }
 }
 
+local diagnosticSourcePosition = new Scenario {
+  id = "PKL-107"
+  name = "source position in diagnostics"
+  description =
+    "Every `Diagnostic` carries `start` / `end` byte offsets into the originating source. The parser sets the offset on every `add_error` site so syntax errors point at the failing token. The CLI's `print_diagnostics_with_source` projects the offset onto a `path:line:column: message` format that editors and IDEs can jump to. Sites that don't have a position yet (most typechecker / evaluator emissions) keep `start = -1`; those still render as just `message` — the migration is incremental. `Parser::current_offset` is now O(1) (cached on the parser struct, incremented by `bump`) instead of summing all preceding token texts on every emit. The helper `diag(message)` covers the common case of an unknown position; explicit `Diagnostic::{ message, start, end }` construction is the path for positioned diagnostics."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-004" }
+  tags { "diagnostics"; "position" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Use byte offsets as the canonical position, project to line:column on demand"
+      rationale =
+        "Tracking `line:column` directly inside `Diagnostic` would require every emit site to know the current source layout, and the CST's natural unit is the byte offset. Storing the offset and projecting it via `offset_to_line_column(source, offset)` at print time keeps each diagnostic small and makes the source-walk a one-shot cost only when the CLI actually formats output. Editors can also use the raw offsets directly when consuming pkl-mbt as a library."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Migrate sites lazily; `-1` is a valid sentinel for unknown"
+      rationale =
+        "Threading positions through every typechecker / evaluator diagnostic would require carrying `start` / `end` on every `Expr` node. That's a larger refactor (PKL-107 follow-up). The minimum-viable slice wires parser sites only; the helper `diag(message)` returns `start = -1, end = -1` for the rest so the existing 259 emit sites compile without touching them. Future slices can promote sites incrementally — each one becomes more useful as it's positioned."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Cache `byte_offset` on the parser struct for O(1) reads"
+      rationale =
+        "The original `Parser::current_offset` summed token text lengths from index 0 every call. With ~30K tokens in a stdlib base.pkl and every diagnostic site calling current_offset, the cost would have compounded. Maintaining `byte_offset` incrementally on `bump` (and on the lone `self.pos = trivia_end` jump used by the multi-line dot-chain handler) keeps the diagnostic-emit path constant-time."
+    }
+  }
+}
+
 local rendererConverters = new Scenario {
   id = "PKL-105"
   name = "renderer converters"
@@ -3210,5 +3242,6 @@ scenarios {
   amendsBaseMerge
   outputRendererDriver
   rendererConverters
+  diagnosticSourcePosition
   ...roadmap.entries
 }

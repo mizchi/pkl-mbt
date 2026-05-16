@@ -930,7 +930,7 @@ fn pkl_constrained_type_annotation_value_is_valid(
   match
     pkl_constrained_type_annotation_value_rejection_message(type_name, value) {
     Some(message) => {
-      diagnostics.push(Diagnostic::{ message, })
+      diagnostics.push(diag(message))
       false
     }
     None => true
