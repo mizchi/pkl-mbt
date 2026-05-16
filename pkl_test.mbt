@@ -3422,6 +3422,87 @@ test "PKL-120: pkl:math.pi constant" {
 }
 
 ///|
+test "PKL-131: codegen emits pub struct from class declaration" {
+  let parsed = @pkl.parse_source(
+    "class Person {\n  name: String\n  age: Int\n}",
+  )
+  let out = @pkl.codegen_moonbit(parsed.program)
+  inspect(out.contains("pub(all) struct Person {"), content="true")
+  inspect(out.contains("name : String"), content="true")
+  inspect(out.contains("age : Int"), content="true")
+  inspect(out.contains("derive(Eq, Show)"), content="true")
+}
+
+///|
+test "PKL-131: codegen maps Pkl scalar types to MoonBit scalars" {
+  let parsed = @pkl.parse_source(
+    "class Scalars {\n  i: Int\n  d: Float\n  b: Boolean\n  s: String\n  n: Null\n}",
+  )
+  let out = @pkl.codegen_moonbit(parsed.program)
+  inspect(out.contains("i : Int"), content="true")
+  inspect(out.contains("d : Double"), content="true")
+  inspect(out.contains("b : Bool"), content="true")
+  inspect(out.contains("s : String"), content="true")
+  inspect(out.contains("n : Unit"), content="true")
+}
+
+///|
+test "PKL-131: codegen recurses through nullable annotations" {
+  let parsed = @pkl.parse_source("class Wrap {\n  maybe: String?\n}")
+  let out = @pkl.codegen_moonbit(parsed.program)
+  inspect(out.contains("maybe : String?"), content="true")
+}
+
+///|
+test "PKL-131: codegen recurses into Listing / Mapping / Set / Pair generics" {
+  let parsed = @pkl.parse_source(
+    "class Containers {\n  xs: Listing<Int>\n  m: Mapping<String, Int>\n  set: Set<String>\n  pair: Pair<Int, String>\n}",
+  )
+  let out = @pkl.codegen_moonbit(parsed.program)
+  inspect(out.contains("xs : Array[Int]"), content="true")
+  inspect(out.contains("m : Map[String, Int]"), content="true")
+  inspect(out.contains("set : Array[String] /* Set */"), content="true")
+  inspect(out.contains("pair : (Int, String)"), content="true")
+}
+
+///|
+test "PKL-131: codegen strips constraint suffix from base type" {
+  let parsed = @pkl.parse_source("class Bound {\n  n: Int(isPositive)\n}")
+  let out = @pkl.codegen_moonbit(parsed.program)
+  inspect(out.contains("n : Int"), content="true")
+}
+
+///|
+test "PKL-131: codegen flags union types with TODO comment" {
+  let parsed = @pkl.parse_source("class U {\n  v: Int | String\n}")
+  let out = @pkl.codegen_moonbit(parsed.program)
+  inspect(out.contains("Unit /* TODO: union Int|String */"), content="true")
+}
+
+///|
+test "PKL-131: codegen emits typealias for each TypeAliasDeclaration" {
+  let parsed = @pkl.parse_source(
+    "typealias Username = String\ntypealias UserMap = Mapping<String, Int>",
+  )
+  let out = @pkl.codegen_moonbit(parsed.program)
+  inspect(out.contains("pub typealias String as Username"), content="true")
+  inspect(
+    out.contains("pub typealias Map[String, Int] as UserMap"),
+    content="true",
+  )
+}
+
+///|
+test "PKL-131: codegen skips function declarations" {
+  let parsed = @pkl.parse_source(
+    "class C {\n  x: Int\n}\nfunction helper(n: Int): Int = n + 1",
+  )
+  let out = @pkl.codegen_moonbit(parsed.program)
+  inspect(out.contains("struct C"), content="true")
+  inspect(out.contains("helper"), content="false")
+}
+
+///|
 test "PKL-119d: Map(...) carrier preserves insertion order, later duplicates overwrite" {
   guard eval_source("m = Map(\"a\", 1, \"b\", 2, \"a\", 99)")
     is EvalOk(ObjectValue(members)) else {

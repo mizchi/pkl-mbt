@@ -1,0 +1,29 @@
+// PKL-131: `pkl codegen` lowers a Pkl module to a MoonBit source
+// skeleton. Each `class` becomes a `pub(all) struct ... derive(Eq,
+// Show)`; each `typealias` becomes a `pub typealias <target> as
+// <name>`. Pkl type annotations translate to the closest MoonBit
+// types via `pkl_type_to_moonbit`: scalars map directly, generics
+// (Listing / Mapping / Set / Pair / List / Map) recurse, nullable
+// `T?` carries through, constraint suffixes (`Int(isPositive)`)
+// strip to the base, and unrepresentable shapes (unions, Any) drop
+// into `Unit` slots with `// TODO:` comments so the embedder can
+// resolve them by hand.
+class Person {
+  name: String
+  age: Int
+  active: Boolean
+  email: String?
+}
+
+class Team {
+  lead: Person
+  members: Listing<Person>
+  scores: Mapping<String, Int>
+  tags: Set<String>
+  range: IntSeq
+  duo: Pair<String, Int>
+}
+
+typealias Username = String
+
+typealias UserMap = Mapping<String, Person>

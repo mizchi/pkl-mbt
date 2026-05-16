@@ -1,10 +1,13 @@
 ///|
 fn usage() -> Unit {
-  println("usage: pkl <parse|check|eval|test|format|analyze> <file.pkl>")
+  println(
+    "usage: pkl <parse|check|eval|test|format|analyze|codegen> <file.pkl>",
+  )
   println("       pkl eval [-f|--format pcf|json|yaml|properties] <file.pkl>")
   println("       pkl test <file.pkl>")
   println("       pkl format <file.pkl>")
   println("       pkl analyze <file.pkl>")
+  println("       pkl codegen <file.pkl>")
   println("       pkl parse-many <file.pkl>...")
   println(
     "  sandbox flags: --allowed-modules <pipe-separated-prefixes> --module-path <dir> -p NAME=VALUE",
@@ -839,6 +842,23 @@ async fn main {
         @sys.exit(1)
       }
       println("ok")
+    }
+    "codegen" => {
+      // PKL-131: lower a typechecked Pkl module to a MoonBit source
+      // skeleton. Only `-t mbt` is recognised today; future targets
+      // (Kotlin / Swift / Go / Java) extend the same dispatcher.
+      let parsed = @pkl.parse_source(source)
+      if parsed.diagnostics.length() > 0 {
+        print_diagnostics_with_source(parsed.diagnostics, path, source)
+        @sys.exit(1)
+      }
+      let generated = @pkl.codegen_moonbit(parsed.program)
+      let trimmed = if generated.has_suffix("\n") {
+        String::unsafe_substring(generated, start=0, end=generated.length() - 1)
+      } else {
+        generated
+      }
+      println(trimmed)
     }
     "format" => {
       // PKL-099: parse the source, evaluate it through the existing

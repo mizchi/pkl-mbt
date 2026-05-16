@@ -1922,6 +1922,38 @@ local setValueVariantScenario = new Scenario {
   }
 }
 
+local codegenMoonbitBridgeScenario = new Scenario {
+  id = "PKL-131"
+  name = "pkl codegen bridge to MoonBit"
+  description =
+    "`moon run cmd/main -- codegen <file.pkl>` lowers a parsed Pkl module into a MoonBit source skeleton so embedders can round-trip their schemas through both type systems. The `codegen_moonbit(program: Program): String` entry point walks `program.declarations`: each `ClassDeclaration` emits a `pub(all) struct ... derive(Eq, Show)` carrying one field per property; each `TypeAliasDeclaration` emits a `pub typealias <target> as <name>`; `FunctionDeclaration`s are intentionally skipped (no MoonBit data-shape analogue). Pkl type annotations flow through `pkl_type_to_moonbit`: scalars (`Int` → `Int`, `Float` → `Double`, `Boolean`/`Bool` → `Bool`, `String` → `String`, `Null` → `Unit`, `Bytes` → `Bytes`); generics recurse — `Listing<T>` / `List<T>` → `Array[T]`, `Mapping<K, V>` / `Map<K, V>` → `Map[K, V]`, `Set<T>` → `Array[T]` with a `/* Set */` comment (no ordered-unique container in moonbitlang/core yet), `Pair<A, B>` → tuple `(A, B)`, `IntSeq` → `Array[Int]` with `/* IntSeq */`, `Duration` / `DataSize` → `Double` with a unit comment; nullable `T?` carries through structurally; constraint suffixes (`Int(isPositive)`) strip to the base type because MoonBit doesn't model refinement types here; unrepresentable shapes (unions, `Any`, `Unknown`) fall back to `Unit /* TODO: ... */` so the generated file still parses and the embedder gets a `// TODO:` flag to grep for. The CLI subcommand reuses the same `print_diagnostics_with_source` path as `check` / `analyze` for parse errors, exits 1 on a non-clean parse, and otherwise prints the generated source verbatim (single trailing newline)."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-080"; "PKL-110" }
+  tags { "cli"; "codegen"; "typechecker" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "MoonBit-first target, skip Java / Kotlin / Swift / Go"
+      rationale =
+        "The original PKL-131 roadmap entry listed Java / Kotlin / Swift / Go alongside MoonBit. pkl-mbt is positioned as a MoonBit library, so the natural first consumer is the MoonBit codebase that embeds pkl-mbt itself. Single target keeps the slice tight (one type mapper, one emitter, one set of test cases) and matches the consumer that exists today. The other targets layer on as future slices once the mapping table proves out; the entry-point name `codegen_moonbit` (rather than a generic `codegen`) signals the explicit target rather than a polymorphic dispatcher pretending to handle all four."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Type annotations read from the parser, not the typechecker"
+      rationale =
+        "The full typechecker output (TypeMember / TypeEntry / ClassType / etc.) is richer — it carries inferred element types, generic parameter bounds, and union narrowing. But Pkl's declared `name: Type` annotations are already a structural surface; reading them via `parse_source` keeps codegen runnable on partially-typed modules (the embedder hasn't necessarily reached `TypeOk` yet) and avoids coupling to the typechecker's internal Type ADT. The string-level type mapping in `pkl_type_to_moonbit` handles the syntactic forms users actually write; PKL-110 / PKL-115 inferred shapes can layer in later if a fixture demands them."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Union / Any drop into Unit slots with TODO comments rather than fail-stop"
+      rationale =
+        "Three options for unrepresentable shapes: (a) hard-error (`pkl codegen` exits with `cannot lower union Int | String`), (b) emit a placeholder type like `@json.JsonValue` requiring a moonbitlang/x dependency, (c) drop into `Unit /* TODO: ... */`. Option (a) blocks any partial codegen — most real Pkl modules have at least one union somewhere. Option (b) ties codegen output to a specific JSON library the embedder may not use. Option (c) lets the file still parse, isolates the human-in-the-loop work to greppable TODO comments, and matches the existing pattern for `Set<T>` / `IntSeq` / `Duration` where the structural fallback is acceptable."
+    }
+  }
+}
+
 local packageRegistryProbeScenario = new Scenario {
   id = "PKL-129b1"
   name = "package registry probe and structured diagnostic"
@@ -3968,5 +4000,6 @@ scenarios {
   setValueVariantScenario
   mapValueVariantScenario
   packageRegistryProbeScenario
+  codegenMoonbitBridgeScenario
   ...roadmap.entries
 }

@@ -374,6 +374,34 @@ local cliFloatMagnitudeUnits = new Test {
   timeoutSec = 120
 }
 
+local cliCodegenMoonbit = new Test {
+  name = "cli codegen moonbit"
+  description =
+    "The native CLI's `codegen` subcommand lowers a Pkl fixture to MoonBit source. The fixture covers the common shape — scalar + nullable properties, references between classes, Listing / Mapping / Set / IntSeq / Pair generics, and typealias declarations. The expected output exercises the scalar mapping, the recursive generic translation (including the `Array[T] /* Set */` and `Array[Int] /* IntSeq */` fallbacks), nullable round-trip, and the `pub typealias <target> as <name>` form."
+  tags { "moonbit"; "cli"; "codegen"; "typechecker"; "contract" }
+  specRef { "PKL-131" }
+  cmd = "moon run cmd/main --target native -- codegen fixtures/cli_codegen_moonbit.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "pub(all) struct Person {"
+    "name : String"
+    "age : Int"
+    "active : Bool"
+    "email : String?"
+    "} derive(Eq, Show)"
+    "pub(all) struct Team {"
+    "lead : Person"
+    "members : Array[Person]"
+    "scores : Map[String, Int]"
+    "tags : Array[String] /* Set */"
+    "range : Array[Int] /* IntSeq */"
+    "duo : (String, Int)"
+    "pub typealias String as Username"
+    "pub typealias Map[String, Person] as UserMap"
+  }
+  timeoutSec = 120
+}
+
 local cliPackageUriOffline = new Test {
   name = "cli package uri offline diagnostic"
   description =
@@ -1258,6 +1286,7 @@ tests {
   cliMapValue
   cliPackageUriOffline
   cliPackageRegistryProbe
+  cliCodegenMoonbit
   cliHeredocString
   cliFormat
   cliTestExamplesPass

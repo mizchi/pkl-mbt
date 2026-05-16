@@ -34,36 +34,28 @@
 ///   - PKL-130 (pkldoc)             — pkl's own `pkldoc` covers this
 ///   - PKL-132 (LSP)                — out of scope for the library slice
 ///
-/// Active grouping (the ID ranges are conventional, not enforced):
-///   PKL-131      checker — codegen bridge (consumes typechecker state)
+/// Active entries are empty today — the "MoonBit library scope" core
+/// (parser / typechecker / evaluator + codegen) has landed. The
+/// deferred listing tracks the slices we consciously parked; revive
+/// one of them into `entries` when a concrete library consumer asks
+/// for the shape.
 ///
-/// PKL-119a/b/c/d (Pair / IntSeq / Set / Map dedicated value
-/// variants) all landed; the stdlib value-variant split is done.
-/// PKL-129b1 (package:// URI parse + metadata fetch + diagnostic)
-/// landed; the full unpack stays deferred per the rationale above.
+/// Recently landed:
+///   PKL-119a/b/c/d  Pair / IntSeq / Set / Map dedicated value variants
+///   PKL-129b1       package:// URI parse + metadata fetch + diagnostic
+///   PKL-131         codegen bridge — MoonBit target (struct / typealias)
 @ModuleInfo { minPklVersion = "0.31.0" }
 module specs.Roadmap
 
 import "../pkspec/Spec.pkl"
 
 // ── ACTIVE ─────────────────────────────────────────────────────────────────
-// ── checker ──
+// No active draft slices today — the "MoonBit library scope" core
+// (parser / typechecker / evaluator + codegen) has landed. New
+// slices land here when fixture work or library-consumer feedback
+// surfaces a concrete gap.
 
-local codegenBridge: Spec.Scenario = new {
-  id = "PKL-131"
-  name = "pkl-codegen bridge"
-  description =
-    "Lower a typechecked Pkl module to a target language schema (Java / Kotlin / Swift / Go / MoonBit). The bridge consumes the existing typechecker state via `pkl:reflect`'s minimal stub once expanded. For pkl-mbt as a MoonBit library, the natural first target is MoonBit itself — emit a `struct` / `enum` skeleton matching the Pkl class / typealias surface so embedders can round-trip their schemas through the same type system."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-080"; "PKL-110" }
-  tags { "cli"; "codegen"; "typechecker"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
-entries: Listing<Spec.Scenario> = new {
-  codegenBridge
-}
+entries: Listing<Spec.Scenario> = new {}
 
 // ── DEFERRED ───────────────────────────────────────────────────────────────
 // Slices intentionally parked on 2026-05-16. Spec.pkl does not import

@@ -27,6 +27,8 @@ pub fn class_decl() -> @cst.SyntaxKind
 
 pub fn coalesce() -> @cst.SyntaxKind
 
+pub fn codegen_moonbit(Program) -> String
+
 pub fn colon() -> @cst.SyntaxKind
 
 pub fn comma() -> @cst.SyntaxKind
