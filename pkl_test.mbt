@@ -2647,6 +2647,37 @@ test "PKL-105: path-keyed renderer converter rewrites a top-level value" {
 }
 
 ///|
+test "PKL-121: Float magnitude Duration literal parses" {
+  guard eval_source("x = 1.5.s") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is DurationValue(d, unit) else { panic() }
+  inspect(d, content="1.5")
+  inspect(unit, content="s")
+}
+
+///|
+test "PKL-121: Float magnitude DataSize literal parses" {
+  guard eval_source("x = 2.5.gib") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is DataSizeValue(d, unit) else { panic() }
+  inspect(d, content="2.5")
+  inspect(unit, content="gib")
+}
+
+///|
+test "PKL-121: Int magnitude unchanged after Double widening" {
+  guard eval_source("a = 5.min\nb = 3.gib") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is DurationValue(d1, _) else { panic() }
+  guard members[1].value is DataSizeValue(d2, _) else { panic() }
+  inspect(d1, content="5")
+  inspect(d2, content="3")
+}
+
+///|
 test "PKL-103: read?(uri) returns null when env var is missing" {
   guard eval_source("x = read?(\"env:NONEXISTENT_PKL_TEST_VAR_QZQ\")")
     is EvalOk(ObjectValue(members)) else {

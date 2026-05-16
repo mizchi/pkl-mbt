@@ -128,18 +128,6 @@ local setPairMapIntSeqVariants: Spec.Scenario = new {
   severity = "major"
 }
 
-local floatMagnitudeDurationDataSize: Spec.Scenario = new {
-  id = "PKL-121"
-  name = "Float magnitude Duration / DataSize literals"
-  description =
-    "`1.5.s`, `2.5.gib` and other Float-magnitude unit literals parse and evaluate to Duration / DataSize values whose magnitude is Double. Today only Int magnitudes are recognized."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-082"; "PKL-092" }
-  tags { "parser"; "evaluator"; "duration"; "datasize"; "float"; "next" }
-  reviewStatus = "draft"
-  severity = "minor"
-}
-
 local stringUnicodeMethods: Spec.Scenario = new {
   id = "PKL-122"
   name = "String unicode and codepoint methods"
@@ -159,7 +147,7 @@ local pklPlatformSemver: Spec.Scenario = new {
     "`pkl:platform` exposes the host OS / arch fields (`current.operatingSystem`, `current.architecture`). `pkl:semver` provides `Version`, `parse(s)`, comparison helpers. Both are read-only stubs from the evaluator's perspective."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-080" }
-  tags { "stdlib"; "platform"; "semver" }
+  tags { "stdlib"; "platform"; "semver"; "next" }
   reviewStatus = "draft"
   severity = "minor"
 }
@@ -302,7 +290,6 @@ entries: Listing<Spec.Scenario> = new {
   inheritanceDispatchHardening
   crossModuleTypecheckCompleteness
   setPairMapIntSeqVariants
-  floatMagnitudeDurationDataSize
   stringUnicodeMethods
   pklPlatformSemver
   pklRendererStdlibModules

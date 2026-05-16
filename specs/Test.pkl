@@ -354,6 +354,26 @@ local cliListingMappingStdlib = new Test {
   timeoutSec = 120
 }
 
+local cliFloatMagnitudeUnits = new Test {
+  name = "cli float magnitude units"
+  description =
+    "The native CLI evaluates a fixture using Float-magnitude Duration and DataSize literals (`0.5.s`, `2.5.gib`, `1.h`, `5.gib`). The rendered output preserves the magnitude and unit, and accessing `.value` projects back to Int when integral or Float when fractional."
+  tags { "moonbit"; "cli"; "parser"; "duration"; "datasize"; "float"; "contract" }
+  specRef { "PKL-121" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_float_magnitude_units.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "half_second = 0.5.s"
+    "heavy = 2.5.gib"
+    "one_hour = 1.h"
+    "five_gib = 5.gib"
+    "heavy_value = 2.5"
+    "heavy_unit = \"gib\""
+    "half_positive = true"
+  }
+  timeoutSec = 120
+}
+
 local cliReadNullable = new Test {
   name = "cli read nullable"
   description =
@@ -860,6 +880,7 @@ tests {
   cliSuperMethodCall
   cliMathFloatOps
   cliReadNullable
+  cliFloatMagnitudeUnits
   cliHeredocString
   cliFormat
   cliTestExamplesPass

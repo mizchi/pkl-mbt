@@ -1785,6 +1785,33 @@ local listingMappingStdlibCore = new Scenario {
   }
 }
 
+local floatMagnitudeUnits = new Scenario {
+  id = "PKL-121"
+  name = "Float magnitude Duration and DataSize literals"
+  description =
+    "`1.5.s`, `2.5.gib`, `0.5.h` and other Float-magnitude unit literals parse and evaluate to Duration / DataSize values whose magnitude is `Double`. The `DurationValue` / `DataSizeValue` variants were widened from `Int` to `Double` so both Int and Float magnitudes round-trip through the same Value, and the conversion helpers (`duration_in_unit`, `datasize_in_unit`) now compute in Double. Int-magnitude call sites promote on the way in. The `.value` property projects back to `IntValue` when the magnitude is integral and `FloatValue` otherwise so existing Int-magnitude observations stay byte-identical."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-082"; "PKL-092" }
+  tags { "parser"; "evaluator"; "duration"; "datasize"; "float" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary =
+        "Widen DurationValue / DataSizeValue magnitudes to Double rather than introduce Float variants"
+      rationale =
+        "Adding `FloatDurationValue` / `FloatDataSizeValue` variants would double the surface for every pattern match against the existing variants (render, equality, unit conversion, comparison, arithmetic). Widening the existing variant's magnitude field from `Int` to `Double` lets every Int-magnitude consumer keep working as long as it accepts the magnitude as `Double` and promotes through `.to_double()` at construction time. The render path already handles `Double` projection."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "`.value` projects back to IntValue when magnitude is integral"
+      rationale =
+        "Pre-PKL-121, `5.min.value` returned `IntValue(5)`. Promoting unconditionally to `FloatValue(5.0)` would break every observation that pattern-matches on the `.value` shape (renderers, arithmetic, constraint checks). The `magnitude_as_value` helper projects to `IntValue` when the magnitude has no fractional component and to `FloatValue` otherwise, so the common path stays byte-identical."
+    }
+  }
+}
+
 local readNullable = new Scenario {
   id = "PKL-103"
   name = "nullable read form"
@@ -3406,5 +3433,6 @@ scenarios {
   superMethodCall
   pklMathFloatOps
   readNullable
+  floatMagnitudeUnits
   ...roadmap.entries
 }

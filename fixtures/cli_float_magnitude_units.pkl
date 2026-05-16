@@ -1,0 +1,18 @@
+// PKL-121: Apple Pkl allows Float magnitudes on Duration and DataSize
+// literals (`1.5.s`, `2.5.gib`). The eval pipeline widened
+// `DurationValue` / `DataSizeValue` magnitudes from `Int` to `Double`
+// so both Int and Float magnitudes round-trip through the same
+// Value variant.
+half_second = 0.5.s
+
+heavy = 2.5.gib
+
+one_hour = 1.h
+
+five_gib = 5.gib
+
+heavy_value = heavy.value
+
+heavy_unit = heavy.unit
+
+half_positive = half_second.isPositive

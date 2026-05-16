@@ -12,12 +12,15 @@ pub(all) enum Value {
   ListingValue(Array[Value])
   MappingValue(Array[ValueEntry])
   FunctionValue(Array[FunctionParameter], Expr, String?, Array[ValueBinding])
-  // PKL-082: Int magnitude in the named unit. Mixed-unit arithmetic
+  // PKL-082: magnitude in the named unit. Mixed-unit arithmetic
   // normalizes to the smaller of the two units (the base unit of each
   // family — `ns` for Duration, `b` for DataSize — when no common
-  // larger unit divides both). Float magnitudes are out of scope here.
-  DurationValue(Int, String)
-  DataSizeValue(Int, String)
+  // larger unit divides both). PKL-121 widened the magnitude from
+  // `Int` to `Double` so Float-magnitude literals (`1.5.s`, `2.5.gib`)
+  // round-trip without precision loss; Int-magnitude call sites
+  // promote on the way in.
+  DurationValue(Double, String)
+  DataSizeValue(Double, String)
   // PKL-081: Regex value created via `Regex("<pattern>")`. Stores the
   // source pattern so methods can recompile via `moonbitlang/regexp`
   // and renderers can round-trip the value through `Regex("...")`.
@@ -1425,20 +1428,20 @@ fn smaller_datasize_unit(a : String, b : String) -> String {
 /// overflow that a flat `factor_to_ns / factor_to_target` would hit on
 /// `min`, `h`, or `d`.
 fn duration_in_unit(
-  magnitude : Int,
+  magnitude : Double,
   from_unit : String,
   to_unit : String,
-) -> Int {
+) -> Double {
   let from = duration_unit_level(from_unit)
   let to = duration_unit_level(to_unit)
   let mut m = magnitude
   let mut level = from
   while level > to {
-    m = m * duration_step_factor(level)
+    m = m * duration_step_factor(level).to_double()
     level = level - 1
   }
   while level < to {
-    m = m / duration_step_factor(level + 1)
+    m = m / duration_step_factor(level + 1).to_double()
     level = level + 1
   }
   m
@@ -1450,10 +1453,10 @@ fn duration_in_unit(
 /// that mix `tb`+ units guard against the -1 sentinel from
 /// `datasize_byte_factor` first.
 fn datasize_in_unit(
-  magnitude : Int,
+  magnitude : Double,
   from_unit : String,
   to_unit : String,
-) -> Int {
+) -> Double {
   let from_f = datasize_byte_factor(from_unit)
   let to_f = datasize_byte_factor(to_unit)
   if from_f < 0 || to_f < 0 {
@@ -1462,9 +1465,9 @@ fn datasize_in_unit(
   if from_f == to_f {
     magnitude
   } else if from_f > to_f {
-    magnitude * (from_f / to_f)
+    magnitude * (from_f / to_f).to_double()
   } else {
-    magnitude / (to_f / from_f)
+    magnitude / (to_f / from_f).to_double()
   }
 }
 
@@ -2648,15 +2651,15 @@ fn eval_int_property(
 
 ///|
 fn eval_duration_property(
-  magnitude : Int,
+  magnitude : Double,
   unit : String,
   name : String,
   diagnostics : Array[Diagnostic],
 ) -> Value? {
   match name {
-    "value" => Some(IntValue(magnitude))
+    "value" => Some(magnitude_as_value(magnitude))
     "unit" => Some(StringValue(unit))
-    "isPositive" => Some(BoolValue(magnitude > 0 || magnitude == 0))
+    "isPositive" => Some(BoolValue(magnitude >= 0.0))
     _ => {
       diagnostics.push(diag("unknown Duration property \{name}"))
       None
@@ -2666,19 +2669,34 @@ fn eval_duration_property(
 
 ///|
 fn eval_datasize_property(
-  magnitude : Int,
+  magnitude : Double,
   unit : String,
   name : String,
   diagnostics : Array[Diagnostic],
 ) -> Value? {
   match name {
-    "value" => Some(IntValue(magnitude))
+    "value" => Some(magnitude_as_value(magnitude))
     "unit" => Some(StringValue(unit))
-    "isPositive" => Some(BoolValue(magnitude > 0 || magnitude == 0))
+    "isPositive" => Some(BoolValue(magnitude >= 0.0))
     _ => {
       diagnostics.push(diag("unknown DataSize property \{name}"))
       None
     }
+  }
+}
+
+///|
+/// PKL-121: project a magnitude back to an `IntValue` when it has no
+/// fractional component and fits in `Int`, otherwise expose it as
+/// `FloatValue`. Keeps the common Int-magnitude path observationally
+/// identical to the pre-PKL-121 behaviour (`.value` on `5.min` is
+/// still `5`, not `5.0`).
+fn magnitude_as_value(magnitude : Double) -> Value {
+  let rounded = magnitude.to_int()
+  if rounded.to_double() == magnitude {
+    IntValue(rounded)
+  } else {
+    FloatValue(magnitude)
   }
 }
 
@@ -2788,7 +2806,7 @@ fn eval_int_method(
 
 ///|
 fn eval_duration_method(
-  magnitude : Int,
+  magnitude : Double,
   unit : String,
   method_name : String,
   arguments : Array[Expr],
@@ -2851,7 +2869,7 @@ fn eval_duration_method(
 
 ///|
 fn eval_datasize_method(
-  magnitude : Int,
+  magnitude : Double,
   unit : String,
   method_name : String,
   arguments : Array[Expr],
@@ -3933,13 +3951,25 @@ fn eval_expr_with_bindings(
             }
           Some(IntValue(n)) =>
             if is_duration_unit_name(member_name) {
-              Some(DurationValue(n, member_name))
+              Some(DurationValue(n.to_double(), member_name))
             } else if is_datasize_unit_name(member_name) {
-              Some(DataSizeValue(n, member_name))
+              Some(DataSizeValue(n.to_double(), member_name))
             } else if is_int_property_name(member_name) {
               eval_int_property(n, member_name, diagnostics)
             } else {
               diagnostics.push(diag("unknown Int property \{member_name}"))
+              None
+            }
+          // PKL-121: same dispatch for Float magnitudes (`1.5.s`,
+          // `2.5.gib`). The Duration / DataSize value carries the
+          // Double magnitude verbatim.
+          Some(FloatValue(d)) =>
+            if is_duration_unit_name(member_name) {
+              Some(DurationValue(d, member_name))
+            } else if is_datasize_unit_name(member_name) {
+              Some(DataSizeValue(d, member_name))
+            } else {
+              diagnostics.push(diag("unknown Float property \{member_name}"))
               None
             }
           Some(DurationValue(n, unit)) =>
@@ -3995,13 +4025,24 @@ fn eval_expr_with_bindings(
           }
         Some(IntValue(n)) =>
           if is_duration_unit_name(member_name) {
-            Some(DurationValue(n, member_name))
+            Some(DurationValue(n.to_double(), member_name))
           } else if is_datasize_unit_name(member_name) {
-            Some(DataSizeValue(n, member_name))
+            Some(DataSizeValue(n.to_double(), member_name))
           } else if is_int_property_name(member_name) {
             eval_int_property(n, member_name, diagnostics)
           } else {
             diagnostics.push(diag("unknown Int property \{member_name}"))
+            None
+          }
+        // PKL-121: SafeMemberAccess version of the Float-magnitude
+        // unit dispatch (`(maybeFloat ?? 0.5).s`).
+        Some(FloatValue(d)) =>
+          if is_duration_unit_name(member_name) {
+            Some(DurationValue(d, member_name))
+          } else if is_datasize_unit_name(member_name) {
+            Some(DataSizeValue(d, member_name))
+          } else {
+            diagnostics.push(diag("unknown Float property \{member_name}"))
             None
           }
         Some(DurationValue(n, unit)) =>
