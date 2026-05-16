@@ -1525,17 +1525,15 @@ fn json_to_value(j : Json, use_mapping : Bool) -> Value {
 }
 
 ///|
-/// PKL-144: detect the `pkl:json` Parser shape on a member-access
-/// receiver. The Parser is a synthetic stdlib class whose
-/// distinguishing feature is a `useMapping : Boolean` slot; we don't
-/// stamp a class-level kind marker because `hidden` on a class
-/// property isn't a recognised modifier today (the synthetic source
-/// stays renderable). Returns `Some(use_mapping)` when the shape
-/// matches, `None` otherwise.
-fn json_parser_use_mapping(members : Array[ValueMember]) -> Bool? {
+/// PKL-144 / PKL-145: read the `useMapping` slot from a pkl:json
+/// Parser mirror. The Parser is identified via the hidden
+/// `__kind = "JsonParser"` marker stamped by the synthetic class
+/// (`reflect_kind` walks the same `__kind` member); this helper
+/// only reads the toggle once the marker has been matched.
+fn json_parser_use_mapping(members : Array[ValueMember]) -> Bool {
   match lookup_member(members, "useMapping") {
-    Some(BoolValue(b)) => Some(b)
-    _ => None
+    Some(BoolValue(b)) => b
+    _ => false
   }
 }
 
@@ -6210,14 +6208,15 @@ fn eval_expr_with_bindings(
                 // before falling through to other lookups.
                 Some(ObjectValue(receiver_members)) =>
                   if method_name == "parse" &&
-                    json_parser_use_mapping(receiver_members) is Some(_) {
-                    // PKL-144: `<json.Parser>.parse(source)` — the
-                    // receiver carries a `useMapping: Boolean` slot
-                    // that identifies it as the pkl:json Parser
-                    // mirror (no other synthetic class shares that
-                    // shape today). Eval the source string, parse it
-                    // through MoonBit core's @json.parse, and project
-                    // the result via `json_to_value`.
+                    reflect_kind(receiver_members) is Some("JsonParser") {
+                    // PKL-144 / PKL-145: `<json.Parser>.parse(source)`
+                    // routes through `@json.parse` and projects the
+                    // result via `json_to_value`. The receiver is
+                    // identified via the hidden `__kind = "JsonParser"`
+                    // marker that the synthetic `pkl:json.Parser`
+                    // class stamps (PKL-145 added the `hidden`
+                    // class-property modifier so the marker survives
+                    // lookup but doesn't render).
                     if arguments.length() != 1 {
                       diagnostics.push(
                         diag(
@@ -6239,11 +6238,9 @@ fn eval_expr_with_bindings(
                           resolve_import,
                         ) {
                         Some(StringValue(source_text)) => {
-                          let use_mapping = match
-                            json_parser_use_mapping(receiver_members) {
-                            Some(b) => b
-                            None => false
-                          }
+                          let use_mapping = json_parser_use_mapping(
+                            receiver_members,
+                          )
                           try {
                             let parsed = @json.parse(source_text[:])
                             Some(json_to_value(parsed, use_mapping))

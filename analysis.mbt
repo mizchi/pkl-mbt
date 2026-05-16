@@ -242,19 +242,19 @@ fn builtin_stdlib_source(uri : String) -> String? {
     }
     "pkl:test" => Some("catch = null")
     "pkl:json" => {
-      // PKL-124 / PKL-144: `pkl:json` carries `Parser` (now functional
-      // via the eval-side hijack) and the annotation class `Property`.
-      // The eval path checks the call form `<receiver>.parse(source)`
-      // and treats it as JSON parsing when the receiver carries a
-      // `useMapping: Boolean` member — that pattern is distinctive
-      // enough across the synthetic stdlib (no other class exposes
-      // both `.parse` and `useMapping`). The Json→Value conversion
-      // routes through MoonBit core's `@json.parse` and honours
-      // `useMapping`. The user-facing `JsonRenderer` lives in
-      // `pkl:base` (see `builtin_type_from_annotation`).
+      // PKL-124 / PKL-144 / PKL-145: `pkl:json` carries `Parser` and
+      // the annotation class `Property`. The Parser stamps a hidden
+      // `__kind = "JsonParser"` class property (PKL-145 added the
+      // `hidden` modifier on class properties) so the evaluator's
+      // CallExpr path intercepts `parser.parse(source)` by checking
+      // the marker rather than relying on member-shape coincidence.
+      // The Json→Value conversion routes through MoonBit core's
+      // `@json.parse` and honours `useMapping`. The user-facing
+      // `JsonRenderer` lives in `pkl:base`.
       let source =
         #|class Parser {
         #|  useMapping: Boolean = false
+        #|  hidden __kind: String = "JsonParser"
         #|}
         #|class Property {
         #|  name: String

@@ -497,6 +497,24 @@ fn Parser::take_pending_abstract(self : Parser) -> Bool {
 }
 
 ///|
+/// PKL-145: drain the pending modifier list and return true when the
+/// `hidden` keyword was among them. Parallels `take_pending_abstract`
+/// — `parse_class_property_decl` calls this to thread the modifier
+/// into the property name via `hidden_member_name`, matching the
+/// object-body member path's existing behaviour.
+fn Parser::take_pending_hidden(self : Parser) -> Bool {
+  let mut found = false
+  // Walk in reverse so removals don't shift the iteration window.
+  for i = self.pending_modifiers.length() - 1; i >= 0; i = i - 1 {
+    if self.pending_modifiers[i] == "hidden" {
+      found = true
+      let _ = self.pending_modifiers.remove(i)
+    }
+  }
+  found
+}
+
+///|
 fn Parser::skip_balanced_group(
   self : Parser,
   open : @cst.SyntaxKind,
@@ -1162,13 +1180,18 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
 
 ///|
 fn Parser::parse_class_property_decl(self : Parser) -> ClassProperty? {
+  // PKL-145: drain the `hidden` modifier from the pending list that
+  // `skip_member_header` populated, then prefix the stored name with
+  // `hidden_member_prefix` so renderers skip the property (same
+  // contract as the object-body `hidden` member path).
+  let hidden = self.take_pending_hidden()
   self.builder.start_node(property_decl())
   if !self.at(identifier()) {
     self.skip_unknown_member()
     self.builder.finish_node()
     return None
   }
-  let name = match self.expect(identifier(), "class property name") {
+  let raw_name = match self.expect(identifier(), "class property name") {
     Some(tok) => tok.text()
     None => ""
   }
@@ -1188,9 +1211,10 @@ fn Parser::parse_class_property_decl(self : Parser) -> ClassProperty? {
     None
   }
   self.builder.finish_node()
-  if name == "" {
+  if raw_name == "" {
     None
   } else {
+    let name = if hidden { hidden_member_name(raw_name) } else { raw_name }
     Some({ name, type_name, value })
   }
 }

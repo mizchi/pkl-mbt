@@ -1896,6 +1896,32 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local hiddenClassPropertyScenario = new Scenario {
+  id = "PKL-145"
+  name = "hidden class property modifier"
+  description =
+    "The `hidden` member modifier now applies to class-property declarations, not just object-body members. `parse_class_property_decl` calls a new `take_pending_hidden` drainer that pulls the `hidden` token out of the `pending_modifiers` list `skip_member_header` populated, then wraps the stored property name with `hidden_member_name` (the same `@hidden$` prefix the object-body path uses). Lookups (`b.marker`) resolve through the bidirectional bare/prefixed `lookup_member` path; renderers skip the prefixed entry via `visible_members`. PKL-144's `pkl:json.Parser` synthetic source flips its `__kind = \"JsonParser\"` marker to a `hidden __kind` class property so the detection routes through the same `reflect_kind` helper that pkl:reflect mirrors use — replacing the shape-based fallback (`useMapping` slot present) with a structural marker check."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-098"; "PKL-144" }
+  tags { "parser"; "evaluator"; "stdlib" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "Drain via take_pending_hidden, mirroring take_pending_abstract"
+      rationale =
+        "PKL-117 introduced `pending_modifiers` + `take_pending_abstract` for the `abstract function` / `abstract class` path. The same drainer shape extends naturally to `hidden`: `skip_member_header` already populates the list for any token that `is_modifier_text` matches, so adding `take_pending_hidden` keeps the pull side narrow without touching the populate side. The drainer removes only `hidden` tokens (others like `const` / `external` stay for downstream consumers — none of those consume from `parse_class_property_decl` today, but the pattern stays composable)."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Switch pkl:json Parser detection from useMapping-shape to __kind marker"
+      rationale =
+        "PKL-144 detected the Parser by checking for a `useMapping: Boolean` slot — a shape-coincidence approach that worked because no other synthetic class shared the combination. Now that `hidden` on class properties survives lookup and renders cleanly, the marker-based detection (`reflect_kind(receiver) is Some(\"JsonParser\")`) is both more robust (no false positives if a future class re-uses `useMapping`) and consistent with the pkl:reflect Class / Module mirror dispatch path. The `useMapping` slot stays a public Parser property; only the detection key changes."
+    }
+  }
+}
+
 local pklJsonParserScenario = new Scenario {
   id = "PKL-144"
   name = "pkl:json.Parser.parse implementation"
@@ -4115,6 +4141,7 @@ scenarios {
   intSeqValueVariantScenario
   intSeqEqualityScenario
   pklJsonParserScenario
+  hiddenClassPropertyScenario
   setValueVariantScenario
   mapValueVariantScenario
   packageRegistryProbeScenario

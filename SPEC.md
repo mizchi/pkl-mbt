@@ -1,6 +1,6 @@
 # Test SPEC
 
-213 tests across 2 module(s) — 148 pending, 65 active
+214 tests across 2 module(s) — 149 pending, 65 active
 
 ## `specs/`
 
@@ -464,6 +464,13 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-070, PKL-071, PKL-072, PKL-073, PKL-074
   - decisions: 4 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **hidden class property modifier** — verifies: PKL-145 — tags: parser, evaluator, stdlib
+  > The `hidden` member modifier now applies to class-property declarations, not just object-body members. `parse_class_property_decl` calls a new `take_pending_hidden` drainer that pulls the `hidden` token out of the `pending_modifiers` list `skip_member_header` populated, then wraps the stored property name with `hidden_member_name` (the same `@hidden$` prefix the object-body path uses). Lookups (`b.marker`) resolve through the bidirectional bare/prefixed `lookup_member` path; renderers skip the prefixed entry via `visible_members`. PKL-144's `pkl:json.Parser` synthetic source flips its `__kind = "JsonParser"` marker to a `hidden __kind` class property so the detection routes through the same `reflect_kind` helper that pkl:reflect mirrors use — replacing the shape-based fallback (`useMapping` slot present) with a structural marker check.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-098, PKL-144
+  - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **infer Pkl class property default types** — verifies: PKL-034 — tags: typechecker
@@ -1274,7 +1281,7 @@
   > The native CLI evaluates a fixture that declares `output { renderer = new YamlRenderer {} }` and several multiline String values. The YAML output renders them as literal block scalars: `|` (one trailing newline, clip), `|-` (no trailing newline, strip), `|+` (multiple trailing newlines, keep), with two-space content indentation. Strings whose lines start with whitespace fall back to double-quoted form, and listing items in block context also pick up the block-scalar projection.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-080, PKL-081, PKL-082, PKL-083, PKL-084, PKL-085, PKL-086, PKL-087, PKL-088, PKL-089, PKL-090, PKL-091, PKL-092, PKL-093, PKL-098, PKL-119be, PKL-144 — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-080, PKL-081, PKL-082, PKL-083, PKL-084, PKL-085, PKL-086, PKL-087, PKL-088, PKL-089, PKL-090, PKL-091, PKL-092, PKL-093, PKL-098, PKL-119be, PKL-144, PKL-145 — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 

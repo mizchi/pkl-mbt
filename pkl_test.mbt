@@ -3969,6 +3969,21 @@ test "PKL-119b: IntSeq.fold reduces left-to-right" {
 }
 
 ///|
+test "PKL-145: hidden class property survives lookup but skips render" {
+  guard eval_source(
+      "class Box {\n  value: Int\n  hidden marker: String = \"BoxMarker\"\n}\nb = new Box { value = 42 }\nm = b.marker",
+    )
+    is EvalOk(value) else {
+    panic()
+  }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("value = 42"), content="true")
+  inspect(rendered.contains("m = \"BoxMarker\""), content="true")
+  // The hidden marker must not appear inside the rendered Box.
+  inspect(rendered.contains("marker = \"BoxMarker\""), content="false")
+}
+
+///|
 test "PKL-144: pkl:json.Parser.parse decodes a primitive object (Dynamic mode)" {
   let session = AnalysisSession::new()
   session.set_source(
