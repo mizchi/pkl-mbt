@@ -2,7 +2,6 @@
 test "parse source builds a CST-backed program" {
   let parsed = parse_source("1 + 2 * 3")
   inspect(parsed.diagnostics.length(), content="0")
-  inspect(kind_name(parsed.root.kind()), content="module")
   inspect(parsed.root.text_len().to_int(), content="9")
 }
 

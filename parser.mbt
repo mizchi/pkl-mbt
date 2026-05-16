@@ -2377,15 +2377,15 @@ fn Parser::consume_module_visibility_modifiers(self : Parser) -> Bool {
 /// a user-declared property name. Renderers skip members whose name starts
 /// with this prefix; `lookup_member` resolves either the bare or prefixed
 /// form so reads from the same value see the hidden member transparently.
-pub let hidden_member_prefix : String = "@hidden$"
+let hidden_member_prefix : String = "@hidden$"
 
 ///|
-pub fn hidden_member_name(name : String) -> String {
+fn hidden_member_name(name : String) -> String {
   hidden_member_prefix + name
 }
 
 ///|
-pub fn is_hidden_member_name(name : String) -> Bool {
+fn is_hidden_member_name(name : String) -> Bool {
   name.has_prefix(hidden_member_prefix)
 }
 

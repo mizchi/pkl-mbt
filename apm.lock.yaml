@@ -1,0 +1,15 @@
+lockfile_version: '1'
+generated_at: '2026-05-16T14:36:33.083266+00:00'
+apm_version: 0.12.4
+dependencies:
+- repo_url: moonbitlang/moonbit-agent-guide
+  host: github.com
+  resolved_commit: 4997a39a635027272475a4c258d119de74e7a42d
+  resolved_ref: 4997a39a635027272475a4c258d119de74e7a42d
+  virtual_path: moonbit-refactoring
+  is_virtual: true
+  package_type: claude_skill
+  deployed_files:
+  - .agents/skills/moonbit-refactoring
+  - .claude/skills/moonbit-refactoring
+  content_hash: sha256:1a20bd55385e0a076b78cf502b0bb957d2c71a3e637055b6653a678c89b1231b

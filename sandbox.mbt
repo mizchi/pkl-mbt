@@ -56,7 +56,7 @@ pub fn configure_sandbox_module_paths(dirs : Array[String]) -> Unit {
 /// Look up a `prop:` value installed via `-p NAME=VALUE`. Returns
 /// `None` when the key is absent, which `eval_read_uri` translates
 /// into a diagnostic mirroring the `env:` missing-variable path.
-pub fn sandbox_lookup_prop(name : String) -> String? {
+fn sandbox_lookup_prop(name : String) -> String? {
   sandbox_config.props.get(name)
 }
 

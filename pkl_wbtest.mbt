@@ -3,6 +3,12 @@
 // Keep them focused; public behavior belongs in `_test.mbt`.
 
 ///|
+test "parse source root advertises module kind through the internal helper" {
+  let parsed = parse_source("1 + 2 * 3")
+  inspect(kind_name(parsed.root.kind()), content="module")
+}
+
+///|
 test "analysis typecheck ignores unrelated source changes" {
   let session = AnalysisSession::new()
   session.set_source("base.pkl", "value = 1")

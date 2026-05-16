@@ -1,0 +1,16 @@
+name: pkl-mbt
+version: 0.1.0
+# APM 0.12+ requires an explicit target when no marker directory exists
+# at the repo root; declare it unconditionally so install never depends
+# on directory auto-detection.
+targets:
+  - claude
+dependencies:
+  apm:
+    # PKL-131 follow-up: introduce moonbit-refactoring for the public-API
+    # tightening pass. Pinned to a SHA because the upstream repo does not
+    # cut release tags yet — drift to a floating ref would surprise the
+    # next install. Refresh by re-running `gh api .../commits/main` and
+    # bumping the SHA + apm.lock.yaml in one commit.
+    - moonbitlang/moonbit-agent-guide/moonbit-refactoring#4997a39a635027272475a4c258d119de74e7a42d
+scripts: {}

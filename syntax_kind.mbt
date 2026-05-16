@@ -1,430 +1,430 @@
 ///|
-pub fn eof() -> @cst.SyntaxKind {
+fn eof() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(0)
 }
 
 ///|
-pub fn error_kind() -> @cst.SyntaxKind {
+fn error_kind() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(1)
 }
 
 ///|
-pub fn whitespace() -> @cst.SyntaxKind {
+fn whitespace() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(2)
 }
 
 ///|
-pub fn newline() -> @cst.SyntaxKind {
+fn newline() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(3)
 }
 
 ///|
-pub fn comment() -> @cst.SyntaxKind {
+fn comment() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(4)
 }
 
 ///|
-pub fn identifier() -> @cst.SyntaxKind {
+fn identifier() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(10)
 }
 
 ///|
-pub fn int_token() -> @cst.SyntaxKind {
+fn int_token() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(11)
 }
 
 ///|
-pub fn float_token() -> @cst.SyntaxKind {
+fn float_token() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(126)
 }
 
 ///|
-pub fn string_token() -> @cst.SyntaxKind {
+fn string_token() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(12)
 }
 
 ///|
-pub fn let_kw() -> @cst.SyntaxKind {
+fn let_kw() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(20)
 }
 
 ///|
-pub fn true_kw() -> @cst.SyntaxKind {
+fn true_kw() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(21)
 }
 
 ///|
-pub fn false_kw() -> @cst.SyntaxKind {
+fn false_kw() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(22)
 }
 
 ///|
-pub fn null_kw() -> @cst.SyntaxKind {
+fn null_kw() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(23)
 }
 
 ///|
-pub fn module_kw() -> @cst.SyntaxKind {
+fn module_kw() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(24)
 }
 
 ///|
-pub fn new_kw() -> @cst.SyntaxKind {
+fn new_kw() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(25)
 }
 
 ///|
-pub fn import_kw() -> @cst.SyntaxKind {
+fn import_kw() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(26)
 }
 
 ///|
-pub fn as_kw() -> @cst.SyntaxKind {
+fn as_kw() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(27)
 }
 
 ///|
-pub fn local_kw() -> @cst.SyntaxKind {
+fn local_kw() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(28)
 }
 
 ///|
-pub fn if_kw() -> @cst.SyntaxKind {
+fn if_kw() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(29)
 }
 
 ///|
-pub fn eq() -> @cst.SyntaxKind {
+fn eq() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(30)
 }
 
 ///|
-pub fn plus() -> @cst.SyntaxKind {
+fn plus() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(31)
 }
 
 ///|
-pub fn minus() -> @cst.SyntaxKind {
+fn minus() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(32)
 }
 
 ///|
-pub fn star() -> @cst.SyntaxKind {
+fn star() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(33)
 }
 
 ///|
-pub fn slash() -> @cst.SyntaxKind {
+fn slash() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(34)
 }
 
 ///|
-pub fn else_kw() -> @cst.SyntaxKind {
+fn else_kw() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(35)
 }
 
 ///|
-pub fn is_kw() -> @cst.SyntaxKind {
+fn is_kw() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(36)
 }
 
 ///|
-pub fn when_kw() -> @cst.SyntaxKind {
+fn when_kw() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(37)
 }
 
 ///|
-pub fn for_kw() -> @cst.SyntaxKind {
+fn for_kw() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(38)
 }
 
 ///|
-pub fn in_kw() -> @cst.SyntaxKind {
+fn in_kw() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(39)
 }
 
 ///|
-pub fn lparen() -> @cst.SyntaxKind {
+fn lparen() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(40)
 }
 
 ///|
-pub fn rparen() -> @cst.SyntaxKind {
+fn rparen() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(41)
 }
 
 ///|
-pub fn semicolon() -> @cst.SyntaxKind {
+fn semicolon() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(42)
 }
 
 ///|
-pub fn lbrace() -> @cst.SyntaxKind {
+fn lbrace() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(43)
 }
 
 ///|
-pub fn rbrace() -> @cst.SyntaxKind {
+fn rbrace() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(44)
 }
 
 ///|
-pub fn dot() -> @cst.SyntaxKind {
+fn dot() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(45)
 }
 
 ///|
-pub fn colon() -> @cst.SyntaxKind {
+fn colon() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(46)
 }
 
 ///|
-pub fn lbracket() -> @cst.SyntaxKind {
+fn lbracket() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(47)
 }
 
 ///|
-pub fn rbracket() -> @cst.SyntaxKind {
+fn rbracket() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(48)
 }
 
 ///|
-pub fn comma() -> @cst.SyntaxKind {
+fn comma() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(49)
 }
 
 ///|
-pub fn at_sign() -> @cst.SyntaxKind {
+fn at_sign() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(50)
 }
 
 ///|
-pub fn question() -> @cst.SyntaxKind {
+fn question() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(51)
 }
 
 ///|
-pub fn bang() -> @cst.SyntaxKind {
+fn bang() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(52)
 }
 
 ///|
-pub fn lt() -> @cst.SyntaxKind {
+fn lt() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(53)
 }
 
 ///|
-pub fn gt() -> @cst.SyntaxKind {
+fn gt() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(54)
 }
 
 ///|
-pub fn pipe() -> @cst.SyntaxKind {
+fn pipe() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(55)
 }
 
 ///|
-pub fn percent() -> @cst.SyntaxKind {
+fn percent() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(56)
 }
 
 ///|
-pub fn equal_equal() -> @cst.SyntaxKind {
+fn equal_equal() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(57)
 }
 
 ///|
-pub fn not_equal() -> @cst.SyntaxKind {
+fn not_equal() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(58)
 }
 
 ///|
-pub fn lte() -> @cst.SyntaxKind {
+fn lte() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(59)
 }
 
 ///|
-pub fn gte() -> @cst.SyntaxKind {
+fn gte() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(60)
 }
 
 ///|
-pub fn and_and() -> @cst.SyntaxKind {
+fn and_and() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(61)
 }
 
 ///|
-pub fn or_or() -> @cst.SyntaxKind {
+fn or_or() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(62)
 }
 
 ///|
-pub fn coalesce() -> @cst.SyntaxKind {
+fn coalesce() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(63)
 }
 
 ///|
-pub fn arrow() -> @cst.SyntaxKind {
+fn arrow() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(64)
 }
 
 ///|
-pub fn qdot() -> @cst.SyntaxKind {
+fn qdot() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(65)
 }
 
 ///|
-pub fn non_null() -> @cst.SyntaxKind {
+fn non_null() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(66)
 }
 
 ///|
-pub fn pipe_forward() -> @cst.SyntaxKind {
+fn pipe_forward() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(67)
 }
 
 ///|
-pub fn int_div() -> @cst.SyntaxKind {
+fn int_div() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(68)
 }
 
 ///|
-pub fn pow() -> @cst.SyntaxKind {
+fn pow() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(69)
 }
 
 ///|
-pub fn module_node() -> @cst.SyntaxKind {
+fn module_node() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(100)
 }
 
 ///|
-pub fn module_decl() -> @cst.SyntaxKind {
+fn module_decl() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(101)
 }
 
 ///|
-pub fn import_decl() -> @cst.SyntaxKind {
+fn import_decl() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(102)
 }
 
 ///|
-pub fn let_decl() -> @cst.SyntaxKind {
+fn let_decl() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(103)
 }
 
 ///|
-pub fn property_decl() -> @cst.SyntaxKind {
+fn property_decl() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(104)
 }
 
 ///|
-pub fn binary_expr() -> @cst.SyntaxKind {
+fn binary_expr() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(105)
 }
 
 ///|
-pub fn literal_expr() -> @cst.SyntaxKind {
+fn literal_expr() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(106)
 }
 
 ///|
-pub fn name_ref() -> @cst.SyntaxKind {
+fn name_ref() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(107)
 }
 
 ///|
-pub fn paren_expr() -> @cst.SyntaxKind {
+fn paren_expr() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(108)
 }
 
 ///|
-pub fn object_expr() -> @cst.SyntaxKind {
+fn object_expr() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(109)
 }
 
 ///|
-pub fn object_member() -> @cst.SyntaxKind {
+fn object_member() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(110)
 }
 
 ///|
-pub fn member_access() -> @cst.SyntaxKind {
+fn member_access() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(111)
 }
 
 ///|
-pub fn import_expr() -> @cst.SyntaxKind {
+fn import_expr() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(112)
 }
 
 ///|
-pub fn unsupported_expr() -> @cst.SyntaxKind {
+fn unsupported_expr() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(113)
 }
 
 ///|
-pub fn listing_expr() -> @cst.SyntaxKind {
+fn listing_expr() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(114)
 }
 
 ///|
-pub fn mapping_expr() -> @cst.SyntaxKind {
+fn mapping_expr() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(115)
 }
 
 ///|
-pub fn mapping_entry() -> @cst.SyntaxKind {
+fn mapping_entry() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(116)
 }
 
 ///|
-pub fn subscript_access() -> @cst.SyntaxKind {
+fn subscript_access() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(117)
 }
 
 ///|
-pub fn class_decl() -> @cst.SyntaxKind {
+fn class_decl() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(118)
 }
 
 ///|
-pub fn function_decl() -> @cst.SyntaxKind {
+fn function_decl() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(119)
 }
 
 ///|
-pub fn typealias_decl() -> @cst.SyntaxKind {
+fn typealias_decl() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(120)
 }
 
 ///|
-pub fn call_expr() -> @cst.SyntaxKind {
+fn call_expr() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(121)
 }
 
 ///|
-pub fn lambda_expr() -> @cst.SyntaxKind {
+fn lambda_expr() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(122)
 }
 
 ///|
-pub fn unary_expr() -> @cst.SyntaxKind {
+fn unary_expr() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(123)
 }
 
 ///|
-pub fn conditional_expr() -> @cst.SyntaxKind {
+fn conditional_expr() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(124)
 }
 
 ///|
-pub fn amend_expr() -> @cst.SyntaxKind {
+fn amend_expr() -> @cst.SyntaxKind {
   @cst.SyntaxKind::new(125)
 }
 
 ///|
-pub fn is_trivia(kind : @cst.SyntaxKind) -> Bool {
+fn is_trivia(kind : @cst.SyntaxKind) -> Bool {
   match kind.raw() {
     2 | 3 | 4 => true
     _ => false
@@ -432,7 +432,7 @@ pub fn is_trivia(kind : @cst.SyntaxKind) -> Bool {
 }
 
 ///|
-pub fn is_separator(kind : @cst.SyntaxKind) -> Bool {
+fn is_separator(kind : @cst.SyntaxKind) -> Bool {
   match kind.raw() {
     3 | 42 => true
     _ => false
@@ -440,7 +440,7 @@ pub fn is_separator(kind : @cst.SyntaxKind) -> Bool {
 }
 
 ///|
-pub fn kind_name(kind : @cst.SyntaxKind) -> String {
+fn kind_name(kind : @cst.SyntaxKind) -> String {
   match kind.raw() {
     0 => "eof"
     1 => "error"

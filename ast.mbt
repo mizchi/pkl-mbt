@@ -14,7 +14,7 @@ pub(all) struct Diagnostic {
 /// Helper for the common path: a diagnostic with no recorded position.
 /// Sites that have a CST node in hand should construct
 /// `Diagnostic::{ message, start, end }` directly instead.
-pub fn diag(message : String) -> Diagnostic {
+fn diag(message : String) -> Diagnostic {
   { message, start: -1, end: -1 }
 }
 

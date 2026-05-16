@@ -3,3 +3,9 @@ _build/
 .mooncakes/
 .moonagent/
 specs/.pkspec/
+
+
+# APM dependencies — `apm install` re-deploys from apm.lock.yaml.
+apm_modules/
+.agents/
+.claude/

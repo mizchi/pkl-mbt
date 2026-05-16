@@ -7,35 +7,7 @@ import {
 }
 
 // Values
-pub fn amend_expr() -> @cst.SyntaxKind
-
-pub fn and_and() -> @cst.SyntaxKind
-
-pub fn arrow() -> @cst.SyntaxKind
-
-pub fn as_kw() -> @cst.SyntaxKind
-
-pub fn at_sign() -> @cst.SyntaxKind
-
-pub fn bang() -> @cst.SyntaxKind
-
-pub fn binary_expr() -> @cst.SyntaxKind
-
-pub fn call_expr() -> @cst.SyntaxKind
-
-pub fn class_decl() -> @cst.SyntaxKind
-
-pub fn coalesce() -> @cst.SyntaxKind
-
 pub fn codegen_moonbit(Program) -> String
-
-pub fn colon() -> @cst.SyntaxKind
-
-pub fn comma() -> @cst.SyntaxKind
-
-pub fn comment() -> @cst.SyntaxKind
-
-pub fn conditional_expr() -> @cst.SyntaxKind
 
 pub fn configure_sandbox_allowed_modules(Array[String]) -> Unit
 
@@ -43,143 +15,11 @@ pub fn configure_sandbox_module_paths(Array[String]) -> Unit
 
 pub fn configure_sandbox_props(Map[String, String]) -> Unit
 
-pub fn diag(String) -> Diagnostic
-
-pub fn dot() -> @cst.SyntaxKind
-
-pub fn else_kw() -> @cst.SyntaxKind
-
-pub fn eof() -> @cst.SyntaxKind
-
-pub fn eq() -> @cst.SyntaxKind
-
-pub fn equal_equal() -> @cst.SyntaxKind
-
-pub fn error_kind() -> @cst.SyntaxKind
-
 pub fn eval_source(String) -> EvalResult
-
-pub fn false_kw() -> @cst.SyntaxKind
-
-pub fn float_token() -> @cst.SyntaxKind
-
-pub fn for_kw() -> @cst.SyntaxKind
-
-pub fn function_decl() -> @cst.SyntaxKind
-
-pub fn gt() -> @cst.SyntaxKind
-
-pub fn gte() -> @cst.SyntaxKind
-
-pub fn hidden_member_name(String) -> String
-
-pub let hidden_member_prefix : String
-
-pub fn identifier() -> @cst.SyntaxKind
-
-pub fn if_kw() -> @cst.SyntaxKind
-
-pub fn import_decl() -> @cst.SyntaxKind
-
-pub fn import_expr() -> @cst.SyntaxKind
-
-pub fn import_kw() -> @cst.SyntaxKind
-
-pub fn in_kw() -> @cst.SyntaxKind
-
-pub fn int_div() -> @cst.SyntaxKind
-
-pub fn int_token() -> @cst.SyntaxKind
-
-pub fn is_hidden_member_name(String) -> Bool
-
-pub fn is_kw() -> @cst.SyntaxKind
-
-pub fn is_separator(@cst.SyntaxKind) -> Bool
-
-pub fn is_trivia(@cst.SyntaxKind) -> Bool
-
-pub fn kind_name(@cst.SyntaxKind) -> String
-
-pub fn lambda_expr() -> @cst.SyntaxKind
-
-pub fn lbrace() -> @cst.SyntaxKind
-
-pub fn lbracket() -> @cst.SyntaxKind
-
-pub fn let_decl() -> @cst.SyntaxKind
-
-pub fn let_kw() -> @cst.SyntaxKind
 
 pub fn lint_program(Program) -> Array[LintFinding]
 
-pub fn listing_expr() -> @cst.SyntaxKind
-
-pub fn literal_expr() -> @cst.SyntaxKind
-
-pub fn local_kw() -> @cst.SyntaxKind
-
-pub fn lparen() -> @cst.SyntaxKind
-
-pub fn lt() -> @cst.SyntaxKind
-
-pub fn lte() -> @cst.SyntaxKind
-
-pub fn mapping_entry() -> @cst.SyntaxKind
-
-pub fn mapping_expr() -> @cst.SyntaxKind
-
-pub fn member_access() -> @cst.SyntaxKind
-
-pub fn minus() -> @cst.SyntaxKind
-
-pub fn module_decl() -> @cst.SyntaxKind
-
-pub fn module_kw() -> @cst.SyntaxKind
-
-pub fn module_node() -> @cst.SyntaxKind
-
-pub fn name_ref() -> @cst.SyntaxKind
-
-pub fn new_kw() -> @cst.SyntaxKind
-
-pub fn newline() -> @cst.SyntaxKind
-
-pub fn non_null() -> @cst.SyntaxKind
-
-pub fn not_equal() -> @cst.SyntaxKind
-
-pub fn null_kw() -> @cst.SyntaxKind
-
-pub fn object_expr() -> @cst.SyntaxKind
-
-pub fn object_member() -> @cst.SyntaxKind
-
-pub fn or_or() -> @cst.SyntaxKind
-
-pub fn paren_expr() -> @cst.SyntaxKind
-
 pub fn parse_source(String) -> ParseResult
-
-pub fn percent() -> @cst.SyntaxKind
-
-pub fn pipe() -> @cst.SyntaxKind
-
-pub fn pipe_forward() -> @cst.SyntaxKind
-
-pub fn plus() -> @cst.SyntaxKind
-
-pub fn pow() -> @cst.SyntaxKind
-
-pub fn property_decl() -> @cst.SyntaxKind
-
-pub fn qdot() -> @cst.SyntaxKind
-
-pub fn question() -> @cst.SyntaxKind
-
-pub fn rbrace() -> @cst.SyntaxKind
-
-pub fn rbracket() -> @cst.SyntaxKind
 
 pub fn render_type(Type) -> String
 
@@ -193,37 +33,11 @@ pub fn render_value_as_properties(Value) -> String
 
 pub fn render_value_as_yaml(Value) -> String
 
-pub fn rparen() -> @cst.SyntaxKind
-
 pub fn sandbox_is_module_allowed(String) -> Bool
-
-pub fn sandbox_lookup_prop(String) -> String?
 
 pub fn sandbox_module_paths() -> Array[String]
 
-pub fn semicolon() -> @cst.SyntaxKind
-
-pub fn slash() -> @cst.SyntaxKind
-
-pub fn star() -> @cst.SyntaxKind
-
-pub fn string_token() -> @cst.SyntaxKind
-
-pub fn subscript_access() -> @cst.SyntaxKind
-
-pub fn true_kw() -> @cst.SyntaxKind
-
-pub fn typealias_decl() -> @cst.SyntaxKind
-
 pub fn typecheck_source(String) -> TypecheckResult
-
-pub fn unary_expr() -> @cst.SyntaxKind
-
-pub fn unsupported_expr() -> @cst.SyntaxKind
-
-pub fn when_kw() -> @cst.SyntaxKind
-
-pub fn whitespace() -> @cst.SyntaxKind
 
 // Errors
 
