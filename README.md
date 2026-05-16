@@ -2,7 +2,7 @@
 
 Pure MoonBit parser, typechecker, and evaluator for Apple's [Pkl](https://pkl-lang.org/) language. Ships as both a CLI (`mpkl`) and a library (`mizchi/pkl`).
 
-**Compatibility policy**: behaviour follows [Apple Pkl](https://pkl-lang.org/) unless listed under [Not supported](#not-supported) / [Partially supported](#partially-supported) below. Anything else that diverges from upstream is a bug — please file an issue with the source snippet and Apple Pkl's output for comparison.
+**Compatibility policy**: behaviour follows [Apple Pkl](https://pkl-lang.org/) unless listed under [Not supported (yet)](#not-supported-yet) / [Partially supported](#partially-supported) below. Anything else that diverges from upstream is a bug — please file an issue with the source snippet and Apple Pkl's output for comparison.
 
 ## Install
 
@@ -35,9 +35,9 @@ Renderers via `-f` / `--format`: `pcf` (default), `json`, `yaml`, `properties`, 
 
 Sandbox flags: `--allowed-modules <pipe|prefixes>`, `--module-path <dir>` (repeatable), `-p NAME=VALUE` (populates `read("prop:NAME")`).
 
-## Not supported
+## Not supported (yet)
 
-These slices are intentionally parked — `specs/Roadmap.pkl`'s `deferredEntries` listing carries the rationale.
+Parked but not closed off — `specs/Roadmap.pkl`'s `deferredEntries` listing carries the rationale, and any of these will move back to the active roadmap when a concrete consumer surfaces.
 
 | Slice | Workaround |
 | --- | --- |
