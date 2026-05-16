@@ -31,9 +31,9 @@
 ///   - PKL-132 (LSP)                — out of scope for the library slice
 ///
 /// Active grouping (the ID ranges are conventional, not enforced):
-///   PKL-119c/d   stdlib Value variants (Set / Map)
-///                  — PKL-119a (Pair) and PKL-119b (IntSeq) landed;
-///                    Set and Map stack on top
+///   PKL-119d     stdlib Value variants — last leg (Map)
+///                  PKL-119a (Pair), PKL-119b (IntSeq), PKL-119c (Set)
+///                  already landed
 ///   PKL-129b     parser / imports — package:// registry resolution
 ///   PKL-131      checker — codegen bridge (consumes typechecker state)
 @ModuleInfo { minPklVersion = "0.31.0" }
@@ -44,18 +44,6 @@ import "../pkspec/Spec.pkl"
 // ── ACTIVE ─────────────────────────────────────────────────────────────────
 // ── eval / typechecker precision ──
 
-local setValueVariant: Spec.Scenario = new {
-  id = "PKL-119c"
-  name = "Set Value variant"
-  description =
-    "Introduce a dedicated `SetValue(Array[Value])` carrier so `Set(1, 2, 3)` renders as `Set(1, 2, 3)` (PCF) instead of `new Listing { 1; 2; 3 }`, and so `Set<T>` / `Listing<T>` stay distinct at the typecheck layer. Insertion order is preserved (matching Apple Pkl); duplicates are dropped at construction. Operations (`add`, `remove`, `contains`, `union`, `intersection`, `difference`) layer on top."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-119a"; "PKL-119b" }
-  tags { "evaluator"; "typechecker"; "stdlib"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 local mapValueVariant: Spec.Scenario = new {
   id = "PKL-119d"
   name = "Map Value variant for the immutable functional map"
@@ -63,7 +51,7 @@ local mapValueVariant: Spec.Scenario = new {
     "Apple Pkl distinguishes `Map<K, V>` (immutable functional map built with `Map(k, v, ...)`) from `Mapping<K, V>` (object-style mapping built with `new Mapping { ... }`, which carries constraints and default values). pkl-mbt currently collapses both into `MappingValue`. Introduce `MapValue(Array[ValueEntry])` and `MapType(K, V)` so the typechecker and renderer keep them apart and `Map`-specific methods (`getOrNull`, `keys`, `values`, `entries`, `containsKey`) dispatch off the dedicated variant."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-119a"; "PKL-119b"; "PKL-119c" }
-  tags { "evaluator"; "typechecker"; "stdlib" }
+  tags { "evaluator"; "typechecker"; "stdlib"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -97,7 +85,6 @@ local codegenBridge: Spec.Scenario = new {
 }
 
 entries: Listing<Spec.Scenario> = new {
-  setValueVariant
   mapValueVariant
   packagePklRegistry
   codegenBridge

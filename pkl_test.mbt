@@ -2514,12 +2514,12 @@ test "PKL-139: List() with no args produces empty Listing" {
 }
 
 ///|
-test "PKL-139: Set(...) deduplicates arguments" {
+test "PKL-119c: Set(...) produces a dedicated SetValue with deduped elements" {
   guard eval_source("xs = Set(1, 2, 2, 3, 3, 3)")
     is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  guard members[0].value is ListingValue(items) else { panic() }
+  guard members[0].value is SetValue(items) else { panic() }
   inspect(items.length(), content="3")
 }
 
@@ -3419,6 +3419,171 @@ test "PKL-120: pkl:math.pi constant" {
     }
   }
   inspect(got, content="3.141592653589793")
+}
+
+///|
+test "PKL-119c: Set carrier preserves insertion order and drops duplicates" {
+  guard eval_source("xs = Set(3, 1, 2, 1, 3)") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is SetValue(items) else { panic() }
+  inspect(items.length(), content="3")
+  guard items[0] is IntValue(a) else { panic() }
+  guard items[1] is IntValue(b) else { panic() }
+  guard items[2] is IntValue(c) else { panic() }
+  inspect(a, content="3")
+  inspect(b, content="1")
+  inspect(c, content="2")
+}
+
+///|
+test "PKL-119c: Set.length / .isEmpty / .first / .last bare reads" {
+  guard eval_source(
+      "xs = Set(\"a\", \"b\", \"c\")\nl = xs.length\ne = xs.isEmpty\nf = xs.first\nlast = xs.last",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut len = 0
+  let mut empty = true
+  let mut first = ""
+  let mut last = ""
+  for entry in members {
+    match (entry.name, entry.value) {
+      ("l", IntValue(n)) => len = n
+      ("e", BoolValue(b)) => empty = b
+      ("f", StringValue(s)) => first = s
+      ("last", StringValue(s)) => last = s
+      _ => ()
+    }
+  }
+  inspect(len, content="3")
+  inspect(empty, content="false")
+  inspect(first, content="a")
+  inspect(last, content="c")
+}
+
+///|
+test "PKL-119c: Set.contains uses value equality" {
+  guard eval_source(
+      "xs = Set(1, 2, 3)\nhit = xs.contains(2)\nmiss = xs.contains(99)",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut hit = false
+  let mut miss = true
+  for entry in members {
+    match (entry.name, entry.value) {
+      ("hit", BoolValue(b)) => hit = b
+      ("miss", BoolValue(b)) => miss = b
+      _ => ()
+    }
+  }
+  inspect(hit, content="true")
+  inspect(miss, content="false")
+}
+
+///|
+test "PKL-119c: Set.toList / .toListing materialize to ListingValue" {
+  guard eval_source("xs = Set(1, 2, 3)\nl = xs.toList()\nlg = xs.toListing()")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  for entry in members {
+    if entry.name == "l" || entry.name == "lg" {
+      guard entry.value is ListingValue(items) else { panic() }
+      inspect(items.length(), content="3")
+    }
+  }
+}
+
+///|
+test "PKL-119c: Set.map returns a Listing of mapped values" {
+  guard eval_source("xs = Set(1, 2, 3).map((n) -> n * 10)")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is ListingValue(items) else { panic() }
+  guard items[0] is IntValue(a) else { panic() }
+  guard items[2] is IntValue(c) else { panic() }
+  inspect(a, content="10")
+  inspect(c, content="30")
+}
+
+///|
+test "PKL-119c: Set.filter keeps the Set type" {
+  guard eval_source("xs = Set(1, 2, 3, 4).filter((n) -> n % 2 == 0)")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is SetValue(items) else { panic() }
+  inspect(items.length(), content="2")
+  guard items[0] is IntValue(a) else { panic() }
+  guard items[1] is IntValue(b) else { panic() }
+  inspect(a, content="2")
+  inspect(b, content="4")
+}
+
+///|
+test "PKL-119c: Set.fold reduces left-to-right" {
+  guard eval_source("sum = Set(1, 2, 3).fold(0, (acc, x) -> acc + x)")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is IntValue(n) else { panic() }
+  inspect(n, content="6")
+}
+
+///|
+test "PKL-119c: Set.join concatenates elements with the separator" {
+  guard eval_source("s = Set(\"alpha\", \"beta\", \"gamma\").join(\", \")")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is StringValue(s) else { panic() }
+  inspect(s, content="alpha, beta, gamma")
+}
+
+///|
+test "PKL-119c: PCF renders Set through the constructor form" {
+  guard eval_source("xs = Set(1, 2, 3)") is EvalOk(value) else { panic() }
+  inspect(@pkl.render_value(value), content="xs = Set(1, 2, 3)")
+}
+
+///|
+test "PKL-119c: JSON projects Set as an array" {
+  guard eval_source("xs = Set(\"a\", \"b\")") is EvalOk(value) else { panic() }
+  let json = @pkl.render_value_as_json(value)
+  let expected =
+    #|{
+    #|  "xs": [
+    #|    "a",
+    #|    "b"
+    #|  ]
+    #|}
+  inspect(json, content=expected)
+}
+
+///|
+test "PKL-119c: Set<T> annotation typechecks" {
+  guard typecheck_source(
+      "xs: Set<Int> = Set(1, 2, 3)\nlen: Int = xs.length\nhit: Boolean = xs.contains(1)",
+    )
+    is TypeOk(_) else {
+    panic()
+  }
+}
+
+///|
+test "PKL-119c: Set member typo surfaces Pkl-shaped diagnostic" {
+  let result = typecheck_source("xs = Set(1, 2)\nbad = xs.lentgh")
+  guard result is TypeError(diagnostics) else { panic() }
+  let messages = diagnostics.iter().map(fn(d) { d.message }).collect()
+  inspect(
+    messages[0],
+    content="Cannot find property `lentgh` in object of type `Set`.",
+  )
 }
 
 ///|

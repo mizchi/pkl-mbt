@@ -1896,6 +1896,32 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local setValueVariantScenario = new Scenario {
+  id = "PKL-119c"
+  name = "Set Value variant"
+  description =
+    "Set joins the dedicated stdlib value variants. `Value` gains `SetValue(Array[Value])` and the `Set(a, b, c)` constructor returns it (duplicates dropped at construction via `contains_value`; insertion order preserved). Bare property reads (`.length` → Int; `.isEmpty` / `.isNotEmpty` → Boolean; `.first` / `.last` → element type with empty-set diagnostic; `.distinct` → identity SetValue) resolve through the member-access dispatcher; method calls (`.contains` → Boolean; `.toList` / `.toListing` → `Listing<element>`; `.toSet` → identity; `.map(f)` → `Listing<lambda return>`; `.filter(p)` → `Set<element>`; `.fold(initial, op)` → initial type; `.join(sep)` → String) dispatch through the dedicated `eval_set_method` evaluator. Renderer projection: PCF round-trips through `Set(a, b, c)` so the eval output is parser-readable; JSON / YAML / Properties / plist materialize as an array of the elements. Typechecker gains `SetType(Array[Type])` parallel to `ListingType`. `Set<T>` annotations land via `generic_argument_text`; bare `Set` resolves to `SetType([])` (accept-any element). `Set(a, b, c)` call sites infer to `SetType` carrying the element types, and `infer_call_expr` intercepts the method-form calls so each method returns the right shape. `type_accepts` adds a `(SetType, SetType)` arm with the same widening rules as `(ListingType, ListingType)` so `Set<Int>` annotations accept the inferred `SetType([IntType, IntType, IntType])` shape from the constructor."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-119a"; "PKL-119b" }
+  tags { "evaluator"; "typechecker"; "stdlib" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Set.map returns Listing, not Set, matching Apple Pkl's `Set.map` signature"
+      rationale =
+        "Apple Pkl's `Set<T>.map(f: (T) -> R): Listing<R>` returns Listing even though uniqueness could be preserved trivially. The signature reflects that the mapped values may collide (different elements mapping to the same value), in which case downstream uniqueness becomes a separate `.toSet()` call. Mirroring the upstream signature keeps Set / Listing methods composable; `.filter`, which is `Set<T> -> Set<T>` upstream, keeps the Set type because the filter preserves uniqueness by construction."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "union / intersection / difference deferred to a follow-up"
+      rationale =
+        "The binary set operators carry slightly different semantics than the upstream `+` (concat-then-dedup) Listing operator, and threading them through `eval_binary` + the typechecker would either land alongside an `OperatorOverload`-style table (large refactor) or as ad-hoc method-call arms (mirror of Listing's `+`). Today's slice covers the read-only / projection / single-receiver method surface that pkspec / pkf use today; the binary operators get a dedicated slice when a fixture or upstream gold-match actually exercises them."
+    }
+  }
+}
+
 local plistRendererScenario = new Scenario {
   id = "PKL-126a"
   name = "plist renderer"
@@ -3875,5 +3901,6 @@ scenarios {
   plistRendererScenario
   pairValueVariantScenario
   intSeqValueVariantScenario
+  setValueVariantScenario
   ...roadmap.entries
 }

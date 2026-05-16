@@ -22,6 +22,10 @@ pub(all) enum Type {
   // `Listing<Int>` distinct at the typecheck layer the same way
   // `PairType` keeps `Pair<A, B>` separate from `Listing`.
   IntSeqType
+  // PKL-119c: `Set<T>` parallels `ListingType` but keeps the type
+  // distinct at the typecheck layer so consumers tracking
+  // `Set<Person>` vs `Listing<Person>` see a real difference.
+  SetType(Array[Type])
   FunctionType(Array[Type], Type)
   ConstrainedType(String, Type)
   UnionType(Array[Type])
@@ -203,6 +207,7 @@ pub fn render_type(typ : Type) -> String {
     PairType(first, second) =>
       "Pair<\{render_type(first)}, \{render_type(second)}>"
     IntSeqType => "IntSeq"
+    SetType(_) => "Set"
     FunctionType(_, _) => "Function"
     ConstrainedType(_, inner) => render_type(inner)
     UnionType(types) => {
@@ -246,6 +251,10 @@ fn builtin_type_from_annotation(name : String) -> Type? {
     // `IntSeqType` so signatures like `r: IntSeq = IntSeq(1, 5)`
     // typecheck.
     "IntSeq" => Some(IntSeqType)
+    // PKL-119c: bare `Set` (no type arguments) accepts any element
+    // type; parameterised `Set<T>` is intercepted earlier in
+    // `type_from_annotation` via `generic_argument_text`.
+    "Set" => Some(SetType([]))
     // PKL-134: `List<T>` is Pkl's immutable indexed collection; pkl-mbt
     // collapses Listing / List into the same runtime value so the
     // typechecker treats them as the same shape. Once the value
@@ -569,6 +578,17 @@ fn type_from_annotation(name : String, type_env : Array[TypeBinding]) -> Type? {
         _ => return None
       }
     }
+    None => ()
+  }
+  // PKL-119c: `Set<T>` annotation lands as `SetType([T])`. Bare
+  // `Set` (no generic argument) is handled by
+  // `builtin_type_from_annotation` and resolves to `SetType([])`.
+  match generic_argument_text(name, "Set") {
+    Some(inner_text) =>
+      match type_from_annotation(inner_text, type_env) {
+        Some(inner) => return Some(SetType([inner]))
+        None => return None
+      }
     None => ()
   }
   // PKL-119a: `Pair<A, B>` annotation lands as the dedicated
@@ -1414,6 +1434,22 @@ fn type_accepts(expected : Type, inferred : Type) -> Bool {
       ok
     }
     (ListingType(expected_items), ListingType(actual_items)) => {
+      if expected_items.length() == 0 {
+        return true
+      }
+      let expected_item = common_type(expected_items)
+      let mut ok = true
+      for actual_item in actual_items {
+        if !type_accepts(expected_item, actual_item) {
+          ok = false
+        }
+      }
+      ok
+    }
+    // PKL-119c: Set is invariant on element shape but accepts the
+    // same element-wise widening as Listing — an empty expected
+    // parameter list means "any element type".
+    (SetType(expected_items), SetType(actual_items)) => {
       if expected_items.length() == 0 {
         return true
       }
@@ -3331,9 +3367,73 @@ fn infer_call_expr(
               }
             _ => ()
           }
+        // PKL-119c: SetType method-call return-type inference.
+        // `.contains` → Boolean; `.toList` / `.toListing` →
+        // `Listing<element>`; `.toSet` → identity `Set<element>`;
+        // `.map(f)` → Listing of the lambda's return type;
+        // `.filter(p)` → `Set<element>`; `.fold(initial, op)` →
+        // initial type; `.join(sep)` → String.
+        SetType(element_types) =>
+          match method_name {
+            "contains" => return BoolType
+            "toList" | "toListing" => return ListingType(element_types)
+            "toSet" => return SetType(element_types)
+            "map" =>
+              if arguments.length() == 1 {
+                let lambda_type = infer_expr_with_bindings(
+                  arguments[0],
+                  bindings,
+                  env,
+                  type_env,
+                  cache,
+                  stack,
+                  diagnostics,
+                  resolve_import,
+                )
+                match lambda_type {
+                  FunctionType(_, return_type) =>
+                    return ListingType([return_type])
+                  _ => return ListingType([UnknownType])
+                }
+              } else {
+                return ListingType([UnknownType])
+              }
+            "filter" => return SetType(element_types)
+            "fold" =>
+              if arguments.length() == 2 {
+                return infer_expr_with_bindings(
+                  arguments[0],
+                  bindings,
+                  env,
+                  type_env,
+                  cache,
+                  stack,
+                  diagnostics,
+                  resolve_import,
+                )
+              } else {
+                return UnknownType
+              }
+            "join" => return StringType
+            _ => ()
+          }
         _ => ()
       }
     _ => ()
+  }
+  // PKL-119c: `Set(a, b, c)` constructor — element types flow
+  // through inference; the returned `SetType` carries those types
+  // so downstream `.contains` etc. keep their narrowing.
+  if callee is Identifier("Set") && find_type_binding(bindings, "Set") is None {
+    let element_types : Array[Type] = []
+    for argument in arguments {
+      element_types.push(
+        infer_expr_with_bindings(
+          argument, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+        ),
+      )
+    }
+    return SetType(element_types)
   }
   // PKL-119b: `IntSeq(start, end)` mirrors the Pair handling. Both
   // arguments must accept `Int`; the returned type is the parameter-
@@ -3623,6 +3723,40 @@ fn infer_expr_with_bindings(
               diagnostics.push(
                 diag(
                   "Cannot find property `\{member_name}` in object of type `IntSeq`.",
+                ),
+              )
+              UnknownType
+            }
+          }
+        // PKL-119c: SetType bare property reads — `.length` /
+        // `.isEmpty` / `.isNotEmpty` are Int / Boolean. `.first` /
+        // `.last` return the element type when known. `.distinct` is
+        // identity. Method names fall through silently because the
+        // call form is handled earlier in `infer_call_expr`; unknown
+        // bare-property reads still surface the canonical wording.
+        SetType(element_types) =>
+          match member_name {
+            "length" => IntType
+            "isEmpty" | "isNotEmpty" => BoolType
+            "first" | "last" =>
+              if element_types.length() == 0 {
+                UnknownType
+              } else {
+                common_type(element_types)
+              }
+            "distinct" => SetType(element_types)
+            "contains"
+            | "toList"
+            | "toListing"
+            | "toSet"
+            | "map"
+            | "filter"
+            | "fold"
+            | "join" => UnknownType
+            _ => {
+              diagnostics.push(
+                diag(
+                  "Cannot find property `\{member_name}` in object of type `Set`.",
                 ),
               )
               UnknownType

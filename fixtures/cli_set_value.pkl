@@ -1,0 +1,31 @@
+// PKL-119c: `Set(a, b, c)` constructs the dedicated `SetValue`
+// variant. Duplicates drop at the constructor and insertion order is
+// preserved. Bare properties (`.length` / `.isEmpty` / `.first` /
+// `.last` / `.distinct`) read off the carrier; methods
+// (`.contains` / `.toList` / `.toListing` / `.toSet` / `.map` /
+// `.filter` / `.fold` / `.join`) dispatch through the dedicated
+// method evaluator. PCF round-trips through `Set(a, b, c)` (parser-
+// readable); JSON / YAML / Properties / plist project as an array.
+deduped = Set(3, 1, 2, 1, 3)
+
+count = deduped.length
+
+isEmpty = deduped.isEmpty
+
+firstElement = deduped.first
+
+lastElement = deduped.last
+
+hasTwo = deduped.contains(2)
+
+asList = deduped.toList()
+
+doubled = deduped.map((n) -> n * 2)
+
+evens = Set(1, 2, 3, 4).filter((n) -> n % 2 == 0)
+
+sum = deduped.fold(0, (acc, n) -> acc + n)
+
+joined = Set("alpha", "beta", "gamma").join(", ")
+
+annotated: Set<Int> = Set(10, 20, 30)

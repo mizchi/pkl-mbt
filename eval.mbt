@@ -28,6 +28,12 @@ pub(all) enum Value {
   // / `.fold` / non-PCF renderer projection time so a million-element
   // IntSeq doesn't allocate a million-slot Array up front.
   IntSeqValue(Int, Int, Int)
+  // PKL-119c: ordered set of unique values, insertion-order preserved.
+  // `Set(a, b, c)` constructs one (duplicates dropped at the
+  // constructor); the dedicated variant means PCF renders the
+  // upstream `Set(a, b, c)` form rather than `new Listing { a; b; c }`,
+  // and the typechecker keeps `Set<T>` separate from `Listing<T>`.
+  SetValue(Array[Value])
   FunctionValue(Array[FunctionParameter], Expr, String?, Array[ValueBinding])
   // PKL-082: magnitude in the named unit. Mixed-unit arithmetic
   // normalizes to the smaller of the two units (the base unit of each
@@ -901,6 +907,7 @@ fn eval_value_type_name(value : Value) -> String {
     BytesValue(_) => "Bytes"
     PairValue(_, _) => "Pair"
     IntSeqValue(_, _, _) => "IntSeq"
+    SetValue(_) => "Set"
   }
 }
 
@@ -1227,6 +1234,26 @@ fn apply_function_value(
 fn is_intseq_method_name(name : String) -> Bool {
   match name {
     "step" | "toList" | "toListing" | "map" | "fold" => true
+    _ => false
+  }
+}
+
+///|
+/// PKL-119c: method names dispatched off a `SetValue` target. The
+/// method-side surface mirrors Apple Pkl's `Set` class — the binary
+/// `union` / `intersection` / `difference` operators come in a
+/// follow-up; this slice covers `.contains` plus the read-only
+/// projections and the higher-order helpers shared with `Listing`.
+fn is_set_method_name(name : String) -> Bool {
+  match name {
+    "contains"
+    | "toList"
+    | "toListing"
+    | "toSet"
+    | "map"
+    | "filter"
+    | "fold"
+    | "join" => true
     _ => false
   }
 }
@@ -2576,6 +2603,201 @@ fn eval_intseq_method(
         diag(
           "Cannot find property `\{method_name}` in object of type `IntSeq`.",
         ),
+      )
+      None
+    }
+  }
+}
+
+///|
+/// PKL-119c: dispatch methods on a `SetValue`. `.contains(x)` reuses
+/// the same value-equality helper as Listing; `.toList()` /
+/// `.toListing()` materialise into a `ListingValue` (the two are
+/// aliased until PKL-119d splits List / Map out); `.toSet()` is
+/// identity since the receiver is already a Set; `.map` / `.filter`
+/// / `.fold` / `.join` mirror the Listing surface but return into a
+/// `ListingValue` (mapped Sets keep insertion order but the upstream
+/// signature for `Set.map` is `Listing<Out>`, not `Set<Out>`).
+fn eval_set_method(
+  elements : Array[Value],
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let arg_values : Array[Value] = []
+  let mut ok = true
+  for argument in arguments {
+    match
+      eval_expr_with_bindings(
+        argument, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      ) {
+      Some(v) => arg_values.push(v)
+      None => ok = false
+    }
+  }
+  if !ok {
+    return None
+  }
+  match method_name {
+    "contains" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("Set.contains expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      Some(BoolValue(contains_value(elements, arg_values[0])))
+    }
+    "toList" | "toListing" => {
+      if arg_values.length() != 0 {
+        diagnostics.push(
+          diag(
+            "Set.\{method_name} expects 0 arguments, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      Some(ListingValue(elements))
+    }
+    "toSet" => {
+      if arg_values.length() != 0 {
+        diagnostics.push(
+          diag("Set.toSet expects 0 arguments, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      Some(SetValue(elements))
+    }
+    "map" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("Set.map expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let result : Array[Value] = []
+      for element in elements {
+        match
+          apply_function_value(
+            "Set.map callback",
+            arg_values[0],
+            [element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(v) => result.push(v)
+          None => return None
+        }
+      }
+      Some(ListingValue(result))
+    }
+    "filter" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("Set.filter expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let result : Array[Value] = []
+      for element in elements {
+        match
+          apply_function_value(
+            "Set.filter predicate",
+            arg_values[0],
+            [element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(BoolValue(true)) => result.push(element)
+          Some(BoolValue(false)) => ()
+          Some(_) => {
+            diagnostics.push(diag("Set.filter predicate must return Boolean"))
+            return None
+          }
+          None => return None
+        }
+      }
+      Some(SetValue(result))
+    }
+    "fold" => {
+      if arg_values.length() != 2 {
+        diagnostics.push(
+          diag("Set.fold expects 2 arguments, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let mut acc = arg_values[0]
+      for element in elements {
+        match
+          apply_function_value(
+            "Set.fold operator",
+            arg_values[1],
+            [acc, element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(v) => acc = v
+          None => return None
+        }
+      }
+      Some(acc)
+    }
+    "join" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("Set.join expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      match arg_values[0] {
+        StringValue(separator) => {
+          let buf = StringBuilder::new()
+          for i = 0; i < elements.length(); i = i + 1 {
+            if i > 0 {
+              buf.write_string(separator)
+            }
+            match elements[i] {
+              StringValue(s) => buf.write_string(s)
+              other => render_pcf_inline(other, 0, buf)
+            }
+          }
+          Some(StringValue(buf.to_string()))
+        }
+        _ => {
+          diagnostics.push(diag("Set.join expects String separator"))
+          None
+        }
+      }
+    }
+    _ => {
+      diagnostics.push(
+        diag("Cannot find property `\{method_name}` in object of type `Set`."),
       )
       None
     }
@@ -4677,6 +4899,40 @@ fn eval_expr_with_bindings(
                 None
               }
             }
+          // PKL-119c: SetValue's bare-property surface — `.length`,
+          // `.isEmpty`, `.isNotEmpty`, `.first`, `.last`, `.distinct`
+          // (identity since Set is already unique). Method names
+          // (`.contains` / `.toList` / `.map` / `.filter` / `.fold`)
+          // fall through to the CallExpr dispatcher.
+          Some(SetValue(elements)) =>
+            match member_name {
+              "length" => Some(IntValue(elements.length()))
+              "isEmpty" => Some(BoolValue(elements.length() == 0))
+              "isNotEmpty" => Some(BoolValue(elements.length() != 0))
+              "first" =>
+                if elements.length() == 0 {
+                  diagnostics.push(diag("Set.first is empty"))
+                  None
+                } else {
+                  Some(elements[0])
+                }
+              "last" =>
+                if elements.length() == 0 {
+                  diagnostics.push(diag("Set.last is empty"))
+                  None
+                } else {
+                  Some(elements[elements.length() - 1])
+                }
+              "distinct" => Some(SetValue(elements))
+              _ => {
+                diagnostics.push(
+                  diag(
+                    "Cannot find property `\{member_name}` in object of type `Set`.",
+                  ),
+                )
+                None
+              }
+            }
           Some(_) => {
             diagnostics.push(diag("member access expects Object"))
             None
@@ -5052,13 +5308,18 @@ fn eval_expr_with_bindings(
         if !ok {
           None
         } else if callee is Identifier("Set") {
+          // PKL-119c: Set carries the dedicated `SetValue` variant so
+          // PCF round-trips through the `Set(...)` constructor form
+          // and the typechecker distinguishes it from `Listing<T>`.
+          // Duplicates are dropped at construction; insertion order
+          // is preserved.
           let unique : Array[Value] = []
           for v in arg_values {
             if !contains_value(unique, v) {
               unique.push(v)
             }
           }
-          Some(ListingValue(unique))
+          Some(SetValue(unique))
         } else {
           Some(ListingValue(arg_values))
         }
@@ -5283,6 +5544,7 @@ fn eval_expr_with_bindings(
               is_regex_method_name(method_name) ||
               is_bytes_method_name(method_name) ||
               is_intseq_method_name(method_name) ||
+              is_set_method_name(method_name) ||
               method_name == "toUnit" ||
               method_name == "toBytes" {
               match
@@ -5376,6 +5638,22 @@ fn eval_expr_with_bindings(
                       declarations, diagnostics, resolve_import,
                     )
                   }
+                // PKL-119c: Set methods (`.contains` / `.toList` /
+                // `.toListing` / `.toSet` / `.map` / `.filter` /
+                // `.fold` / `.join`) dispatch through the dedicated
+                // method evaluator.
+                Some(SetValue(elements)) =>
+                  if is_set_method_name(method_name) {
+                    eval_set_method(
+                      elements, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
                 _ =>
                   eval_callable_call(
                     callee, arguments, bindings, env, class_env, cache, stack, declarations,
@@ -5403,6 +5681,7 @@ fn eval_expr_with_bindings(
               is_regex_method_name(method_name) ||
               is_bytes_method_name(method_name) ||
               is_intseq_method_name(method_name) ||
+              is_set_method_name(method_name) ||
               method_name == "toUnit" ||
               method_name == "toBytes" {
               match
@@ -7107,6 +7386,19 @@ fn render_pcf_scalar(value : Value, buf : StringBuilder) -> Unit {
         buf.write_string(".step(\{step})")
       }
     }
+    // PKL-119c: PCF round-trips through Apple Pkl's `Set(...)`
+    // constructor form. Element values flow through
+    // `render_pcf_inline` so nested composites stay valid PCF.
+    SetValue(elements) => {
+      buf.write_string("Set(")
+      for i = 0; i < elements.length(); i = i + 1 {
+        if i > 0 {
+          buf.write_string(", ")
+        }
+        render_pcf_inline(elements[i], 0, buf)
+      }
+      buf.write_char(')')
+    }
     ObjectValue(_) | ListingValue(_) | MappingValue(_) =>
       // Defensive: callers should route block values through
       // render_pcf_inline / render_pcf_block_body. Falling back keeps
@@ -7297,6 +7589,10 @@ fn render_json_value(value : Value, indent : Int, buf : StringBuilder) -> Unit {
     // through the standard JSON array projection.
     IntSeqValue(start, end_v, step) =>
       render_json_array(intseq_materialize(start, end_v, step), indent, buf)
+    // PKL-119c: Set renders as a JSON array. Uniqueness is already
+    // enforced at construction, so the array element order matches
+    // the upstream insertion-order semantics.
+    SetValue(elements) => render_json_array(elements, indent, buf)
   }
 }
 
@@ -7565,6 +7861,15 @@ fn render_yaml_block_value(
         render_yaml_sequence(elements, indent, buf)
       }
     }
+    // PKL-119c: Set reuses the sequence path; uniqueness is upstream
+    // semantics, not a YAML output concern.
+    SetValue(elements) =>
+      if elements.length() == 0 {
+        buf.write_string(" []\n")
+      } else {
+        buf.write_char('\n')
+        render_yaml_sequence(elements, indent, buf)
+      }
     StringValue(s) =>
       match yaml_string_block_scalar_info(s) {
         Some((indicator, lines, trailing)) =>
@@ -8150,6 +8455,8 @@ fn render_plist_value(value : Value, indent : Int, buf : StringBuilder) -> Unit 
     // the same elements.
     IntSeqValue(start, end_v, step) =>
       render_plist_array(intseq_materialize(start, end_v, step), indent, buf)
+    // PKL-119c: Set reuses the same `<array>` path.
+    SetValue(elements) => render_plist_array(elements, indent, buf)
   }
 }
 
@@ -8437,6 +8744,17 @@ fn write_compact_json_value(value : Value, buf : StringBuilder) -> Unit {
     // properties lines see `[1,2,3]` for `IntSeq(1, 3)`.
     IntSeqValue(start, end_v, step) => {
       let elements = intseq_materialize(start, end_v, step)
+      buf.write_char('[')
+      for i = 0; i < elements.length(); i = i + 1 {
+        if i > 0 {
+          buf.write_char(',')
+        }
+        write_compact_json_value(elements[i], buf)
+      }
+      buf.write_char(']')
+    }
+    // PKL-119c: Set reuses the same compact array form.
+    SetValue(elements) => {
       buf.write_char('[')
       for i = 0; i < elements.length(); i = i + 1 {
         if i > 0 {

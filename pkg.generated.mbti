@@ -431,6 +431,7 @@ pub(all) enum Type {
   MappingType(Array[TypeEntry])
   PairType(Type, Type)
   IntSeqType
+  SetType(Array[Type])
   FunctionType(Array[Type], Type)
   ConstrainedType(String, Type)
   UnionType(Array[Type])
@@ -491,6 +492,7 @@ pub(all) enum Value {
   MappingValue(Array[ValueEntry])
   PairValue(Value, Value)
   IntSeqValue(Int, Int, Int)
+  SetValue(Array[Value])
   FunctionValue(Array[FunctionParameter], Expr, String?, Array[ValueBinding])
   DurationValue(Double, String)
   DataSizeValue(Double, String)
