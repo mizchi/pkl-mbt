@@ -1256,12 +1256,14 @@ local upstreamSmoke = new Test {
     "PKL-097"
     "PKL-109"
     "PKL-126a"
+    "PKL-144"
   }
   cmd = "./scripts/upstream-smoke.sh"
   workdir = ".."
   expectStdoutContains {
     "upstream parse ok: basic/import1.pkl"
     "upstream eval ok: annotation/annotation1 (gold match)"
+    "upstream eval ok: api/jsonParser4 (gold match)"
     "upstream eval ok: api/jsonRendererEmptyComposites (gold match)"
     "upstream eval ok: api/moduleOutput2 (gold match)"
     "upstream eval ok: basic/parens (gold match)"
@@ -1279,7 +1281,7 @@ local upstreamSmoke = new Test {
     "upstream eval ok: classes/constraints8.pkl"
     "upstream json eval ok: api/jsonRenderer1.json (gold match)"
     "upstream eval ok: api/pListRenderer1.plist (gold match)"
-    "upstream-smoke: 32 gold-match fixtures passed"
+    "upstream-smoke: 33 gold-match fixtures passed"
     "upstream-smoke: 1 json gold-match fixtures passed"
     "upstream-smoke: 1 plist gold-match fixtures passed"
   }

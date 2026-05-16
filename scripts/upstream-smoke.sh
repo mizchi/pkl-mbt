@@ -13,6 +13,7 @@ GOLD="third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/output"
 # tracked outside this list (the script gates regressions).
 GOLD_FIXTURES=(
   "annotation/annotation1"
+  "api/jsonParser4"
   "api/jsonRendererEmptyComposites"
   "api/moduleOutput2"
   "basic/baseModule"
