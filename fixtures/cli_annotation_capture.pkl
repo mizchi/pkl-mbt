@@ -1,0 +1,19 @@
+// PKL-128d: annotations preceding `module` / `class` / `function` /
+// `typealias` are captured into the AST. The `pkl parse` command
+// prints a one-line summary per annotation when at least one was
+// captured, identifying the declaration it attaches to and the body
+// shape (NoBody / ParenBody / BraceBody) plus the verbatim body
+// text. Evaluation is unaffected — annotations are pure metadata.
+@ModuleInfo { minPklVersion = "0.31.0" }
+module foo.bar
+
+@Deprecated("removed in v3")
+class Box {
+  value: Int
+}
+
+@Since(version = "0.5.0")
+function helper(x: Int): Int = x * 2
+
+@Internal
+typealias Alias = Box

@@ -45,7 +45,7 @@ local pklAnalyzeLint: Spec.Scenario = new {
     "`moon run cmd/main -- analyze <file>` reports lint findings: unused local bindings, unused imports, unused class properties, shadowed identifiers. Diagnostics carry source position once PKL-107 lands."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-009" }
-  tags { "cli"; "lint" }
+  tags { "cli"; "lint"; "next" }
   reviewStatus = "draft"
   severity = "minor"
 }
@@ -168,18 +168,6 @@ local rendererConverters: Spec.Scenario = new {
 
 // ── parser surface ─────────────────────────────────────────────────────────
 
-local parserSurfaceExpansion: Spec.Scenario = new {
-  id = "PKL-128d"
-  name = "annotation class capture"
-  description =
-    "Capture `@Deprecated`, `@Since`, `@ModuleInfo` and similar annotation classes into AST nodes so pkldoc / codegen can read their fields. The parser currently skips them entirely (no AST trace), which is fine for evaluation but blocks the documentation / codegen pipelines that need the metadata. Implement a new `AnnotationDecl` node attached to the following declaration; the existing `skip_annotation` becomes the fallback path when capture isn't needed."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-001"; "PKL-128a"; "PKL-128b"; "PKL-128c" }
-  tags { "parser"; "annotations"; "next" }
-  reviewStatus = "draft"
-  severity = "minor"
-}
-
 local packagePklRegistry: Spec.Scenario = new {
   id = "PKL-129b"
   name = "package:// registry resolution"
@@ -257,7 +245,6 @@ entries: Listing<Spec.Scenario> = new {
   pklRendererStdlibModules
   plistXmlProtobufRenderers
   rendererConverters
-  parserSurfaceExpansion
   packagePklRegistry
   pkldoc
   codegenBridge

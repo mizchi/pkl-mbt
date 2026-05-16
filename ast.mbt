@@ -154,6 +154,37 @@ pub(all) enum Declaration {
 } derive(Eq, Debug)
 
 ///|
+/// PKL-128d: structured capture of a single annotation that precedes
+/// a declaration. `class_name` holds the identifier after `@` (e.g.
+/// `"Deprecated"`, `"ModuleInfo"`, `"my.pkg.Custom"`). `body_text`
+/// is the verbatim source between the surrounding delimiters; the
+/// `body_kind` field identifies which delimiters were used so a
+/// downstream tool (pkldoc / codegen) can re-parse the body in the
+/// matching mode without scanning back to the open token.
+///
+/// Forms recognised:
+///   - `@Name`                    → body_kind = NoBody,    body_text = ""
+///   - `@Name(arg, ...)`          → body_kind = ParenBody, body_text = inside parens
+///   - `@Name { field = expr }`   → body_kind = BraceBody, body_text = inside braces
+///
+/// Capturing only the raw text keeps the slice tight: the
+/// downstream consumer can lex/parse the body when needed, and the
+/// AST avoids carrying a second Expr-tree shape for arguments that
+/// the evaluator never sees.
+pub(all) struct Annotation {
+  class_name : String
+  body_kind : AnnotationBodyKind
+  body_text : String
+} derive(Eq, Debug)
+
+///|
+pub(all) enum AnnotationBodyKind {
+  NoBody
+  ParenBody
+  BraceBody
+} derive(Eq, Debug)
+
+///|
 pub(all) struct ClassDecl {
   name : String
   // PKL-089: optional list of type parameter names (`class Box<T, U>` →
@@ -170,6 +201,9 @@ pub(all) struct ClassDecl {
   parent_name : String?
   properties : Array[ClassProperty]
   methods : Array[FunctionDecl]
+  // PKL-128d: annotations attached to this `class` declaration in
+  // source order. Empty when no annotation precedes the keyword.
+  annotations : Array[Annotation]
 } derive(Eq, Debug)
 
 ///|
@@ -192,6 +226,9 @@ pub(all) struct FunctionDecl {
   parameters : Array[FunctionParameter]
   return_type_name : String?
   body : Expr?
+  // PKL-128d: annotations attached to this `function` declaration in
+  // source order. Empty when no annotation precedes the keyword.
+  annotations : Array[Annotation]
 } derive(Eq, Debug)
 
 ///|
@@ -209,6 +246,9 @@ pub(all) struct TypeAliasDecl {
   // instantiation site like `Box<Int>` is resolved.
   type_parameters : Array[String]
   target : String
+  // PKL-128d: annotations attached to this `typealias` declaration in
+  // source order. Empty when no annotation precedes the keyword.
+  annotations : Array[Annotation]
 } derive(Eq, Debug)
 
 ///|
@@ -219,6 +259,10 @@ pub(all) struct Program {
   declarations : Array[Declaration]
   bindings : Array[Binding]
   body : Expr?
+  // PKL-128d: annotations attached to the `module` declaration in
+  // source order. Empty when no annotation precedes the keyword (or
+  // no explicit `module` header is present at all).
+  module_annotations : Array[Annotation]
 } derive(Eq, Debug)
 
 ///|

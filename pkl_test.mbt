@@ -2768,6 +2768,87 @@ test "PKL-122: String.codePointAt out of range pushes diagnostic" {
 }
 
 ///|
+test "PKL-128d: paren-body annotation captures verbatim body text" {
+  let parsed = parse_source(
+    "@Deprecated(\"removed in v3\")\nclass Box { value: Int }",
+  )
+  inspect(parsed.diagnostics.length(), content="0")
+  guard parsed.program.declarations[0] is ClassDeclaration(decl) else {
+    panic()
+  }
+  inspect(decl.annotations.length(), content="1")
+  inspect(decl.annotations[0].class_name, content="Deprecated")
+  guard decl.annotations[0].body_kind is ParenBody else { panic() }
+  inspect(decl.annotations[0].body_text, content="\"removed in v3\"")
+}
+
+///|
+test "PKL-128d: brace-body annotation captures verbatim body text" {
+  let parsed = parse_source(
+    "@ModuleInfo { minPklVersion = \"0.31.0\" }\nmodule foo.bar",
+  )
+  inspect(parsed.diagnostics.length(), content="0")
+  inspect(parsed.program.module_annotations.length(), content="1")
+  let a = parsed.program.module_annotations[0]
+  inspect(a.class_name, content="ModuleInfo")
+  guard a.body_kind is BraceBody else { panic() }
+  inspect(a.body_text, content=" minPklVersion = \"0.31.0\" ")
+}
+
+///|
+test "PKL-128d: bare annotation has no body" {
+  let parsed = parse_source("@Internal\nfunction helper(x: Int): Int = x * 2")
+  inspect(parsed.diagnostics.length(), content="0")
+  guard parsed.program.declarations[0] is FunctionDeclaration(decl) else {
+    panic()
+  }
+  inspect(decl.annotations.length(), content="1")
+  inspect(decl.annotations[0].class_name, content="Internal")
+  guard decl.annotations[0].body_kind is NoBody else { panic() }
+  inspect(decl.annotations[0].body_text, content="")
+}
+
+///|
+test "PKL-128d: multiple annotations stack on a single declaration" {
+  let parsed = parse_source(
+    "@Deprecated(\"old\")\n@Since(\"0.5.0\")\nclass Box { value: Int }",
+  )
+  inspect(parsed.diagnostics.length(), content="0")
+  guard parsed.program.declarations[0] is ClassDeclaration(decl) else {
+    panic()
+  }
+  inspect(decl.annotations.length(), content="2")
+  inspect(decl.annotations[0].class_name, content="Deprecated")
+  inspect(decl.annotations[1].class_name, content="Since")
+}
+
+///|
+test "PKL-128d: annotations don't bleed across consecutive declarations" {
+  let parsed = parse_source("@First\nclass A { v: Int }\nclass B { v: Int }")
+  inspect(parsed.diagnostics.length(), content="0")
+  guard parsed.program.declarations[0] is ClassDeclaration(first) else {
+    panic()
+  }
+  guard parsed.program.declarations[1] is ClassDeclaration(second) else {
+    panic()
+  }
+  inspect(first.annotations.length(), content="1")
+  inspect(first.annotations[0].class_name, content="First")
+  inspect(second.annotations.length(), content="0")
+}
+
+///|
+test "PKL-128d: typealias annotation captures" {
+  let parsed = parse_source("@Internal\ntypealias Alias = Int")
+  inspect(parsed.diagnostics.length(), content="0")
+  guard parsed.program.declarations[0] is TypeAliasDeclaration(decl) else {
+    panic()
+  }
+  inspect(decl.annotations.length(), content="1")
+  inspect(decl.annotations[0].class_name, content="Internal")
+}
+
+///|
 test "PKL-125: YAML literal block scalar clips with single trailing newline" {
   let v : Value = ObjectValue([
     ValueMember::{ name: "p", value: StringValue("line one\nline two\n") },

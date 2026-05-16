@@ -12,12 +12,22 @@ priv struct Parser {
   builder : @cst.GreenNodeBuilder
   diagnostics : Array[Diagnostic]
   unsupported_syntax : Array[UnsupportedSyntax]
+  // PKL-128d: annotations consumed by `skip_member_header` accumulate
+  // here until the following declaration parser drains them. Bindings
+  // / properties that don't capture annotations simply leave the list
+  // in place; the next `skip_member_header` resets it before parsing
+  // the next member's annotation prefix.
+  pending_annotations : Array[Annotation]
 }
 
 ///|
 priv struct ParsedModuleDecl {
   module_name : String?
   module_relation : ModuleRelation?
+  // PKL-128d: annotations preceding the `module` / `amends` /
+  // `extends` keyword. Drained from `pending_annotations` at the
+  // start of `parse_module_decl`.
+  annotations : Array[Annotation]
 }
 
 ///|
@@ -32,6 +42,7 @@ fn Parser::new(source : String) -> Parser {
     builder: @cst.GreenNodeBuilder::new(),
     diagnostics: [],
     unsupported_syntax: [],
+    pending_annotations: [],
   }
 }
 
@@ -382,38 +393,76 @@ fn Parser::consume_separators(self : Parser) -> Unit {
 }
 
 ///|
-fn Parser::skip_annotation(self : Parser) -> Unit {
-  if self.at(at_sign()) {
-    ignore(self.bump())
-    while self.at(identifier()) || self.at(dot()) {
-      ignore(self.bump())
-    }
-    self.skip_whitespace()
-    // Apple Pkl annotations carry their argument either in parens
-    // (`@Deprecated("...")`) or as a body literal (`@ModuleInfo { minPklVersion = ... }`).
-    // Both forms are skipped today — we don't carry the metadata into
-    // the AST yet.
-    if self.at(lparen()) {
-      self.skip_balanced_group(lparen(), rparen())
-    } else if self.at(lbrace()) {
-      self.skip_balanced_group(lbrace(), rbrace())
-    }
+/// PKL-128d: capture one `@Name(...)` / `@Name { ... }` / `@Name`
+/// annotation into the parser's pending list. The name segment may
+/// contain dots (`@my.pkg.Custom`); the body delimiters and verbatim
+/// body text are recorded so a downstream tool can re-parse the
+/// arguments without scanning back to the open token. Returns true
+/// if an annotation was consumed.
+fn Parser::parse_annotation(self : Parser) -> Bool {
+  if !self.at(at_sign()) {
+    return false
   }
+  ignore(self.bump())
+  let name_buf = StringBuilder::new()
+  while self.at(identifier()) || self.at(dot()) {
+    name_buf.write_string(self.peek().text())
+    ignore(self.bump())
+  }
+  self.skip_whitespace()
+  let class_name = name_buf.to_string()
+  let (body_kind, body_text) = if self.at(lparen()) {
+    let start = self.current_offset()
+    self.skip_balanced_group(lparen(), rparen())
+    let end = self.current_offset()
+    // `skip_balanced_group` advances past the closing delimiter, so
+    // the body lives in (start + 1, end - 1).
+    (AnnotationBodyKind::ParenBody, self.source_slice(start + 1, end - 1))
+  } else if self.at(lbrace()) {
+    let start = self.current_offset()
+    self.skip_balanced_group(lbrace(), rbrace())
+    let end = self.current_offset()
+    (AnnotationBodyKind::BraceBody, self.source_slice(start + 1, end - 1))
+  } else {
+    (AnnotationBodyKind::NoBody, "")
+  }
+  self.pending_annotations.push({ class_name, body_kind, body_text })
+  true
 }
 
 ///|
 fn Parser::skip_member_header(self : Parser) -> Unit {
+  // PKL-128d: clear out any annotations a previous header captured
+  // but the following decl parser declined to take, so they don't
+  // bleed into the next member.
+  self.pending_annotations.clear()
   let mut keep_going = true
   while keep_going {
     self.skip_trivia()
     if self.at(at_sign()) {
-      self.skip_annotation()
+      ignore(self.parse_annotation())
     } else if self.at(identifier()) && is_modifier_text(self.peek().text()) {
       ignore(self.bump())
     } else {
       keep_going = false
     }
   }
+}
+
+///|
+/// PKL-128d: drain the pending annotation list and return its
+/// contents. Called by decl parsers that want to attach the captured
+/// annotations to their AST node; bindings and other consumers that
+/// don't need the metadata can ignore it — the next
+/// `skip_member_header` will reset the list before parsing the next
+/// member.
+fn Parser::take_pending_annotations(self : Parser) -> Array[Annotation] {
+  let out : Array[Annotation] = []
+  for a in self.pending_annotations {
+    out.push(a)
+  }
+  self.pending_annotations.clear()
+  out
 }
 
 ///|
@@ -567,6 +616,7 @@ fn Parser::parse(self : Parser) -> ParseResult {
   self.builder.start_node(module_node())
   let mut module_name : String? = None
   let mut module_relation : ModuleRelation? = None
+  let mut module_annotations : Array[Annotation] = []
   let imports : Array[ImportDecl] = []
   let declarations : Array[Declaration] = []
   let bindings : Array[Binding] = []
@@ -601,6 +651,11 @@ fn Parser::parse(self : Parser) -> ParseResult {
             Some(relation) => module_relation = Some(relation)
             None => ()
           }
+          // PKL-128d: the first explicit `module` header in the file
+          // owns the captured annotations. Re-parsing of subsequent
+          // `module` keywords (which Apple Pkl rejects anyway) would
+          // overwrite, but a single header is the well-formed case.
+          module_annotations = decl.annotations
         }
         None => ()
       }
@@ -677,6 +732,7 @@ fn Parser::parse(self : Parser) -> ParseResult {
       declarations,
       bindings,
       body,
+      module_annotations,
     },
     diagnostics: self.diagnostics,
     unsupported_syntax: self.unsupported_syntax,
@@ -685,6 +741,9 @@ fn Parser::parse(self : Parser) -> ParseResult {
 
 ///|
 fn Parser::parse_module_decl(self : Parser) -> ParsedModuleDecl? {
+  // PKL-128d: capture annotations preceding the `module` / `amends`
+  // / `extends` keyword.
+  let annotations = self.take_pending_annotations()
   self.builder.start_node(module_decl())
   let buf = StringBuilder::new()
   if self.at(module_kw()) {
@@ -732,7 +791,7 @@ fn Parser::parse_module_decl(self : Parser) -> ParsedModuleDecl? {
   if parsed_name is None && module_relation is None {
     None
   } else {
-    Some({ module_name: parsed_name, module_relation })
+    Some({ module_name: parsed_name, module_relation, annotations })
   }
 }
 
@@ -939,6 +998,9 @@ fn Parser::parse_import_decl(self : Parser) -> ImportDecl? {
 
 ///|
 fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
+  // PKL-128d: drain any pending annotations the surrounding
+  // `skip_member_header` collected; they precede the `class` keyword.
+  let annotations = self.take_pending_annotations()
   self.builder.start_node(class_decl())
   self.expect_text("class", "class")
   let name = match self.expect(identifier(), "class name") {
@@ -1057,6 +1119,7 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
       parent_name,
       properties,
       methods,
+      annotations,
     })
   }
 }
@@ -1098,6 +1161,8 @@ fn Parser::parse_class_property_decl(self : Parser) -> ClassProperty? {
 
 ///|
 fn Parser::parse_typealias_decl(self : Parser) -> TypeAliasDecl? {
+  // PKL-128d: capture annotations preceding the `typealias` keyword.
+  let annotations = self.take_pending_annotations()
   self.builder.start_node(typealias_decl())
   self.expect_text("typealias", "typealias")
   let name = match self.expect(identifier(), "typealias name") {
@@ -1154,7 +1219,7 @@ fn Parser::parse_typealias_decl(self : Parser) -> TypeAliasDecl? {
   if name == "" || target == "" {
     None
   } else {
-    Some({ name, type_parameters, target })
+    Some({ name, type_parameters, target, annotations })
   }
 }
 
@@ -1170,6 +1235,8 @@ fn Parser::parse_function_parameter(self : Parser) -> FunctionParameter? {
 
 ///|
 fn Parser::parse_function_decl(self : Parser) -> FunctionDecl? {
+  // PKL-128d: capture annotations preceding the `function` keyword.
+  let annotations = self.take_pending_annotations()
   self.builder.start_node(function_decl())
   self.expect_text("function", "function")
   let name = match self.expect(identifier(), "function name") {
@@ -1274,6 +1341,7 @@ fn Parser::parse_function_decl(self : Parser) -> FunctionDecl? {
       parameters,
       return_type_name,
       body,
+      annotations,
     })
   }
 }

@@ -249,6 +249,71 @@ fn offset_to_line_column(source : String, offset : Int) -> (Int, Int) {
 }
 
 ///|
+/// PKL-128d: emit a short structured summary of every annotation
+/// captured by the parser. Output shape:
+///
+/// ```
+/// annotation Deprecated on module: ParenBody=("removed in v3")
+/// annotation ModuleInfo on module: BraceBody=(minPklVersion = "0.31.0")
+/// annotation Since on class Box: NoBody=()
+/// ```
+///
+/// Only emits when at least one annotation was captured so the
+/// existing `parse → ok` smoke for annotation-free sources is
+/// preserved byte-for-byte.
+fn print_annotation_summary(program : @pkl.Program) -> Unit {
+  let any = program.module_annotations.length() > 0 ||
+    program.declarations
+    .iter()
+    .any(fn(d) {
+      match d {
+        ClassDeclaration(cd) => cd.annotations.length() > 0
+        FunctionDeclaration(fd) => fd.annotations.length() > 0
+        TypeAliasDeclaration(td) => td.annotations.length() > 0
+      }
+    })
+  if !any {
+    return
+  }
+  for a in program.module_annotations {
+    println(
+      "annotation \{a.class_name} on module: \{render_annotation_body(a)}",
+    )
+  }
+  for decl in program.declarations {
+    match decl {
+      ClassDeclaration(cd) =>
+        for a in cd.annotations {
+          println(
+            "annotation \{a.class_name} on class \{cd.name}: \{render_annotation_body(a)}",
+          )
+        }
+      FunctionDeclaration(fd) =>
+        for a in fd.annotations {
+          println(
+            "annotation \{a.class_name} on function \{fd.name}: \{render_annotation_body(a)}",
+          )
+        }
+      TypeAliasDeclaration(td) =>
+        for a in td.annotations {
+          println(
+            "annotation \{a.class_name} on typealias \{td.name}: \{render_annotation_body(a)}",
+          )
+        }
+    }
+  }
+}
+
+///|
+fn render_annotation_body(a : @pkl.Annotation) -> String {
+  match a.body_kind {
+    NoBody => "NoBody=()"
+    ParenBody => "ParenBody=(\{a.body_text})"
+    BraceBody => "BraceBody=(\{a.body_text})"
+  }
+}
+
+///|
 fn parse_file(path : String) -> Bool {
   let source = @fs.read_file_to_string(path) catch {
     _ => {
@@ -360,6 +425,11 @@ async fn main {
         print_diagnostics_with_source(parsed.diagnostics, path, source)
         @sys.exit(1)
       }
+      // PKL-128d: surface captured annotations so pkldoc / codegen
+      // tooling can read them via the CLI. Printed only when at least
+      // one annotation was captured, so the existing one-line `ok`
+      // smoke output stays unchanged for annotation-free sources.
+      print_annotation_summary(parsed.program)
       println("ok")
     }
     "check" => {

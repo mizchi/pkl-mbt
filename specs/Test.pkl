@@ -374,6 +374,24 @@ local cliFloatMagnitudeUnits = new Test {
   timeoutSec = 120
 }
 
+local cliAnnotationCapture = new Test {
+  name = "cli annotation capture"
+  description =
+    "The native CLI's `parse` subcommand prints one summary line per captured annotation when at least one was found, identifying the declaration it attaches to (module / class / function / typealias) and the body shape (NoBody / ParenBody / BraceBody) plus the verbatim body text. Annotation-free sources keep the existing one-line `ok` output for byte-identity with prior fixtures."
+  tags { "moonbit"; "cli"; "parser"; "annotation"; "contract" }
+  specRef { "PKL-128d" }
+  cmd = "moon run cmd/main --target native -- parse fixtures/cli_annotation_capture.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "annotation ModuleInfo on module: BraceBody=( minPklVersion = \"0.31.0\" )"
+    "annotation Deprecated on class Box: ParenBody=(\"removed in v3\")"
+    "annotation Since on function helper: ParenBody=(version = \"0.5.0\")"
+    "annotation Internal on typealias Alias: NoBody=()"
+    "ok"
+  }
+  timeoutSec = 120
+}
+
 local cliYamlBlockScalars = new Test {
   name = "cli yaml block scalars"
   description =
@@ -952,6 +970,7 @@ tests {
   cliPlatformSemver
   cliStringUnicode
   cliYamlBlockScalars
+  cliAnnotationCapture
   cliHeredocString
   cliFormat
   cliTestExamplesPass

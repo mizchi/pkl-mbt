@@ -1812,6 +1812,38 @@ local floatMagnitudeUnits = new Scenario {
   }
 }
 
+local annotationClassCapture = new Scenario {
+  id = "PKL-128d"
+  name = "annotation class capture"
+  description =
+    "Annotations preceding a `module` / `class` / `function` / `typealias` declaration are captured into the AST as `Annotation { class_name, body_kind, body_text }` records. Three body forms are recognised: bare (`@Deprecated`), parenthesised (`@Deprecated(\"...\")`), and braced (`@ModuleInfo { minPklVersion = \"...\" }`); the verbatim body text between the delimiters is preserved so a downstream tool (pkldoc / codegen) can re-parse the arguments without scanning back to the open token. The parser keeps a `pending_annotations` buffer on `Parser` that `skip_member_header` fills and each decl parser drains via `take_pending_annotations`; bindings / properties that don't capture annotations simply leave the buffer to be cleared by the next header pass. Evaluation is unaffected — annotations are pure metadata. The CLI's `parse` subcommand prints a one-line summary per captured annotation so pkldoc / codegen pipelines can consume the metadata without linking against the AST directly."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-001"; "PKL-128a"; "PKL-128b"; "PKL-128c" }
+  tags { "parser"; "annotation"; "pkldoc"; "codegen" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Capture body as verbatim source text rather than a structured Expr tree"
+      rationale =
+        "Apple Pkl annotation bodies range from a single string literal (`@Deprecated(\"msg\")`) to an object literal with property assignments (`@ModuleInfo { minPklVersion = \"...\" }`). Parsing both forms into structured AST nodes means picking between two argument shapes (positional list vs. object members) and threading the existing expression parsers through the annotation path. Storing the body as verbatim text keeps the slice tight, defers the parsing cost until a consumer actually needs the values, and avoids carrying a second Expr-tree shape that the evaluator never sees. Downstream tooling (pkldoc, codegen) can call `parse_source` on the body text when it needs structured access."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Buffer annotations in `Parser.pending_annotations`, drain at decl construction"
+      rationale =
+        "An alternative is to thread an `annotations: Array[Annotation]` parameter through every decl parser (`parse_class_decl`, `parse_function_decl`, `parse_typealias_decl`, `parse_module_decl`). The pending-buffer approach centralises the capture/drain contract: `skip_member_header` is the single owner that clears the list and fills it from `@` tokens; each decl parser pulls via `take_pending_annotations` as its first step. Bindings / properties that don't carry annotations simply leave the buffer in place, and the next header pass resets it before parsing the next member — so a `@Deprecated` annotation on a local binding doesn't accidentally bleed into the following `class` declaration."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Module-level annotations attach to Program.module_annotations, not the implicit module"
+      rationale =
+        "Apple Pkl files don't require an explicit `module` keyword; a file with no header still represents a module. Adding a `ModuleDeclaration` AST node just to hang annotations off would force every existing module consumer to thread the optional decl through. `Program` already aggregates module-level state (`module_name`, `module_relation`, etc.), so the new `module_annotations: Array[Annotation]` field slots in alongside. Annotations only attach when an explicit `module` keyword (or `amends` / `extends` header) is present — bare files leave the list empty."
+    }
+  }
+}
+
 local yamlBlockScalars = new Scenario {
   id = "PKL-125"
   name = "YAML literal block scalars"
@@ -3527,5 +3559,6 @@ scenarios {
   pklPlatformSemver
   stringUnicodeMethods
   yamlBlockScalars
+  annotationClassCapture
   ...roadmap.entries
 }

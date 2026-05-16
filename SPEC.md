@@ -1,6 +1,6 @@
 # Test SPEC
 
-193 tests across 2 module(s) — 145 pending, 48 active
+194 tests across 2 module(s) — 145 pending, 49 active
 
 ## `specs/`
 
@@ -158,10 +158,11 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **annotation class capture** (minor) [draft] — verifies: PKL-128d — tags: parser, annotations, next
-  > Capture `@Deprecated`, `@Since`, `@ModuleInfo` and similar annotation classes into AST nodes so pkldoc / codegen can read their fields. The parser currently skips them entirely (no AST trace), which is fine for evaluation but blocks the documentation / codegen pipelines that need the metadata. Implement a new `AnnotationDecl` node attached to the following declaration; the existing `skip_annotation` becomes the fallback path when capture isn't needed.
+- [ ] **annotation class capture** (minor) — verifies: PKL-128d — tags: parser, annotation, pkldoc, codegen
+  > Annotations preceding a `module` / `class` / `function` / `typealias` declaration are captured into the AST as `Annotation { class_name, body_kind, body_text }` records. Three body forms are recognised: bare (`@Deprecated`), parenthesised (`@Deprecated("...")`), and braced (`@ModuleInfo { minPklVersion = "..." }`); the verbatim body text between the delimiters is preserved so a downstream tool (pkldoc / codegen) can re-parse the arguments without scanning back to the open token. The parser keeps a `pending_annotations` buffer on `Parser` that `skip_member_header` fills and each decl parser drains via `take_pending_annotations`; bindings / properties that don't capture annotations simply leave the buffer to be cleared by the next header pass. Evaluation is unaffected — annotations are pure metadata. The CLI's `parse` subcommand prints a one-line summary per captured annotation so pkldoc / codegen pipelines can consume the metadata without linking against the AST directly.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-001, PKL-128a, PKL-128b, PKL-128c
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **call-site generic inference** — verifies: PKL-110 — tags: typechecker, generics, inference
@@ -589,7 +590,7 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **pkl analyze lint subcommand** (minor) [draft] — verifies: PKL-102 — tags: cli, lint
+- [ ] **pkl analyze lint subcommand** (minor) [draft] — verifies: PKL-102 — tags: cli, lint, next
   > `moon run cmd/main -- analyze <file>` reports lint findings: unused local bindings, unused imports, unused class properties, shadowed identifiers. Diagnostics carry source position once PKL-107 lands.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-009
@@ -991,6 +992,10 @@
 
 - [x] **cli amends base merge** — verifies: PKL-137 — tags: moonbit, cli, evaluator, amends, pkf-pkspec, contract
   > The native CLI evaluates a child fixture that `amends` a sibling base module. The base provides a `Test` class, a `Severity` string-literal union typealias, and an empty `tests: Listing<Test>` slot; the child adds one entry referencing the base's class by its bare name. The child's typecheck succeeds (no `unknown type annotation Test`) and the rendered output shows the merged listing.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli annotation capture** — verifies: PKL-128d — tags: moonbit, cli, parser, annotation, contract
+  > The native CLI's `parse` subcommand prints one summary line per captured annotation when at least one was found, identifying the declaration it attaches to (module / class / function / typealias) and the body shape (NoBody / ParenBody / BraceBody) plus the verbatim body text. Annotation-free sources keep the existing one-line `ok` output for byte-identity with prior fixtures.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli any top type** — verifies: PKL-133 — tags: moonbit, cli, typechecker, any, pkf-pkspec, contract

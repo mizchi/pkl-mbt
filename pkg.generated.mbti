@@ -226,6 +226,18 @@ pub(all) struct AnalysisStats {
   eval_count : Int
 } derive(Eq, @debug.Debug)
 
+pub(all) struct Annotation {
+  class_name : String
+  body_kind : AnnotationBodyKind
+  body_text : String
+} derive(Eq, @debug.Debug)
+
+pub(all) enum AnnotationBodyKind {
+  NoBody
+  ParenBody
+  BraceBody
+} derive(Eq, @debug.Debug)
+
 pub(all) enum BinaryOp {
   Add
   Subtract
@@ -263,6 +275,7 @@ pub(all) struct ClassDecl {
   parent_name : String?
   properties : Array[ClassProperty]
   methods : Array[FunctionDecl]
+  annotations : Array[Annotation]
 } derive(Eq, @debug.Debug)
 
 pub(all) struct ClassExport {
@@ -332,6 +345,7 @@ pub(all) struct FunctionDecl {
   parameters : Array[FunctionParameter]
   return_type_name : String?
   body : Expr?
+  annotations : Array[Annotation]
 } derive(Eq, @debug.Debug)
 
 pub(all) struct FunctionParameter {
@@ -379,6 +393,7 @@ pub(all) struct Program {
   declarations : Array[Declaration]
   bindings : Array[Binding]
   body : Expr?
+  module_annotations : Array[Annotation]
 } derive(Eq, @debug.Debug)
 
 pub(all) enum Type {
@@ -405,6 +420,7 @@ pub(all) struct TypeAliasDecl {
   name : String
   type_parameters : Array[String]
   target : String
+  annotations : Array[Annotation]
 } derive(Eq, @debug.Debug)
 
 pub(all) struct TypeEntry {
