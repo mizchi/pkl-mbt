@@ -74,10 +74,12 @@ jobs:
         run: moon update
 
       - name: Set up pkfire (`pkf`)
-        uses: mizchi/pkfire@v0
+        # No floating major tag upstream — pin to the explicit
+        # release. `pkfire@<ver>` is the tag form mizchi/pkfire ships.
+        uses: mizchi/pkfire@pkfire@0.10.0
 
       - name: Set up pkspec
-        uses: mizchi/pkspec@v0
+        uses: mizchi/pkspec@v0.2.1
 
       - name: pkspec spec --check
         run: pkspec spec --check specs/Spec.pkl specs/Test.pkl
