@@ -7,8 +7,7 @@ fn usage() -> Unit {
   println("       pkl test <file.pkl>")
   println("       pkl format <file.pkl>")
   println("       pkl analyze <file.pkl>")
-  println("       pkl codegen <file.pkl>")
-  println("       pkl stdlib                    # probe stdlib coverage")
+  println("       pkl codegen [-t|--target moonbit] <file.pkl>")
   println("       pkl parse-many <file.pkl>...")
   println(
     "  sandbox flags: --allowed-modules <pipe-separated-prefixes> --module-path <dir> -p NAME=VALUE",
@@ -607,6 +606,11 @@ async fn main {
   let mut format = "pcf"
   let mut format_explicit = false
   let mut overwrite = false
+  // PKL-131b: codegen target, parsed from `-t` / `--target`. Only
+  // `moonbit` is wired today; the dispatcher rejects everything else
+  // with the list of supported names so a typo is loud rather than
+  // silently misrouting.
+  let mut codegen_target = "moonbit"
   let positional : Array[String] = []
   // PKL-106: sandbox knobs. Each is collected as a list so multiple
   // occurrences accumulate (`-p A=1 -p B=2`, `--module-path foo
@@ -626,6 +630,13 @@ async fn main {
       }
       format = args[i + 1]
       format_explicit = true
+      i = i + 2
+    } else if token == "-t" || token == "--target" {
+      if i + 1 >= args.length() {
+        usage()
+        @sys.exit(1)
+      }
+      codegen_target = args[i + 1]
       i = i + 2
     } else if token == "--overwrite" {
       overwrite = true
@@ -853,15 +864,22 @@ async fn main {
       println("ok")
     }
     "codegen" => {
-      // PKL-131: lower a typechecked Pkl module to a MoonBit source
-      // skeleton. Only `-t mbt` is recognised today; future targets
-      // (Kotlin / Swift / Go / Java) extend the same dispatcher.
+      // PKL-131 / PKL-131b: lower a typechecked Pkl module to the
+      // target language. Only `moonbit` is wired today; future
+      // targets (Java / Kotlin / Swift / Go / TypeScript) extend the
+      // `CodegenTarget` enum and the `@pkl.codegen` dispatcher and
+      // are surfaced here via the same `-t` / `--target` flag.
+      if codegen_target != "moonbit" && codegen_target != "mbt" {
+        fail(
+          "unsupported codegen target: \{codegen_target} (supported: moonbit)",
+        )
+      }
       let parsed = @pkl.parse_source(source)
       if parsed.diagnostics.length() > 0 {
         print_diagnostics_with_source(parsed.diagnostics, path, source)
         @sys.exit(1)
       }
-      let generated = @pkl.codegen_moonbit(parsed.program)
+      let generated = @pkl.codegen(parsed.program, @pkl.MoonBit)
       let trimmed = if generated.has_suffix("\n") {
         String::unsafe_substring(generated, start=0, end=generated.length() - 1)
       } else {

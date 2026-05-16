@@ -27,8 +27,7 @@ mpkl eval     <file.pkl> [-f <format>]    # eval + render (default: pcf)
 mpkl test     <file.pkl> [--overwrite]    # walk facts: / examples:
 mpkl format   <file.pkl>                  # canonical PCF re-emit
 mpkl analyze  <file.pkl>                  # lint (unused locals / imports / ...)
-mpkl codegen  <file.pkl>                  # lower to MoonBit struct skeleton  (pkl-mbt only)
-mpkl stdlib                               # probe stdlib coverage (pkl-mbt only)
+mpkl codegen  <file.pkl> [-t moonbit]     # lower to a target-language skeleton  (pkl-mbt only)
 ```
 
 Renderers via `-f` / `--format`: `pcf` (default), `json`, `yaml`, `properties`, `plist`. `output { renderer = new <Renderer> { ... } }` also drives the format from the source.
@@ -57,14 +56,11 @@ Parked but not closed off — `specs/Roadmap.pkl`'s `deferredEntries` listing ca
 - **`pkl:test.catch`** — only the throw branch (returns the message); the no-throw branch evaluates the lambda as if `catch` wasn't there.
 - **`pkl:json` / `pkl:yaml` / `pkl:xml` / `pkl:protobuf`** — type surface only (Parser / Renderer class shells instantiable); actual parsing / rendering bodies aren't wired.
 
-Run `mpkl stdlib` to verify the current state — the probe table evaluates one minimal fixture per documented capability and prints `[PASS]` / `[FAIL]` per row, exiting non-zero on regression.
-
 ## pkl-mbt specific
 
 These don't exist in Apple Pkl:
 
-- **`mpkl codegen <file.pkl>`** — lowers a Pkl module to a MoonBit `pub(all) struct` / `pub typealias` skeleton so embedders can round-trip schemas through both type systems.
-- **`mpkl stdlib`** — runs the in-process probe table that verifies each documented stdlib surface area against a minimal fixture.
+- **`mpkl codegen <file.pkl> [-t <target>]`** — lowers a Pkl module to a target-language skeleton. Today only `moonbit` is wired; the `@pkl.CodegenTarget` enum + `@pkl.codegen(program, target)` dispatcher keep the API shape stable when other targets (Java / Kotlin / Swift / Go / TypeScript) land.
 - **`mpkl analyze`** — lint pass over the parsed module (unused locals / imports / class properties / module-level shadowing).
 - **Library entrypoint** (`@pkl`) — pure-MoonBit, no IO / async, builds clean on all four MoonBit targets. Apple's `pkl` ships as a JVM-backed CLI.
 

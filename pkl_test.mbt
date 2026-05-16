@@ -3421,11 +3421,30 @@ test "PKL-120: pkl:math.pi constant" {
 }
 
 ///|
+test "PKL-131b: codegen dispatcher returns same output as codegen_moonbit for MoonBit target" {
+  let parsed = @pkl.parse_source(
+    "class Person {\n  name: String\n  age: Int\n}",
+  )
+  let via_dispatcher = @pkl.codegen(parsed.program, @pkl.MoonBit)
+  inspect(via_dispatcher.contains("pub(all) struct Person {"), content="true")
+  inspect(via_dispatcher.contains("name : String"), content="true")
+}
+
+///|
+test "PKL-131b: CodegenTarget enum is pattern-matchable" {
+  // Forward-compat smoke — the enum is `pub(all)` so consumers can
+  // pattern match (used by the CLI's `-t / --target` arm + future
+  // target additions). Round-trip equality also confirms `derive(Eq)`.
+  let target : @pkl.CodegenTarget = @pkl.MoonBit
+  assert_true(target == @pkl.MoonBit)
+}
+
+///|
 test "PKL-131: codegen emits pub struct from class declaration" {
   let parsed = @pkl.parse_source(
     "class Person {\n  name: String\n  age: Int\n}",
   )
-  let out = @pkl.codegen_moonbit(parsed.program)
+  let out = @pkl.codegen(parsed.program, @pkl.MoonBit)
   inspect(out.contains("pub(all) struct Person {"), content="true")
   inspect(out.contains("name : String"), content="true")
   inspect(out.contains("age : Int"), content="true")
@@ -3437,7 +3456,7 @@ test "PKL-131: codegen maps Pkl scalar types to MoonBit scalars" {
   let parsed = @pkl.parse_source(
     "class Scalars {\n  i: Int\n  d: Float\n  b: Boolean\n  s: String\n  n: Null\n}",
   )
-  let out = @pkl.codegen_moonbit(parsed.program)
+  let out = @pkl.codegen(parsed.program, @pkl.MoonBit)
   inspect(out.contains("i : Int"), content="true")
   inspect(out.contains("d : Double"), content="true")
   inspect(out.contains("b : Bool"), content="true")
@@ -3448,7 +3467,7 @@ test "PKL-131: codegen maps Pkl scalar types to MoonBit scalars" {
 ///|
 test "PKL-131: codegen recurses through nullable annotations" {
   let parsed = @pkl.parse_source("class Wrap {\n  maybe: String?\n}")
-  let out = @pkl.codegen_moonbit(parsed.program)
+  let out = @pkl.codegen(parsed.program, @pkl.MoonBit)
   inspect(out.contains("maybe : String?"), content="true")
 }
 
@@ -3457,7 +3476,7 @@ test "PKL-131: codegen recurses into Listing / Mapping / Set / Pair generics" {
   let parsed = @pkl.parse_source(
     "class Containers {\n  xs: Listing<Int>\n  m: Mapping<String, Int>\n  set: Set<String>\n  pair: Pair<Int, String>\n}",
   )
-  let out = @pkl.codegen_moonbit(parsed.program)
+  let out = @pkl.codegen(parsed.program, @pkl.MoonBit)
   inspect(out.contains("xs : Array[Int]"), content="true")
   inspect(out.contains("m : Map[String, Int]"), content="true")
   inspect(out.contains("set : Array[String] /* Set */"), content="true")
@@ -3467,14 +3486,14 @@ test "PKL-131: codegen recurses into Listing / Mapping / Set / Pair generics" {
 ///|
 test "PKL-131: codegen strips constraint suffix from base type" {
   let parsed = @pkl.parse_source("class Bound {\n  n: Int(isPositive)\n}")
-  let out = @pkl.codegen_moonbit(parsed.program)
+  let out = @pkl.codegen(parsed.program, @pkl.MoonBit)
   inspect(out.contains("n : Int"), content="true")
 }
 
 ///|
 test "PKL-131: codegen flags union types with TODO comment" {
   let parsed = @pkl.parse_source("class U {\n  v: Int | String\n}")
-  let out = @pkl.codegen_moonbit(parsed.program)
+  let out = @pkl.codegen(parsed.program, @pkl.MoonBit)
   inspect(out.contains("Unit /* TODO: union Int|String */"), content="true")
 }
 
@@ -3483,7 +3502,7 @@ test "PKL-131: codegen emits typealias for each TypeAliasDeclaration" {
   let parsed = @pkl.parse_source(
     "typealias Username = String\ntypealias UserMap = Mapping<String, Int>",
   )
-  let out = @pkl.codegen_moonbit(parsed.program)
+  let out = @pkl.codegen(parsed.program, @pkl.MoonBit)
   inspect(out.contains("pub typealias String as Username"), content="true")
   inspect(
     out.contains("pub typealias Map[String, Int] as UserMap"),
@@ -3496,7 +3515,7 @@ test "PKL-131: codegen skips function declarations" {
   let parsed = @pkl.parse_source(
     "class C {\n  x: Int\n}\nfunction helper(n: Int): Int = n + 1",
   )
-  let out = @pkl.codegen_moonbit(parsed.program)
+  let out = @pkl.codegen(parsed.program, @pkl.MoonBit)
   inspect(out.contains("struct C"), content="true")
   inspect(out.contains("helper"), content="false")
 }

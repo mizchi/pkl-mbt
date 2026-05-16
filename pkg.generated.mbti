@@ -7,7 +7,7 @@ import {
 }
 
 // Values
-pub fn codegen_moonbit(Program) -> String
+pub fn codegen(Program, CodegenTarget) -> String
 
 pub fn configure_sandbox_allowed_modules(Array[String]) -> Unit
 
@@ -122,6 +122,10 @@ pub(all) struct ClassProperty {
   name : String
   type_name : String?
   value : Expr?
+} derive(Eq, @debug.Debug)
+
+pub(all) enum CodegenTarget {
+  MoonBit
 } derive(Eq, @debug.Debug)
 
 pub(all) enum Declaration {

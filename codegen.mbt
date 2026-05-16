@@ -1,4 +1,26 @@
 ///|
+/// PKL-131b: target-driven codegen dispatcher. Only `MoonBit` is wired
+/// today; the enum + dispatcher pair keeps the public surface stable
+/// when future targets (Java / Kotlin / Swift / Go / TypeScript) land
+/// — embedders never need to swap entry points or learn a new
+/// per-target function name.
+pub(all) enum CodegenTarget {
+  MoonBit
+} derive(Eq, Debug)
+
+///|
+/// PKL-131b: single entry point for codegen, parametric over the
+/// target language. Returns the generated source as a String;
+/// embedders write it to disk / a stream as they see fit. Each
+/// target's lowering rules live in its own helper so the dispatcher
+/// stays a one-line `match`.
+pub fn codegen(program : Program, target : CodegenTarget) -> String {
+  match target {
+    MoonBit => codegen_moonbit(program)
+  }
+}
+
+///|
 /// PKL-131: lower a parsed Pkl module into a MoonBit source skeleton
 /// so embedders can round-trip schemas through both type systems.
 ///
@@ -12,7 +34,7 @@
 /// have a faithful MoonBit counterpart, the emitter falls back to a
 /// commented `// TODO: <pkl-type>` line above the field so the
 /// human-in-the-loop can decide the right shape.
-pub fn codegen_moonbit(program : Program) -> String {
+fn codegen_moonbit(program : Program) -> String {
   let buf = StringBuilder::new()
   let module_label = match program.module_name {
     Some(name) => name
