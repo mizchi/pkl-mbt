@@ -319,6 +319,7 @@ pub(all) enum Expr {
   ConditionalExpr(Expr, Expr, Expr)
   ForGenerator(String, String?, Expr, Array[ObjectMember])
   WhenSpread(Expr)
+  InterpolatedString(Array[Expr])
   UnsupportedExpr
   ErrorExpr(String)
 } derive(Eq, @debug.Debug)

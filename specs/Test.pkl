@@ -354,6 +354,22 @@ local cliListingMappingStdlib = new Test {
   timeoutSec = 120
 }
 
+local cliStringInterpolation = new Test {
+  name = "cli string interpolation"
+  description =
+    "The native CLI evaluates a fixture that uses `\"... \\(expr) ...\"` interpolation with arithmetic, method calls, and an inner `\", \"` separator string. The rendered output shows each interpolation site replaced with its evaluated value."
+  tags { "moonbit"; "cli"; "parser"; "evaluator"; "string"; "contract" }
+  specRef { "PKL-128a" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_string_interpolation.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "greeting = \"hello alpha, count is 4\""
+    "joined = \"items: a, b, c\""
+    "plain = \"no interp here\""
+  }
+  timeoutSec = 120
+}
+
 local cliDiagnosticPosition = new Test {
   name = "cli diagnostic position"
   description =
@@ -743,6 +759,7 @@ tests {
   cliOutputRendererDriver
   cliRendererConverters
   cliDiagnosticPosition
+  cliStringInterpolation
   cliFormat
   cliTestExamplesPass
   cliTestExamplesFail

@@ -161,9 +161,41 @@ fn Lexer::next_token(self : Lexer) -> Token {
         break
       }
       if ch == '\\' {
-        self.pos += 1
-        if self.pos < self.len {
+        // PKL-128: `\(...)` is a string interpolation segment.  Walk
+        // the balanced paren group so the inner `"..."` doesn't close
+        // the outer string. Other escape sequences (`\n`, `\t`, etc.)
+        // consume two chars as before.
+        if self.pos + 1 < self.len && self.char_at(self.pos + 1) == '(' {
+          self.pos += 2
+          let mut depth = 1
+          let mut inside_string = false
+          while self.pos < self.len && depth > 0 {
+            let cc = self.char_at(self.pos)
+            if inside_string {
+              if cc == '\\' && self.pos + 1 < self.len {
+                self.pos += 2
+                continue
+              } else if cc == '"' {
+                inside_string = false
+              }
+            } else if cc == '"' {
+              inside_string = true
+            } else if cc == '(' {
+              depth = depth + 1
+            } else if cc == ')' {
+              depth = depth - 1
+              if depth == 0 {
+                self.pos += 1
+                break
+              }
+            }
+            self.pos += 1
+          }
+        } else {
           self.pos += 1
+          if self.pos < self.len {
+            self.pos += 1
+          }
         }
       } else {
         self.pos += 1

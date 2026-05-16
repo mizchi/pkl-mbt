@@ -2647,6 +2647,55 @@ test "PKL-105: path-keyed renderer converter rewrites a top-level value" {
 }
 
 ///|
+test "PKL-128a: string interpolation evaluates each segment" {
+  guard eval_source(
+      "name = \"alpha\"\ncount = 3\nmsg = \"hello \\(name), count is \\(count + 1)\"",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut msg = ""
+  for entry in members {
+    if entry.name == "msg" {
+      match entry.value {
+        StringValue(s) => msg = s
+        _ => ()
+      }
+    }
+  }
+  inspect(msg, content="hello alpha, count is 4")
+}
+
+///|
+test "PKL-128a: string with no interpolation stays a plain StringLiteral" {
+  guard eval_source("msg = \"plain text\"") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is StringValue(s) else { panic() }
+  inspect(s, content="plain text")
+}
+
+///|
+test "PKL-128a: interpolation passes through balanced parens and inner strings" {
+  guard eval_source(
+      "xs = new Listing { \"a\"; \"b\" }\nmsg = \"items: \\(xs.join(\", \"))\"",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut msg = ""
+  for entry in members {
+    if entry.name == "msg" {
+      match entry.value {
+        StringValue(s) => msg = s
+        _ => ()
+      }
+    }
+  }
+  inspect(msg, content="items: a, b")
+}
+
+///|
 test "PKL-107: parser diagnostic carries a non-negative start offset" {
   let parsed = @pkl.parse_source("bad = (1 +")
   assert_true(parsed.diagnostics.length() > 0)

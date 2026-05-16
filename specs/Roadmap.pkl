@@ -242,11 +242,11 @@ local rendererConverters: Spec.Scenario = new {
 
 local parserSurfaceExpansion: Spec.Scenario = new {
   id = "PKL-128"
-  name = "parser surface expansion"
+  name = "parser surface expansion remaining"
   description =
-    "String interpolation `\\(expr)`, scientific notation Float (`1e10` / `2.5e-3`), triple-quoted heredoc strings, annotation classes (`@Deprecated`, `@Since`), and constraint predicate composition (`Int(isPositive & isLessThan(10))`). Each is a parser-side extension; downstream stages are mostly ready."
+    "Scientific notation Float (`1e10` / `2.5e-3`), triple-quoted heredoc strings, annotation classes (`@Deprecated`, `@Since`), and constraint predicate composition (`Int(isPositive & isLessThan(10))`). String interpolation `\\(expr)` landed as PKL-128a. Each remaining item is a parser-side extension; downstream stages are mostly ready."
   contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-001" }
+  dependsOn { "PKL-001"; "PKL-128a" }
   tags { "parser"; "next" }
   reviewStatus = "draft"
   severity = "major"

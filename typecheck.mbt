@@ -3565,6 +3565,19 @@ fn infer_expr_with_bindings(
       infer_expr_with_bindings(
         inner, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
       )
+    // PKL-128: an interpolated string always evaluates to a `String`,
+    // regardless of the inner expression types. Walk the inner parts
+    // so diagnostics from their typechecking still surface.
+    InterpolatedString(parts) => {
+      for part in parts {
+        ignore(
+          infer_expr_with_bindings(
+            part, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+          ),
+        )
+      }
+      StringType
+    }
   }
 }
 

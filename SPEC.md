@@ -1,6 +1,6 @@
 # Test SPEC
 
-178 tests across 2 module(s) — 141 pending, 37 active
+180 tests across 2 module(s) — 142 pending, 38 active
 
 ## `specs/`
 
@@ -572,10 +572,10 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **parser surface expansion** [draft] — verifies: PKL-128 — tags: parser, next
-  > String interpolation `\(expr)`, scientific notation Float (`1e10` / `2.5e-3`), triple-quoted heredoc strings, annotation classes (`@Deprecated`, `@Since`), and constraint predicate composition (`Int(isPositive & isLessThan(10))`). Each is a parser-side extension; downstream stages are mostly ready.
+- [ ] **parser surface expansion remaining** [draft] — verifies: PKL-128 — tags: parser, next
+  > Scientific notation Float (`1e10` / `2.5e-3`), triple-quoted heredoc strings, annotation classes (`@Deprecated`, `@Since`), and constraint predicate composition (`Int(isPositive & isLessThan(10))`). String interpolation `\(expr)` landed as PKL-128a. Each remaining item is a parser-side extension; downstream stages are mostly ready.
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-001
+  - depends on: PKL-001, PKL-128a
   - body: _not yet implemented_
 
 - [ ] **pkl analyze lint subcommand** (minor) [draft] — verifies: PKL-102 — tags: cli, lint
@@ -724,6 +724,13 @@
   > Every `Diagnostic` carries `start` / `end` byte offsets into the originating source. The parser sets the offset on every `add_error` site so syntax errors point at the failing token. The CLI's `print_diagnostics_with_source` projects the offset onto a `path:line:column: message` format that editors and IDEs can jump to. Sites that don't have a position yet (most typechecker / evaluator emissions) keep `start = -1`; those still render as just `message` — the migration is incremental. `Parser::current_offset` is now O(1) (cached on the parser struct, incremented by `bump`) instead of summing all preceding token texts on every emit. The helper `diag(message)` covers the common case of an unknown position; explicit `Diagnostic::{ message, start, end }` construction is the path for positioned diagnostics.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-004
+  - decisions: 3 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **string interpolation** — verifies: PKL-128a — tags: parser, evaluator, string
+  > Apple Pkl's `"... \(expr) ..."` string interpolation parses and evaluates. The lexer walks balanced parens (escape- and inner-string-aware) so the outer string's closing `"` isn't confused with a `"` inside a `\(...)` segment. The parser's `parse_string_literal_text` helper splits the inner text at `\(` boundaries, parses each segment via `parse_source`, and builds an `InterpolatedString(Array[Expr])` AST node — strings with no interpolation collapse back to a plain `StringLiteral` so the hot path stays untouched. The evaluator concatenates each part's `value_to_string_for_join` projection (the helper already used by `Listing.join`). The typechecker reports the result as `StringType` regardless of inner expression types but still walks each part so nested diagnostics surface.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-001, PKL-002
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
@@ -1061,6 +1068,10 @@
 
 - [x] **cli stdlib modifiers** — verifies: PKL-140 — tags: moonbit, cli, parser, stdlib, contract
   > The native CLI evaluates a fixture using stdlib-style declarations: `external` modifier, abstract property slots (no `=` default), `<in T>` / `<out T>` variance modifiers, function type annotations, and a declarations-only module footprint. The rendered output skips abstract slots and keeps the regular bindings; declarations-only fragments evaluate to the empty ObjectValue.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli string interpolation** — verifies: PKL-128a — tags: moonbit, cli, parser, evaluator, string, contract
+  > The native CLI evaluates a fixture that uses `"... \(expr) ..."` interpolation with arithmetic, method calls, and an inner `", "` separator string. The rendered output shows each interpolation site replaced with its evaluated value.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli test examples diff fail** — verifies: PKL-100 — tags: moonbit, cli, pkl-test, examples, contract

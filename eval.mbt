@@ -4792,6 +4792,29 @@ fn eval_expr_with_bindings(
         inner, bindings, env, class_env, cache, stack, declarations, diagnostics,
         resolve_import,
       )
+    // PKL-128: render each part of an interpolated string and
+    // concatenate. Non-string parts route through
+    // `value_to_string_for_join`, which already handles every Value
+    // variant (used by `Listing.join`).
+    InterpolatedString(parts) => {
+      let buf = StringBuilder::new()
+      let mut ok = true
+      for part in parts {
+        match
+          eval_expr_with_bindings(
+            part, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
+          ) {
+          Some(value) => buf.write_string(value_to_string_for_join(value))
+          None => ok = false
+        }
+      }
+      if ok {
+        Some(StringValue(buf.to_string()))
+      } else {
+        None
+      }
+    }
   }
 }
 

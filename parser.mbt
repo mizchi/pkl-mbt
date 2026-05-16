@@ -1712,7 +1712,7 @@ fn Parser::parse_primary_expr(self : Parser) -> Expr {
       self.builder.start_node(literal_expr())
       let tok = self.bump()
       self.builder.finish_node()
-      StringLiteral(unquote(tok.text()))
+      parse_string_literal_text(tok.text())
     }
     kind if kind == identifier() => {
       self.builder.start_node(name_ref())
@@ -2460,6 +2460,112 @@ fn parse_float_text(text : String) -> Double {
     }
   }
   int_part + frac_part
+}
+
+///|
+/// PKL-128: build either a plain `StringLiteral` or an
+/// `InterpolatedString` from a raw quoted string token. Splits the
+/// inner text at `\(...)` boundaries (balanced parens, escape-aware)
+/// and parses each `\(...)` content as a Pkl expression. Strings with
+/// no interpolation segments collapse back to a plain `StringLiteral`.
+fn parse_string_literal_text(text : String) -> Expr {
+  // Strip the surrounding quotes (if present) but track the inner text
+  // so escape sequences and interpolations can be split independently.
+  let inner = if text.length() >= 2 &&
+    text[0].to_int().unsafe_to_char() == '"' &&
+    text[text.length() - 1].to_int().unsafe_to_char() == '"' {
+    String::unsafe_substring(text, start=1, end=text.length() - 1)
+  } else {
+    text
+  }
+  // Fast path: no interpolation marker → reuse the existing escape
+  // decoder so the common case stays a single allocation.
+  if inner.find("\\(") is None {
+    return StringLiteral(decode_string_escapes(inner))
+  }
+  let parts : Array[Expr] = []
+  let buf = StringBuilder::new()
+  let mut buf_has_content = false
+  let mut i = 0
+  while i < inner.length() {
+    let c = inner[i].to_int().unsafe_to_char()
+    if c == '\\' && i + 1 < inner.length() {
+      let next = inner[i + 1].to_int().unsafe_to_char()
+      if next == '(' {
+        // Flush any accumulated literal segment.
+        if buf_has_content {
+          parts.push(StringLiteral(decode_string_escapes(buf.to_string())))
+          buf.reset()
+          buf_has_content = false
+        }
+        // Walk a balanced `(...)` group to find the matching close.
+        let mut depth = 1
+        let mut j = i + 2
+        while j < inner.length() && depth > 0 {
+          let cc = inner[j].to_int().unsafe_to_char()
+          if cc == '(' {
+            depth = depth + 1
+          } else if cc == ')' {
+            depth = depth - 1
+            if depth == 0 {
+              break
+            }
+          }
+          j = j + 1
+        }
+        let segment = String::unsafe_substring(inner, start=i + 2, end=j)
+        // Parse the segment as a Pkl expression by routing it through
+        // `parse_source` and pulling the body Expr (or the last
+        // binding's value as fallback).
+        let parsed = parse_source(segment)
+        let expr = match parsed.program.body {
+          Some(body_expr) => body_expr
+          None =>
+            if parsed.program.bindings.length() > 0 {
+              parsed.program.bindings[parsed.program.bindings.length() - 1].value
+            } else {
+              ErrorExpr("empty interpolation")
+            }
+        }
+        parts.push(expr)
+        i = j + 1
+      } else {
+        // Regular escape (handled by decode_string_escapes); accumulate
+        // the two chars verbatim so the final flush hands the literal
+        // back to the decoder.
+        buf.write_char(c)
+        buf_has_content = true
+        if i + 1 < inner.length() {
+          buf.write_char(next)
+        }
+        i = i + 2
+      }
+    } else {
+      buf.write_char(c)
+      buf_has_content = true
+      i = i + 1
+    }
+  }
+  if buf_has_content {
+    parts.push(StringLiteral(decode_string_escapes(buf.to_string())))
+  }
+  // Apply escape decoding to every literal-segment part now that the
+  // splits are done. Inner expressions are pre-parsed and need no
+  // further escape work.
+  let normalized : Array[Expr] = []
+  for part in parts {
+    match part {
+      StringLiteral(text) => normalized.push(StringLiteral(text))
+      other => normalized.push(other)
+    }
+  }
+  if normalized.length() == 1 {
+    match normalized[0] {
+      StringLiteral(_) as plain => return plain
+      _ => ()
+    }
+  }
+  InterpolatedString(normalized)
 }
 
 ///|

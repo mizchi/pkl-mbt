@@ -86,6 +86,13 @@ pub(all) enum Expr {
   // recognises this variant and spreads the resulting collection's contents
   // into the parent body instead of attaching it as a single element / entry.
   WhenSpread(Expr)
+  // PKL-128: string interpolation. The parser splits a `"... \(expr) ..."`
+  // literal into alternating literal segments and embedded expressions;
+  // the evaluator concatenates each part's rendered string form into the
+  // final value. An interpolated string with zero `\(...)` segments
+  // collapses back to a plain `StringLiteral` at parse time so the hot
+  // path stays untouched.
+  InterpolatedString(Array[Expr])
   UnsupportedExpr
   ErrorExpr(String)
 } derive(Eq, Debug)

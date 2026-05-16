@@ -1785,6 +1785,38 @@ local listingMappingStdlibCore = new Scenario {
   }
 }
 
+local stringInterpolation = new Scenario {
+  id = "PKL-128a"
+  name = "string interpolation"
+  description =
+    "Apple Pkl's `\"... \\(expr) ...\"` string interpolation parses and evaluates. The lexer walks balanced parens (escape- and inner-string-aware) so the outer string's closing `\"` isn't confused with a `\"` inside a `\\(...)` segment. The parser's `parse_string_literal_text` helper splits the inner text at `\\(` boundaries, parses each segment via `parse_source`, and builds an `InterpolatedString(Array[Expr])` AST node — strings with no interpolation collapse back to a plain `StringLiteral` so the hot path stays untouched. The evaluator concatenates each part's `value_to_string_for_join` projection (the helper already used by `Listing.join`). The typechecker reports the result as `StringType` regardless of inner expression types but still walks each part so nested diagnostics surface."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-001"; "PKL-002" }
+  tags { "parser"; "evaluator"; "string" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Split-time AST: store alternating segments rather than synthesising `+` chains"
+      rationale =
+        "An alternative encoding is to translate `\"hello \\(name)\"` into `\"hello \" + name.toString() + \"\"`. That reuses `+` and existing infix machinery, but pkl-mbt's `+` is Int / Float-only — wiring String concat through `+` would need a typechecker rule, an evaluator rule, and a renderer policy. `InterpolatedString(parts)` is an additive AST node that the eval / typecheck / render paths can handle on their own terms without affecting `+` overload resolution. Parser-side this also lets us collapse a no-interpolation string back to `StringLiteral` so the hot path is unchanged for the common case."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Re-enter the parser for each `\\(...)` segment via `parse_source`"
+      rationale =
+        "An interpolation segment can contain arbitrary Pkl: method calls, nested interpolations, lambdas, etc. Hand-rolling a separate parser for expression-position content would duplicate maintenance. Routing the segment text back through `parse_source` reuses every existing precedence / operator / call rule, including PKL-139 polish (dot-chain across newlines etc.). The cost is one extra `Parser::new` per segment — negligible against the rest of the eval pipeline."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Lexer tracks paren depth + inner-string state for `\\(...)` skipping"
+      rationale =
+        "The lexer used to close the outer string at the first `\"` it saw, which broke `\"\\(xs.join(\\\", \\\"))\"` — the `\"` inside the inner string call ended the outer prematurely. Walking balanced parens while tracking whether we're inside a nested string literal keeps the outer token intact. Other escapes (`\\n`, `\\t`, ...) still consume two characters as before."
+    }
+  }
+}
+
 local diagnosticSourcePosition = new Scenario {
   id = "PKL-107"
   name = "source position in diagnostics"
@@ -3243,5 +3275,6 @@ scenarios {
   outputRendererDriver
   rendererConverters
   diagnosticSourcePosition
+  stringInterpolation
   ...roadmap.entries
 }
