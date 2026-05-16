@@ -1268,7 +1268,7 @@ fn is_mapping_method_name(name : String) -> Bool {
 ///|
 fn is_string_property_name(name : String) -> Bool {
   match name {
-    "length" | "isEmpty" => true
+    "length" | "isEmpty" | "codePointCount" | "codePoints" | "chars" => true
     _ => false
   }
 }
@@ -1289,7 +1289,8 @@ fn is_string_method_name(name : String) -> Bool {
     | "split"
     | "padStart"
     | "padEnd"
-    | "toBytes" => true
+    | "toBytes"
+    | "codePointAt" => true
     _ => false
   }
 }
@@ -3077,6 +3078,27 @@ fn eval_string_property(
   match name {
     "length" => Some(IntValue(s.length()))
     "isEmpty" => Some(BoolValue(s.length() == 0))
+    // PKL-122: surrogate-pair aware properties. `length` stays
+    // UTF-16 code units for compat with the existing fixture
+    // baseline; `codePointCount` / `codePoints` / `chars` are the
+    // new Unicode-correct view. MoonBit's `String::iter` already
+    // yields full code-point `Char` values, so a single pass walks
+    // surrogates correctly.
+    "codePointCount" => Some(IntValue(s.char_length()))
+    "codePoints" => {
+      let points : Array[Value] = []
+      for c in s.iter() {
+        points.push(IntValue(c.to_int()))
+      }
+      Some(ListingValue(points))
+    }
+    "chars" => {
+      let chars : Array[Value] = []
+      for c in s.iter() {
+        chars.push(StringValue(String::from_array([c][:])))
+      }
+      Some(ListingValue(chars))
+    }
     _ => {
       diagnostics.push(diag("unknown String property \{name}"))
       None
@@ -3168,6 +3190,46 @@ fn eval_string_method(
         return None
       }
       Some(BytesValue(@utf8.encode(s[:])))
+    }
+    // PKL-122: code-point index lookup. `i` indexes the Unicode
+    // code-point stream (surrogate-pair aware), not the UTF-16 code
+    // units indexed by `String[i]` / `String.take`. Returns IntValue
+    // of the code point or pushes a diagnostic if out of range.
+    "codePointAt" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "String.codePointAt expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match arg_values[0] {
+        IntValue(idx) => {
+          let mut count = 0
+          let mut found : Int? = None
+          for c in s.iter() {
+            if count == idx {
+              found = Some(c.to_int())
+              break
+            }
+            count = count + 1
+          }
+          match found {
+            Some(cp) => Some(IntValue(cp))
+            None => {
+              diagnostics.push(
+                diag("String.codePointAt index \{idx} out of range"),
+              )
+              None
+            }
+          }
+        }
+        _ => {
+          diagnostics.push(diag("String.codePointAt expects Int argument"))
+          None
+        }
+      }
     }
     "toLowerCase" => {
       if arg_values.length() != 0 {

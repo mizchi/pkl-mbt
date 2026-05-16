@@ -2696,6 +2696,78 @@ test "PKL-103: read?(uri) returns null when scheme is rejected" {
 }
 
 ///|
+test "PKL-122: String.codePointCount counts code points not UTF-16 units" {
+  guard eval_source("s = \"abc🍣\"\nu = s.length\nc = s.codePointCount")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut u = 0
+  let mut c = 0
+  for entry in members {
+    if entry.name == "u" {
+      guard entry.value is IntValue(n) else { panic() }
+      u = n
+    }
+    if entry.name == "c" {
+      guard entry.value is IntValue(n) else { panic() }
+      c = n
+    }
+  }
+  inspect(u, content="5")
+  inspect(c, content="4")
+}
+
+///|
+test "PKL-122: String.codePoints surfaces full code points" {
+  guard eval_source("s = \"a🍣\"\nx = s.codePoints")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[1].value is ListingValue(points) else { panic() }
+  inspect(points.length(), content="2")
+  guard points[0] is IntValue(p0) else { panic() }
+  guard points[1] is IntValue(p1) else { panic() }
+  inspect(p0, content="97")
+  inspect(p1, content="127843")
+}
+
+///|
+test "PKL-122: String.chars yields surrogate-pair-aware single-char Strings" {
+  guard eval_source("s = \"a🍣b\"\nx = s.chars")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[1].value is ListingValue(chars) else { panic() }
+  inspect(chars.length(), content="3")
+  guard chars[1] is StringValue(sushi) else { panic() }
+  inspect(sushi, content="🍣")
+}
+
+///|
+test "PKL-122: String.codePointAt indexes the code-point stream" {
+  guard eval_source("s = \"abc🍣d\"\nx = s.codePointAt(3)")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[1].value is IntValue(cp) else { panic() }
+  inspect(cp, content="127843")
+}
+
+///|
+test "PKL-122: String.codePointAt out of range pushes diagnostic" {
+  guard eval_source("s = \"a\"\nx = s.codePointAt(5)") is EvalError(diags) else {
+    panic()
+  }
+  let mut found = false
+  for d in diags {
+    if d.message.contains("out of range") {
+      found = true
+    }
+  }
+  assert_true(found)
+}
+
+///|
 test "PKL-123: pkl:platform exposes stub OS / architecture" {
   let session = AnalysisSession::new()
   session.set_source(

@@ -1,6 +1,6 @@
 # Test SPEC
 
-191 tests across 2 module(s) — 145 pending, 46 active
+192 tests across 2 module(s) — 145 pending, 47 active
 
 ## `specs/`
 
@@ -123,10 +123,11 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **String unicode and codepoint methods** (minor) [draft] — verifies: PKL-122 — tags: stdlib, string, unicode, next
-  > `String.codePoints`, `String.normalize`, `String.toRunes`, surrogate-pair aware `length`, and case-folding methods. Today `length` and indexing operate on UTF-16 code units.
+- [ ] **String unicode and codepoint methods** (minor) — verifies: PKL-122 — tags: stdlib, string, unicode
+  > Surrogate-pair aware String access. `String.length` keeps the existing UTF-16 code-unit semantics (so the fixture baseline stays byte-identical), but three new properties surface the Unicode code-point view: `String.codePointCount: Int` (count of full code points), `String.codePoints: Listing<Int>` (code-point integers), `String.chars: Listing<String>` (single-character Strings split on code-point boundaries). `String.codePointAt(i: Int): Int` indexes the code-point stream; out-of-range pushes a diagnostic. All three iterate via MoonBit's `String::iter` which already yields full code-point `Char` values, so supplementary-plane characters (`🍣`, U+1F363) collapse to a single element instead of leaking the surrogate pair.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-077
+  - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **URI imports via https with mizchi/x/http** — verifies: PKL-129 — tags: parser, imports, sandbox, pkf-pkspec
@@ -136,7 +137,7 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **YAML block scalars** (minor) [draft] — verifies: PKL-125 — tags: renderer, yaml
+- [ ] **YAML block scalars** (minor) [draft] — verifies: PKL-125 — tags: renderer, yaml, next
   > `|`, `|-`, `|+`, `>`, `>-`, `>+` block scalar projection for multiline / control-character strings. Today the YAML renderer double-quotes such strings, which is spec-compliant but less human-readable than upstream.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-073
@@ -1125,6 +1126,10 @@
 
 - [x] **cli string interpolation** — verifies: PKL-128a — tags: moonbit, cli, parser, evaluator, string, contract
   > The native CLI evaluates a fixture that uses `"... \(expr) ..."` interpolation with arithmetic, method calls, and an inner `", "` separator string. The rendered output shows each interpolation site replaced with its evaluated value.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli string unicode** — verifies: PKL-122 — tags: moonbit, cli, stdlib, string, unicode, contract
+  > The native CLI evaluates a fixture that observes a String whose last glyph is a supplementary-plane code point (`🍣`, U+1F363). `length` keeps the existing UTF-16 code-unit count (5) for byte-identity with prior fixtures, while `codePointCount` reports the Unicode code-point count (4), `codePoints` and `chars` walk the code-point stream, and `codePointAt(3)` returns the supplementary code point as an Int.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli super method call** — verifies: PKL-117a — tags: moonbit, cli, evaluator, inheritance, contract

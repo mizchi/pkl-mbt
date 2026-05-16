@@ -128,18 +128,6 @@ local setPairMapIntSeqVariants: Spec.Scenario = new {
   severity = "major"
 }
 
-local stringUnicodeMethods: Spec.Scenario = new {
-  id = "PKL-122"
-  name = "String unicode and codepoint methods"
-  description =
-    "`String.codePoints`, `String.normalize`, `String.toRunes`, surrogate-pair aware `length`, and case-folding methods. Today `length` and indexing operate on UTF-16 code units."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-077" }
-  tags { "stdlib"; "string"; "unicode"; "next" }
-  reviewStatus = "draft"
-  severity = "minor"
-}
-
 local pklRendererStdlibModules: Spec.Scenario = new {
   id = "PKL-124"
   name = "pkl:json / pkl:yaml / pkl:xml / pkl:protobuf stdlib modules"
@@ -161,7 +149,7 @@ local yamlBlockScalars: Spec.Scenario = new {
     "`|`, `|-`, `|+`, `>`, `>-`, `>+` block scalar projection for multiline / control-character strings. Today the YAML renderer double-quotes such strings, which is spec-compliant but less human-readable than upstream."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-073" }
-  tags { "renderer"; "yaml" }
+  tags { "renderer"; "yaml"; "next" }
   reviewStatus = "draft"
   severity = "minor"
 }
@@ -278,7 +266,6 @@ entries: Listing<Spec.Scenario> = new {
   inheritanceDispatchHardening
   crossModuleTypecheckCompleteness
   setPairMapIntSeqVariants
-  stringUnicodeMethods
   pklRendererStdlibModules
   yamlBlockScalars
   plistXmlProtobufRenderers

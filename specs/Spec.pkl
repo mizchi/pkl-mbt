@@ -1812,6 +1812,32 @@ local floatMagnitudeUnits = new Scenario {
   }
 }
 
+local stringUnicodeMethods = new Scenario {
+  id = "PKL-122"
+  name = "String unicode and codepoint methods"
+  description =
+    "Surrogate-pair aware String access. `String.length` keeps the existing UTF-16 code-unit semantics (so the fixture baseline stays byte-identical), but three new properties surface the Unicode code-point view: `String.codePointCount: Int` (count of full code points), `String.codePoints: Listing<Int>` (code-point integers), `String.chars: Listing<String>` (single-character Strings split on code-point boundaries). `String.codePointAt(i: Int): Int` indexes the code-point stream; out-of-range pushes a diagnostic. All three iterate via MoonBit's `String::iter` which already yields full code-point `Char` values, so supplementary-plane characters (`🍣`, U+1F363) collapse to a single element instead of leaking the surrogate pair."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-077" }
+  tags { "stdlib"; "string"; "unicode" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Keep `String.length` as UTF-16 code units; add `codePointCount` as the Unicode view"
+      rationale =
+        "Switching `length` to code-point count is a behaviour change for every fixture that touches a non-BMP string — most observable today via `String.toBytes` and substring operations whose offsets are documented in UTF-16 units. The follow-up substring / indexing migration to code-point offsets is its own slice; landing both at once would conflate the API extension with a quiet semantic break. `codePointCount` is the explicit Unicode counterpart and leaves the existing baseline byte-identical."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Defer `String.normalize` and case-folding methods"
+      rationale =
+        "Both depend on Unicode tables (NFC/NFD/NFKC/NFKD normalization, case-folding maps) that aren't carried in MoonBit's `moonbitlang/core` today. Pulling a normalization table inline would dwarf this slice and require a separate vendoring discussion. The `chars` / `codePoints` / `codePointAt` surface covers what fixtures actually need first (iteration + indexing); normalization joins the roadmap as a follow-up."
+    }
+  }
+}
+
 local pklPlatformSemver = new Scenario {
   id = "PKL-123"
   name = "pkl:platform and pkl:semver stdlib modules"
@@ -3467,5 +3493,6 @@ scenarios {
   readNullable
   floatMagnitudeUnits
   pklPlatformSemver
+  stringUnicodeMethods
   ...roadmap.entries
 }

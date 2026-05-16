@@ -1,0 +1,19 @@
+// PKL-122: surrogate-pair aware String access. `length` still returns
+// the UTF-16 code-unit count (for byte-identity with the existing
+// fixture baseline), while `codePointCount`, `codePoints`, `chars`,
+// and `codePointAt(i)` expose the Unicode code-point view.
+//
+// `🍣` is U+1F363, a supplementary plane code point that occupies one
+// surrogate pair (two UTF-16 code units), so `length == 5` but
+// `codePointCount == 4` for the four-glyph string "abc🍣".
+s = "abc🍣"
+
+u16_length = s.length
+
+cp_count = s.codePointCount
+
+points = s.codePoints
+
+chars = s.chars
+
+sushi_cp = s.codePointAt(3)
