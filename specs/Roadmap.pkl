@@ -5,19 +5,32 @@
 /// commitment. Promote to `specs/Spec.pkl` (and flip `reviewStatus` to
 /// `"approved"`) when starting the slice.
 ///
+/// Two listings live in this module:
+///   - `entries`         — active draft slices. Spec.pkl flattens this
+///                         with `...roadmap.entries`, so anything here
+///                         shows up in the rendered SPEC.md as an open
+///                         TODO row.
+///   - `deferredEntries` — slices we've consciously parked. They keep
+///                         their full structure (description, tags,
+///                         dependencies) so we can lift them back into
+///                         `entries` without re-deriving the scope, but
+///                         Spec.pkl does NOT import this listing so it
+///                         stays out of the active surface and out of
+///                         the rendered SPEC.md.
+///
 /// 2026-05-16 scope refocus: pkl-mbt is being positioned as a MoonBit
-/// library (parser / typechecker / evaluator surface), so the slices
-/// that overlap with Apple Pkl's own runtime tooling were removed:
+/// library (parser / typechecker / evaluator surface). Slices that
+/// overlap Apple Pkl's own runtime tooling moved into the deferred
+/// listing — reviving any of them is a one-line move back into
+/// `entries`:
 ///   - PKL-101 (repl)               — interactive CLI, low library value
-///   - PKL-126b (xml renderer)      — `pkl eval -f xml` is already in upstream
+///   - PKL-126b (xml renderer)      — covered by `pkl eval -f xml` upstream
 ///   - PKL-126c (protobuf renderer) — same; needs `.proto` schema parser
 ///   - PKL-127 (renderer converters) — same renderer surface
 ///   - PKL-130 (pkldoc)             — pkl's own `pkldoc` covers this
 ///   - PKL-132 (LSP)                — out of scope for the library slice
-/// These can be reinstated later if a concrete consumer surfaces; for
-/// now they sit in git history rather than the active roadmap.
 ///
-/// Remaining grouping (the ID ranges are conventional, not enforced):
+/// Active grouping (the ID ranges are conventional, not enforced):
 ///   PKL-119      stdlib Value variants (Set / Pair / Map / IntSeq)
 ///   PKL-129b     parser / imports — package:// registry resolution
 ///   PKL-131      checker — codegen bridge (consumes typechecker state)
@@ -26,7 +39,8 @@ module specs.Roadmap
 
 import "../pkspec/Spec.pkl"
 
-// ── eval / typechecker precision ────────────────────────────────────────────
+// ── ACTIVE ─────────────────────────────────────────────────────────────────
+// ── eval / typechecker precision ──
 
 local setPairMapIntSeqVariants: Spec.Scenario = new {
   id = "PKL-119"
@@ -40,7 +54,7 @@ local setPairMapIntSeqVariants: Spec.Scenario = new {
   severity = "major"
 }
 
-// ── parser / imports ───────────────────────────────────────────────────────
+// ── parser / imports ──
 
 local packagePklRegistry: Spec.Scenario = new {
   id = "PKL-129b"
@@ -54,7 +68,7 @@ local packagePklRegistry: Spec.Scenario = new {
   severity = "major"
 }
 
-// ── checker ────────────────────────────────────────────────────────────────
+// ── checker ──
 
 local codegenBridge: Spec.Scenario = new {
   id = "PKL-131"
@@ -72,4 +86,91 @@ entries: Listing<Spec.Scenario> = new {
   setPairMapIntSeqVariants
   packagePklRegistry
   codegenBridge
+}
+
+// ── DEFERRED ───────────────────────────────────────────────────────────────
+// Slices intentionally parked on 2026-05-16. Spec.pkl does not import
+// `deferredEntries`, so these stay out of the rendered SPEC.md and out
+// of `pkspec spec --check`'s view; lifting any of them back into
+// `entries` is a one-line move when a concrete consumer surfaces.
+
+local pklRepl: Spec.Scenario = new {
+  id = "PKL-101"
+  name = "pkl repl interactive evaluator"
+  description =
+    "`moon run cmd/main -- repl` opens an interactive read-eval-print loop: each line parses as either a binding (`x = 5`) or an expression and prints the rendered result. Reuses the `AnalysisSession` so each entry incrementally extends the module."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-009" }
+  tags { "cli"; "repl"; "deferred" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+local xmlRenderer: Spec.Scenario = new {
+  id = "PKL-126b"
+  name = "xml renderer"
+  description =
+    "Emit Pkl objects as an XML element tree. Each property becomes an `<element-name>` node; listings render as repeated elements; mapping entries render with the key as the element name. The `xml.Element` and `xml.Inline` annotation classes from `pkl:xml` already exist (PKL-124); this slice wires the rendering side. `-f xml` and `output { renderer = new xml.Renderer { ... } }` both route here. Deferred because `pkl eval -f xml` upstream covers the same surface for consumers that need XML output today."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-124"; "PKL-126a" }
+  tags { "renderer"; "xml"; "deferred" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local protobufRenderer: Spec.Scenario = new {
+  id = "PKL-126c"
+  name = "protobuf renderer"
+  description =
+    "Serialize Pkl values against an externally provided `.proto` schema and emit the binary wire format. Requires a schema-lookup mechanism (the `pkl:protobuf` `Renderer` class carries the schema reference) and a way to surface bytes through the existing `BytesValue` carrier. Deferred for the same reason as PKL-126b — Apple Pkl already covers the surface, and the `.proto` schema parser is a non-trivial separate lift."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-124"; "PKL-126a"; "PKL-126b" }
+  tags { "renderer"; "protobuf"; "deferred" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local rendererConverters: Spec.Scenario = new {
+  id = "PKL-127"
+  name = "renderer converter machinery"
+  description =
+    "JSON / YAML / Properties renderers honor `converters { [\"path\"] = (value) -> ...; [\"Class\"] = (value) -> ... }`. Path lookups beat class lookups; the converter return value replaces the source value in the rendered output. Deferred alongside the rest of the renderer surface; consumers needing the converter shape today route through `pkl eval` upstream."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-104" }
+  tags { "renderer"; "converter"; "deferred" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local pkldoc: Spec.Scenario = new {
+  id = "PKL-130"
+  name = "pkldoc documentation generation"
+  description =
+    "`moon run cmd/main -- doc <module>` renders the module's class / typealias / function declarations as Markdown / HTML, using the doc-comment text already captured by the parser. Deferred because Apple Pkl's own `pkldoc` covers this surface; revisit if pkl-mbt-only authoring becomes a regular workflow."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-080" }
+  tags { "cli"; "pkldoc"; "deferred" }
+  reviewStatus = "draft"
+  severity = "minor"
+}
+
+local lspServer: Spec.Scenario = new {
+  id = "PKL-132"
+  name = "LSP server foundation"
+  description =
+    "A Language Server Protocol server (stdio or socket transport) that surfaces hover, go-to-definition, find-references, completion, diagnostics, semantic tokens, and rename. The existing CST + typechecker + ripple-backed AnalysisSession provide the analysis substrate. Deferred — editor tooling is downstream of the library scope and Apple's `pkl-lsp` already exists. Revisit if a MoonBit-native editor integration becomes a target."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-107" }
+  tags { "lsp"; "editor"; "deferred" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+deferredEntries: Listing<Spec.Scenario> = new {
+  pklRepl
+  xmlRenderer
+  protobufRenderer
+  rendererConverters
+  pkldoc
+  lspServer
 }
