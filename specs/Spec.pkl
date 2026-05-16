@@ -1922,6 +1922,38 @@ local setValueVariantScenario = new Scenario {
   }
 }
 
+local stdlibCoverageProbeScenario = new Scenario {
+  id = "PKL-141"
+  name = "mpkl stdlib coverage probe"
+  description =
+    "`mpkl stdlib` runs an in-process probe table — one minimal fixture per documented stdlib surface area — through `AnalysisSession` (so `import \"pkl:math\"` etc. resolve through the synthetic stdlib loader, not the import-less `eval_source` path), renders the result via the PCF renderer, and matches against an expected substring. Pass / fail lines surface as `[PASS] group :: name` or `[FAIL]` with the diagnostic message; the trailing `stdlib: N / N passed` summary terminates the run, and the exit code is non-zero when any probe fails. The probe table covers `pkl:base` (Listing / Mapping / String / Int builtins + dedicated `Pair` / `IntSeq` / `Set` / `Map` value variants + Renderer classes + `Duration` / `DataSize` / `Regex` / `Bytes` literals), `pkl:math` (Int constants + helpers + Float-side `sqrt` / `pow` / `pi`), `pkl:semver` (parse + compare + parseOrNull), `pkl:platform` (deterministic stub values), `pkl:test` (`catch` on the throw branch), `pkl:reflect` (mirror constants + factory containers), `pkl:json` / `pkl:yaml` (Parser shells), and `pkl:xml` / `pkl:protobuf` (Renderer shells). The contract gates the surface README.md advertises as `Full` / `Partial` / `Stub` — any regression that breaks a documented capability fails the smoke check before the README claim can drift."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-119d"; "PKL-124"; "PKL-123" }
+  tags { "cli"; "stdlib"; "verification" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "Probe runs through AnalysisSession rather than eval_source"
+      rationale =
+        "`eval_source` plugs in a no-op import resolver — anything that `import \"pkl:math\"` fails with `Cannot find module \\`pkl:math\\`.`. The probe table needs the synthetic stdlib loader that `AnalysisSession::eval_path` wires up. Spinning up a fresh session per probe is O(milliseconds) and keeps the probes isolated (no cross-probe binding leakage)."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Substring matching on rendered PCF, not structural equality"
+      rationale =
+        "An exact-value comparison would require each probe to spell out the full `ObjectValue([ValueMember::{...}])` shape, which is verbose and brittle (renderer changes silently invalidate the probe even when the value is right). Matching against a substring of the PCF output (e.g. `v = 4.0`) keeps each probe a single-line claim while still catching wrong-value regressions; the renderer surface is itself pinned by the upstream-smoke gold-match contracts."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Probe `pkl:test.catch` on the throw branch only"
+      rationale =
+        "Apple Pkl's `test.catch(() -> ...)` returns null on no-throw and the thrown-message string otherwise. pkl-mbt's synthetic `pkl:test` binds `catch = null`; the special-case dispatcher in eval.mbt only handles the throw branch (which is what `classes/constraints8.pkl` exercises upstream). The probe table is the place to document this — pinning the throw-side probe captures the contract pkl-mbt actually honors today, while the README's `pkl:test` row carries the `Partial` status so consumers know the no-throw branch isn't supported."
+    }
+  }
+}
+
 local codegenMoonbitBridgeScenario = new Scenario {
   id = "PKL-131"
   name = "pkl codegen bridge to MoonBit"
@@ -4001,5 +4033,6 @@ scenarios {
   mapValueVariantScenario
   packageRegistryProbeScenario
   codegenMoonbitBridgeScenario
+  stdlibCoverageProbeScenario
   ...roadmap.entries
 }

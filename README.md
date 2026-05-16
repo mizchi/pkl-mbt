@@ -26,6 +26,7 @@ mpkl test     <file.pkl> [--overwrite]    # walk facts: / examples:
 mpkl format   <file.pkl>                  # canonical PCF re-emit
 mpkl analyze  <file.pkl>                  # lint (unused locals / imports / ...)
 mpkl codegen  <file.pkl>                  # lower to MoonBit struct skeleton
+mpkl stdlib                               # probe stdlib coverage (PASS/FAIL per module)
 ```
 
 Renderers exposed via `-f` / `--format`: `pcf` (default), `json`, `yaml`, `properties`, `plist`. `output { renderer = new <Renderer> { ... } }` in the source also drives the format without an explicit flag.
@@ -103,16 +104,18 @@ PCF, JSON, YAML, Properties, plist (Apple PLIST 1.0 DTD). Each carries the dedic
 
 ### Stdlib modules
 
-Synthesized in-process (no upstream Pkl JAR required):
+Synthesized in-process (no upstream Pkl JAR required). Run `mpkl stdlib` to verify each module against the in-process probe table — it eval s one minimal fixture per documented capability and prints `[PASS]` / `[FAIL]` per row, exiting non-zero on regression.
 
-- `pkl:base` — `JsonRenderer` / `YamlRenderer` / `PcfRenderer` / `PropertiesRenderer` / `PListRenderer` (plus `XmlRenderer` / `ProtobufRenderer` / `JsonnetRenderer` / `PklBinaryRenderer` recognised at typecheck for forward compatibility)
-- `pkl:math` — `maxInt32` / `minInt32` / `maxInt` / `minInt` / `pi` / `e`, helpers `abs` / `min` / `max`, Float-side `sqrt` / `pow` / `log` / `exp` / `floor` / `ceil` / `round` / `sin` / `cos` / `tan` / `atan` / `atan2`
-- `pkl:semver` — `parse` / `parseOrNull` / `compare` / `isLessThan` / `isGreaterThan` / `isEqualTo`, full SemVer pre-release ordering
-- `pkl:platform` — stub `current.operatingSystem.{name,version}` / `architecture.name` / `language.version` (deterministic across hosts)
-- `pkl:test` — `catch(() -> ...)` catching constraint diagnostics
-- `pkl:reflect` — minimal mirror-constant + `Class` / `Module` / `TypeAlias` / `Property` / `DeclaredType` factory stub
-- `pkl:json` / `pkl:yaml` — `Parser` + `Property` class shells
-- `pkl:xml` / `pkl:protobuf` — qualified `Renderer` class shells (rendering itself stays in pkl-mbt's deferred slices; the type surface is registered so authoring works)
+| Module | Status | Coverage |
+| --- | --- | --- |
+| `pkl:base` (Listing / Mapping / String / Int builtins + value-variant ops + 9 Renderer classes + Duration / DataSize / Regex / Bytes) | Full | Method surface used by upstream `LanguageSnippetTests` fixtures + the dedicated `Pair` / `IntSeq` / `Set` / `Map` value variants. |
+| `pkl:math` | Full | Int constants + helpers + Float-side `sqrt` / `pow` / `log` / `exp` / trig / `pi` / `e`. |
+| `pkl:semver` | Full | `parse` / `parseOrNull` / `compare` / ordering — full SemVer pre-release semantics. |
+| `pkl:platform` | Partial (deterministic stub) | Returns fixed `stub-os` / `stub-arch` values; the host-detection intrinsics aren't wired. |
+| `pkl:test` | Partial | `test.catch(() -> throw(...))` returns the thrown message. The no-throw branch evaluates the lambda as if catch wasn't there (the constraints8.pkl flow is the upstream use we pin). |
+| `pkl:reflect` | Stub | Mirror constants (`intType` etc.) + `Class` / `Module` / `TypeAlias` / `Property` / `DeclaredType` factories returning `reflectee` containers. No `isSubclassOf`, no runtime member introspection. |
+| `pkl:json` / `pkl:yaml` | Type surface only | `Parser` + `Property` class shells instantiable; actual JSON / YAML parsing not implemented. |
+| `pkl:xml` / `pkl:protobuf` | Type surface only | `Renderer` class shells instantiable; rendering itself stays in the deferred slices. |
 
 ### Imports
 

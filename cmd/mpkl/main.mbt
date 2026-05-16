@@ -1,13 +1,14 @@
 ///|
 fn usage() -> Unit {
   println(
-    "usage: pkl <parse|check|eval|test|format|analyze|codegen> <file.pkl>",
+    "usage: pkl <parse|check|eval|test|format|analyze|codegen|stdlib> [args]",
   )
   println("       pkl eval [-f|--format pcf|json|yaml|properties] <file.pkl>")
   println("       pkl test <file.pkl>")
   println("       pkl format <file.pkl>")
   println("       pkl analyze <file.pkl>")
   println("       pkl codegen <file.pkl>")
+  println("       pkl stdlib                    # probe stdlib coverage")
   println("       pkl parse-many <file.pkl>...")
   println(
     "  sandbox flags: --allowed-modules <pipe-separated-prefixes> --module-path <dir> -p NAME=VALUE",
@@ -568,6 +569,14 @@ fn parse_file(path : String) -> Bool {
 ///|
 async fn main {
   let args = @sys.get_cli_args()
+  // PKL-132x: `mpkl stdlib` takes no positional file argument — it
+  // runs the in-process stdlib probe table and exits with the result.
+  // Dispatch it before the standard `<cmd> <file>` argc check so a
+  // bare `mpkl stdlib` invocation isn't rejected as malformed.
+  if args.length() >= 2 && args[1] == "stdlib" {
+    run_stdlib_check()
+    return
+  }
   if args.length() < 3 {
     usage()
     @sys.exit(1)

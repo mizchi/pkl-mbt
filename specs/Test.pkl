@@ -374,6 +374,32 @@ local cliFloatMagnitudeUnits = new Test {
   timeoutSec = 120
 }
 
+local cliStdlibCheck = new Test {
+  name = "cli stdlib coverage probe"
+  description =
+    "The native CLI's `stdlib` subcommand evaluates one minimal probe per documented stdlib surface area (pkl:base value-variant ops + Renderer classes, pkl:math constants / Int + Float helpers, pkl:semver parse + compare, pkl:platform stub, pkl:test catch, pkl:reflect mirror constants + factories, pkl:json / pkl:yaml Parser shells, pkl:xml / pkl:protobuf Renderer shells) and prints `[PASS]` / `[FAIL]` per probe. The contract pins the trailing `stdlib: N / N passed` summary so a regression to any probe breaks CI."
+  tags { "moonbit"; "cli"; "stdlib"; "contract" }
+  specRef { "PKL-141" }
+  cmd = "moon run cmd/mpkl --target native -- stdlib"
+  workdir = ".."
+  expectStdoutContains {
+    "[PASS] Pair value variant"
+    "[PASS] IntSeq value variant"
+    "[PASS] Set value variant"
+    "[PASS] Map value variant"
+    "[PASS] JsonRenderer class"
+    "[PASS] constants (maxInt32)"
+    "[PASS] Float helper (sqrt)"
+    "[PASS] parse decomposition"
+    "[PASS] catch captures thrown message"
+    "[PASS] intType mirror constant"
+    "[PASS] Parser class instantiable"
+    "[PASS] Renderer class instantiable"
+    "stdlib: 30 / 30 passed"
+  }
+  timeoutSec = 180
+}
+
 local cliCodegenMoonbit = new Test {
   name = "cli codegen moonbit"
   description =
@@ -1286,6 +1312,7 @@ tests {
   cliMapValue
   cliPackageUriOffline
   cliPackageRegistryProbe
+  cliStdlibCheck
   cliCodegenMoonbit
   cliHeredocString
   cliFormat

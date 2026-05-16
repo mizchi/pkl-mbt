@@ -1,6 +1,6 @@
 # Test SPEC
 
-207 tests across 2 module(s) — 145 pending, 62 active
+209 tests across 2 module(s) — 145 pending, 64 active
 
 ## `specs/`
 
@@ -515,6 +515,13 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **mpkl stdlib coverage probe** — verifies: PKL-141 — tags: cli, stdlib, verification
+  > `mpkl stdlib` runs an in-process probe table — one minimal fixture per documented stdlib surface area — through `AnalysisSession` (so `import "pkl:math"` etc. resolve through the synthetic stdlib loader, not the import-less `eval_source` path), renders the result via the PCF renderer, and matches against an expected substring. Pass / fail lines surface as `[PASS] group :: name` or `[FAIL]` with the diagnostic message; the trailing `stdlib: N / N passed` summary terminates the run, and the exit code is non-zero when any probe fails. The probe table covers `pkl:base` (Listing / Mapping / String / Int builtins + dedicated `Pair` / `IntSeq` / `Set` / `Map` value variants + Renderer classes + `Duration` / `DataSize` / `Regex` / `Bytes` literals), `pkl:math` (Int constants + helpers + Float-side `sqrt` / `pow` / `pi`), `pkl:semver` (parse + compare + parseOrNull), `pkl:platform` (deterministic stub values), `pkl:test` (`catch` on the throw branch), `pkl:reflect` (mirror constants + factory containers), `pkl:json` / `pkl:yaml` (Parser shells), and `pkl:xml` / `pkl:protobuf` (Renderer shells). The contract gates the surface README.md advertises as `Full` / `Partial` / `Stub` — any regression that breaks a documented capability fails the smoke check before the README claim can drift.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-119d, PKL-124, PKL-123
+  - decisions: 3 entry(ies)
+  - body: _not yet implemented_
+
 - [ ] **narrow nullable types through Pkl null guards** — verifies: PKL-031 — tags: typechecker
   > The typechecker narrows nullable identifiers through `x != null` and `x == null` guards so non-null branches can use the inner type without explicit coalescing.
   - contributes to: GOAL-PKL-PURE
@@ -571,12 +578,6 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **package:// zipball download and unpack** [draft] — verifies: PKL-129b2 — tags: parser, imports, sandbox, pkf-pkspec, next
-  > PKL-129b1 lands the URI parse, metadata fetch, and `packageZipUrl` extraction. PKL-129b2 closes the loop: download the zipball over HTTPS, verify the SHA-256 checksum from `packageZipChecksums`, DEFLATE-decode the archive, cache the extracted tree under `~/.pkl/cache/package-2/<authority>/<path>/<version>/`, then resolve the fragment path against the cache. The DEFLATE decoder is the biggest sub-lift (MoonBit core doesn't ship one); it can either be vendored or hand-rolled inside this slice. Until it lands, users follow the PKL-129b1 diagnostic's workaround (download manually with `pkl download-package` and pass `--module-path`).
-  - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-129b1
-  - body: _not yet implemented_
-
 - [ ] **parse Pkl call lambda and operator expressions** — verifies: PKL-018 — tags: parser
   > The parser lowers calls, lambdas, unary operators, comparisons, boolean operators, null-coalescing, and conditional expressions into explicit AST nodes with precedence matching Pkl.
   - contributes to: GOAL-PKL-PURE
@@ -624,17 +625,18 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **pkl codegen bridge to MoonBit** — verifies: PKL-131 — tags: cli, codegen, typechecker
+  > `moon run cmd/mpkl -- codegen <file.pkl>` lowers a parsed Pkl module into a MoonBit source skeleton so embedders can round-trip their schemas through both type systems. The `codegen_moonbit(program: Program): String` entry point walks `program.declarations`: each `ClassDeclaration` emits a `pub(all) struct ... derive(Eq, Show)` carrying one field per property; each `TypeAliasDeclaration` emits a `pub typealias <target> as <name>`; `FunctionDeclaration`s are intentionally skipped (no MoonBit data-shape analogue). Pkl type annotations flow through `pkl_type_to_moonbit`: scalars (`Int` → `Int`, `Float` → `Double`, `Boolean`/`Bool` → `Bool`, `String` → `String`, `Null` → `Unit`, `Bytes` → `Bytes`); generics recurse — `Listing<T>` / `List<T>` → `Array[T]`, `Mapping<K, V>` / `Map<K, V>` → `Map[K, V]`, `Set<T>` → `Array[T]` with a `/* Set */` comment (no ordered-unique container in moonbitlang/core yet), `Pair<A, B>` → tuple `(A, B)`, `IntSeq` → `Array[Int]` with `/* IntSeq */`, `Duration` / `DataSize` → `Double` with a unit comment; nullable `T?` carries through structurally; constraint suffixes (`Int(isPositive)`) strip to the base type because MoonBit doesn't model refinement types here; unrepresentable shapes (unions, `Any`, `Unknown`) fall back to `Unit /* TODO: ... */` so the generated file still parses and the embedder gets a `// TODO:` flag to grep for. The CLI subcommand reuses the same `print_diagnostics_with_source` path as `check` / `analyze` for parse errors, exits 1 on a non-clean parse, and otherwise prints the generated source verbatim (single trailing newline).
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-080, PKL-110
+  - decisions: 3 entry(ies)
+  - body: _not yet implemented_
+
 - [ ] **pkl test examples and golden diff** — verifies: PKL-100 — tags: cli, pkl-test, examples
   > The native CLI `test` subcommand walks the module-level `examples` member alongside the existing `facts` walker. Each example is rendered through the PCF envelope (`examples { ["label"] { ... } }`) and the entire envelope is byte-diffed against a sibling `<file>-expected.pcf` golden file. A passing diff prints `PASS examples (N examples)`; a mismatch prints `FAIL examples diff against <path>` and contributes to the non-zero exit. The `--overwrite` CLI flag regenerates the golden file from the current rendering (printing `OVERWRITE <path>`), matching Apple Pkl's golden-file workflow. Modules without an `examples` member skip the diff entirely so facts-only fixtures keep working unchanged.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-095
   - decisions: 3 entry(ies)
-  - body: _not yet implemented_
-
-- [ ] **pkl-codegen bridge** [draft] — verifies: PKL-131 — tags: cli, codegen, typechecker
-  > Lower a typechecked Pkl module to a target language schema (Java / Kotlin / Swift / Go / MoonBit). The bridge consumes the existing typechecker state via `pkl:reflect`'s minimal stub once expanded. For pkl-mbt as a MoonBit library, the natural first target is MoonBit itself — emit a `struct` / `enum` skeleton matching the Pkl class / typealias surface so embedders can round-trip their schemas through the same type system.
-  - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-080, PKL-110
   - body: _not yet implemented_
 
 - [ ] **pkl:json / pkl:yaml / pkl:xml / pkl:protobuf stdlib modules** — verifies: PKL-124 — tags: stdlib, renderer
@@ -1015,6 +1017,10 @@
   > The native CLI evaluates a fixture that exercises `Any`-typed bindings (Int / String / Bool), a nullable `Any?` defaulted to null, and a `Mapping<String, Any>` carrying heterogeneous value types. Every binding typechecks (via the new `AnyType` short-circuit in `type_accepts`) and the evaluator emits the same PCF as the concrete annotations would.
   - body: `cmd` (exit 0 expected)
 
+- [x] **cli codegen moonbit** — verifies: PKL-131 — tags: moonbit, cli, codegen, typechecker, contract
+  > The native CLI's `codegen` subcommand lowers a Pkl fixture to MoonBit source. The fixture covers the common shape — scalar + nullable properties, references between classes, Listing / Mapping / Set / IntSeq / Pair generics, and typealias declarations. The expected output exercises the scalar mapping, the recursive generic translation (including the `Array[T] /* Set */` and `Array[Int] /* IntSeq */` fallbacks), nullable round-trip, and the `pub typealias <target> as <name>` form.
+  - body: `cmd` (exit 0 expected)
+
 - [x] **cli constraint composition** — verifies: PKL-128c — tags: moonbit, cli, parser, constraints, contract
   > The native CLI evaluates a fixture that composes numeric constraint predicates with `&` (e.g. `Int(isPositive & isLessThan(10))`). Valid values render normally; the dispatcher enforces both halves of the composition independently.
   - body: `cmd` (exit 0 expected)
@@ -1189,6 +1195,10 @@
 
 - [x] **cli set value** — verifies: PKL-119c — tags: moonbit, cli, evaluator, typechecker, stdlib, contract
   > The native CLI evaluates a fixture exercising the dedicated `SetValue` variant: `Set(3, 1, 2, 1, 3)` dedupes to `Set(3, 1, 2)` (insertion order preserved), bare property reads (`.length` / `.isEmpty` / `.first` / `.last`), `.contains` lookup, `.toList()` materialization, `.map((n) -> n * 2)` projection (returns Listing per Apple Pkl's signature), `.filter((n) -> n % 2 == 0)` (keeps Set type), `.fold(0, (acc, n) -> acc + n)` reduction, `.join(", ")` concatenation, and `Set<Int>` annotated bindings whose constructor inference flows through `type_accepts`. PCF renders `Set(...)` so the eval output is parser-readable.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli stdlib coverage probe** — verifies: PKL-141 — tags: moonbit, cli, stdlib, contract
+  > The native CLI's `stdlib` subcommand evaluates one minimal probe per documented stdlib surface area (pkl:base value-variant ops + Renderer classes, pkl:math constants / Int + Float helpers, pkl:semver parse + compare, pkl:platform stub, pkl:test catch, pkl:reflect mirror constants + factories, pkl:json / pkl:yaml Parser shells, pkl:xml / pkl:protobuf Renderer shells) and prints `[PASS]` / `[FAIL]` per probe. The contract pins the trailing `stdlib: N / N passed` summary so a regression to any probe breaks CI.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli stdlib modifiers** — verifies: PKL-140 — tags: moonbit, cli, parser, stdlib, contract

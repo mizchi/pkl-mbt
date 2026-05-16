@@ -1,5 +1,5 @@
 // Generated using `moon info`, DON'T EDIT IT
-package "mizchi/pkl/cmd/main"
+package "mizchi/pkl/cmd/mpkl"
 
 // Values
 pub async fn fetch_uri(String) -> String?
