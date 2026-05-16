@@ -1812,6 +1812,38 @@ local floatMagnitudeUnits = new Scenario {
   }
 }
 
+local yamlBlockScalars = new Scenario {
+  id = "PKL-125"
+  name = "YAML literal block scalars"
+  description =
+    "Multiline String values render as YAML literal block scalars (`|`, `|-`, `|+`) in block contexts (mapping value position after `key:` and sequence item position after `- `). The chomping indicator follows the trailing-newline count: exactly one trailing `\\n` clips with `|`, zero strips with `|-`, two or more keep with `|+` (the natural newline after the last content line covers one of the kept newlines and `(trailing - 1)` bare newlines preserve the rest). Eligibility requires at least one internal newline (single-line strings stay inline), no control characters other than `\\n` / `\\t`, and no content line starting with whitespace (which would otherwise force an explicit `|N` indentation indicator). Ineligible strings fall back to the existing double-quoted form. Top-level scalar strings (no parent key / sequence) keep the double-quoted form for byte-identity with the pre-PKL-125 fixture baseline."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-073" }
+  tags { "renderer"; "yaml"; "block-scalar" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Emit block scalar only in block contexts, not at top-level"
+      rationale =
+        "A bare top-level block scalar (no parent key) is legal YAML but produces a document that is awkward to round-trip and breaks the existing top-level-string test baseline at `pkl_test.mbt:556`. Block scalars are most readable when scoped under a key or a sequence dash, where the implicit indentation context is obvious. Top-level scalars stay double-quoted as before; the rendered output for `render_value_as_yaml(StringValue(\"a\\nb\"))` is unchanged."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Reject strings whose lines start with whitespace instead of emitting `|N` indicators"
+      rationale =
+        "YAML supports `|2`, `|4`, etc. to override the auto-detected indentation when the first content line itself starts with spaces or tabs. Implementing the indicator + matching content indent is doable but doubles the code path and rarely improves readability over the double-quoted fallback for the few strings that actually need it. Falling back to double-quoted keeps the rendered output deterministic and avoids the per-line indent arithmetic; a follow-up can introduce `|N` if a fixture demands it."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Defer folded block scalars (`>`, `>-`, `>+`)"
+      rationale =
+        "Folded scalars collapse internal newlines into spaces, which is a semantic change to the rendered string. Apple Pkl's YAML renderer never elects folded form when the source string has literal newlines — picking `>` would mean rendering a string and then parsing it back to a different value. Keeping `|`-family only makes the round-trip identity straightforward; folded form belongs in a separate slice if/when a fixture needs human-readable long-line wrapping that the parser will fold."
+    }
+  }
+}
+
 local stringUnicodeMethods = new Scenario {
   id = "PKL-122"
   name = "String unicode and codepoint methods"
@@ -3494,5 +3526,6 @@ scenarios {
   floatMagnitudeUnits
   pklPlatformSemver
   stringUnicodeMethods
+  yamlBlockScalars
   ...roadmap.entries
 }

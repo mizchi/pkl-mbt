@@ -2768,6 +2768,97 @@ test "PKL-122: String.codePointAt out of range pushes diagnostic" {
 }
 
 ///|
+test "PKL-125: YAML literal block scalar clips with single trailing newline" {
+  let v : Value = ObjectValue([
+    ValueMember::{ name: "p", value: StringValue("line one\nline two\n") },
+  ])
+  inspect(
+    render_value_as_yaml(v),
+    content=(
+      #|p: |
+      #|  line one
+      #|  line two
+      #|
+    ),
+  )
+}
+
+///|
+test "PKL-125: YAML literal block scalar strips with no trailing newline" {
+  let v : Value = ObjectValue([
+    ValueMember::{ name: "p", value: StringValue("alpha\nbeta") },
+  ])
+  inspect(
+    render_value_as_yaml(v),
+    content=(
+      #|p: |-
+      #|  alpha
+      #|  beta
+      #|
+    ),
+  )
+}
+
+///|
+test "PKL-125: YAML literal block scalar keeps with multi trailing newlines" {
+  let v : Value = ObjectValue([
+    ValueMember::{ name: "p", value: StringValue("alpha\nbeta\n\n\n") },
+  ])
+  // The source string has 3 trailing newlines; the natural newline
+  // after `  beta` covers one of them, so the rendered form adds 2
+  // bare newlines to preserve the run.
+  inspect(
+    render_value_as_yaml(v),
+    content=(
+      #|p: |+
+      #|  alpha
+      #|  beta
+      #|
+      #|
+      #|
+    ),
+  )
+}
+
+///|
+test "PKL-125: YAML falls back to double-quote when a line leads with space" {
+  let v : Value = ObjectValue([
+    ValueMember::{
+      name: "p",
+      value: StringValue("first\n  cannot block\nlast"),
+    },
+  ])
+  inspect(
+    render_value_as_yaml(v),
+    content=(
+      #|p: "first\n  cannot block\nlast"
+      #|
+    ),
+  )
+}
+
+///|
+test "PKL-125: YAML block scalar in a sequence item indents to column 2" {
+  let v : Value = ObjectValue([
+    ValueMember::{
+      name: "items",
+      value: ListingValue([StringValue("a\nb"), StringValue("single")]),
+    },
+  ])
+  inspect(
+    render_value_as_yaml(v),
+    content=(
+      #|items:
+      #|- |-
+      #|  a
+      #|  b
+      #|- single
+      #|
+    ),
+  )
+}
+
+///|
 test "PKL-123: pkl:platform exposes stub OS / architecture" {
   let session = AnalysisSession::new()
   session.set_source(

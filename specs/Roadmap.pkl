@@ -142,18 +142,6 @@ local pklRendererStdlibModules: Spec.Scenario = new {
 
 // ── renderer expansion ──────────────────────────────────────────────────────
 
-local yamlBlockScalars: Spec.Scenario = new {
-  id = "PKL-125"
-  name = "YAML block scalars"
-  description =
-    "`|`, `|-`, `|+`, `>`, `>-`, `>+` block scalar projection for multiline / control-character strings. Today the YAML renderer double-quotes such strings, which is spec-compliant but less human-readable than upstream."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-073" }
-  tags { "renderer"; "yaml"; "next" }
-  reviewStatus = "draft"
-  severity = "minor"
-}
-
 local plistXmlProtobufRenderers: Spec.Scenario = new {
   id = "PKL-126"
   name = "plist / xml / protobuf renderers"
@@ -187,7 +175,7 @@ local parserSurfaceExpansion: Spec.Scenario = new {
     "Capture `@Deprecated`, `@Since`, `@ModuleInfo` and similar annotation classes into AST nodes so pkldoc / codegen can read their fields. The parser currently skips them entirely (no AST trace), which is fine for evaluation but blocks the documentation / codegen pipelines that need the metadata. Implement a new `AnnotationDecl` node attached to the following declaration; the existing `skip_annotation` becomes the fallback path when capture isn't needed."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-001"; "PKL-128a"; "PKL-128b"; "PKL-128c" }
-  tags { "parser"; "annotations" }
+  tags { "parser"; "annotations"; "next" }
   reviewStatus = "draft"
   severity = "minor"
 }
@@ -267,7 +255,6 @@ entries: Listing<Spec.Scenario> = new {
   crossModuleTypecheckCompleteness
   setPairMapIntSeqVariants
   pklRendererStdlibModules
-  yamlBlockScalars
   plistXmlProtobufRenderers
   rendererConverters
   parserSurfaceExpansion

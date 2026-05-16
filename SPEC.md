@@ -1,6 +1,6 @@
 # Test SPEC
 
-192 tests across 2 module(s) — 145 pending, 47 active
+193 tests across 2 module(s) — 145 pending, 48 active
 
 ## `specs/`
 
@@ -137,10 +137,11 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **YAML block scalars** (minor) [draft] — verifies: PKL-125 — tags: renderer, yaml, next
-  > `|`, `|-`, `|+`, `>`, `>-`, `>+` block scalar projection for multiline / control-character strings. Today the YAML renderer double-quotes such strings, which is spec-compliant but less human-readable than upstream.
+- [ ] **YAML literal block scalars** (minor) — verifies: PKL-125 — tags: renderer, yaml, block-scalar
+  > Multiline String values render as YAML literal block scalars (`|`, `|-`, `|+`) in block contexts (mapping value position after `key:` and sequence item position after `- `). The chomping indicator follows the trailing-newline count: exactly one trailing `\n` clips with `|`, zero strips with `|-`, two or more keep with `|+` (the natural newline after the last content line covers one of the kept newlines and `(trailing - 1)` bare newlines preserve the rest). Eligibility requires at least one internal newline (single-line strings stay inline), no control characters other than `\n` / `\t`, and no content line starting with whitespace (which would otherwise force an explicit `|N` indentation indicator). Ineligible strings fall back to the existing double-quoted form. Top-level scalar strings (no parent key / sequence) keep the double-quoted form for byte-identity with the pre-PKL-125 fixture baseline.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-073
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **allow Pkl class property defaults to satisfy missing members** — verifies: PKL-035 — tags: typechecker
@@ -157,7 +158,7 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **annotation class capture** (minor) [draft] — verifies: PKL-128d — tags: parser, annotations
+- [ ] **annotation class capture** (minor) [draft] — verifies: PKL-128d — tags: parser, annotations, next
   > Capture `@Deprecated`, `@Since`, `@ModuleInfo` and similar annotation classes into AST nodes so pkldoc / codegen can read their fields. The parser currently skips them entirely (no AST trace), which is fine for evaluation but blocks the documentation / codegen pipelines that need the metadata. Implement a new `AnnotationDecl` node attached to the following declaration; the existing `skip_annotation` becomes the fallback path when capture isn't needed.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-001, PKL-128a, PKL-128b, PKL-128c
@@ -1162,6 +1163,10 @@
 
 - [x] **cli when conditional property** — verifies: PKL-136 — tags: moonbit, cli, parser, evaluator, pkf-pkspec, contract
   > The native CLI evaluates a fixture that uses `when (cond) { ... } [else { ... }]` inside Listing, Mapping, and object bodies, plus `new Listing<T> { ... }` literals. Each conditional emits its inner body when the condition is true, skips it when false, falls back to the else branch when present, and produces the empty collection when no condition fires.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli yaml block scalars** — verifies: PKL-125 — tags: moonbit, cli, renderer, yaml, block-scalar, contract
+  > The native CLI evaluates a fixture that declares `output { renderer = new YamlRenderer {} }` and several multiline String values. The YAML output renders them as literal block scalars: `|` (one trailing newline, clip), `|-` (no trailing newline, strip), `|+` (multiple trailing newlines, keep), with two-space content indentation. Strings whose lines start with whitespace fall back to double-quoted form, and listing items in block context also pick up the block-scalar projection.
   - body: `cmd` (exit 0 expected)
 
 - [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-080, PKL-081, PKL-082, PKL-083, PKL-084, PKL-085, PKL-086, PKL-087, PKL-088, PKL-089, PKL-090, PKL-091, PKL-092, PKL-093, PKL-098 — tags: moonbit, unit, contract

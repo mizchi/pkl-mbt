@@ -374,6 +374,34 @@ local cliFloatMagnitudeUnits = new Test {
   timeoutSec = 120
 }
 
+local cliYamlBlockScalars = new Test {
+  name = "cli yaml block scalars"
+  description =
+    "The native CLI evaluates a fixture that declares `output { renderer = new YamlRenderer {} }` and several multiline String values. The YAML output renders them as literal block scalars: `|` (one trailing newline, clip), `|-` (no trailing newline, strip), `|+` (multiple trailing newlines, keep), with two-space content indentation. Strings whose lines start with whitespace fall back to double-quoted form, and listing items in block context also pick up the block-scalar projection."
+  tags { "moonbit"; "cli"; "renderer"; "yaml"; "block-scalar"; "contract" }
+  specRef { "PKL-125" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_yaml_block_scalars.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "poem: |"
+    "  roses are red"
+    "  violets are blue"
+    "stripped: |-"
+    "  alpha"
+    "  beta"
+    "kept: |+"
+    "  first"
+    "  second"
+    "single: one liner"
+    "leading_space: \"first\\n  cannot block\\nlast\""
+    "items:"
+    "- |-"
+    "  gamma"
+    "- single"
+  }
+  timeoutSec = 120
+}
+
 local cliStringUnicode = new Test {
   name = "cli string unicode"
   description =
@@ -923,6 +951,7 @@ tests {
   cliFloatMagnitudeUnits
   cliPlatformSemver
   cliStringUnicode
+  cliYamlBlockScalars
   cliHeredocString
   cliFormat
   cliTestExamplesPass

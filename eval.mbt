@@ -7088,6 +7088,16 @@ fn render_yaml_block_value(
         buf.write_char('\n')
         render_yaml_sequence(elements, indent, buf)
       }
+    StringValue(s) =>
+      match yaml_string_block_scalar_info(s) {
+        Some((indicator, lines, trailing)) =>
+          render_yaml_block_scalar(indicator, lines, trailing, indent + 2, buf)
+        None => {
+          buf.write_char(' ')
+          render_yaml_scalar(value, buf)
+          buf.write_char('\n')
+        }
+      }
     _ => {
       buf.write_char(' ')
       render_yaml_scalar(value, buf)
@@ -7163,10 +7173,134 @@ fn render_yaml_seq_item(
           render_yaml_seq_item(elements[i], indent + 2, buf)
         }
       }
+    StringValue(s) =>
+      match yaml_string_block_scalar_info(s) {
+        Some((indicator, lines, trailing)) =>
+          render_yaml_block_scalar(indicator, lines, trailing, indent, buf)
+        None => {
+          buf.write_char(' ')
+          render_yaml_scalar(value, buf)
+          buf.write_char('\n')
+        }
+      }
     _ => {
       buf.write_char(' ')
       render_yaml_scalar(value, buf)
       buf.write_char('\n')
+    }
+  }
+}
+
+///|
+/// PKL-125: decide whether `s` qualifies for a YAML literal block
+/// scalar (`|`, `|-`, `|+`). A string is eligible when:
+///   - it has at least one internal newline (`\n` somewhere before
+///     the trailing-newline run), so the block form actually
+///     improves readability over a double-quoted single-line escape;
+///   - it carries no control characters other than `\n` and `\t`,
+///     which would otherwise need `\uXXXX` escapes that the block
+///     form cannot express;
+///   - no content line starts with whitespace, which would otherwise
+///     require an explicit indentation indicator like `|2`.
+///
+/// The chomping indicator follows the trailing-newline count:
+///   - exactly 1 trailing `\n`  → `|`  (clip — single final newline)
+///   - 0 trailing `\n`          → `|-` (strip — no final newline)
+///   - 2+ trailing `\n`         → `|+` (keep — preserve all)
+///
+/// Returns `Some((indicator, content_lines, trailing))` on
+/// eligibility, where `content_lines` are the lines stripped of
+/// every trailing newline and `trailing` is the original trailing
+/// newline count (the `|+` path needs it to emit the extra blank
+/// lines that preserve the run).
+fn yaml_string_block_scalar_info(s : String) -> (String, Array[String], Int)? {
+  if s.length() == 0 {
+    return None
+  }
+  // Count trailing `\n` characters.
+  let mut trailing = 0
+  while trailing < s.length() && s[s.length() - 1 - trailing].to_int() == 0x0A {
+    trailing = trailing + 1
+  }
+  let core_len = s.length() - trailing
+  let core = String::unsafe_substring(s, start=0, end=core_len)
+  // Need at least one internal newline to beat the inline double-quote form.
+  let mut has_internal_newline = false
+  for c in core {
+    if c == '\n' {
+      has_internal_newline = true
+      break
+    }
+  }
+  if !has_internal_newline {
+    return None
+  }
+  // Reject anything with control chars other than `\n` / `\t`.
+  for c in core {
+    if c < ' ' && c != '\n' && c != '\t' {
+      return None
+    }
+    if c == '\u{7F}' {
+      return None
+    }
+  }
+  // Split into lines and reject any line whose first char is whitespace.
+  let lines : Array[String] = []
+  for piece in core.split("\n") {
+    lines.push(piece.to_owned())
+  }
+  for line in lines {
+    if line.length() == 0 {
+      continue
+    }
+    let first = line[0].to_int().unsafe_to_char()
+    if first == ' ' || first == '\t' {
+      return None
+    }
+  }
+  let indicator = if trailing == 1 {
+    "|"
+  } else if trailing == 0 {
+    "|-"
+  } else {
+    "|+"
+  }
+  Some((indicator, lines, trailing))
+}
+
+///|
+/// PKL-125: emit a literal block scalar. The leading space and
+/// indicator share the same line as the preceding `key:` / `-`;
+/// each content line follows at `content_indent` spaces. Blank
+/// content lines emit as a bare `\n` (YAML literal block scalars
+/// allow empty lines to be undented). For the keep chomping (`|+`)
+/// the source had ≥2 trailing newlines; the natural line break
+/// after the last content line covers one of them, so `(trailing -
+/// 1)` extra bare newlines preserve the rest.
+fn render_yaml_block_scalar(
+  indicator : String,
+  lines : Array[String],
+  trailing : Int,
+  content_indent : Int,
+  buf : StringBuilder,
+) -> Unit {
+  buf.write_char(' ')
+  buf.write_string(indicator)
+  buf.write_char('\n')
+  for line in lines {
+    if line.length() == 0 {
+      buf.write_char('\n')
+    } else {
+      write_yaml_indent(buf, content_indent)
+      buf.write_string(line)
+      buf.write_char('\n')
+    }
+  }
+  if indicator == "|+" {
+    let mut extras = trailing - 1
+    while extras > 0 {
+      buf.write_char('\n')
+      extras = extras - 1
     }
   }
 }

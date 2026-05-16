@@ -1,0 +1,24 @@
+// PKL-125: multiline string values render as YAML literal block
+// scalars (`|`, `|-`, `|+`) in block contexts (mapping value
+// position and sequence item position). Single-line strings and
+// strings carrying control characters other than `\n` / `\t` keep
+// the existing double-quoted form so the renderer never emits an
+// invalid block scalar.
+output {
+  renderer = new YamlRenderer {}
+}
+
+poem = """
+roses are red
+violets are blue
+"""
+
+stripped = "alpha\nbeta"
+
+kept = "first\nsecond\n\n\n"
+
+single = "one liner"
+
+leading_space = "first\n  cannot block\nlast"
+
+items = new Listing { "alpha\nbeta\ngamma"; "single" }
