@@ -3419,6 +3419,84 @@ test "PKL-120: pkl:math.pi constant" {
 }
 
 ///|
+test "PKL-124: pkl:base JsonRenderer typechecks without import" {
+  let result = typecheck_source(
+    "count = 5\noutput { renderer = new JsonRenderer { indent = \"    \" } }",
+  )
+  guard result is TypeOk(_) else { panic() }
+}
+
+///|
+test "PKL-124: pkl:base YamlRenderer / PcfRenderer / PropertiesRenderer / PListRenderer typecheck" {
+  let result = typecheck_source(
+    "yaml = new YamlRenderer {}\npcf = new PcfRenderer {}\nprops = new PropertiesRenderer {}\nplist = new PListRenderer {}",
+  )
+  guard result is TypeOk(_) else { panic() }
+}
+
+///|
+test "PKL-124: pkl:json Parser instantiable through qualified import" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:json\" as json\np = new json.Parser { useMapping = true }\nm = p.useMapping",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut got_mapping = false
+  for entry in members {
+    if entry.name == "m" {
+      guard entry.value is BoolValue(b) else { panic() }
+      inspect(b, content="true")
+      got_mapping = true
+    }
+  }
+  inspect(got_mapping, content="true")
+}
+
+///|
+test "PKL-124: pkl:xml Renderer carries indent / xmlVersion / rootElementName defaults" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:xml\" as xml\nr = new xml.Renderer { rootElementName = \"config\" }\ni = r.indent\nv = r.xmlVersion\nrn = r.rootElementName",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut indent = ""
+  let mut version = ""
+  let mut name = ""
+  for entry in members {
+    match (entry.name, entry.value) {
+      ("i", StringValue(s)) => indent = s
+      ("v", StringValue(s)) => version = s
+      ("rn", StringValue(s)) => name = s
+      _ => ()
+    }
+  }
+  inspect(indent, content="  ")
+  inspect(version, content="1.0")
+  inspect(name, content="config")
+}
+
+///|
+test "PKL-124: pkl:protobuf Renderer instantiable through qualified import" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:protobuf\" as protobuf\nr = new protobuf.Renderer {}",
+  )
+  guard session.typecheck_path("main.pkl") is TypeOk(_) else { panic() }
+}
+
+///|
+test "PKL-124: unknown renderer class still surfaces Cannot find type" {
+  let result = typecheck_source("r = new MysteryRenderer {}")
+  guard result is TypeError(diagnostics) else { panic() }
+  let messages = diagnostics.iter().map(fn(d) { d.message }).collect()
+  inspect(messages[0], content="Cannot find type `MysteryRenderer`.")
+}
+
+///|
 test "PKL-117: super method call dispatches to parent class" {
   guard eval_source(
       "class Animal { function describe(): String = \"an animal\" }\nclass Cat extends Animal { function describe(): String = \"fluffy \\(super.describe())\" }\nc = new Cat {}\nmsg = c.describe()",

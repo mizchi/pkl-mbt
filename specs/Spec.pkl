@@ -1838,6 +1838,32 @@ local upstreamFixtureSweepExpansionScenario = new Scenario {
   }
 }
 
+local rendererStdlibModulesScenario = new Scenario {
+  id = "PKL-124"
+  name = "pkl:json / pkl:yaml / pkl:xml / pkl:protobuf stdlib modules"
+  description =
+    "The renderer-driver classes the `output { renderer = ... }` path looks up are now part of the typechecker's stdlib surface. `JsonRenderer`, `YamlRenderer`, `PcfRenderer`, `PropertiesRenderer`, and `PListRenderer` are seeded as unqualified `ClassType` entries in `builtin_type_from_annotation` because Apple Pkl re-exports them through the implicitly-imported `pkl:base`; references like `new JsonRenderer { indent = \"    \" }` typecheck without an explicit import. Four synthetic stdlib modules — `pkl:json`, `pkl:yaml`, `pkl:xml`, `pkl:protobuf` — are added to `builtin_stdlib_source` so `import \"pkl:json\" as json` succeeds and `new json.Parser { ... }` / `new xml.Renderer { ... }` / `new protobuf.Renderer { ... }` reach the qualified-type lookup. Each renderer class is declared with an empty (or default-only) member surface; field-level typing for `converters`, `extension`, etc. is deferred to PKL-127 where the converter machinery actually consumes those properties. Unknown renderer names still trip `Cannot find type` — the surface is opt-in, not a silent open-world fallback. The CLI's existing `renderer_format_from_class` mapping is unchanged; the format dispatch was already AST-driven and the typecheck visibility was the missing link."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-104" }
+  tags { "stdlib"; "renderer" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "pkl:base renderer classes seeded in the builtin type table, not as a synthetic pkl:base module"
+      rationale =
+        "An alternative path is to add `pkl:base` to `builtin_stdlib_source` and walk its declarations through the normal import-typing pipeline. That would model the upstream relationship faithfully (renderers extend `ValueRenderer` which extends from a shared base) but requires a parser-visible `pkl:base` source for every class the user might reach for — strings, numbers, listings, mappings, and dozens of helpers — and the `infer_program` path would need to learn about implicit-import seeding. Wiring just the renderer class names into `builtin_type_from_annotation` keeps the slice narrow to what `output { renderer }` actually exercises today; the broader `pkl:base` synthesis can land as its own slice when an embedded use case requires the full stdlib type surface."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Renderer classes declared with empty member surface, not field-typed"
+      rationale =
+        "`JsonRenderer { indent: String = \"  \"; omitNullProperties: Boolean = true; converters: Mapping<Class | String, (unknown) -> unknown> }` is the upstream shape, but PKL-127 already tracks the converter machinery — landing fully-typed members here would either duplicate that work or block PKL-124 on it. The empty-member ClassType is permissive: `type_accepts(ClassType(name, []), ObjectType(actual))` iterates over zero expected members and always succeeds, so `new JsonRenderer { ... }` accepts any subset of property assignments while PKL-127 fleshes out the constrained surface."
+    }
+  }
+}
+
 local crossModuleFunctionExport = new Scenario {
   id = "PKL-118"
   name = "cross-module typecheck round-trip completeness"
@@ -3752,5 +3778,6 @@ scenarios {
   inheritanceDispatchHardeningScenario
   crossModuleFunctionExport
   upstreamFixtureSweepExpansionScenario
+  rendererStdlibModulesScenario
   ...roadmap.entries
 }

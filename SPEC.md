@@ -1,6 +1,6 @@
 # Test SPEC
 
-199 tests across 2 module(s) — 145 pending, 54 active
+200 tests across 2 module(s) — 145 pending, 55 active
 
 ## `specs/`
 
@@ -620,10 +620,11 @@
   - depends on: PKL-080, PKL-110
   - body: _not yet implemented_
 
-- [ ] **pkl:json / pkl:yaml / pkl:xml / pkl:protobuf stdlib modules** [draft] — verifies: PKL-124 — tags: stdlib, renderer, next
-  > Stdlib classes for the renderer surface (`JsonRenderer`, `YamlRenderer`, `XmlRenderer`, `ProtobufRenderer`) that the `output { renderer }` driver path looks up. Today the CLI dispatches renderers via the `-f` flag and the stdlib classes do not exist.
+- [ ] **pkl:json / pkl:yaml / pkl:xml / pkl:protobuf stdlib modules** — verifies: PKL-124 — tags: stdlib, renderer
+  > The renderer-driver classes the `output { renderer = ... }` path looks up are now part of the typechecker's stdlib surface. `JsonRenderer`, `YamlRenderer`, `PcfRenderer`, `PropertiesRenderer`, and `PListRenderer` are seeded as unqualified `ClassType` entries in `builtin_type_from_annotation` because Apple Pkl re-exports them through the implicitly-imported `pkl:base`; references like `new JsonRenderer { indent = "    " }` typecheck without an explicit import. Four synthetic stdlib modules — `pkl:json`, `pkl:yaml`, `pkl:xml`, `pkl:protobuf` — are added to `builtin_stdlib_source` so `import "pkl:json" as json` succeeds and `new json.Parser { ... }` / `new xml.Renderer { ... }` / `new protobuf.Renderer { ... }` reach the qualified-type lookup. Each renderer class is declared with an empty (or default-only) member surface; field-level typing for `converters`, `extension`, etc. is deferred to PKL-127 where the converter machinery actually consumes those properties. Unknown renderer names still trip `Cannot find type` — the surface is opt-in, not a silent open-world fallback. The CLI's existing `renderer_format_from_class` mapping is unchanged; the format dispatch was already AST-driven and the typecheck visibility was the missing link.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-104
+  - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **pkl:math Float operations** (minor) — verifies: PKL-120 — tags: stdlib, pkl-math, float
@@ -646,10 +647,10 @@
   - depends on: PKL-080
   - body: _not yet implemented_
 
-- [ ] **plist / xml / protobuf renderers** [draft] — verifies: PKL-126 — tags: renderer, plist, xml, protobuf
+- [ ] **plist / xml / protobuf renderers** [draft] — verifies: PKL-126 — tags: renderer, plist, xml, protobuf, next
   > Three additional output formats matching Apple Pkl's renderer surface. plist follows the Apple plist DTD (Foundation property list, XML-1.0 form). XML emits Pkl objects as element trees. protobuf serializes against an externally provided `.proto` schema.
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-070
+  - depends on: PKL-070, PKL-124
   - body: _not yet implemented_
 
 - [ ] **preserve Pkl constrained callable signature metadata** — verifies: PKL-048 — tags: typechecker
@@ -1142,6 +1143,10 @@
 
 - [x] **cli renderer converters** — verifies: PKL-105 — tags: moonbit, cli, renderer, converter, contract
   > The native CLI evaluates a fixture whose `output { renderer = new JsonRenderer { converters { ... } } }` declares two path-keyed converters: `["count"] = (v) -> v * 10` and `["server.port"] = (p) -> p + 1`. The post-eval pass rewrites both values before the JSON renderer fires, so `count = 5` shows as 50 and `server.port = 8080` shows as 8081 in the rendered output.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli renderer stdlib modules** — verifies: PKL-124 — tags: moonbit, cli, stdlib, renderer, contract
+  > The native CLI evaluates a fixture that instantiates every renderer-driver class the `output { renderer = ... }` path looks up. `JsonRenderer`, `YamlRenderer`, `PcfRenderer`, `PropertiesRenderer`, and `PListRenderer` are reached unqualified (pkl:base re-exports seeded into `builtin_type_from_annotation`); `xml.Renderer` and `protobuf.Renderer` come through the synthetic `pkl:xml` / `pkl:protobuf` stdlib modules; `json.Parser` rides on the synthetic `pkl:json` module. The rendered output shows each renderer's default-only field surface plus the user-supplied overrides, confirming both typecheck visibility and the import-binding round-trip.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli sandbox flags** — verifies: PKL-106 — tags: moonbit, cli, sandbox, prop, contract

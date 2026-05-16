@@ -237,6 +237,26 @@ fn builtin_type_from_annotation(name : String) -> Type? {
     // PKL-133: top type. Maps to its own `AnyType` variant so render
     // output stays as `Any` instead of collapsing to `Unknown`.
     "Any" => Some(AnyType)
+    // PKL-124: pkl:base renderer classes are globally accessible
+    // (Apple Pkl implicitly imports `pkl:base`). Empty member list
+    // means `new JsonRenderer { ... }` accepts any subset of property
+    // assignments; field-level type checks land alongside PKL-127
+    // (converter machinery) when each renderer's surface is fleshed
+    // out. `PListRenderer` / `XmlRenderer` / `ProtobufRenderer` /
+    // `JsonnetRenderer` / `PklBinaryRenderer` are pinned here too so
+    // unqualified references in fixtures don't trip on `Cannot find
+    // type`; the qualified `xml.Renderer` / `protobuf.Renderer` /
+    // `jsonnet.Renderer` / `pklbinary.Renderer` aliases route through
+    // the synthetic stdlib modules and the normal import-typing path.
+    "PcfRenderer"
+    | "JsonRenderer"
+    | "YamlRenderer"
+    | "PropertiesRenderer"
+    | "PListRenderer"
+    | "XmlRenderer"
+    | "ProtobufRenderer"
+    | "JsonnetRenderer"
+    | "PklBinaryRenderer" => Some(ClassType(name, []))
     // PKL-137: a quoted string literal in type position
     // (`typealias Severity = "critical" | "major"`) is Apple Pkl's
     // string-literal type. pkl-mbt approximates each literal as the

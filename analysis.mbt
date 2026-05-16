@@ -241,6 +241,70 @@ fn builtin_stdlib_source(uri : String) -> String? {
       Some(source)
     }
     "pkl:test" => Some("catch = null")
+    "pkl:json" => {
+      // PKL-124: minimal synthetic module so `import "pkl:json"`
+      // succeeds and `new json.Parser { ... }` typechecks. The actual
+      // `Parser.parse` body still routes through (forthcoming)
+      // intrinsics; for now the class instantiation surface is what
+      // upstream fixtures lean on through the `output { renderer =
+      // ... }` driver path.
+      //
+      // Apple Pkl's `pkl:json` carries `Parser` and the annotation
+      // class `Property`; the user-facing `JsonRenderer` lives in
+      // `pkl:base` (see `builtin_type_from_annotation`).
+      let source =
+        #|class Parser {
+        #|  useMapping: Boolean = false
+        #|}
+        #|class Property {
+        #|  name: String
+        #|}
+      Some(source)
+    }
+    "pkl:yaml" => {
+      // PKL-124: parallel to `pkl:json` — Parser + Property surface
+      // only. The YAML renderer is a `pkl:base` re-export, registered
+      // in `builtin_type_from_annotation` so `new YamlRenderer { ... }`
+      // typechecks without requiring an explicit import.
+      let source =
+        #|class Parser {
+        #|  useMapping: Boolean = false
+        #|}
+        #|class Property {
+        #|  name: String
+        #|}
+      Some(source)
+    }
+    "pkl:xml" => {
+      // PKL-124: the `pkl:xml` module exposes the renderer under its
+      // own qualified name `xml.Renderer`. The underlying renderer
+      // implementation lands with PKL-126; right now the class shape
+      // exists only so `import "pkl:xml" as xml; new xml.Renderer
+      // { ... }` parses and typechecks.
+      let source =
+        #|class Renderer {
+        #|  indent: String = "  "
+        #|  xmlVersion: String = "1.0"
+        #|  rootElementName: String = "root"
+        #|}
+        #|class Element {
+        #|  name: String
+        #|}
+        #|class Inline {
+        #|  name: String
+        #|}
+      Some(source)
+    }
+    "pkl:protobuf" => {
+      // PKL-124: protobuf renderer surface lives in the `pkl:protobuf`
+      // module under the qualified `protobuf.Renderer` name. Same
+      // shape as `pkl:xml` — class declaration only; the wire-format
+      // emitter is deferred to PKL-126.
+      let source =
+        #|class Renderer {
+        #|}
+      Some(source)
+    }
     "pkl:reflect" => {
       // PKL-080 minimal slice. Apple's `pkl:reflect` is ~460 lines and built
       // around `external` declarations that bind directly to VM internals

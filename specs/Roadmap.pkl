@@ -57,18 +57,6 @@ local setPairMapIntSeqVariants: Spec.Scenario = new {
   severity = "major"
 }
 
-local pklRendererStdlibModules: Spec.Scenario = new {
-  id = "PKL-124"
-  name = "pkl:json / pkl:yaml / pkl:xml / pkl:protobuf stdlib modules"
-  description =
-    "Stdlib classes for the renderer surface (`JsonRenderer`, `YamlRenderer`, `XmlRenderer`, `ProtobufRenderer`) that the `output { renderer }` driver path looks up. Today the CLI dispatches renderers via the `-f` flag and the stdlib classes do not exist."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-104" }
-  tags { "stdlib"; "renderer"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 // ── renderer expansion ──────────────────────────────────────────────────────
 
 local plistXmlProtobufRenderers: Spec.Scenario = new {
@@ -77,8 +65,8 @@ local plistXmlProtobufRenderers: Spec.Scenario = new {
   description =
     "Three additional output formats matching Apple Pkl's renderer surface. plist follows the Apple plist DTD (Foundation property list, XML-1.0 form). XML emits Pkl objects as element trees. protobuf serializes against an externally provided `.proto` schema."
   contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-070" }
-  tags { "renderer"; "plist"; "xml"; "protobuf" }
+  dependsOn { "PKL-070"; "PKL-124" }
+  tags { "renderer"; "plist"; "xml"; "protobuf"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -165,7 +153,6 @@ local lspServer: Spec.Scenario = new {
 entries: Listing<Spec.Scenario> = new {
   pklRepl
   setPairMapIntSeqVariants
-  pklRendererStdlibModules
   plistXmlProtobufRenderers
   rendererConverters
   packagePklRegistry

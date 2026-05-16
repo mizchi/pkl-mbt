@@ -1,0 +1,29 @@
+// PKL-124: the renderer-driver classes the `output { renderer = ... }`
+// path looks up are part of the pkl:base / pkl:xml / pkl:protobuf
+// stdlib surface. This fixture exercises the typecheck visibility of
+// each one without needing the underlying renderer implementations:
+//   - `JsonRenderer` / `YamlRenderer` / `PcfRenderer` /
+//     `PropertiesRenderer` / `PListRenderer` are pre-imported
+//     pkl:base classes (no `import` required).
+//   - `xml.Renderer` and `protobuf.Renderer` are reached through the
+//     qualified `import "pkl:xml" as xml` / `import "pkl:protobuf"
+//     as protobuf` path, which lands the synthetic stdlib module.
+import "pkl:xml" as xml
+
+import "pkl:protobuf" as protobuf
+
+import "pkl:json" as json
+
+baseRenderers = new {
+  pcf = new PcfRenderer {}
+  jsonR = new JsonRenderer { indent = "    " }
+  yamlR = new YamlRenderer { indentWidth = 4 }
+  propsR = new PropertiesRenderer { omitNullProperties = false }
+  plistR = new PListRenderer {}
+}
+
+xmlRenderer = new xml.Renderer { rootElementName = "config" }
+
+protoRenderer = new protobuf.Renderer {}
+
+jsonParser = new json.Parser { useMapping = true }

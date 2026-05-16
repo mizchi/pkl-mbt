@@ -374,6 +374,33 @@ local cliFloatMagnitudeUnits = new Test {
   timeoutSec = 120
 }
 
+local cliRendererStdlibModules = new Test {
+  name = "cli renderer stdlib modules"
+  description =
+    "The native CLI evaluates a fixture that instantiates every renderer-driver class the `output { renderer = ... }` path looks up. `JsonRenderer`, `YamlRenderer`, `PcfRenderer`, `PropertiesRenderer`, and `PListRenderer` are reached unqualified (pkl:base re-exports seeded into `builtin_type_from_annotation`); `xml.Renderer` and `protobuf.Renderer` come through the synthetic `pkl:xml` / `pkl:protobuf` stdlib modules; `json.Parser` rides on the synthetic `pkl:json` module. The rendered output shows each renderer's default-only field surface plus the user-supplied overrides, confirming both typecheck visibility and the import-binding round-trip."
+  tags { "moonbit"; "cli"; "stdlib"; "renderer"; "contract" }
+  specRef { "PKL-124" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_renderer_stdlib_modules.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "baseRenderers {"
+    "jsonR {"
+    "indent = \"    \""
+    "yamlR {"
+    "indentWidth = 4"
+    "propsR {"
+    "omitNullProperties = false"
+    "plistR {}"
+    "xmlRenderer {"
+    "xmlVersion = \"1.0\""
+    "rootElementName = \"config\""
+    "protoRenderer {}"
+    "jsonParser {"
+    "useMapping = true"
+  }
+  timeoutSec = 120
+}
+
 local cliCrossModuleFunction = new Test {
   name = "cli cross module function"
   description =
@@ -1061,6 +1088,7 @@ tests {
   cliDiagnosticUpstream
   cliInheritanceHardening
   cliCrossModuleFunction
+  cliRendererStdlibModules
   cliHeredocString
   cliFormat
   cliTestExamplesPass
