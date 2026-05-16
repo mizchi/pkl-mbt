@@ -96,7 +96,7 @@ Primitive (`Int` / `Float` / `Number` / `Bool` / `String` / `Null` / `Any` / `Un
 - `Regex("...")` with `.matches / .find / .findAll / .replace / .replaceAll` backed by `moonbitlang/regexp`. PCF round-trips through the constructor form.
 - `Bytes(<Listing>)` / `Bytes.fromBase64("...")` with `.length` / `.base64` / `.getOrNull(i)` / `.toList()`, plus `String.toBytes()` UTF-8 encoder. JSON / YAML / Properties / plist project as the base64 string.
 - Lambda closures (scalar + non-scalar capture), `super.method(args)` dispatch, `module.foo` self-reference, `import("...")` expression form, `when` / `for` object-body generators.
-- Sandbox-bounded `read(uri)` (env: enabled by default; prop: opens via `-p NAME=VALUE`; file:/https:/package: gated by `--allowed-modules`), `throw(msg)`, `trace(value)`.
+- Sandbox-bounded `read(uri)` (env: enabled by default; prop: opens via `-p NAME=VALUE`; file:/https:/package: gated by `--allowed-modules`) plus the `read?(uri)` null-returning variant (missing env var / sandbox reject return `null` so `read?("env:PORT") ?? "8080"` fallback patterns just work), `throw(msg)`, `trace(value)`.
 
 ### Renderers
 
@@ -144,7 +144,6 @@ listing carries the full rationale. One-line summaries:
 
 Partially landed:
 
-- `read?(uri)` null-returning variant — only `read(uri)` (sandbox-bounded) is wired.
 - `IntSeq` equality — structural `derive(Eq)`; Apple Pkl's empty-sequence-equality and step-aware element-set equality stay a follow-up.
 - `pkl:reflect` — minimal mirror-constant + factory stub; `isSubclassOf`, real `ClassValue` round-trip, and runtime member introspection are absent.
 
