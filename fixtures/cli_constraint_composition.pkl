@@ -1,0 +1,10 @@
+// PKL-128c: Apple Pkl's multi-argument constraint form
+// (`Int(isPositive, isLessThan(10))`) composes predicates by
+// listing them comma-separated. Each predicate must hold for the
+// value to be accepted; the constraint dispatcher trims whitespace
+// around each split so spacing inside the parens stays cosmetic.
+small: Int(isPositive, isLessThan(10)) = 5
+
+bigger: Int(isPositive, isLessThan(100)) = 42
+
+negative: Int(!isPositive) = -3

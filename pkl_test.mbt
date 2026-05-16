@@ -2647,6 +2647,44 @@ test "PKL-105: path-keyed renderer converter rewrites a top-level value" {
 }
 
 ///|
+test "PKL-128c: comma-composed predicates accepted with whitespace" {
+  guard typecheck_source("x: Int(isPositive,  isLessThan(10) ) = 5")
+    is TypeOk(_) else {
+    panic()
+  }
+}
+
+///|
+test "PKL-128c: composition rejects when upper bound violated" {
+  guard eval_source("x: Int(isPositive, isLessThan(10)) = 15")
+    is EvalError(diagnostics) else {
+    panic()
+  }
+  let mut hit = false
+  for diagnostic in diagnostics {
+    if diagnostic.message.contains("isLessThan") {
+      hit = true
+    }
+  }
+  assert_true(hit)
+}
+
+///|
+test "PKL-128c: composition rejects when lower bound violated" {
+  guard eval_source("x: Int(isPositive, isLessThan(10)) = -1")
+    is EvalError(diagnostics) else {
+    panic()
+  }
+  let mut hit = false
+  for diagnostic in diagnostics {
+    if diagnostic.message.contains("isPositive") {
+      hit = true
+    }
+  }
+  assert_true(hit)
+}
+
+///|
 test "PKL-128b: scientific notation Float literal parses" {
   guard eval_source("x = 1e10") is EvalOk(ObjectValue(members)) else { panic() }
   guard members[0].value is FloatValue(d) else { panic() }

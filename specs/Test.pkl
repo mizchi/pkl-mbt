@@ -354,6 +354,22 @@ local cliListingMappingStdlib = new Test {
   timeoutSec = 120
 }
 
+local cliConstraintComposition = new Test {
+  name = "cli constraint composition"
+  description =
+    "The native CLI evaluates a fixture that composes numeric constraint predicates with `&` (e.g. `Int(isPositive & isLessThan(10))`). Valid values render normally; the dispatcher enforces both halves of the composition independently."
+  tags { "moonbit"; "cli"; "parser"; "constraints"; "contract" }
+  specRef { "PKL-128c" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_constraint_composition.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "small = 5"
+    "bigger = 42"
+    "negative = -3"
+  }
+  timeoutSec = 120
+}
+
 local cliScientificFloat = new Test {
   name = "cli scientific float"
   description =
@@ -793,6 +809,7 @@ tests {
   cliDiagnosticPosition
   cliStringInterpolation
   cliScientificFloat
+  cliConstraintComposition
   cliHeredocString
   cliFormat
   cliTestExamplesPass

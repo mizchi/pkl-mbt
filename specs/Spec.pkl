@@ -1785,6 +1785,26 @@ local listingMappingStdlibCore = new Scenario {
   }
 }
 
+local constraintComposition = new Scenario {
+  id = "PKL-128c"
+  name = "constraint predicate composition"
+  description =
+    "Multi-argument constraint annotations like `Int(isPositive, isLessThan(10))` already split into per-predicate parts; this slice adds whitespace trimming so each part is dispatched with the surrounding spaces stripped (`pkl_int_constraint_predicate` no longer needs to defend against leading / trailing tabs). The lone-`&` predicate-composition form that some Pkl-adjacent dialects use isn't part of upstream Apple Pkl syntax — its formatter rejects `&` here — so this slice intentionally stops at the comma-separated form Apple Pkl supports."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-076" }
+  tags { "parser"; "constraints" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Defer the lone-`&` composition operator"
+      rationale =
+        "Apple Pkl's official formatter rejects a bare `&` in constraint position (`Did you mean &&?`), and no upstream stdlib module uses the form. Implementing it on the pkl-mbt side would create a corpus pkl-mbt accepts but Apple Pkl rejects, which works against the round-trip goal. Comma-separated multi-args cover every composition case Apple Pkl actually supports; `&&` inside `this`-style expression predicates is a separate evaluator concern unrelated to splitting."
+    }
+  }
+}
+
 local scientificFloatAndHeredoc = new Scenario {
   id = "PKL-128b"
   name = "scientific Float and triple-quoted heredoc"
@@ -3303,5 +3323,6 @@ scenarios {
   diagnosticSourcePosition
   stringInterpolation
   scientificFloatAndHeredoc
+  constraintComposition
   ...roadmap.entries
 }

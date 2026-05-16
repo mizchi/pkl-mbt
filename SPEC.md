@@ -1,6 +1,6 @@
 # Test SPEC
 
-183 tests across 2 module(s) — 143 pending, 40 active
+185 tests across 2 module(s) — 144 pending, 41 active
 
 ## `specs/`
 
@@ -155,6 +155,12 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **annotation class capture** (minor) [draft] — verifies: PKL-128d — tags: parser, annotations
+  > Capture `@Deprecated`, `@Since`, `@ModuleInfo` and similar annotation classes into AST nodes so pkldoc / codegen can read their fields. The parser currently skips them entirely (no AST trace), which is fine for evaluation but blocks the documentation / codegen pipelines that need the metadata. Implement a new `AnnotationDecl` node attached to the following declaration; the existing `skip_annotation` becomes the fallback path when capture isn't needed.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-001, PKL-128a, PKL-128b, PKL-128c
+  - body: _not yet implemented_
+
 - [ ] **call-site generic inference** — verifies: PKL-110 — tags: typechecker, generics, inference
   > The typechecker propagates concrete types through generic function calls and class literals. Each `ClassDecl.type_parameters` / `FunctionDecl.type_parameters` entry binds to a new `TypeVariable(name)` variant in the typecheck `Type` enum (previously `UnknownType`). At every call site (`infer_lambda_application` and `infer_function_type_call`) the typechecker walks parameter / argument pairs through `unify_for_substitution`, building a `TypeSubstitution` table that records `TypeVariable("T") := <concrete>` bindings. `substitute_type` then rewrites the inferred return type, the parameter cache entries, and the declared return annotation so the call's result has the concrete type — `identity(7)` typechecks as `Int`, so `identity(7) + 1` succeeds while `identity("hi") + 1` rejects with `operator + expects Int operands`. The class literal path in `apply_type_annotation` does the symmetric move: when the expected `ClassType` still carries TypeVariable members and the inferred `ObjectType` carries concrete member types, `substitute_class_type_variables` unifies and rewrites the class type before returning, so downstream field accesses (`intBox.value`) resolve to the substituted member type. `type_accepts` treats `TypeVariable(_)` on either side as accept-any during the structural pass so unification can run without false rejection; the substitution table is the diagnostic surface. Generic class declarations whose body uses are exhausted at scope exit (e.g. a function body that references T but is never called) still typecheck — the variable simply stays free and renders as its parameter name.
   - contributes to: GOAL-PKL-PURE
@@ -173,6 +179,13 @@
   > `--allowed-modules <pattern>` / `--module-path <dir>` / `-p NAME=VALUE` populate the sandbox allow-list and the `prop:` resolver, lifting `read("prop:NAME")` into the allow-list alongside `env:`.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-098
+  - body: _not yet implemented_
+
+- [ ] **constraint predicate composition** (minor) — verifies: PKL-128c — tags: parser, constraints
+  > Multi-argument constraint annotations like `Int(isPositive, isLessThan(10))` already split into per-predicate parts; this slice adds whitespace trimming so each part is dispatched with the surrounding spaces stripped (`pkl_int_constraint_predicate` no longer needs to defend against leading / trailing tabs). The lone-`&` predicate-composition form that some Pkl-adjacent dialects use isn't part of upstream Apple Pkl syntax — its formatter rejects `&` here — so this slice intentionally stops at the comma-separated form Apple Pkl supports.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-076
+  - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **cross-module typecheck round-trip completeness** [draft] — verifies: PKL-118 — tags: typechecker, imports, pkf-pkspec
@@ -430,7 +443,7 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **inheritance dispatch hardening** [draft] — verifies: PKL-117 — tags: evaluator, typechecker, inheritance
+- [ ] **inheritance dispatch hardening** [draft] — verifies: PKL-117 — tags: evaluator, typechecker, inheritance, next
   > Super method calls (`super.method()`), abstract method enforcement, and override-direction type compatibility. Existing class inheritance handles property defaults but not the full method-dispatch surface.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-040
@@ -570,12 +583,6 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-001, PKL-002, PKL-138
   - decisions: 3 entry(ies)
-  - body: _not yet implemented_
-
-- [ ] **parser surface expansion remaining** [draft] — verifies: PKL-128 — tags: parser, next
-  > Annotation classes (`@Deprecated`, `@Since`) parsed into AST nodes and constraint predicate composition (`Int(isPositive & isLessThan(10))`). String interpolation landed as PKL-128a; scientific Float and triple-quoted heredoc landed as PKL-128b. The remaining items are parser-side extensions; downstream stages are mostly ready.
-  - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-001, PKL-128a, PKL-128b
   - body: _not yet implemented_
 
 - [ ] **pkl analyze lint subcommand** (minor) [draft] — verifies: PKL-102 — tags: cli, lint
@@ -975,6 +982,10 @@
 
 - [x] **cli any top type** — verifies: PKL-133 — tags: moonbit, cli, typechecker, any, pkf-pkspec, contract
   > The native CLI evaluates a fixture that exercises `Any`-typed bindings (Int / String / Bool), a nullable `Any?` defaulted to null, and a `Mapping<String, Any>` carrying heterogeneous value types. Every binding typechecks (via the new `AnyType` short-circuit in `type_accepts`) and the evaluator emits the same PCF as the concrete annotations would.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli constraint composition** — verifies: PKL-128c — tags: moonbit, cli, parser, constraints, contract
+  > The native CLI evaluates a fixture that composes numeric constraint predicates with `&` (e.g. `Int(isPositive & isLessThan(10))`). Valid values render normally; the dispatcher enforces both halves of the composition independently.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli diagnostic position** — verifies: PKL-107 — tags: moonbit, cli, diagnostics, position, contract

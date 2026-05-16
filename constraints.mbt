@@ -122,6 +122,11 @@ fn pkl_parse_constraint_double_text(text : String) -> Double? {
 
 ///|
 fn pkl_split_constraint_arguments(text : String) -> Array[String] {
+  // Split a comma-separated constraint argument list at the top
+  // level (parens / brackets / angles balanced). Each segment is
+  // trimmed so the predicate dispatcher doesn't have to defend
+  // against leading / trailing whitespace introduced by the
+  // operator spacing in `Int(isPositive, isLessThan(10))`.
   let parts : Array[String] = []
   let buf = StringBuilder::new()
   let mut parens = 0
@@ -129,7 +134,7 @@ fn pkl_split_constraint_arguments(text : String) -> Array[String] {
   let mut angles = 0
   for char in text {
     if char == ',' && parens == 0 && brackets == 0 && angles == 0 {
-      parts.push(buf.to_string())
+      parts.push(trim_spaces(buf.to_string()))
       buf.reset()
     } else {
       if char == '(' {
@@ -148,11 +153,34 @@ fn pkl_split_constraint_arguments(text : String) -> Array[String] {
       buf.write_string(char.to_string())
     }
   }
-  let last = buf.to_string()
+  let last = trim_spaces(buf.to_string())
   if last != "" || parts.length() > 0 {
     parts.push(last)
   }
   parts
+}
+
+///|
+fn trim_spaces(text : String) -> String {
+  let mut start = 0
+  while start < text.length() {
+    let c = text[start].to_int().unsafe_to_char()
+    if c == ' ' || c == '\t' {
+      start = start + 1
+    } else {
+      break
+    }
+  }
+  let mut end = text.length()
+  while end > start {
+    let c = text[end - 1].to_int().unsafe_to_char()
+    if c == ' ' || c == '\t' {
+      end = end - 1
+    } else {
+      break
+    }
+  }
+  String::unsafe_substring(text, start~, end~)
 }
 
 ///|
