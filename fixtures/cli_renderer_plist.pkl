@@ -1,0 +1,31 @@
+// PKL-126a: the plist renderer emits Apple plist XML (1.0 DTD).
+// `output { renderer = new PListRenderer {} }` routes the rendered
+// envelope through the new renderer without `-f plist`; the result
+// is the standard XML prolog + DOCTYPE + `<plist>` wrapper + dict /
+// array / scalar nodes following the value model. Null entries are
+// elided inside dicts (Apple's `omitNullProperties` default) and
+// inside arrays. Duration / DataSize project as space-separated
+// strings (`<string>3 s</string>`) matching upstream PListRenderer.
+person {
+  name = "pigeon"
+  age = 42
+  active = true
+  height = 1.75
+  nickname = null
+  bio = "<owl & dove>"
+  delay = 3.s
+  size = 4.mb
+  friends = new Listing {
+    "barn owl"
+    "parrot"
+  }
+  scores {
+    ["surfing"] = "low"
+    ["firemaking"] = "high"
+  }
+}
+
+output {
+  value = person
+  renderer = new PListRenderer {}
+}

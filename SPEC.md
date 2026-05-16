@@ -1,6 +1,6 @@
 # Test SPEC
 
-200 tests across 2 module(s) — 145 pending, 55 active
+203 tests across 2 module(s) — 147 pending, 56 active
 
 ## `specs/`
 
@@ -647,10 +647,11 @@
   - depends on: PKL-080
   - body: _not yet implemented_
 
-- [ ] **plist / xml / protobuf renderers** [draft] — verifies: PKL-126 — tags: renderer, plist, xml, protobuf, next
-  > Three additional output formats matching Apple Pkl's renderer surface. plist follows the Apple plist DTD (Foundation property list, XML-1.0 form). XML emits Pkl objects as element trees. protobuf serializes against an externally provided `.proto` schema.
+- [ ] **plist renderer** — verifies: PKL-126a — tags: renderer, plist
+  > The plist renderer emits Apple plist XML (PLIST 1.0 DTD) documents. The output starts with the standard XML 1.0 prolog and `<!DOCTYPE plist PUBLIC ...>` declaration, then wraps the rendered value in `<plist version="1.0">`. Value projection mirrors upstream Apple Pkl: Int → `<integer>N</integer>`, Float → `<real>D</real>`, Bool → `<true/>` / `<false/>`, String → `<string>...</string>` with XML entity escaping (`&` `<` `>`), Object / Mapping → `<dict>` with `<key>` + value pairs, Listing → `<array>`, Duration / DataSize → `<string>N unit</string>` (space-separated form rather than the `.` form used by JSON / YAML for these values), Regex → `<string>pattern</string>`, Bytes → `<string>base64</string>`. Null entries are elided inside dicts (matching Apple's `omitNullProperties` default) and inside arrays (the upstream error-on-null-in-array surface lands with PKL-127's converter machinery, alongside the rest of the renderer-side error pipeline). `-f plist` selects the renderer at the CLI; `output { renderer = new PListRenderer {} }` selects it via the AST-driven detection that already powers `JsonRenderer` / `YamlRenderer`. `pListRenderer1.plist` from the upstream snippet tests now byte-matches the gold file and joins `scripts/upstream-smoke.sh`'s new `PLIST_GOLD_FIXTURES` list.
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-070, PKL-124
+  - depends on: PKL-124
+  - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **preserve Pkl constrained callable signature metadata** — verifies: PKL-048 — tags: typechecker
@@ -672,6 +673,12 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-048, PKL-047, PKL-044
   - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **protobuf renderer** [draft] — verifies: PKL-126c — tags: renderer, protobuf
+  > Serialize Pkl values against an externally provided `.proto` schema and emit the binary wire format. Requires a schema-lookup mechanism (the `pkl:protobuf` `Renderer` class carries the schema reference) and a way to surface bytes through the existing `BytesValue` carrier. Larger than PKL-126a / PKL-126b because of the schema parsing + wire encoding lift; tracked as its own slice.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-124, PKL-126a, PKL-126b
   - body: _not yet implemented_
 
 - [ ] **provide a usable CLI** — verifies: PKL-009
@@ -995,6 +1002,12 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **xml renderer** [draft] — verifies: PKL-126b — tags: renderer, xml, next
+  > Emit Pkl objects as an XML element tree. Each property becomes an `<element-name>` node; listings render as repeated elements; mapping entries render with the key as the element name. The `xml.Element` and `xml.Inline` annotation classes from `pkl:xml` already exist (PKL-124); this slice wires the rendering side. `-f xml` and `output { renderer = new xml.Renderer { ... } }` both route here.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-124, PKL-126a
+  - body: _not yet implemented_
+
 ### `Test.pkl`
 
 - [x] **cli amends base merge** — verifies: PKL-137 — tags: moonbit, cli, evaluator, amends, pkf-pkspec, contract
@@ -1145,6 +1158,10 @@
   > The native CLI evaluates a fixture whose `output { renderer = new JsonRenderer { converters { ... } } }` declares two path-keyed converters: `["count"] = (v) -> v * 10` and `["server.port"] = (p) -> p + 1`. The post-eval pass rewrites both values before the JSON renderer fires, so `count = 5` shows as 50 and `server.port = 8080` shows as 8081 in the rendered output.
   - body: `cmd` (exit 0 expected)
 
+- [x] **cli renderer plist** — verifies: PKL-126a — tags: moonbit, cli, renderer, plist, contract
+  > The native CLI evaluates a fixture whose `output { renderer = new PListRenderer {} }` block routes the rendered envelope through the plist renderer. The output starts with the XML 1.0 prolog, the Apple PLIST 1.0 DOCTYPE, and a `<plist version="1.0">` wrapper; scalars map to `<integer>` / `<real>` / `<true/>` / `<false/>` / `<string>` nodes; XML entities (`<`, `>`, `&`) escape inside `<string>` contents; null entries elide inside `<dict>`; Listings render as `<array>`; Duration / DataSize project as space-separated `<string>3 s</string>` / `<string>4 mb</string>` rather than the `.` form JSON / YAML use. The renderer is selected from the AST without `-f plist`, mirroring the JsonRenderer driver path.
+  - body: `cmd` (exit 0 expected)
+
 - [x] **cli renderer stdlib modules** — verifies: PKL-124 — tags: moonbit, cli, stdlib, renderer, contract
   > The native CLI evaluates a fixture that instantiates every renderer-driver class the `output { renderer = ... }` path looks up. `JsonRenderer`, `YamlRenderer`, `PcfRenderer`, `PropertiesRenderer`, and `PListRenderer` are reached unqualified (pkl:base re-exports seeded into `builtin_type_from_annotation`); `xml.Renderer` and `protobuf.Renderer` come through the synthetic `pkl:xml` / `pkl:protobuf` stdlib modules; `json.Parser` rides on the synthetic `pkl:json` module. The rendered output shows each renderer's default-only field surface plus the user-supplied overrides, confirming both typecheck visibility and the import-binding round-trip.
   - body: `cmd` (exit 0 expected)
@@ -1209,7 +1226,7 @@
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
-- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109 — tags: moonbit, upstream, compatibility, contract
+- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a — tags: moonbit, upstream, compatibility, contract
   > Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF and JSON).
   - body: `cmd` (exit 0 expected)
 

@@ -59,14 +59,26 @@ local setPairMapIntSeqVariants: Spec.Scenario = new {
 
 // ── renderer expansion ──────────────────────────────────────────────────────
 
-local plistXmlProtobufRenderers: Spec.Scenario = new {
-  id = "PKL-126"
-  name = "plist / xml / protobuf renderers"
+local xmlRenderer: Spec.Scenario = new {
+  id = "PKL-126b"
+  name = "xml renderer"
   description =
-    "Three additional output formats matching Apple Pkl's renderer surface. plist follows the Apple plist DTD (Foundation property list, XML-1.0 form). XML emits Pkl objects as element trees. protobuf serializes against an externally provided `.proto` schema."
+    "Emit Pkl objects as an XML element tree. Each property becomes an `<element-name>` node; listings render as repeated elements; mapping entries render with the key as the element name. The `xml.Element` and `xml.Inline` annotation classes from `pkl:xml` already exist (PKL-124); this slice wires the rendering side. `-f xml` and `output { renderer = new xml.Renderer { ... } }` both route here."
   contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-070"; "PKL-124" }
-  tags { "renderer"; "plist"; "xml"; "protobuf"; "next" }
+  dependsOn { "PKL-124"; "PKL-126a" }
+  tags { "renderer"; "xml"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local protobufRenderer: Spec.Scenario = new {
+  id = "PKL-126c"
+  name = "protobuf renderer"
+  description =
+    "Serialize Pkl values against an externally provided `.proto` schema and emit the binary wire format. Requires a schema-lookup mechanism (the `pkl:protobuf` `Renderer` class carries the schema reference) and a way to surface bytes through the existing `BytesValue` carrier. Larger than PKL-126a / PKL-126b because of the schema parsing + wire encoding lift; tracked as its own slice."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-124"; "PKL-126a"; "PKL-126b" }
+  tags { "renderer"; "protobuf" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -153,7 +165,8 @@ local lspServer: Spec.Scenario = new {
 entries: Listing<Spec.Scenario> = new {
   pklRepl
   setPairMapIntSeqVariants
-  plistXmlProtobufRenderers
+  xmlRenderer
+  protobufRenderer
   rendererConverters
   packagePklRegistry
   pkldoc

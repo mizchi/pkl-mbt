@@ -374,6 +374,36 @@ local cliFloatMagnitudeUnits = new Test {
   timeoutSec = 120
 }
 
+local cliRendererPlist = new Test {
+  name = "cli renderer plist"
+  description =
+    "The native CLI evaluates a fixture whose `output { renderer = new PListRenderer {} }` block routes the rendered envelope through the plist renderer. The output starts with the XML 1.0 prolog, the Apple PLIST 1.0 DOCTYPE, and a `<plist version=\"1.0\">` wrapper; scalars map to `<integer>` / `<real>` / `<true/>` / `<false/>` / `<string>` nodes; XML entities (`<`, `>`, `&`) escape inside `<string>` contents; null entries elide inside `<dict>`; Listings render as `<array>`; Duration / DataSize project as space-separated `<string>3 s</string>` / `<string>4 mb</string>` rather than the `.` form JSON / YAML use. The renderer is selected from the AST without `-f plist`, mirroring the JsonRenderer driver path."
+  tags { "moonbit"; "cli"; "renderer"; "plist"; "contract" }
+  specRef { "PKL-126a" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_renderer_plist.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
+    "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">"
+    "<plist version=\"1.0\">"
+    "<dict>"
+    "<key>name</key>"
+    "<string>pigeon</string>"
+    "<integer>42</integer>"
+    "<true/>"
+    "<real>1.75</real>"
+    "<string>&lt;owl &amp; dove&gt;</string>"
+    "<string>3 s</string>"
+    "<string>4 mb</string>"
+    "<array>"
+    "<string>barn owl</string>"
+    "<string>parrot</string>"
+    "</array>"
+    "</plist>"
+  }
+  timeoutSec = 120
+}
+
 local cliRendererStdlibModules = new Test {
   name = "cli renderer stdlib modules"
   description =
@@ -1005,6 +1035,7 @@ local upstreamSmoke = new Test {
     "PKL-096"
     "PKL-097"
     "PKL-109"
+    "PKL-126a"
   }
   cmd = "./scripts/upstream-smoke.sh"
   workdir = ".."
@@ -1027,8 +1058,10 @@ local upstreamSmoke = new Test {
     "upstream eval ok: types/nothingWithUnions (gold match)"
     "upstream eval ok: classes/constraints8.pkl"
     "upstream json eval ok: api/jsonRenderer1.json (gold match)"
+    "upstream eval ok: api/pListRenderer1.plist (gold match)"
     "upstream-smoke: 32 gold-match fixtures passed"
     "upstream-smoke: 1 json gold-match fixtures passed"
+    "upstream-smoke: 1 plist gold-match fixtures passed"
   }
   timeoutSec = 240
 }
@@ -1089,6 +1122,7 @@ tests {
   cliInheritanceHardening
   cliCrossModuleFunction
   cliRendererStdlibModules
+  cliRendererPlist
   cliHeredocString
   cliFormat
   cliTestExamplesPass

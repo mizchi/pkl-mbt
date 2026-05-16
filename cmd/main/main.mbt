@@ -499,7 +499,8 @@ async fn main {
   if format != "pcf" &&
     format != "json" &&
     format != "yaml" &&
-    format != "properties" {
+    format != "properties" &&
+    format != "plist" {
     fail("unsupported format: \{format}")
   }
   if positional.length() != 1 {
@@ -610,6 +611,18 @@ async fn main {
               println(trimmed)
             }
             "pcf" => println(@pkl.render_value(value))
+            "plist" => {
+              // PKL-126a: `render_value_as_plist` already terminates
+              // the document with `</plist>\n`. Drop the trailing
+              // newline so `println` keeps a single final newline.
+              let plist = @pkl.render_value_as_plist(value)
+              let trimmed = if plist.has_suffix("\n") {
+                String::unsafe_substring(plist, start=0, end=plist.length() - 1)
+              } else {
+                plist
+              }
+              println(trimmed)
+            }
             _ => fail("unsupported format: \{format}")
           }
         }
@@ -896,6 +909,7 @@ fn renderer_format_from_class(class_name : String) -> String? {
     "YamlRenderer" => Some("yaml")
     "PropertiesRenderer" => Some("properties")
     "PcfRenderer" => Some("pcf")
+    "PListRenderer" => Some("plist")
     _ => None
   }
 }

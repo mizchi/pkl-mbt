@@ -3419,6 +3419,94 @@ test "PKL-120: pkl:math.pi constant" {
 }
 
 ///|
+test "PKL-126a: plist renderer emits XML 1.0 prolog and Apple DOCTYPE" {
+  guard eval_source("name = \"pigeon\"\nage = 42") is EvalOk(value) else {
+    panic()
+  }
+  let out = @pkl.render_value_as_plist(value)
+  inspect(
+    out.has_prefix(
+      "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist",
+    ),
+    content="true",
+  )
+  inspect(out.has_suffix("</plist>\n"), content="true")
+}
+
+///|
+test "PKL-126a: plist scalars map to integer / real / true / false / string nodes" {
+  guard eval_source("i = 7\nd = 1.5\nt = true\nf = false\ns = \"hi\"")
+    is EvalOk(value) else {
+    panic()
+  }
+  let out = @pkl.render_value_as_plist(value)
+  inspect(out.contains("<integer>7</integer>"), content="true")
+  inspect(out.contains("<real>1.5</real>"), content="true")
+  inspect(out.contains("<true/>"), content="true")
+  inspect(out.contains("<false/>"), content="true")
+  inspect(out.contains("<string>hi</string>"), content="true")
+}
+
+///|
+test "PKL-126a: plist escapes XML special characters in strings" {
+  guard eval_source("s = \"<a & b>\"") is EvalOk(value) else { panic() }
+  let out = @pkl.render_value_as_plist(value)
+  inspect(out.contains("<string>&lt;a &amp; b&gt;</string>"), content="true")
+}
+
+///|
+test "PKL-126a: plist dict omits null entries (omitNullProperties default)" {
+  guard eval_source("present = 1\nabsent = null") is EvalOk(value) else {
+    panic()
+  }
+  let out = @pkl.render_value_as_plist(value)
+  inspect(out.contains("<key>present</key>"), content="true")
+  inspect(out.contains("<key>absent</key>"), content="false")
+}
+
+///|
+test "PKL-126a: plist Listing renders as <array> with nested values" {
+  guard eval_source("xs = new Listing { 1; 2; 3 }") is EvalOk(value) else {
+    panic()
+  }
+  let out = @pkl.render_value_as_plist(value)
+  inspect(
+    out.contains(
+      "<array>\n    <integer>1</integer>\n    <integer>2</integer>\n    <integer>3</integer>\n  </array>",
+    ),
+    content="true",
+  )
+}
+
+///|
+test "PKL-126a: plist Mapping renders as <dict> with key + value pairs" {
+  guard eval_source("m = new Mapping { [\"a\"] = 1; [\"b\"] = 2 }")
+    is EvalOk(value) else {
+    panic()
+  }
+  let out = @pkl.render_value_as_plist(value)
+  inspect(out.contains("<key>a</key>"), content="true")
+  inspect(out.contains("<key>b</key>"), content="true")
+  inspect(out.contains("<integer>1</integer>"), content="true")
+  inspect(out.contains("<integer>2</integer>"), content="true")
+}
+
+///|
+test "PKL-126a: plist Duration / DataSize project to space-separated strings" {
+  guard eval_source("d = 3.s\nb = 4.mb") is EvalOk(value) else { panic() }
+  let out = @pkl.render_value_as_plist(value)
+  inspect(out.contains("<string>3 s</string>"), content="true")
+  inspect(out.contains("<string>4 mb</string>"), content="true")
+}
+
+///|
+test "PKL-126a: plist empty object renders as self-closing <dict/>" {
+  guard eval_source("only_null = null") is EvalOk(value) else { panic() }
+  let out = @pkl.render_value_as_plist(value)
+  inspect(out.contains("<dict/>"), content="true")
+}
+
+///|
 test "PKL-124: pkl:base JsonRenderer typechecks without import" {
   let result = typecheck_source(
     "count = 5\noutput { renderer = new JsonRenderer { indent = \"    \" } }",

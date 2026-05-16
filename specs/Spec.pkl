@@ -1838,6 +1838,32 @@ local upstreamFixtureSweepExpansionScenario = new Scenario {
   }
 }
 
+local plistRendererScenario = new Scenario {
+  id = "PKL-126a"
+  name = "plist renderer"
+  description =
+    "The plist renderer emits Apple plist XML (PLIST 1.0 DTD) documents. The output starts with the standard XML 1.0 prolog and `<!DOCTYPE plist PUBLIC ...>` declaration, then wraps the rendered value in `<plist version=\"1.0\">`. Value projection mirrors upstream Apple Pkl: Int → `<integer>N</integer>`, Float → `<real>D</real>`, Bool → `<true/>` / `<false/>`, String → `<string>...</string>` with XML entity escaping (`&` `<` `>`), Object / Mapping → `<dict>` with `<key>` + value pairs, Listing → `<array>`, Duration / DataSize → `<string>N unit</string>` (space-separated form rather than the `.` form used by JSON / YAML for these values), Regex → `<string>pattern</string>`, Bytes → `<string>base64</string>`. Null entries are elided inside dicts (matching Apple's `omitNullProperties` default) and inside arrays (the upstream error-on-null-in-array surface lands with PKL-127's converter machinery, alongside the rest of the renderer-side error pipeline). `-f plist` selects the renderer at the CLI; `output { renderer = new PListRenderer {} }` selects it via the AST-driven detection that already powers `JsonRenderer` / `YamlRenderer`. `pListRenderer1.plist` from the upstream snippet tests now byte-matches the gold file and joins `scripts/upstream-smoke.sh`'s new `PLIST_GOLD_FIXTURES` list."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-124" }
+  tags { "renderer"; "plist" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Split PKL-126 into plist / xml / protobuf sub-slices instead of bundling all three"
+      rationale =
+        "Apple Pkl's three remaining renderers have very different lifts: plist is structural XML (a few hundred lines, one slice), XML element-tree rendering needs `xml.Element` / `xml.Inline` annotation routing on top of the same XML primitives, and protobuf needs a `.proto` schema parser plus wire encoding. Bundling them into a single slice would either push protobuf onto the critical path of the smaller renderers or land a partial implementation. Splitting into PKL-126a / PKL-126b / PKL-126c lets each renderer land alongside its own fixture and upstream gold-match promotion without the others blocking."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Null-in-array elision (silent skip) rather than error-on-null"
+      rationale =
+        "Apple's `PListRenderer` documentation specifies an error when a `<array>` element resolves to null. Threading that error through `render_plist_value` would require either a `Result` return type at every recursion site or a sentinel `BadPlistValue` Value variant. PKL-127's converter machinery already needs an error-surface pipeline (`converters { [...] = ...converter raises... }`); the null-in-array error joins that pipeline rather than reimplementing the propagation at the renderer level. Skipping null silently keeps the rendered output structurally valid for the common case where a null reaches a list (typically from an over-broad `Listing<Person?>` annotation)."
+    }
+  }
+}
+
 local rendererStdlibModulesScenario = new Scenario {
   id = "PKL-124"
   name = "pkl:json / pkl:yaml / pkl:xml / pkl:protobuf stdlib modules"
@@ -3779,5 +3805,6 @@ scenarios {
   crossModuleFunctionExport
   upstreamFixtureSweepExpansionScenario
   rendererStdlibModulesScenario
+  plistRendererScenario
   ...roadmap.entries
 }

@@ -57,6 +57,16 @@ JSON_GOLD_FIXTURES=(
   "api/jsonRenderer1.json"
 )
 
+# PKL-126a: list of upstream fixtures whose `eval` output (the input
+# already routes through `output { renderer = new PListRenderer {} }`,
+# so no `-f plist` is needed) matches the upstream `<dir>/<name>.plist`
+# gold byte-for-byte. Most other pListRenderer fixtures upstream lean
+# on converter machinery (PKL-127) or on Set / Map / Pair / IntSeq
+# value variants (PKL-119); they get promoted as those slices land.
+PLIST_GOLD_FIXTURES=(
+  "api/pListRenderer1.plist"
+)
+
 # Files whose `pkl parse` should succeed even when we cannot evaluate
 # them (e.g. they exercise stdlib gaps or runtime semantics outside
 # the implemented slice). Keeping a parse-only check pins the parser
@@ -160,6 +170,17 @@ for label in "${JSON_GOLD_FIXTURES[@]}"; do
   json_ok_count=$((json_ok_count + 1))
 done
 
+# PKL-126a: gold-match each fixture whose `output { renderer = new
+# PListRenderer {} }` block routes through the plist renderer. The
+# rendered envelope is exactly the upstream `.plist` gold file, so
+# `eval_matches_gold` (no `-f` override needed because the driver
+# path detects the renderer from the AST) lines up byte-for-byte.
+plist_ok_count=0
+for label in "${PLIST_GOLD_FIXTURES[@]}"; do
+  eval_matches_gold "$label" "$UPSTREAM/$label.pkl" "$GOLD/$label"
+  plist_ok_count=$((plist_ok_count + 1))
+done
+
 # classes/constraints8 carries our project-specific error diagnostic wording
 # rather than Apple Pkl's "Type constraint ... violated. Value: ..." text,
 # so we keep the partial substring check until the diagnostic surface is
@@ -171,3 +192,4 @@ eval_contains \
 
 printf 'upstream-smoke: %d gold-match fixtures passed\n' "$ok_count"
 printf 'upstream-smoke: %d json gold-match fixtures passed\n' "$json_ok_count"
+printf 'upstream-smoke: %d plist gold-match fixtures passed\n' "$plist_ok_count"
