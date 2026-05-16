@@ -354,6 +354,18 @@ local cliListingMappingStdlib = new Test {
   timeoutSec = 120
 }
 
+local cliSuperMethodCall = new Test {
+  name = "cli super method call"
+  description =
+    "The native CLI evaluates a fixture where a subclass method body calls `super.method()` to chain into the parent class. The rendered output joins the subclass-side prefix with the parent-side return value."
+  tags { "moonbit"; "cli"; "evaluator"; "inheritance"; "contract" }
+  specRef { "PKL-117a" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_super_method_call.pkl"
+  workdir = ".."
+  expectStdoutContains { "msg = \"fluffy an animal\"" }
+  timeoutSec = 120
+}
+
 local cliConstraintComposition = new Test {
   name = "cli constraint composition"
   description =
@@ -810,6 +822,7 @@ tests {
   cliStringInterpolation
   cliScientificFloat
   cliConstraintComposition
+  cliSuperMethodCall
   cliHeredocString
   cliFormat
   cliTestExamplesPass

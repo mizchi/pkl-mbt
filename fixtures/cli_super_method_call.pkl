@@ -1,0 +1,16 @@
+// PKL-117: `super.method(args)` dispatches to the parent class's
+// implementation while keeping the current `this`. The eval pipeline
+// records the enclosing class on `method_cache` (as a synthetic
+// `@current_class` marker) so the body can resolve its super at any
+// nesting depth.
+class Animal {
+  function describe(): String = "an animal"
+}
+
+class Cat extends Animal {
+  function describe(): String = "fluffy \(super.describe())"
+}
+
+c = new Cat {}
+
+msg = c.describe()

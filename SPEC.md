@@ -1,6 +1,6 @@
 # Test SPEC
 
-185 tests across 2 module(s) — 144 pending, 41 active
+187 tests across 2 module(s) — 145 pending, 42 active
 
 ## `specs/`
 
@@ -443,10 +443,10 @@
   - decisions: 1 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **inheritance dispatch hardening** [draft] — verifies: PKL-117 — tags: evaluator, typechecker, inheritance, next
-  > Super method calls (`super.method()`), abstract method enforcement, and override-direction type compatibility. Existing class inheritance handles property defaults but not the full method-dispatch surface.
+- [ ] **inheritance dispatch hardening remaining** [draft] — verifies: PKL-117 — tags: typechecker, inheritance
+  > Abstract method enforcement and override-direction type compatibility. Super method calls (`super.method()`) landed as PKL-117a. The remaining items are both typechecker-side: scan all transitive parents for abstract methods that the concrete subclass hasn't overridden, and check that override-direction subtype rules hold (contravariant parameter types, covariant return type).
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-040
+  - depends on: PKL-040, PKL-117a
   - body: _not yet implemented_
 
 - [ ] **inventory unsupported syntax in tolerant parser output** — verifies: PKL-016 — tags: parser
@@ -616,7 +616,7 @@
   - depends on: PKL-104
   - body: _not yet implemented_
 
-- [ ] **pkl:math Float operations** (minor) [draft] — verifies: PKL-120 — tags: stdlib, pkl-math, float
+- [ ] **pkl:math Float operations** (minor) [draft] — verifies: PKL-120 — tags: stdlib, pkl-math, float, next
   > Expose Float-side helpers on `pkl:math`: `sqrt`, `pow`, `log`, `exp`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`, `atan`, `atan2`. Float numerics already exist (PKL-092), so the additions are stdlib wiring.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-092
@@ -746,6 +746,13 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-001, PKL-002
   - decisions: 3 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **super method call** — verifies: PKL-117a — tags: evaluator, inheritance
+  > `super.method(args)` inside a subclass method body dispatches to the parent class's implementation while keeping the current `this`. `eval_class_method_call` pushes a synthetic `@current_class` marker onto the method cache when it enters a class body; `eval_super_method_call` reads that marker, looks up the class binding's `parent_name`, finds the named method on the parent, and invokes it with the same receiver members plus the freshly bound parameters. Errors surface cleanly when `super` is used outside a class body, when the current class has no parent, or when the parent class doesn't define the method. The abstract-method enforcement and override-direction type compatibility halves of PKL-117 remain on the original ticket — the dispatch slice unblocks the most common usage in pkspec adapters.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-040
+  - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **support Pkl class inheritance defaults** — verifies: PKL-038 — tags: parser, typechecker, evaluator
@@ -1098,6 +1105,10 @@
 
 - [x] **cli string interpolation** — verifies: PKL-128a — tags: moonbit, cli, parser, evaluator, string, contract
   > The native CLI evaluates a fixture that uses `"... \(expr) ..."` interpolation with arithmetic, method calls, and an inner `", "` separator string. The rendered output shows each interpolation site replaced with its evaluated value.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli super method call** — verifies: PKL-117a — tags: moonbit, cli, evaluator, inheritance, contract
+  > The native CLI evaluates a fixture where a subclass method body calls `super.method()` to chain into the parent class. The rendered output joins the subclass-side prefix with the parent-side return value.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli test examples diff fail** — verifies: PKL-100 — tags: moonbit, cli, pkl-test, examples, contract

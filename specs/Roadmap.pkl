@@ -104,12 +104,12 @@ local upstreamFixtureSweepExpansion: Spec.Scenario = new {
 
 local inheritanceDispatchHardening: Spec.Scenario = new {
   id = "PKL-117"
-  name = "inheritance dispatch hardening"
+  name = "inheritance dispatch hardening remaining"
   description =
-    "Super method calls (`super.method()`), abstract method enforcement, and override-direction type compatibility. Existing class inheritance handles property defaults but not the full method-dispatch surface."
+    "Abstract method enforcement and override-direction type compatibility. Super method calls (`super.method()`) landed as PKL-117a. The remaining items are both typechecker-side: scan all transitive parents for abstract methods that the concrete subclass hasn't overridden, and check that override-direction subtype rules hold (contravariant parameter types, covariant return type)."
   contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-040" }
-  tags { "evaluator"; "typechecker"; "inheritance"; "next" }
+  dependsOn { "PKL-040"; "PKL-117a" }
+  tags { "typechecker"; "inheritance" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -147,7 +147,7 @@ local pklMathFloatOps: Spec.Scenario = new {
     "Expose Float-side helpers on `pkl:math`: `sqrt`, `pow`, `log`, `exp`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`, `atan`, `atan2`. Float numerics already exist (PKL-092), so the additions are stdlib wiring."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-092" }
-  tags { "stdlib"; "pkl-math"; "float" }
+  tags { "stdlib"; "pkl-math"; "float"; "next" }
   reviewStatus = "draft"
   severity = "minor"
 }

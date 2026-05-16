@@ -1785,6 +1785,33 @@ local listingMappingStdlibCore = new Scenario {
   }
 }
 
+local superMethodCall = new Scenario {
+  id = "PKL-117a"
+  name = "super method call"
+  description =
+    "`super.method(args)` inside a subclass method body dispatches to the parent class's implementation while keeping the current `this`. `eval_class_method_call` pushes a synthetic `@current_class` marker onto the method cache when it enters a class body; `eval_super_method_call` reads that marker, looks up the class binding's `parent_name`, finds the named method on the parent, and invokes it with the same receiver members plus the freshly bound parameters. Errors surface cleanly when `super` is used outside a class body, when the current class has no parent, or when the parent class doesn't define the method. The abstract-method enforcement and override-direction type compatibility halves of PKL-117 remain on the original ticket — the dispatch slice unblocks the most common usage in pkspec adapters."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-040" }
+  tags { "evaluator"; "inheritance" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary =
+        "Encode the current class on the method cache via a synthetic `@current_class` marker"
+      rationale =
+        "Threading a `current_class : String?` argument through every eval call (and the recursive helper that follows) would touch dozens of signatures across `eval_expr_with_bindings`, `apply_function_value`, and the constraint check pipeline. Stashing the value on the method cache as a Value-typed entry under a key that can't collide with a user identifier (`@` prefix — the lexer keeps `@` as its own token) reuses an existing scope mechanism with one push at entry and one lookup inside `eval_super_method_call`."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Defer abstract enforcement and override-direction checks"
+      rationale =
+        "Both checks are typecheck-side: scanning all transitive parents for `body is None` abstract slots, and unifying override-direction subtype rules across method parameters / return types. Each is a non-trivial typecheck pass that's better landed when there are tests to anchor it. The dispatch slice covers the runtime path; the diagnostic for an abstract method without an override already fires at the call site (`method <name> has no body`)."
+    }
+  }
+}
+
 local constraintComposition = new Scenario {
   id = "PKL-128c"
   name = "constraint predicate composition"
@@ -3324,5 +3351,6 @@ scenarios {
   stringInterpolation
   scientificFloatAndHeredoc
   constraintComposition
+  superMethodCall
   ...roadmap.entries
 }

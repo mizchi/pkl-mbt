@@ -2647,6 +2647,43 @@ test "PKL-105: path-keyed renderer converter rewrites a top-level value" {
 }
 
 ///|
+test "PKL-117: super method call dispatches to parent class" {
+  guard eval_source(
+      "class Animal { function describe(): String = \"an animal\" }\nclass Cat extends Animal { function describe(): String = \"fluffy \\(super.describe())\" }\nc = new Cat {}\nmsg = c.describe()",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut msg = ""
+  for entry in members {
+    if entry.name == "msg" {
+      match entry.value {
+        StringValue(s) => msg = s
+        _ => ()
+      }
+    }
+  }
+  inspect(msg, content="fluffy an animal")
+}
+
+///|
+test "PKL-117: super on class without parent reports clear error" {
+  guard eval_source(
+      "class Animal { function describe(): String = super.describe() }\nc = new Animal {}\nmsg = c.describe()",
+    )
+    is EvalError(diagnostics) else {
+    panic()
+  }
+  let mut hit = false
+  for diagnostic in diagnostics {
+    if diagnostic.message.contains("no parent") {
+      hit = true
+    }
+  }
+  assert_true(hit)
+}
+
+///|
 test "PKL-128c: comma-composed predicates accepted with whitespace" {
   guard typecheck_source("x: Int(isPositive,  isLessThan(10) ) = 5")
     is TypeOk(_) else {

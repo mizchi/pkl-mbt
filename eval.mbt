@@ -849,6 +849,21 @@ fn push_receiver_method_bindings(
 }
 
 ///|
+/// PKL-117: marker pushed onto `method_cache` so `super.method(...)`
+/// can find the enclosing class. The marker key uses an `@` prefix
+/// — the lexer treats `@` as its own token so the name can't
+/// collide with a user-written Pkl identifier.
+fn push_super_dispatch_marker(
+  method_cache : Array[ValueBinding],
+  current_class : String,
+) -> Unit {
+  method_cache.push({
+    name: "@current_class",
+    value: StringValue(current_class),
+  })
+}
+
+///|
 fn eval_value_type_name(value : Value) -> String {
   match value {
     IntValue(_) => "Int"
@@ -3383,6 +3398,10 @@ fn eval_class_method_call(
                 Some(body) => {
                   let method_cache = copy_value_bindings(cache)
                   push_receiver_method_bindings(method_cache, receiver_members)
+                  // PKL-117: record the class whose body is about to
+                  // evaluate so `super.method(...)` inside the body
+                  // can locate the parent class.
+                  push_super_dispatch_marker(method_cache, type_name)
                   for i = 0; i < function_decl.parameters.length(); i = i + 1 {
                     match
                       eval_callable_argument_rejection_message(
@@ -3450,6 +3469,110 @@ fn callee_label(callee : Expr) -> String {
   match callee {
     Identifier(name) => "function \{name}"
     _ => "function"
+  }
+}
+
+///|
+/// PKL-117: dispatch `super.method(args)`. Looks up the
+/// `@current_class` marker (pushed by `eval_class_method_call`),
+/// finds its parent class, and invokes the named method on the
+/// parent using the current `this` value.
+fn eval_super_method_call(
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let current_class = match lookup_value(cache, "@current_class") {
+    Some(StringValue(name)) => name
+    _ => {
+      diagnostics.push(diag("super.\{method_name} used outside a class body"))
+      return None
+    }
+  }
+  let parent_name = match lookup_class_binding(class_env, current_class) {
+    Some(binding) =>
+      match binding.parent_name {
+        Some(name) => name
+        None => {
+          diagnostics.push(
+            diag(
+              "class \{current_class} has no parent for super.\{method_name}",
+            ),
+          )
+          return None
+        }
+      }
+    None => {
+      diagnostics.push(diag("class \{current_class} not found"))
+      return None
+    }
+  }
+  let function_decl = match
+    lookup_class_method(class_env, parent_name, method_name) {
+    Some(decl) => decl
+    None => {
+      diagnostics.push(
+        diag("super class \{parent_name} has no method \{method_name}"),
+      )
+      return None
+    }
+  }
+  let receiver_members = match lookup_value(cache, "this") {
+    Some(ObjectValue(members)) => members
+    _ => []
+  }
+  if function_decl.parameters.length() != arguments.length() {
+    diagnostics.push(
+      diag(
+        "super method \{method_name} expects \{function_decl.parameters.length()} arguments, got \{arguments.length()}",
+      ),
+    )
+    return None
+  }
+  let argument_values : Array[Value] = []
+  let mut ok = true
+  for argument in arguments {
+    match
+      eval_expr_with_bindings(
+        argument, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      ) {
+      Some(value) => argument_values.push(value)
+      None => ok = false
+    }
+  }
+  if !ok {
+    return None
+  }
+  match function_decl.body {
+    Some(body) => {
+      let method_cache = copy_value_bindings(cache)
+      push_receiver_method_bindings(method_cache, receiver_members)
+      push_super_dispatch_marker(method_cache, parent_name)
+      for i = 0; i < function_decl.parameters.length(); i = i + 1 {
+        method_cache.push({
+          name: function_decl.parameters[i].name,
+          value: argument_values[i],
+        })
+      }
+      eval_expr_with_bindings(
+        body, bindings, env, class_env, method_cache, stack, declarations, diagnostics,
+        resolve_import,
+      )
+    }
+    None => {
+      diagnostics.push(
+        diag("super class \{parent_name} method \{method_name} has no body"),
+      )
+      None
+    }
   }
 }
 
@@ -4213,6 +4336,17 @@ fn eval_expr_with_bindings(
         }
       } else {
         match callee {
+          // PKL-117: `super.method(args)` dispatches to the parent
+          // class's implementation while keeping the current
+          // `this`. The current class name lives in the
+          // `@current_class` marker pushed by
+          // `eval_class_method_call`; the parent comes from the
+          // class binding's `parent_name`.
+          MemberAccess(Identifier("super"), method_name) =>
+            eval_super_method_call(
+              method_name, arguments, bindings, env, class_env, cache, stack, declarations,
+              diagnostics, resolve_import,
+            )
           MemberAccess(target_expr, method_name) =>
             if class_method_call_available(
                 target_expr, method_name, bindings, class_env,
