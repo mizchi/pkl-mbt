@@ -40,18 +40,6 @@ local pklRepl: Spec.Scenario = new {
 
 // ── diagnostics, upstream compatibility ─────────────────────────────────────
 
-local upstreamFixtureSweepExpansion: Spec.Scenario = new {
-  id = "PKL-109"
-  name = "upstream fixture sweep expansion"
-  description =
-    "Walk additional upstream `LanguageSnippetTests/input/*` subtrees (`api/`, `errors/`, `generators/`, `lambdas/`, `listings/`, `mappings/`, `methods/`, `objects/`, `packages/`, `projects/`) and promote every fixture that gold-matches byte-for-byte to the curated list. Tracks rolling coverage of the ~800-fixture upstream suite."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-096" }
-  tags { "compatibility"; "upstream"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 // ── typechecker rounding ────────────────────────────────────────────────────
 
 
@@ -76,7 +64,7 @@ local pklRendererStdlibModules: Spec.Scenario = new {
     "Stdlib classes for the renderer surface (`JsonRenderer`, `YamlRenderer`, `XmlRenderer`, `ProtobufRenderer`) that the `output { renderer }` driver path looks up. Today the CLI dispatches renderers via the `-f` flag and the stdlib classes do not exist."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-104" }
-  tags { "stdlib"; "renderer" }
+  tags { "stdlib"; "renderer"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -176,7 +164,6 @@ local lspServer: Spec.Scenario = new {
 
 entries: Listing<Spec.Scenario> = new {
   pklRepl
-  upstreamFixtureSweepExpansion
   setPairMapIntSeqVariants
   pklRendererStdlibModules
   plistXmlProtobufRenderers

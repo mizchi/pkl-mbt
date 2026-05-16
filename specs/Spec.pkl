@@ -1812,6 +1812,32 @@ local floatMagnitudeUnits = new Scenario {
   }
 }
 
+local upstreamFixtureSweepExpansionScenario = new Scenario {
+  id = "PKL-109"
+  name = "upstream fixture sweep expansion"
+  description =
+    "`scripts/upstream-smoke.sh` gains seven additional fixtures whose `pkl eval` output now matches the upstream `LanguageSnippetTests/output/<dir>/<name>.pcf` gold byte-for-byte: `annotation/annotation1`, `api/jsonRendererEmptyComposites`, `api/moduleOutput2`, `basic/minPklVersion`, `basic/moduleRefLibrary`, `generators/propertyGenerators`, `listings/cacheStealingTypeCheck`. Total gold-match coverage rises from 25 to 32 fixtures across 7 upstream subtrees (`annotation`, `api`, `basic`, `classes`, `generators`, `listings`, `modules`, `objects`, `types`). The promoted fixtures were discovered by walking the candidate subtrees (`api/`, `annotation/`, `generators/`, `lambdas/`, `listings/`, `mappings/`, `methods/`, `objects/`, `types/`) and gating on `diff -q gold actual` byte-equality; new failures still fall outside the curated list and surface as a non-zero exit when the script runs."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-096" }
+  tags { "compatibility"; "upstream" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Promote per-fixture rather than per-subtree"
+      rationale =
+        "A subtree-level promotion (`api/*`, `generators/*`, …) would force every fixture in the subtree to pass gold-match before any of them count, which the upstream corpus's distribution makes infeasible — most subtrees have at least one fixture that exercises a stdlib gap (List / Set / Pair / IntSeq, glob imports, package URIs) outside the implemented slice. Promoting per-fixture keeps the curated list honest: every entry has been manually probed against the gold output and the script's byte-diff gates regressions immediately. New failures in promoted fixtures fail the smoke check; new passes in unpromoted fixtures are silent until a future sweep finds them."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Re-run the same probe loop after each significant evaluator / typechecker slice"
+      rationale =
+        "PKL-109 is intentionally rolling — each subsequent slice that lifts a stdlib gap (PKL-119 Set/Pair/Map variants, PKL-124 renderer stdlib modules, PKL-127 renderer converters) is expected to unlock more upstream fixtures. The probe loop is a 30-line bash one-liner that iterates the candidate subtrees and diffs against gold; running it after every couple of feature slices and promoting any new passes keeps the upstream coverage growing without a dedicated investigation pass per fixture."
+    }
+  }
+}
+
 local crossModuleFunctionExport = new Scenario {
   id = "PKL-118"
   name = "cross-module typecheck round-trip completeness"
@@ -3725,5 +3751,6 @@ scenarios {
   diagnosticUpstreamAlignment
   inheritanceDispatchHardeningScenario
   crossModuleFunctionExport
+  upstreamFixtureSweepExpansionScenario
   ...roadmap.entries
 }

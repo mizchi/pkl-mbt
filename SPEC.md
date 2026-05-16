@@ -620,7 +620,7 @@
   - depends on: PKL-080, PKL-110
   - body: _not yet implemented_
 
-- [ ] **pkl:json / pkl:yaml / pkl:xml / pkl:protobuf stdlib modules** [draft] — verifies: PKL-124 — tags: stdlib, renderer
+- [ ] **pkl:json / pkl:yaml / pkl:xml / pkl:protobuf stdlib modules** [draft] — verifies: PKL-124 — tags: stdlib, renderer, next
   > Stdlib classes for the renderer surface (`JsonRenderer`, `YamlRenderer`, `XmlRenderer`, `ProtobufRenderer`) that the `output { renderer }` driver path looks up. Today the CLI dispatches renderers via the `-f` flag and the stdlib classes do not exist.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-104
@@ -974,10 +974,11 @@
   - contributes to: GOAL-PKL-PURE
   - body: _not yet implemented_
 
-- [ ] **upstream fixture sweep expansion** [draft] — verifies: PKL-109 — tags: compatibility, upstream, next
-  > Walk additional upstream `LanguageSnippetTests/input/*` subtrees (`api/`, `errors/`, `generators/`, `lambdas/`, `listings/`, `mappings/`, `methods/`, `objects/`, `packages/`, `projects/`) and promote every fixture that gold-matches byte-for-byte to the curated list. Tracks rolling coverage of the ~800-fixture upstream suite.
+- [ ] **upstream fixture sweep expansion** — verifies: PKL-109 — tags: compatibility, upstream
+  > `scripts/upstream-smoke.sh` gains seven additional fixtures whose `pkl eval` output now matches the upstream `LanguageSnippetTests/output/<dir>/<name>.pcf` gold byte-for-byte: `annotation/annotation1`, `api/jsonRendererEmptyComposites`, `api/moduleOutput2`, `basic/minPklVersion`, `basic/moduleRefLibrary`, `generators/propertyGenerators`, `listings/cacheStealingTypeCheck`. Total gold-match coverage rises from 25 to 32 fixtures across 7 upstream subtrees (`annotation`, `api`, `basic`, `classes`, `generators`, `listings`, `modules`, `objects`, `types`). The promoted fixtures were discovered by walking the candidate subtrees (`api/`, `annotation/`, `generators/`, `lambdas/`, `listings/`, `mappings/`, `methods/`, `objects/`, `types/`) and gating on `diff -q gold actual` byte-equality; new failures still fall outside the curated list and surface as a non-zero exit when the script runs.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-096
+  - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **use upstream apple/pkl fixtures as compatibility checks** — verifies: PKL-011
@@ -1203,7 +1204,7 @@
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
-- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097 — tags: moonbit, upstream, compatibility, contract
+- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109 — tags: moonbit, upstream, compatibility, contract
   > Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF and JSON).
   - body: `cmd` (exit 0 expected)
 
