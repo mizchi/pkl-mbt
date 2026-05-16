@@ -57,6 +57,18 @@ let stdlib_probes : Array[StdlibProbe] = [
   },
   {
     group: "pkl:base",
+    name: "IntSeq sequence equality (empty)",
+    source: "v = IntSeq(0, -1) == IntSeq(10, -10)",
+    expect: "v = true",
+  },
+  {
+    group: "pkl:base",
+    name: "IntSeq sequence equality (step-aware)",
+    source: "v = IntSeq(-10, 10).step(2) == IntSeq(-10, 11).step(2)",
+    expect: "v = true",
+  },
+  {
+    group: "pkl:base",
     name: "Set value variant",
     source: "v = Set(1, 2, 3, 2, 1).length",
     expect: "v = 3",

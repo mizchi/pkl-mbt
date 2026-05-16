@@ -98,6 +98,7 @@ local moonUnit = new Test {
     "PKL-092"
     "PKL-093"
     "PKL-098"
+    "PKL-119be"
   }
   cmd = "moon test --target js"
   timeoutSec = 120
@@ -423,7 +424,9 @@ local cliStdlibCheck = new Test {
     "[PASS] Renderer class instantiable"
     "[PASS] Class.properties walks class declaration"
     "[PASS] Class.isSubclassOf walks the parent chain"
-    "stdlib: 35 / 35 passed"
+    "[PASS] IntSeq sequence equality (empty)"
+    "[PASS] IntSeq sequence equality (step-aware)"
+    "stdlib: 37 / 37 passed"
   }
   timeoutSec = 180
 }

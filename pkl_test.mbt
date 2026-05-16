@@ -3969,6 +3969,56 @@ test "PKL-119b: IntSeq.fold reduces left-to-right" {
 }
 
 ///|
+test "PKL-119be: empty IntSeqs are equal regardless of endpoints" {
+  guard eval_source("v = IntSeq(0, -1) == IntSeq(10, -10)")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is BoolValue(b) else { panic() }
+  inspect(b, content="true")
+}
+
+///|
+test "PKL-119be: non-empty IntSeqs are equal when their element sequences match" {
+  guard eval_source("v = IntSeq(-10, 10).step(2) == IntSeq(-10, 11).step(2)")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is BoolValue(b) else { panic() }
+  inspect(b, content="true")
+}
+
+///|
+test "PKL-119be: IntSeqs with different step values are not equal" {
+  guard eval_source("v = IntSeq(-10, 10) == IntSeq(-10, 10).step(2)")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is BoolValue(b) else { panic() }
+  inspect(b, content="false")
+}
+
+///|
+test "PKL-119be: reversed-direction IntSeqs are not equal" {
+  guard eval_source("v = IntSeq(-10, 10) == IntSeq(10, -10).step(-1)")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is BoolValue(b) else { panic() }
+  inspect(b, content="false")
+}
+
+///|
+test "PKL-119be: IntSeq != mirrors the equality semantics" {
+  guard eval_source("v = IntSeq(0, 3) != IntSeq(0, 3)")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is BoolValue(b) else { panic() }
+  inspect(b, content="false")
+}
+
+///|
 test "PKL-119b: PCF renders IntSeq through the constructor form" {
   guard eval_source("s = IntSeq(2, 5)") is EvalOk(value) else { panic() }
   inspect(@pkl.render_value(value), content="s = IntSeq(2, 5)")

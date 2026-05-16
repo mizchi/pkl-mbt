@@ -50,7 +50,6 @@ Parked but not closed off — `specs/Roadmap.pkl`'s `deferredEntries` listing ca
 
 ## Partially supported
 
-- **`IntSeq` equality** — structural `derive(Eq)` only; Apple Pkl's empty-sequence-equality and step-aware element-set equality stay a follow-up.
 - **`pkl:reflect`** — class / module introspection (`.properties` / `.methods` / `.supertype` / `.classes` / `.isSubclassOf`) is wired (PKL-143), but factories still take a string identifier rather than a real `ClassValue` round-trip.
 - **`pkl:platform`** — deterministic stub values (`stub-os` / `stub-arch`) instead of host-detected.
 - **`pkl:test.catch`** — only the throw branch (returns the message); the no-throw branch evaluates the lambda as if `catch` wasn't there.

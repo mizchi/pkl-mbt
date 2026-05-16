@@ -1896,6 +1896,32 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local intSeqEqualityScenario = new Scenario {
+  id = "PKL-119be"
+  name = "IntSeq sequence equality"
+  description =
+    "Apple Pkl's `IntSeq` equality compares the *element sequence* the two operands produce, not their carrier shape. Empty IntSeqs are equal regardless of endpoints (`IntSeq(0, -1) == IntSeq(10, -10)`); non-empty IntSeqs are step-aware (`IntSeq(-10, 10).step(2) == IntSeq(-10, 11).step(2)` because both produce -10, -8, ..., 10). The PKL-119b stop-gap relied on the structural `derive(Eq)` the value variant inherits, which mis-answered both cases. `eval_binary` now intercepts `(IntSeqValue, IntSeqValue)` pairs before the generic equality fall-through and routes through `intseq_value_equal`, which materializes both operands and compares them element-by-element. Both-empty short-circuits via the length-mismatch check (zero == zero) plus the zero-iteration loop. Non-Equal binary ops on IntSeq operands aren't defined upstream and emit the standard `operator <op> not defined for IntSeq operands` diagnostic."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-119b" }
+  tags { "evaluator"; "stdlib" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "Materialize and compare element-by-element rather than implementing a closed-form check"
+      rationale =
+        "A closed-form check would walk the two ranges arithmetically without allocating Arrays, but the edge cases (mixed direction, mixed step sign, overflow at the boundary) are subtle enough that getting the formula right and reviewable costs more lines than the materialize-and-compare path. Materialization already exists for `.toList()` / `.map` / `.fold` / non-PCF renderers; reusing it keeps the equality logic a five-line function and lets a future closed-form check replace it without changing any caller. The 1M-element worst case is the same as those other materialization paths — already an accepted upper bound."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Non-Equal binary ops on IntSeq operands surface a `not defined` diagnostic"
+      rationale =
+        "Apple Pkl does not define `<`, `+`, etc. for IntSeq operands. The IntSeq-IntSeq match arm has to handle every op exhaustively (MoonBit can't easily fall through to the generic catch-all from inside a structural pattern), so the explicit per-op diagnostic mirrors the wording the surrounding arms use for Duration / DataSize on undefined ops."
+    }
+  }
+}
+
 local setValueVariantScenario = new Scenario {
   id = "PKL-119c"
   name = "Set Value variant"
@@ -4055,6 +4081,7 @@ scenarios {
   plistRendererScenario
   pairValueVariantScenario
   intSeqValueVariantScenario
+  intSeqEqualityScenario
   setValueVariantScenario
   mapValueVariantScenario
   packageRegistryProbeScenario

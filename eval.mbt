@@ -1502,6 +1502,34 @@ fn intseq_materialize(start : Int, end_v : Int, step : Int) -> Array[Value] {
 }
 
 ///|
+/// PKL-119be (IntSeq equality follow-up): two IntSeqs are equal when
+/// they produce the same Int sequence. Materialize both sides and
+/// compare element-by-element; both-empty trivially returns true via
+/// the zero-iteration loop after the length-mismatch short-circuit.
+fn intseq_value_equal(
+  start_a : Int,
+  end_a : Int,
+  step_a : Int,
+  start_b : Int,
+  end_b : Int,
+  step_b : Int,
+) -> Bool {
+  let a = intseq_materialize(start_a, end_a, step_a)
+  let b = intseq_materialize(start_b, end_b, step_b)
+  if a.length() != b.length() {
+    return false
+  }
+  for i = 0; i < a.length(); i = i + 1 {
+    guard a[i] is IntValue(x) else { return false }
+    guard b[i] is IntValue(y) else { return false }
+    if x != y {
+      return false
+    }
+  }
+  true
+}
+
+///|
 fn is_listing_property_name(name : String) -> Bool {
   match name {
     "length" | "isEmpty" | "first" | "last" | "distinct" => true
@@ -6722,6 +6750,32 @@ fn eval_expr_with_bindings(
               }
             }
           }
+        // PKL-119be (IntSeq equality follow-up): Apple Pkl treats two
+        // IntSeq operands as equal when they produce the same Int
+        // sequence — empty IntSeqs are equal regardless of endpoints
+        // (`IntSeq(0, -1) == IntSeq(10, -10)`) and non-empty IntSeqs
+        // are step-aware (`IntSeq(-10, 10).step(2) ==
+        // IntSeq(-10, 11).step(2)`). The structural `derive(Eq)` the
+        // value variant inherits doesn't capture either case, so route
+        // through `intseq_value_equal` which materializes both sides
+        // and compares element-by-element. Non-Equal ops on
+        // IntSeq-IntSeq pairs aren't defined upstream — emit the
+        // standard "not defined" diagnostic.
+        (Some(IntSeqValue(s1, e1, st1)), Some(IntSeqValue(s2, e2, st2))) => {
+          let eq = intseq_value_equal(s1, e1, st1, s2, e2, st2)
+          match op {
+            Equal => Some(BoolValue(eq))
+            NotEqual => Some(BoolValue(!eq))
+            _ => {
+              diagnostics.push(
+                diag(
+                  "operator \{operator_name(op)} not defined for IntSeq operands",
+                ),
+              )
+              None
+            }
+          }
+        }
         (Some(a), Some(b)) if op == Equal => Some(BoolValue(a == b))
         (Some(a), Some(b)) if op == NotEqual => Some(BoolValue(a != b))
         (Some(_), Some(_)) => {
