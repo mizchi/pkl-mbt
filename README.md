@@ -2,15 +2,17 @@
 
 Pure MoonBit parser, typechecker, and evaluator for Apple's [Pkl](https://pkl-lang.org/) language. Ships as both a CLI (`mpkl`) and a library (`mizchi/pkl`).
 
+**Compatibility policy**: behaviour follows [Apple Pkl](https://pkl-lang.org/) unless listed under [Not supported](#not-supported) / [Partially supported](#partially-supported) below. Anything else that diverges from upstream is a bug — please file an issue with the source snippet and Apple Pkl's output for comparison.
+
 ## Install
 
-CLI (`native` + `js` only — the wasm / wasm-gc targets ship a stub `main` that points users at the library):
+CLI (native + js only — the wasm / wasm-gc targets ship a stub `main` that points users at the library):
 
 ```bash
 moon install mizchi/pkl/cmd/mpkl
 ```
 
-Library — builds clean on all four MoonBit targets (`native`, `js`, `wasm`, `wasm-gc`); the @pkl surface is pure (no IO, no async), so an embedder running in a wasm sandbox can depend on it directly:
+Library — builds clean on all four MoonBit targets (`native`, `js`, `wasm`, `wasm-gc`); the `@pkl` surface is pure (no IO, no async), so an embedder running in a wasm sandbox can depend on it directly:
 
 ```bash
 moon add mizchi/pkl
@@ -25,23 +27,17 @@ mpkl eval     <file.pkl> [-f <format>]    # eval + render (default: pcf)
 mpkl test     <file.pkl> [--overwrite]    # walk facts: / examples:
 mpkl format   <file.pkl>                  # canonical PCF re-emit
 mpkl analyze  <file.pkl>                  # lint (unused locals / imports / ...)
-mpkl codegen  <file.pkl>                  # lower to MoonBit struct skeleton
-mpkl stdlib                               # probe stdlib coverage (PASS/FAIL per module)
+mpkl codegen  <file.pkl>                  # lower to MoonBit struct skeleton  (pkl-mbt only)
+mpkl stdlib                               # probe stdlib coverage (pkl-mbt only)
 ```
 
-Renderers exposed via `-f` / `--format`: `pcf` (default), `json`, `yaml`, `properties`, `plist`. `output { renderer = new <Renderer> { ... } }` in the source also drives the format without an explicit flag.
+Renderers via `-f` / `--format`: `pcf` (default), `json`, `yaml`, `properties`, `plist`. `output { renderer = new <Renderer> { ... } }` also drives the format from the source.
 
-Sandbox flags (apply to `read("...")` and `import "..."`):
-
-```bash
---allowed-modules <pipe|separated|prefixes>   # default: unrestricted
---module-path     <dir>                        # repeatable
--p NAME=VALUE                                  # populates read("prop:NAME")
-```
+Sandbox flags: `--allowed-modules <pipe|prefixes>`, `--module-path <dir>` (repeatable), `-p NAME=VALUE` (populates `read("prop:NAME")`).
 
 ## Library — `@pkl`
 
-23 public items. The full surface lives in `pkg.generated.mbti`; the high-level shape:
+23 public items. The high-level shape:
 
 ```moonbit
 // Parse / typecheck / eval entry points
@@ -56,14 +52,14 @@ session.typecheck_path("main.pkl")
 session.eval_path("main.pkl")
 
 // Renderers
-@pkl.render_value(value)                        // PCF
+@pkl.render_value(value)               // PCF
 @pkl.render_value_as_json(value)
 @pkl.render_value_as_yaml(value)
 @pkl.render_value_as_properties(value)
 @pkl.render_value_as_plist(value)
 @pkl.render_type(typ)
 
-// MoonBit codegen — emit `pub(all) struct` / typealias skeletons
+// MoonBit codegen — emit pub(all) struct / typealias skeletons
 @pkl.codegen_moonbit(program) -> String
 
 // Lint
@@ -73,91 +69,56 @@ session.eval_path("main.pkl")
 @pkl.configure_sandbox_props(map)
 @pkl.configure_sandbox_module_paths(dirs)
 @pkl.configure_sandbox_allowed_modules(patterns)
-@pkl.sandbox_module_paths()
-@pkl.sandbox_is_module_allowed(uri)
 ```
 
-ADTs (`pub(all)`, suitable for pattern matching from consumer code): `Program` / `Declaration` / `ClassDecl` / `FunctionDecl` / `TypeAliasDecl` / `Expr` / `BinaryOp` / `UnaryOp` / `Binding` / `ImportDecl` / `Annotation` / `Type` / `TypeMember` / `Value` / `ValueMember` / `ValueEntry` / `Diagnostic` / `LintFinding` etc. — see the `.mbti` for the exhaustive list.
+ADTs (`pub(all)`, pattern-matchable from consumer code): `Program`, `Declaration`, `Expr`, `Type`, `Value`, `Diagnostic`, etc. — see `pkg.generated.mbti` for the exhaustive list.
 
-## Supported language surface
+## Not supported
 
-### Parser
+These slices are intentionally parked — `specs/Roadmap.pkl`'s `deferredEntries` listing carries the rationale.
 
-CST-backed via `mizchi/cst`. Accepts **802 / 802** fixtures of the upstream `LanguageSnippetTests` parser corpus (parse-only). Modifier-qualified forms (`const function`, `abstract class`), generic `class C<T>` / `function f<T>(...)`, doc-comments, structured `@Annotation(...)` / `@Annotation { ... }` capture, `when (cond) { ... } else { ... }`, `for (var in xs) { ... }`, `let (name = value) body`, multi-line typealiases, dot-chain across newlines, scientific Float (`1.5e10`), triple-quoted heredoc strings with `\(expr)` interpolation, `??` null-coalescing, `?.` safe member access, and the full operator grid (`** ~/ % | & .. ..< >.. >=..`).
+| Slice | Workaround |
+| --- | --- |
+| LSP server | Apple's `pkl-lsp`. |
+| `mpkl repl` (interactive REPL) | Wrap `eval` in a shell loop. |
+| `mpkl doc` / pkldoc generation | Upstream `pkldoc`. |
+| XML renderer (`-f xml` / `xml.Renderer`) | `pkl eval -f xml` upstream. Type surface is wired (typecheck OK). |
+| Protobuf renderer | `pkl eval -f protobuf` upstream. Type surface is wired. |
+| Renderer `converters { ... }` machinery | `pkl eval` upstream. |
+| `package://` zipball download + unpack | `pkl download-package` + `--module-path`. URI parse + metadata probe + zipball-URL extraction land in-process (PKL-129b1); the actual DEFLATE+SHA-256+cache loop is the deferred part. |
 
-### Typechecker
+## Partially supported
 
-Primitive (`Int` / `Float` / `Number` / `Bool` / `String` / `Null` / `Any` / `Unknown`), nullable `T?`, parametric generics on classes and functions (`Box<T>` / `identity<T>(x: T)`), generic typealiases (`typealias Box<T> = Listing<T>`), type-parameter bounds (`<T : Number>`), union (`A | B`) with `is`-guard narrowing, structural classes with inheritance + abstract-method coverage + override-direction subtype rules (covariant return, contravariant params), constraint cascade through `Listing<T>` / `Mapping<K, V>` / `Pair<A, B>` / `Set<T>` / `Map<K, V>` / `IntSeq` annotations, cross-module function exports via hidden-prefixed members, equality type compatibility, callable & class-method literal-body return / argument validation including user-defined constraint factories.
+- **`IntSeq` equality** — structural `derive(Eq)` only; Apple Pkl's empty-sequence-equality and step-aware element-set equality stay a follow-up.
+- **`pkl:reflect`** — class / module introspection (`.properties` / `.methods` / `.supertype` / `.classes` / `.isSubclassOf`) is wired (PKL-143), but factories still take a string identifier rather than a real `ClassValue` round-trip.
+- **`pkl:platform`** — deterministic stub values (`stub-os` / `stub-arch`) instead of host-detected.
+- **`pkl:test.catch`** — only the throw branch (returns the message); the no-throw branch evaluates the lambda as if `catch` wasn't there.
+- **`pkl:json` / `pkl:yaml` / `pkl:xml` / `pkl:protobuf`** — type surface only (Parser / Renderer class shells instantiable); actual parsing / rendering bodies aren't wired.
 
-### Evaluator
+Run `mpkl stdlib` to verify the current state — the probe table evaluates one minimal fixture per documented capability and prints `[PASS]` / `[FAIL]` per row, exiting non-zero on regression.
 
-- All numeric / scalar primitives plus dedicated value variants for `Pair<A, B>`, `IntSeq` (lazy carrier), `Set<T>`, `Map<K, V>` (immutable functional map, distinct from object-style `Mapping<K, V>`).
-- `Duration` / `DataSize` literals (`3.s`, `4.mb`, etc.) with mixed-unit arithmetic, comparisons, `.value` / `.unit` / `.toUnit(name)`. Float magnitudes (`1.5.s`, `2.5.gib`) round-trip without precision loss.
-- `Regex("...")` with `.matches / .find / .findAll / .replace / .replaceAll` backed by `moonbitlang/regexp`. PCF round-trips through the constructor form.
-- `Bytes(<Listing>)` / `Bytes.fromBase64("...")` with `.length` / `.base64` / `.getOrNull(i)` / `.toList()`, plus `String.toBytes()` UTF-8 encoder. JSON / YAML / Properties / plist project as the base64 string.
-- Lambda closures (scalar + non-scalar capture), `super.method(args)` dispatch, `module.foo` self-reference, `import("...")` expression form, `when` / `for` object-body generators.
-- Sandbox-bounded `read(uri)` (env: enabled by default; prop: opens via `-p NAME=VALUE`; file:/https:/package: gated by `--allowed-modules`) plus the `read?(uri)` null-returning variant (missing env var / sandbox reject return `null` so `read?("env:PORT") ?? "8080"` fallback patterns just work), `throw(msg)`, `trace(value)`.
+## pkl-mbt specific
 
-### Renderers
+These don't exist in Apple Pkl:
 
-PCF, JSON, YAML, Properties, plist (Apple PLIST 1.0 DTD). Each carries the dedicated value-variant projections: `Pair(a, b)` / `Set(...)` / `Map(k, v, ...)` / `IntSeq(s, e).step(n)` round-trip through PCF for parser-readable output; JSON / YAML / Properties / plist materialize as arrays / objects with Apple Pkl's conventions (`omitNullProperties` defaults, Duration/DataSize space-separated form in plist, etc.). The CLI's AST-driven dispatcher reads `output { renderer = new <ClassName> { ... } }` and routes accordingly when `-f` is absent.
+- **`mpkl codegen <file.pkl>`** — lowers a Pkl module to a MoonBit `pub(all) struct` / `pub typealias` skeleton so embedders can round-trip schemas through both type systems.
+- **`mpkl stdlib`** — runs the in-process probe table that verifies each documented stdlib surface area against a minimal fixture.
+- **`mpkl analyze`** — lint pass over the parsed module (unused locals / imports / class properties / module-level shadowing).
+- **Library entrypoint** (`@pkl`) — pure-MoonBit, no IO / async, builds clean on all four MoonBit targets. Apple's `pkl` ships as a JVM-backed CLI.
 
-### Stdlib modules
+## Upstream compatibility
 
-Synthesized in-process (no upstream Pkl JAR required). Run `mpkl stdlib` to verify each module against the in-process probe table — it eval s one minimal fixture per documented capability and prints `[PASS]` / `[FAIL]` per row, exiting non-zero on regression.
-
-| Module | Status | Coverage |
-| --- | --- | --- |
-| `pkl:base` (Listing / Mapping / String / Int builtins + value-variant ops + 9 Renderer classes + Duration / DataSize / Regex / Bytes) | Full | Method surface used by upstream `LanguageSnippetTests` fixtures + the dedicated `Pair` / `IntSeq` / `Set` / `Map` value variants. |
-| `pkl:math` | Full | Int constants + helpers + Float-side `sqrt` / `pow` / `log` / `exp` / trig / `pi` / `e`. |
-| `pkl:semver` | Full | `parse` / `parseOrNull` / `compare` / ordering — full SemVer pre-release semantics. |
-| `pkl:platform` | Partial (deterministic stub) | Returns fixed `stub-os` / `stub-arch` values; the host-detection intrinsics aren't wired. |
-| `pkl:test` | Partial | `test.catch(() -> throw(...))` returns the thrown message. The no-throw branch evaluates the lambda as if catch wasn't there (the constraints8.pkl flow is the upstream use we pin). |
-| `pkl:reflect` | Partial | Mirror constants (`intType` etc.) + `Class` / `Module` / `TypeAlias` / `Property` / `DeclaredType` factories. Class mirrors expose `.properties` / `.methods` / `.supertype` / `.isSubclassOf(other)`; Module mirrors expose `.classes`. No real `ClassValue` round-trip yet — the factories still take a string identifier rather than a class value. |
-| `pkl:json` / `pkl:yaml` | Type surface only | `Parser` + `Property` class shells instantiable; actual JSON / YAML parsing not implemented. |
-| `pkl:xml` / `pkl:protobuf` | Type surface only | `Renderer` class shells instantiable; rendering itself stays in the deferred slices. |
-
-### Imports
-
-`file:` / `https:` (with 5-hop redirect following) / `package:` (URI parse + metadata fetch + zipball URL extraction; full DEFLATE+SHA-256+cache deferred — the diagnostic points users at `pkl download-package` + `--module-path` as a workaround).
-
-### Upstream compatibility
-
-- **Parser corpus**: 802 / 802 LanguageSnippetTests fixtures
-- **Eval gold-match**: 32 PCF + 1 JSON + 1 plist fixtures byte-for-byte against the upstream `.pcf` / `.json` / `.plist` files
-- **Diagnostic wording**: aligned with Apple Pkl's first-line phrasing (`Cannot find type \`X\`.` / `Cannot find property \`x\`.` / `Cannot find module \`...\`.` etc.)
-
-## Not yet supported
-
-Intentionally deferred — `specs/Roadmap.pkl`'s `deferredEntries`
-listing carries the full rationale. One-line summaries:
-
-| Slice | Status | Workaround |
-| --- | --- | --- |
-| LSP server | Out of scope (library focus). | Use Apple Pkl's `pkl-lsp`. |
-| `mpkl repl` (interactive REPL) | Deferred. | Wrap `eval` in a shell loop. |
-| `mpkl doc` / pkldoc generation | Deferred. | Use upstream `pkldoc`. |
-| XML renderer (`-f xml` / `xml.Renderer`) | Deferred — type surface only. | `pkl eval -f xml` upstream. |
-| Protobuf renderer | Deferred — type surface only. | `pkl eval -f protobuf` upstream. |
-| Renderer `converters { ... }` machinery | Deferred. | `pkl eval` upstream. |
-| `package://` zipball download + unpack | Deferred — URI parse + metadata probe land. | `pkl download-package` + `--module-path`. |
-
-Partially landed:
-
-- `IntSeq` equality — structural `derive(Eq)`; Apple Pkl's empty-sequence-equality and step-aware element-set equality stay a follow-up.
-- `pkl:reflect` — class / module introspection (`.properties` / `.methods` / `.supertype` / `.classes` / `.isSubclassOf`) lands via a hidden `__kind` marker; a real `ClassValue` round-trip (so the factories accept the class itself, not a name string) is still absent.
+- **Parser corpus**: 802 / 802 LanguageSnippetTests fixtures (parse-only)
+- **Eval gold-match**: 32 PCF + 1 JSON + 1 plist fixtures byte-for-byte against upstream
+- **Diagnostic wording**: first-line messages aligned with Apple Pkl (`Cannot find type \`X\`.`, `Cannot find property \`x\`.`, `Cannot find module \`...\`.`)
 
 ## Development
 
 ```bash
-# Local CI gate
-pkf run release-check
-
-# Targeted runs
+pkf run release-check                       # full local gate (14 tasks)
 moon test --target native
-moon check --deny-warn --target native
+moon check --deny-warn --target wasm-gc
 pkspec exec -f specs/Test.pkl
-pkspec spec --check specs/Spec.pkl specs/Test.pkl
 ```
 
 Upstream submodule for gold-match:
@@ -168,8 +129,4 @@ git submodule update --init --recursive
 ./scripts/upstream-parse-suite.sh
 ```
 
-CI runs the same gate (`moon check --deny-warn` on all four targets + `moon test` on native + js + the pkspec contract suite) on every push and pull request — see `.github/workflows/ci.yml`.
-
-## Status
-
-144 implemented pkspec scenarios; active roadmap is empty (parser / typechecker / evaluator / codegen core has landed). See `SPEC.md` for the full rendered spec. Deferred slices live in `specs/Roadmap.pkl`'s `deferredEntries` listing and can revive on demand.
+CI (`.github/workflows/ci.yml`) runs the same gate on every push / PR. 146 implemented pkspec scenarios; see `SPEC.md` for the full rendered spec.
