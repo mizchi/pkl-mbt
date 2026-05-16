@@ -3422,6 +3422,170 @@ test "PKL-120: pkl:math.pi constant" {
 }
 
 ///|
+test "PKL-119b: IntSeq(start, end) builds an IntSeqValue with step=1" {
+  guard eval_source("seq = IntSeq(2, 5)") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is IntSeqValue(start, end_v, step) else { panic() }
+  inspect(start, content="2")
+  inspect(end_v, content="5")
+  inspect(step, content="1")
+}
+
+///|
+test "PKL-119b: IntSeq.start / .end / .step bare reads" {
+  guard eval_source(
+      "seq = IntSeq(2, 5).step(2)\ns = seq.start\ne = seq.end\nst = seq.step",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut got_start = 0
+  let mut got_end = 0
+  let mut got_step = 0
+  for entry in members {
+    match (entry.name, entry.value) {
+      ("s", IntValue(n)) => got_start = n
+      ("e", IntValue(n)) => got_end = n
+      ("st", IntValue(n)) => got_step = n
+      _ => ()
+    }
+  }
+  inspect(got_start, content="2")
+  inspect(got_end, content="5")
+  inspect(got_step, content="2")
+}
+
+///|
+test "PKL-119b: IntSeq.step(0) rejects the zero step" {
+  let result = eval_source("seq = IntSeq(0, 5).step(0)")
+  guard result is EvalError(diagnostics) else { panic() }
+  let messages = diagnostics.iter().map(fn(d) { d.message }).collect()
+  inspect(messages[0], content="IntSeq.step rejects 0")
+}
+
+///|
+test "PKL-119b: IntSeq.toList materializes ascending elements" {
+  guard eval_source("lst = IntSeq(1, 4).toList()")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is ListingValue(elements) else { panic() }
+  inspect(elements.length(), content="4")
+  guard elements[0] is IntValue(first) else { panic() }
+  guard elements[3] is IntValue(last) else { panic() }
+  inspect(first, content="1")
+  inspect(last, content="4")
+}
+
+///|
+test "PKL-119b: IntSeq.toList of empty ascending sequence is empty" {
+  guard eval_source("lst = IntSeq(5, 0).toList()")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is ListingValue(elements) else { panic() }
+  inspect(elements.length(), content="0")
+}
+
+///|
+test "PKL-119b: IntSeq.step(-1).toList descends" {
+  guard eval_source("lst = IntSeq(3, 1).step(-1).toList()")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is ListingValue(elements) else { panic() }
+  inspect(elements.length(), content="3")
+  guard elements[0] is IntValue(first) else { panic() }
+  guard elements[2] is IntValue(last) else { panic() }
+  inspect(first, content="3")
+  inspect(last, content="1")
+}
+
+///|
+test "PKL-119b: IntSeq.map projects each element through the lambda" {
+  guard eval_source("xs = IntSeq(1, 3).map((n) -> n * n)")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is ListingValue(elements) else { panic() }
+  guard elements[0] is IntValue(a) else { panic() }
+  guard elements[1] is IntValue(b) else { panic() }
+  guard elements[2] is IntValue(c) else { panic() }
+  inspect(a, content="1")
+  inspect(b, content="4")
+  inspect(c, content="9")
+}
+
+///|
+test "PKL-119b: IntSeq.fold reduces left-to-right" {
+  guard eval_source("sum = IntSeq(1, 5).fold(0, (acc, n) -> acc + n)")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is IntValue(n) else { panic() }
+  inspect(n, content="15")
+}
+
+///|
+test "PKL-119b: PCF renders IntSeq through the constructor form" {
+  guard eval_source("s = IntSeq(2, 5)") is EvalOk(value) else { panic() }
+  inspect(@pkl.render_value(value), content="s = IntSeq(2, 5)")
+}
+
+///|
+test "PKL-119b: PCF renders custom step as chained .step call" {
+  guard eval_source("s = IntSeq(0, 10).step(2)") is EvalOk(value) else {
+    panic()
+  }
+  inspect(@pkl.render_value(value), content="s = IntSeq(0, 10).step(2)")
+}
+
+///|
+test "PKL-119b: JSON materializes IntSeq into an Int array" {
+  guard eval_source("s = IntSeq(1, 3)") is EvalOk(value) else { panic() }
+  let json = @pkl.render_value_as_json(value)
+  let expected =
+    #|{
+    #|  "s": [
+    #|    1,
+    #|    2,
+    #|    3
+    #|  ]
+    #|}
+  inspect(json, content=expected)
+}
+
+///|
+test "PKL-119b: IntSeq typechecks under the IntSeq annotation" {
+  guard typecheck_source(
+      "r: IntSeq = IntSeq(1, 5)\nstart: Int = r.start\nlst = r.toList()",
+    )
+    is TypeOk(_) else {
+    panic()
+  }
+}
+
+///|
+test "PKL-119b: IntSeq rejects non-Int arguments at typecheck" {
+  let result = typecheck_source("s = IntSeq(1, \"five\")")
+  guard result is TypeError(diagnostics) else { panic() }
+  let messages = diagnostics.iter().map(fn(d) { d.message }).collect()
+  inspect(messages[0], content="IntSeq argument 2 expects Int, got String")
+}
+
+///|
+test "PKL-119b: IntSeq member typo surfaces Pkl-shaped diagnostic" {
+  let result = typecheck_source("s = IntSeq(1, 5)\nbad = s.starts")
+  guard result is TypeError(diagnostics) else { panic() }
+  let messages = diagnostics.iter().map(fn(d) { d.message }).collect()
+  inspect(
+    messages[0],
+    content="Cannot find property `starts` in object of type `IntSeq`.",
+  )
+}
+
+///|
 test "PKL-119a: Pair.first / .second eval-side access" {
   guard eval_source("p = Pair(\"alpha\", 42)\nf = p.first\ns = p.second")
     is EvalOk(ObjectValue(members)) else {

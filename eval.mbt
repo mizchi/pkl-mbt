@@ -18,6 +18,16 @@ pub(all) enum Value {
   // dedicated variant lets consumers using pkl-mbt as a library keep
   // the upstream type semantics for `Pair<A, B>`.
   PairValue(Value, Value)
+  // PKL-119b: lazy integer sequence (start, end, step). `start` and
+  // `end` are inclusive in Apple Pkl; `step` must be non-zero and
+  // defaults to 1 (-1 when called as `IntSeq(start, end).step(-1)`
+  // for descending iteration). Empty sequences (e.g. ascending
+  // `IntSeq(5, 2)`) carry the original endpoints so the renderer can
+  // round-trip the source form. The variant is intentionally lazy —
+  // materialization happens at `.toList()` / `.toListing()` / `.map`
+  // / `.fold` / non-PCF renderer projection time so a million-element
+  // IntSeq doesn't allocate a million-slot Array up front.
+  IntSeqValue(Int, Int, Int)
   FunctionValue(Array[FunctionParameter], Expr, String?, Array[ValueBinding])
   // PKL-082: magnitude in the named unit. Mixed-unit arithmetic
   // normalizes to the smaller of the two units (the base unit of each
@@ -890,6 +900,7 @@ fn eval_value_type_name(value : Value) -> String {
     RegexValue(_) => "Regex"
     BytesValue(_) => "Bytes"
     PairValue(_, _) => "Pair"
+    IntSeqValue(_, _, _) => "IntSeq"
   }
 }
 
@@ -1206,6 +1217,42 @@ fn apply_function_value(
       None
     }
   }
+}
+
+///|
+/// PKL-119b: method names dispatched off an `IntSeqValue` target.
+/// `step` is overloaded — it's also a property name returning the
+/// carrier slot — so the CallExpr dispatcher checks the call form
+/// (zero args ⇒ method call returning a new IntSeq).
+fn is_intseq_method_name(name : String) -> Bool {
+  match name {
+    "step" | "toList" | "toListing" | "map" | "fold" => true
+    _ => false
+  }
+}
+
+///|
+/// PKL-119b: materialize an IntSeq into an Array[Value] of Int
+/// elements. Empty when `step > 0 && start > end` or
+/// `step < 0 && start < end`; `step == 0` would be rejected by the
+/// caller before reaching here (and is treated as empty here too as
+/// a defensive guard).
+fn intseq_materialize(start : Int, end_v : Int, step : Int) -> Array[Value] {
+  let result : Array[Value] = []
+  if step > 0 {
+    let mut i = start
+    while i <= end_v {
+      result.push(IntValue(i))
+      i = i + step
+    }
+  } else if step < 0 {
+    let mut i = start
+    while i >= end_v {
+      result.push(IntValue(i))
+      i = i + step
+    }
+  }
+  result
 }
 
 ///|
@@ -2388,6 +2435,147 @@ fn eval_mapping_property(
     _ => {
       diagnostics.push(
         diag("Cannot find property `\{name}` in object of type `Mapping`."),
+      )
+      None
+    }
+  }
+}
+
+///|
+/// PKL-119b: dispatch methods on an IntSeqValue. `step(newValue)`
+/// returns a new IntSeq with the carrier step replaced; `toList` /
+/// `toListing` materialize to a `ListingValue` (the two are aliased
+/// until PKL-119c/d split List / Mapping out); `map(f)` materializes
+/// then applies the lambda to each element; `fold(initial, op)`
+/// reduces left-to-right.
+fn eval_intseq_method(
+  start : Int,
+  end_v : Int,
+  step : Int,
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let arg_values : Array[Value] = []
+  let mut ok = true
+  for argument in arguments {
+    match
+      eval_expr_with_bindings(
+        argument, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      ) {
+      Some(v) => arg_values.push(v)
+      None => ok = false
+    }
+  }
+  if !ok {
+    return None
+  }
+  match method_name {
+    "step" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("IntSeq.step expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      match arg_values[0] {
+        IntValue(new_step) =>
+          if new_step == 0 {
+            diagnostics.push(diag("IntSeq.step rejects 0"))
+            None
+          } else {
+            Some(IntSeqValue(start, end_v, new_step))
+          }
+        _ => {
+          diagnostics.push(diag("IntSeq.step expects Int"))
+          None
+        }
+      }
+    }
+    "toList" | "toListing" => {
+      if arg_values.length() != 0 {
+        diagnostics.push(
+          diag(
+            "IntSeq.\{method_name} expects 0 arguments, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      Some(ListingValue(intseq_materialize(start, end_v, step)))
+    }
+    "map" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("IntSeq.map expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let elements = intseq_materialize(start, end_v, step)
+      let mapped : Array[Value] = []
+      for element in elements {
+        match
+          apply_function_value(
+            "IntSeq.map callback",
+            arg_values[0],
+            [element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(v) => mapped.push(v)
+          None => return None
+        }
+      }
+      Some(ListingValue(mapped))
+    }
+    "fold" => {
+      if arg_values.length() != 2 {
+        diagnostics.push(
+          diag("IntSeq.fold expects 2 arguments, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let mut acc = arg_values[0]
+      let elements = intseq_materialize(start, end_v, step)
+      for element in elements {
+        match
+          apply_function_value(
+            "IntSeq.fold operator",
+            arg_values[1],
+            [acc, element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(v) => acc = v
+          None => return None
+        }
+      }
+      Some(acc)
+    }
+    _ => {
+      diagnostics.push(
+        diag(
+          "Cannot find property `\{method_name}` in object of type `IntSeq`.",
+        ),
       )
       None
     }
@@ -4471,6 +4659,24 @@ fn eval_expr_with_bindings(
                 None
               }
             }
+          // PKL-119b: `.start` / `.end` / `.step` reach the three Int
+          // carrier slots directly. Bare `.step` (no call) returns the
+          // step value; method form `.step(newValue)` is handled in
+          // the CallExpr dispatcher.
+          Some(IntSeqValue(start, end, step)) =>
+            match member_name {
+              "start" => Some(IntValue(start))
+              "end" => Some(IntValue(end))
+              "step" => Some(IntValue(step))
+              _ => {
+                diagnostics.push(
+                  diag(
+                    "Cannot find property `\{member_name}` in object of type `IntSeq`.",
+                  ),
+                )
+                None
+              }
+            }
           Some(_) => {
             diagnostics.push(diag("member access expects Object"))
             None
@@ -4909,6 +5115,48 @@ fn eval_expr_with_bindings(
             None
           }
         }
+      } else if callee is Identifier("IntSeq") &&
+        !stack_contains_binding(stack, "IntSeq") &&
+        find_binding(bindings, "IntSeq") is None {
+        // PKL-119b: `IntSeq(start, end)` constructs an `IntSeqValue`
+        // with step = 1. The `step` knob is set later via
+        // `IntSeq(...).step(n)` rather than a third constructor
+        // argument, matching Apple Pkl's two-arg constructor surface.
+        if arguments.length() != 2 {
+          diagnostics.push(diag("IntSeq expects exactly two arguments"))
+          None
+        } else {
+          let start = eval_expr_with_bindings(
+            arguments[0],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          )
+          let end_v = eval_expr_with_bindings(
+            arguments[1],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          )
+          match (start, end_v) {
+            (Some(IntValue(s)), Some(IntValue(e))) => Some(IntSeqValue(s, e, 1))
+            (Some(_), Some(_)) => {
+              diagnostics.push(diag("IntSeq expects Int arguments"))
+              None
+            }
+            _ => None
+          }
+        }
       } else if callee is Identifier("Pair") &&
         !stack_contains_binding(stack, "Pair") &&
         find_binding(bindings, "Pair") is None {
@@ -5034,6 +5282,7 @@ fn eval_expr_with_bindings(
               is_int_method_name(method_name) ||
               is_regex_method_name(method_name) ||
               is_bytes_method_name(method_name) ||
+              is_intseq_method_name(method_name) ||
               method_name == "toUnit" ||
               method_name == "toBytes" {
               match
@@ -5109,6 +5358,24 @@ fn eval_expr_with_bindings(
                     bytes, method_name, arguments, bindings, env, class_env, cache,
                     stack, declarations, diagnostics, resolve_import,
                   )
+                // PKL-119b: IntSeq methods (`step(n)` / `toList` /
+                // `toListing` / `map` / `fold`) dispatch through the
+                // dedicated method evaluator. `step` is also a
+                // property accessor — the call form (with parens)
+                // lands here; bare `.step` resolves earlier in the
+                // member-access dispatcher.
+                Some(IntSeqValue(start, end_v, step)) =>
+                  if is_intseq_method_name(method_name) {
+                    eval_intseq_method(
+                      start, end_v, step, method_name, arguments, bindings, env,
+                      class_env, cache, stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
                 _ =>
                   eval_callable_call(
                     callee, arguments, bindings, env, class_env, cache, stack, declarations,
@@ -5135,6 +5402,7 @@ fn eval_expr_with_bindings(
               is_int_method_name(method_name) ||
               is_regex_method_name(method_name) ||
               is_bytes_method_name(method_name) ||
+              is_intseq_method_name(method_name) ||
               method_name == "toUnit" ||
               method_name == "toBytes" {
               match
@@ -6829,6 +7097,16 @@ fn render_pcf_scalar(value : Value, buf : StringBuilder) -> Unit {
       render_pcf_inline(second, 0, buf)
       buf.write_char(')')
     }
+    // PKL-119b: PCF round-trips IntSeq through Apple Pkl's constructor
+    // form. Default `step = 1` stays implicit; any other step renders
+    // as a chained `.step(n)` call so re-parsing the output yields the
+    // same IntSeq.
+    IntSeqValue(start, end_v, step) => {
+      buf.write_string("IntSeq(\{start}, \{end_v})")
+      if step != 1 {
+        buf.write_string(".step(\{step})")
+      }
+    }
     ObjectValue(_) | ListingValue(_) | MappingValue(_) =>
       // Defensive: callers should route block values through
       // render_pcf_inline / render_pcf_block_body. Falling back keeps
@@ -7015,6 +7293,10 @@ fn render_json_value(value : Value, indent : Int, buf : StringBuilder) -> Unit {
     // PKL-119a: Pair renders as a 2-element JSON array. Matches
     // Apple Pkl's `Pair`-to-JSON projection.
     PairValue(first, second) => render_json_array([first, second], indent, buf)
+    // PKL-119b: IntSeq materializes to an Int array first, then flows
+    // through the standard JSON array projection.
+    IntSeqValue(start, end_v, step) =>
+      render_json_array(intseq_materialize(start, end_v, step), indent, buf)
   }
 }
 
@@ -7270,6 +7552,18 @@ fn render_yaml_block_value(
     PairValue(first, second) => {
       buf.write_char('\n')
       render_yaml_sequence([first, second], indent, buf)
+    }
+    // PKL-119b: IntSeq materializes and reuses the sequence path so
+    // the YAML output matches what a hand-written `new Listing { ... }`
+    // of the same elements would render to.
+    IntSeqValue(start, end_v, step) => {
+      let elements = intseq_materialize(start, end_v, step)
+      if elements.length() == 0 {
+        buf.write_string(" []\n")
+      } else {
+        buf.write_char('\n')
+        render_yaml_sequence(elements, indent, buf)
+      }
     }
     StringValue(s) =>
       match yaml_string_block_scalar_info(s) {
@@ -7851,6 +8145,11 @@ fn render_plist_value(value : Value, indent : Int, buf : StringBuilder) -> Unit 
     // listing path so element indent / null handling stay consistent
     // with sibling collections.
     PairValue(first, second) => render_plist_array([first, second], indent, buf)
+    // PKL-119b: IntSeq materializes and reuses the plist `<array>`
+    // path so the rendered shape matches a hand-written Listing of
+    // the same elements.
+    IntSeqValue(start, end_v, step) =>
+      render_plist_array(intseq_materialize(start, end_v, step), indent, buf)
   }
 }
 
@@ -8132,6 +8431,19 @@ fn write_compact_json_value(value : Value, buf : StringBuilder) -> Unit {
       write_compact_json_value(first, buf)
       buf.write_char(',')
       write_compact_json_value(second, buf)
+      buf.write_char(']')
+    }
+    // PKL-119b: IntSeq materializes and reuses the listing path so
+    // properties lines see `[1,2,3]` for `IntSeq(1, 3)`.
+    IntSeqValue(start, end_v, step) => {
+      let elements = intseq_materialize(start, end_v, step)
+      buf.write_char('[')
+      for i = 0; i < elements.length(); i = i + 1 {
+        if i > 0 {
+          buf.write_char(',')
+        }
+        write_compact_json_value(elements[i], buf)
+      }
       buf.write_char(']')
     }
   }

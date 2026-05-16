@@ -17,6 +17,11 @@ pub(all) enum Type {
   // `Pair<Int, String>` and `Listing<Int | String>` stay separate,
   // and so `.first` / `.second` resolve only on the Pair side.
   PairType(Type, Type)
+  // PKL-119b: `IntSeq` carries no type parameters (elements are
+  // always Int). The dedicated type keeps `IntSeq` annotations and
+  // `Listing<Int>` distinct at the typecheck layer the same way
+  // `PairType` keeps `Pair<A, B>` separate from `Listing`.
+  IntSeqType
   FunctionType(Array[Type], Type)
   ConstrainedType(String, Type)
   UnionType(Array[Type])
@@ -197,6 +202,7 @@ pub fn render_type(typ : Type) -> String {
     MappingType(_) => "Mapping"
     PairType(first, second) =>
       "Pair<\{render_type(first)}, \{render_type(second)}>"
+    IntSeqType => "IntSeq"
     FunctionType(_, _) => "Function"
     ConstrainedType(_, inner) => render_type(inner)
     UnionType(types) => {
@@ -236,6 +242,10 @@ fn builtin_type_from_annotation(name : String) -> Type? {
     "Object" => Some(ObjectType([]))
     "Listing" => Some(ListingType([]))
     "Mapping" => Some(MappingType([]))
+    // PKL-119b: `IntSeq` annotation resolves to the dedicated
+    // `IntSeqType` so signatures like `r: IntSeq = IntSeq(1, 5)`
+    // typecheck.
+    "IntSeq" => Some(IntSeqType)
     // PKL-134: `List<T>` is Pkl's immutable indexed collection; pkl-mbt
     // collapses Listing / List into the same runtime value so the
     // typechecker treats them as the same shape. Once the value
@@ -3267,6 +3277,105 @@ fn infer_call_expr(
     )
     return PairType(first_type, second_type)
   }
+  // PKL-119b: method-call form on an IntSeq receiver. `.step(n)`
+  // returns a new IntSeq; `.toList()` / `.toListing()` return
+  // `Listing<Int>`; `.map(f)` returns a `Listing` of the lambda's
+  // return type; `.fold(initial, op)` returns the initial type.
+  // Intercept here so the call site sees the correct return type
+  // even though the bare `MemberAccess(intseq, method)` resolves to
+  // UnknownType (or `Int` for the overloaded `.step` accessor).
+  match callee {
+    MemberAccess(target_expr, method_name) =>
+      match
+        infer_expr_with_bindings(
+          target_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+        ) {
+        IntSeqType =>
+          match method_name {
+            "step" => return IntSeqType
+            "toList" | "toListing" => return ListingType([IntType])
+            "map" =>
+              if arguments.length() == 1 {
+                let lambda_type = infer_expr_with_bindings(
+                  arguments[0],
+                  bindings,
+                  env,
+                  type_env,
+                  cache,
+                  stack,
+                  diagnostics,
+                  resolve_import,
+                )
+                match lambda_type {
+                  FunctionType(_, return_type) =>
+                    return ListingType([return_type])
+                  _ => return ListingType([UnknownType])
+                }
+              } else {
+                return ListingType([UnknownType])
+              }
+            "fold" =>
+              if arguments.length() == 2 {
+                return infer_expr_with_bindings(
+                  arguments[0],
+                  bindings,
+                  env,
+                  type_env,
+                  cache,
+                  stack,
+                  diagnostics,
+                  resolve_import,
+                )
+              } else {
+                return UnknownType
+              }
+            _ => ()
+          }
+        _ => ()
+      }
+    _ => ()
+  }
+  // PKL-119b: `IntSeq(start, end)` mirrors the Pair handling. Both
+  // arguments must accept `Int`; the returned type is the parameter-
+  // free `IntSeqType`.
+  if callee is Identifier("IntSeq") &&
+    find_type_binding(bindings, "IntSeq") is None {
+    if arguments.length() != 2 {
+      diagnostics.push(diag("IntSeq expects exactly two arguments"))
+      return UnknownType
+    }
+    let start_type = infer_expr_with_bindings(
+      arguments[0],
+      bindings,
+      env,
+      type_env,
+      cache,
+      stack,
+      diagnostics,
+      resolve_import,
+    )
+    let end_type = infer_expr_with_bindings(
+      arguments[1],
+      bindings,
+      env,
+      type_env,
+      cache,
+      stack,
+      diagnostics,
+      resolve_import,
+    )
+    if !type_accepts(IntType, start_type) {
+      diagnostics.push(
+        diag("IntSeq argument 1 expects Int, got \{render_type(start_type)}"),
+      )
+    }
+    if !type_accepts(IntType, end_type) {
+      diagnostics.push(
+        diag("IntSeq argument 2 expects Int, got \{render_type(end_type)}"),
+      )
+    }
+    return IntSeqType
+  }
   match
     infer_expr_with_bindings(
       callee, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
@@ -3493,6 +3602,27 @@ fn infer_expr_with_bindings(
               diagnostics.push(
                 diag(
                   "Cannot find property `\{member_name}` in object of type `Pair`.",
+                ),
+              )
+              UnknownType
+            }
+          }
+        // PKL-119b: `.start` / `.end` / `.step` resolve to `Int`.
+        // Method names (`.toList` / `.toListing` / `.map` / `.fold` /
+        // overloaded `.step(n)`) fall through silently to UnknownType
+        // because the method-call form is dispatched at runtime
+        // through `eval_intseq_method`; the typechecker does not yet
+        // model collection-method signatures (Listing has the same
+        // gap). Unknown bare-property reads still surface the
+        // canonical Pkl wording.
+        IntSeqType =>
+          match member_name {
+            "start" | "end" | "step" => IntType
+            "toList" | "toListing" | "map" | "fold" => UnknownType
+            _ => {
+              diagnostics.push(
+                diag(
+                  "Cannot find property `\{member_name}` in object of type `IntSeq`.",
                 ),
               )
               UnknownType

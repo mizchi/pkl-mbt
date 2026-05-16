@@ -374,6 +374,28 @@ local cliFloatMagnitudeUnits = new Test {
   timeoutSec = 120
 }
 
+local cliIntSeqValue = new Test {
+  name = "cli int seq value"
+  description =
+    "The native CLI evaluates a fixture exercising the dedicated `IntSeqValue` variant: `IntSeq(1, 5)` construction, bare `.start` / `.end` / `.step` property reads, `.toList()` materialization, `.map((x) -> x * 2)` projection, `.fold(0, (acc, x) -> acc + x)` reduction, `.step(2)` to change the step, `.step(-1)` for descending iteration, empty IntSeq materialization, and `IntSeq` annotation participating in typecheck. PCF renders `IntSeq(s, e)` (default step 1) or `IntSeq(s, e).step(n)` (custom step) so the eval output is parser-readable."
+  tags { "moonbit"; "cli"; "evaluator"; "typechecker"; "stdlib"; "contract" }
+  specRef { "PKL-119b" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_int_seq_value.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "ascending = IntSeq(1, 5)"
+    "start = 1"
+    "end = 5"
+    "step = 1"
+    "sumToFive = 15"
+    "byTwo = IntSeq(0, 10).step(2)"
+    "emptyAscending {}"
+    "annotated = IntSeq(2, 4)"
+    "annotatedStart = 2"
+  }
+  timeoutSec = 120
+}
+
 local cliPairValue = new Test {
   name = "cli pair value"
   description =
@@ -1146,6 +1168,7 @@ tests {
   cliRendererStdlibModules
   cliRendererPlist
   cliPairValue
+  cliIntSeqValue
   cliHeredocString
   cliFormat
   cliTestExamplesPass

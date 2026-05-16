@@ -1864,6 +1864,38 @@ local pairValueVariantScenario = new Scenario {
   }
 }
 
+local intSeqValueVariantScenario = new Scenario {
+  id = "PKL-119b"
+  name = "IntSeq Value variant"
+  description =
+    "IntSeq joins the dedicated stdlib value variants. `Value` gains `IntSeqValue(Int, Int, Int)` carrying start / end / step; `IntSeq(start, end)` constructs one with step = 1 and `.step(newValue)` returns a new IntSeq with the step replaced (zero is rejected). Bare property reads `.start` / `.end` / `.step` return the carrier slots as Int values; method calls `.toList()` / `.toListing()` materialize into a `ListingValue` of Ints (the two share the materialization path until PKL-119c/d split List / Map out), `.map(f)` projects each materialized element through the lambda, and `.fold(initial, op)` reduces left-to-right. PCF round-trips through `IntSeq(s, e)` (or `IntSeq(s, e).step(n)` when step != 1) so the rendered output is parser-readable; JSON / YAML / Properties / plist materialize to a sequence of Int elements. The typechecker gains `IntSeqType` (parameter-free since elements are always Int); `IntSeq` annotations resolve directly, `IntSeq(start, end)` call sites infer to `IntSeqType` with both arguments expected to accept `Int`, and `infer_call_expr` intercepts method-form calls so `.toList()`/`.toListing()` return `Listing<Int>`, `.map(f)` returns a Listing of the lambda's return type, `.fold(initial, op)` returns the initial type, and `.step(n)` returns IntSeqType. Empty IntSeq (e.g. ascending `IntSeq(5, 0)` or descending without `step(-1)`) materializes to an empty Listing; full upstream equality semantics (empty sequences are equal regardless of endpoints, step-aware element-set equality) remains a follow-up — the structural `derive(Eq)` lined up well enough for the contracts we have today."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-119a" }
+  tags { "evaluator"; "typechecker"; "stdlib" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Lazy carrier rather than eager materialization"
+      rationale =
+        "An eager `IntSeqValue(Array[Value])` would have collapsed PCF round-tripping (Apple Pkl renders `IntSeq(0, 1000000)` as the constructor form, not a 1M-element listing) and would have allocated a 1M-slot Array for any range bound, regardless of whether the elements were ever consumed. Storing the three Int slots keeps construction O(1); materialization happens at `.toList()` / `.toListing()` / `.map` / `.fold` / non-PCF renderer projection time, which are the places the elements actually need to exist."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Method-call inference intercepted in `infer_call_expr`, not modelled as method signatures"
+      rationale =
+        "Listing's own collection methods are still typecheck-silent (`xs.map((x) -> x)` typechecks as `member access expects Object` but evaluates fine). Adding a full method-signature table for IntSeq would have either set a precedent we'd need to backfill for Listing / Mapping or introduced a one-off table that lived in a different place from the runtime dispatcher. The lightweight intercept in `infer_call_expr` produces the right return type for the common surface (`.toList` / `.toListing` / `.map` / `.fold` / `.step(n)`) without that broader refactor — when the collection-method-signature work lands (the bigger PKL-110-style slice), the intercept moves into it."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Structural Eq instead of upstream sequence-equality"
+      rationale =
+        "Apple Pkl's `IntSeq.equals` treats every empty sequence as equal regardless of start / end, and equates two non-empty IntSeqs when they produce the same Int list. Mirroring that would require a custom equality function (overriding the `derive(Eq)`) that materialized both operands inside `eval_binary` whenever `==` saw `IntSeqValue` on either side. Today's slice keeps the structural Eq the variant inherits via `derive(Eq)` — same-shape IntSeqs compare equal, different-shape ones don't. The upstream `basic/intseq.pkl` fixture is therefore deferred; it gets promoted alongside the dedicated equality function in a follow-up."
+    }
+  }
+}
+
 local plistRendererScenario = new Scenario {
   id = "PKL-126a"
   name = "plist renderer"
@@ -3842,5 +3874,6 @@ scenarios {
   rendererStdlibModulesScenario
   plistRendererScenario
   pairValueVariantScenario
+  intSeqValueVariantScenario
   ...roadmap.entries
 }

@@ -1,0 +1,34 @@
+// PKL-119b: `IntSeq(start, end)` constructs the dedicated
+// `IntSeqValue` carrier (start, end, step). `.start` / `.end` /
+// `.step` read the three slots; `.step(n)` returns a new IntSeq
+// with the step replaced; `.toList()` / `.toListing()` materialize
+// into a Listing of Ints; `.map(f)` / `.fold(initial, op)` operate
+// on the materialized elements. PCF round-trips through
+// `IntSeq(s, e)` (or `IntSeq(s, e).step(n)` when step != 1) so the
+// rendered output is parser-readable; JSON / YAML / Properties /
+// plist materialize to an array of Ints.
+ascending = IntSeq(1, 5)
+
+start = ascending.start
+
+end = ascending.end
+
+step = ascending.step
+
+ascendingList = ascending.toList()
+
+doubled = ascending.map((x) -> x * 2)
+
+sumToFive = ascending.fold(0, (acc, x) -> acc + x)
+
+byTwo = IntSeq(0, 10).step(2)
+
+byTwoList = byTwo.toList()
+
+descending = IntSeq(5, 0).step(-1).toList()
+
+emptyAscending = IntSeq(5, 0).toList()
+
+annotated: IntSeq = IntSeq(2, 4)
+
+annotatedStart: Int = annotated.start
