@@ -1,0 +1,8 @@
+// PKL-106: driven by `pkl eval -p NAME=VALUE` so `read("prop:NAME")`
+// resolves into the configured prop dictionary. The companion
+// pkspec scenario passes `-p API_KEY=secret-token -p REGION=us-west-2`
+// on the command line; the rendered output binds the values back
+// onto module-level keys so the assertion can pattern-match on them.
+api_key = read("prop:API_KEY")
+
+region = read("prop:REGION")

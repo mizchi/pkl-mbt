@@ -374,6 +374,21 @@ local cliFloatMagnitudeUnits = new Test {
   timeoutSec = 120
 }
 
+local cliSandboxFlags = new Test {
+  name = "cli sandbox flags"
+  description =
+    "The native CLI accepts `-p NAME=VALUE` (repeatable) to populate the `prop:` resolver. The fixture reads two props via `read(\"prop:NAME\")` and the rendered output binds the values back onto module keys so the contract can pattern-match on them. The flag lifts `prop:` into the `read` allow-list alongside `env:`; without the flag the same `read` call surfaces `read: prop <name> is not set`."
+  tags { "moonbit"; "cli"; "sandbox"; "prop"; "contract" }
+  specRef { "PKL-106" }
+  cmd = "moon run cmd/main --target native -- eval -p API_KEY=secret-token -p REGION=us-west-2 fixtures/cli_sandbox_flags.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "api_key = \"secret-token\""
+    "region = \"us-west-2\""
+  }
+  timeoutSec = 120
+}
+
 local cliLintFindings = new Test {
   name = "cli lint findings"
   description =
@@ -989,6 +1004,7 @@ tests {
   cliYamlBlockScalars
   cliAnnotationCapture
   cliLintFindings
+  cliSandboxFlags
   cliHeredocString
   cliFormat
   cliTestExamplesPass

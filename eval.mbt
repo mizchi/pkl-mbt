@@ -5878,12 +5878,13 @@ fn eval_module_relation(
 
 ///|
 fn eval_read_uri(uri : String, diagnostics : Array[Diagnostic]) -> Value? {
-  // PKL-098 sandbox policy: only `env:` is on the allow-list. The
-  // remaining Apple Pkl schemes (`prop:`, `file:`, `https:`, `package:`)
-  // need an explicit policy decision and a configuration channel
-  // (CLI flags, evaluator options) before any concrete semantics
-  // ship — surfacing them as a diagnostic keeps the failure mode
-  // honest until that follow-up slice.
+  // PKL-098 / PKL-106 sandbox policy: `env:` is always on the
+  // allow-list; `prop:` is allow-listed when the CLI installed at
+  // least one `-p NAME=VALUE` binding. The remaining Apple Pkl
+  // schemes (`file:`, `https:`, `package:`) still need explicit
+  // policy decisions before they ship; surfacing them as a
+  // diagnostic keeps the failure mode honest until those follow-up
+  // slices land.
   match uri.find(":") {
     None => {
       diagnostics.push(diag("read: missing URI scheme in \"\{uri}\""))
@@ -5897,6 +5898,14 @@ fn eval_read_uri(uri : String, diagnostics : Array[Diagnostic]) -> Value? {
           Some(value) => Some(StringValue(value))
           None => {
             diagnostics.push(diag("read: env variable \{rest} is not set"))
+            None
+          }
+        }
+      } else if scheme == "prop" {
+        match sandbox_lookup_prop(rest) {
+          Some(value) => Some(StringValue(value))
+          None => {
+            diagnostics.push(diag("read: prop \{rest} is not set"))
             None
           }
         }

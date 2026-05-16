@@ -38,18 +38,6 @@ local pklRepl: Spec.Scenario = new {
   severity = "minor"
 }
 
-local cliAllowedModules: Spec.Scenario = new {
-  id = "PKL-106"
-  name = "cli sandbox flags"
-  description =
-    "`--allowed-modules <pattern>` / `--module-path <dir>` / `-p NAME=VALUE` populate the sandbox allow-list and the `prop:` resolver, lifting `read(\"prop:NAME\")` into the allow-list alongside `env:`."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-098" }
-  tags { "cli"; "sandbox"; "next" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 // ── diagnostics, upstream compatibility ─────────────────────────────────────
 
 local errorMessageUpstreamAlign: Spec.Scenario = new {
@@ -59,7 +47,7 @@ local errorMessageUpstreamAlign: Spec.Scenario = new {
     "Rephrase constraint / type rejection / read-failure messages to match Apple Pkl's exact wording so upstream error-fixture diffs become byte-exact. Today's diagnostics are functional but use project-local phrasing."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-107" }
-  tags { "diagnostics"; "compatibility" }
+  tags { "diagnostics"; "compatibility"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -223,7 +211,6 @@ local lspServer: Spec.Scenario = new {
 
 entries: Listing<Spec.Scenario> = new {
   pklRepl
-  cliAllowedModules
   errorMessageUpstreamAlign
   upstreamFixtureSweepExpansion
   inheritanceDispatchHardening

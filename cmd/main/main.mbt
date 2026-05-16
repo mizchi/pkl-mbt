@@ -6,12 +6,40 @@ fn usage() -> Unit {
   println("       pkl format <file.pkl>")
   println("       pkl analyze <file.pkl>")
   println("       pkl parse-many <file.pkl>...")
+  println(
+    "  sandbox flags: --allowed-modules <pipe-separated-prefixes> --module-path <dir> -p NAME=VALUE",
+  )
 }
 
 ///|
 fn fail(message : String) -> Unit {
   println(message)
   @sys.exit(1)
+}
+
+///|
+
+///|
+/// Split `s` on `|`. Empty segments are dropped so a trailing or
+/// leading pipe doesn't introduce an empty allow-list entry that
+/// would match every URI.
+fn split_pipe(s : String) -> Array[String] {
+  let parts : Array[String] = []
+  let mut start = 0
+  let mut i = 0
+  while i < s.length() {
+    if s[i].to_int().unsafe_to_char() == '|' {
+      if i > start {
+        parts.push(String::unsafe_substring(s, start~, end=i))
+      }
+      start = i + 1
+    }
+    i = i + 1
+  }
+  if start < s.length() {
+    parts.push(String::unsafe_substring(s, start~, end=s.length()))
+  }
+  parts
 }
 
 ///|
@@ -117,6 +145,44 @@ async fn load_expr_imports(
 }
 
 ///|
+
+///|
+/// PKL-106: read a file, falling back to the `--module-path`
+/// directories when the direct read misses. The first hit wins and
+/// the absolute path is reported via `fail` if every candidate
+/// misses so the diagnostic names the original URI, not an unhelpful
+/// fallback path. Module-path directories are only consulted when
+/// `path` has no scheme prefix and isn't an absolute filesystem
+/// path — otherwise the user's intent was already explicit.
+fn read_with_module_paths(path : String) -> String {
+  let direct = @fs.read_file_to_string(path) catch { _ => "" }
+  if direct != "" {
+    return direct
+  }
+  let direct_exists = @fs.path_exists(path)
+  if direct_exists {
+    return direct
+  }
+  if path.has_prefix("/") || path.find(":") is Some(_) {
+    fail("failed to read \{path}")
+    return ""
+  }
+  for dir in @pkl.sandbox_module_paths() {
+    let candidate = if dir.has_suffix("/") {
+      dir + path
+    } else {
+      dir + "/" + path
+    }
+    let body = @fs.read_file_to_string(candidate) catch { _ => "" }
+    if body != "" || @fs.path_exists(candidate) {
+      return body
+    }
+  }
+  fail("failed to read \{path}")
+  ""
+}
+
+///|
 async fn load_path(
   session : @pkl.AnalysisSession,
   path : String,
@@ -125,6 +191,13 @@ async fn load_path(
 ) -> Unit {
   if path.has_prefix("pkl:") {
     return
+  }
+  // PKL-106: enforce `--allowed-modules` at the loader boundary.
+  // The check applies to every URI we'd actually fetch / read, so a
+  // disallowed transitive import surfaces at load time rather than
+  // as a missing-symbol diagnostic from the evaluator.
+  if !@pkl.sandbox_is_module_allowed(path) {
+    fail("module \{path} is not allowed by --allowed-modules")
   }
   if stack_contains(stack, path) {
     fail("cyclic import \{path}")
@@ -163,12 +236,7 @@ async fn load_path(
     )
     ""
   } else {
-    @fs.read_file_to_string(path) catch {
-      _ => {
-        fail("failed to read \{path}")
-        ""
-      }
-    }
+    read_with_module_paths(path)
   }
   session.set_source(path, source)
   let parsed = @pkl.parse_source(source)
@@ -365,6 +433,14 @@ async fn main {
   let mut format_explicit = false
   let mut overwrite = false
   let positional : Array[String] = []
+  // PKL-106: sandbox knobs. Each is collected as a list so multiple
+  // occurrences accumulate (`-p A=1 -p B=2`, `--module-path foo
+  // --module-path bar`). `--allowed-modules` takes a single `|`-
+  // separated pattern argument and overwrites the previous one,
+  // matching Apple Pkl's flag.
+  let prop_pairs : Map[String, String] = Map([], capacity=8)
+  let module_paths : Array[String] = []
+  let mut allowed_modules : Array[String] = []
   let mut i = 2
   while i < args.length() {
     let token = args[i]
@@ -379,11 +455,47 @@ async fn main {
     } else if token == "--overwrite" {
       overwrite = true
       i = i + 1
+    } else if token == "-p" {
+      if i + 1 >= args.length() {
+        usage()
+        @sys.exit(1)
+      }
+      let pair = args[i + 1]
+      match pair.find("=") {
+        Some(eq) => {
+          let name = String::unsafe_substring(pair, start=0, end=eq)
+          let value = String::unsafe_substring(
+            pair,
+            start=eq + 1,
+            end=pair.length(),
+          )
+          prop_pairs[name] = value
+        }
+        None => fail("-p expects NAME=VALUE, got: \{pair}")
+      }
+      i = i + 2
+    } else if token == "--module-path" {
+      if i + 1 >= args.length() {
+        usage()
+        @sys.exit(1)
+      }
+      module_paths.push(args[i + 1])
+      i = i + 2
+    } else if token == "--allowed-modules" {
+      if i + 1 >= args.length() {
+        usage()
+        @sys.exit(1)
+      }
+      allowed_modules = split_pipe(args[i + 1])
+      i = i + 2
     } else {
       positional.push(token)
       i = i + 1
     }
   }
+  @pkl.configure_sandbox_props(prop_pairs)
+  @pkl.configure_sandbox_module_paths(module_paths)
+  @pkl.configure_sandbox_allowed_modules(allowed_modules)
   if format != "pcf" &&
     format != "json" &&
     format != "yaml" &&

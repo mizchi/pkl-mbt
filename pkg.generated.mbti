@@ -35,6 +35,12 @@ pub fn comment() -> @cst.SyntaxKind
 
 pub fn conditional_expr() -> @cst.SyntaxKind
 
+pub fn configure_sandbox_allowed_modules(Array[String]) -> Unit
+
+pub fn configure_sandbox_module_paths(Array[String]) -> Unit
+
+pub fn configure_sandbox_props(Map[String, String]) -> Unit
+
 pub fn diag(String) -> Diagnostic
 
 pub fn dot() -> @cst.SyntaxKind
@@ -184,6 +190,12 @@ pub fn render_value_as_properties(Value) -> String
 pub fn render_value_as_yaml(Value) -> String
 
 pub fn rparen() -> @cst.SyntaxKind
+
+pub fn sandbox_is_module_allowed(String) -> Bool
+
+pub fn sandbox_lookup_prop(String) -> String?
+
+pub fn sandbox_module_paths() -> Array[String]
 
 pub fn semicolon() -> @cst.SyntaxKind
 

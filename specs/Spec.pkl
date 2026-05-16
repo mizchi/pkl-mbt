@@ -1812,6 +1812,38 @@ local floatMagnitudeUnits = new Scenario {
   }
 }
 
+local cliSandboxFlagsScenario = new Scenario {
+  id = "PKL-106"
+  name = "cli sandbox flags"
+  description =
+    "Three CLI flags configure the sandbox surface that `read` / `import` consult: `-p NAME=VALUE` (repeatable) populates the `prop:` resolver and lifts `read(\"prop:NAME\")` into the allow-list alongside `env:`; `--module-path <dir>` (repeatable) appends directories the loader searches when an unqualified import URI misses the working directory; `--allowed-modules <pipe-separated-prefixes>` overwrites a per-scheme allow-list that the loader enforces against import URIs. The allow-list applies only to URIs carrying a `scheme:` prefix (`pkl:`, `https:`, `package:`, etc.) — bare filesystem paths bypass the check so the entrypoint and locally-rooted imports don't have to be re-spelled into the pattern. Configuration is captured in module-level mutable state via `configure_sandbox_props` / `configure_sandbox_allowed_modules` / `configure_sandbox_module_paths`; the CLI installs the values once at startup before any evaluation runs, and the evaluator reads them through `sandbox_lookup_prop` / `sandbox_is_module_allowed` / `sandbox_module_paths`. Missing `prop:` reads surface `read: prop <NAME> is not set` (parallel to the existing `read: env variable <NAME> is not set`); disallowed module URIs surface `module <uri> is not allowed by --allowed-modules` at the loader boundary."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-098" }
+  tags { "cli"; "sandbox" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Module-level mutable sandbox state instead of threading SandboxConfig through every eval call"
+      rationale =
+        "The evaluator's deepest call paths (eval_expr_with_bindings, eval_module_path, eval_read_uri) are reached via dozens of intermediate frames. Plumbing a SandboxConfig argument through every one of them is a multi-hundred-line refactor that pays nothing back as long as the CLI is the only configurator. Module-level state mirrors how `env:` already reads from process-global state (host environment), so the precedent is already in the codebase. When an embedded use case demands per-evaluation isolation, the configurators can be swapped for a session-scoped struct without touching the read path."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Allow-list bypasses bare filesystem paths; only scheme-prefixed URIs are gated"
+      rationale =
+        "Apple Pkl's `--allowed-modules` is a per-scheme allow-list (`pkl:|file:|https:|package:`). Our CLI loads modules by bare filesystem path (no `file:` wrapper); applying the same allow-list literally would force every user to spell `file:` into the pattern just to load their own entrypoint, which is the opposite of useful. Bypassing bare paths keeps the surface honest: the allow-list governs trust-boundary crossings (`https:` / `package:` / `pkl:`) while local files stay subject to host filesystem permissions and the user's command-line intent."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Module-path fallback at FS-read time, not in resolve_import_path"
+      rationale =
+        "`resolve_import_path` is a pure string operation; teaching it to consult the filesystem would couple URI resolution to disk state and complicate the analysis layer. Falling back through `--module-path` only when the direct read misses keeps the resolver pure: the loader has full control of disk access and can iterate candidates without changing how downstream code interprets a path."
+    }
+  }
+}
+
 local analyzeLintSubcommand = new Scenario {
   id = "PKL-102"
   name = "pkl analyze lint subcommand"
@@ -3593,5 +3625,6 @@ scenarios {
   yamlBlockScalars
   annotationClassCapture
   analyzeLintSubcommand
+  cliSandboxFlagsScenario
   ...roadmap.entries
 }

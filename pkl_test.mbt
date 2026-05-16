@@ -2929,6 +2929,69 @@ test "PKL-102: import referenced via generic type annotation counts" {
 }
 
 ///|
+test "PKL-106: read prop returns configured value" {
+  configure_sandbox_props({ "API_KEY": "secret123" })
+  let result = eval_source("api_key = read(\"prop:API_KEY\")")
+  guard result is EvalOk(value) else { panic() }
+  inspect(
+    render_value(value),
+    content=(
+      #|api_key = "secret123"
+    ),
+  )
+  configure_sandbox_props(Map([], capacity=8))
+}
+
+///|
+test "PKL-106: read prop missing surfaces diagnostic" {
+  configure_sandbox_props(Map([], capacity=8))
+  let result = eval_source("api_key = read(\"prop:ABSENT\")")
+  guard result is EvalError(diagnostics) else { panic() }
+  inspect(diagnostics[0].message, content="read: prop ABSENT is not set")
+}
+
+///|
+test "PKL-106: sandbox_is_module_allowed empty list permits any URI" {
+  configure_sandbox_allowed_modules([])
+  inspect(sandbox_is_module_allowed("pkl:math"), content="true")
+  inspect(
+    sandbox_is_module_allowed("https://example.com/foo.pkl"),
+    content="true",
+  )
+  inspect(sandbox_is_module_allowed("/abs/path/file.pkl"), content="true")
+}
+
+///|
+test "PKL-106: sandbox_is_module_allowed checks scheme prefixes" {
+  configure_sandbox_allowed_modules(["pkl:", "file:"])
+  inspect(sandbox_is_module_allowed("pkl:math"), content="true")
+  inspect(sandbox_is_module_allowed("file:///foo.pkl"), content="true")
+  inspect(
+    sandbox_is_module_allowed("https://example.com/foo.pkl"),
+    content="false",
+  )
+  configure_sandbox_allowed_modules([])
+}
+
+///|
+test "PKL-106: sandbox_is_module_allowed exempts bare filesystem paths" {
+  configure_sandbox_allowed_modules(["pkl:"])
+  inspect(sandbox_is_module_allowed("foo/bar.pkl"), content="true")
+  inspect(sandbox_is_module_allowed("/abs/path/file.pkl"), content="true")
+  configure_sandbox_allowed_modules([])
+}
+
+///|
+test "PKL-106: module-paths are stored in CLI order" {
+  configure_sandbox_module_paths(["dir-a", "dir-b"])
+  let dirs = sandbox_module_paths()
+  inspect(dirs.length(), content="2")
+  inspect(dirs[0], content="dir-a")
+  inspect(dirs[1], content="dir-b")
+  configure_sandbox_module_paths([])
+}
+
+///|
 test "PKL-125: YAML literal block scalar clips with single trailing newline" {
   let v : Value = ObjectValue([
     ValueMember::{ name: "p", value: StringValue("line one\nline two\n") },

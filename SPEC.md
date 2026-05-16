@@ -1,6 +1,6 @@
 # Test SPEC
 
-195 tests across 2 module(s) — 145 pending, 50 active
+196 tests across 2 module(s) — 145 pending, 51 active
 
 ## `specs/`
 
@@ -179,10 +179,11 @@
   - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **cli sandbox flags** [draft] — verifies: PKL-106 — tags: cli, sandbox, next
-  > `--allowed-modules <pattern>` / `--module-path <dir>` / `-p NAME=VALUE` populate the sandbox allow-list and the `prop:` resolver, lifting `read("prop:NAME")` into the allow-list alongside `env:`.
+- [ ] **cli sandbox flags** — verifies: PKL-106 — tags: cli, sandbox
+  > Three CLI flags configure the sandbox surface that `read` / `import` consult: `-p NAME=VALUE` (repeatable) populates the `prop:` resolver and lifts `read("prop:NAME")` into the allow-list alongside `env:`; `--module-path <dir>` (repeatable) appends directories the loader searches when an unqualified import URI misses the working directory; `--allowed-modules <pipe-separated-prefixes>` overwrites a per-scheme allow-list that the loader enforces against import URIs. The allow-list applies only to URIs carrying a `scheme:` prefix (`pkl:`, `https:`, `package:`, etc.) — bare filesystem paths bypass the check so the entrypoint and locally-rooted imports don't have to be re-spelled into the pattern. Configuration is captured in module-level mutable state via `configure_sandbox_props` / `configure_sandbox_allowed_modules` / `configure_sandbox_module_paths`; the CLI installs the values once at startup before any evaluation runs, and the evaluator reads them through `sandbox_lookup_prop` / `sandbox_is_module_allowed` / `sandbox_module_paths`. Missing `prop:` reads surface `read: prop <NAME> is not set` (parallel to the existing `read: env variable <NAME> is not set`); disallowed module URIs surface `module <uri> is not allowed by --allowed-modules` at the loader boundary.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-098
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **constraint predicate composition** (minor) — verifies: PKL-128c — tags: parser, constraints
@@ -226,7 +227,7 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **error message text upstream alignment** [draft] — verifies: PKL-108 — tags: diagnostics, compatibility
+- [ ] **error message text upstream alignment** [draft] — verifies: PKL-108 — tags: diagnostics, compatibility, next
   > Rephrase constraint / type rejection / read-failure messages to match Apple Pkl's exact wording so upstream error-fixture diffs become byte-exact. Today's diagnostics are functional but use project-local phrasing.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-107
@@ -1125,6 +1126,10 @@
 
 - [x] **cli renderer converters** — verifies: PKL-105 — tags: moonbit, cli, renderer, converter, contract
   > The native CLI evaluates a fixture whose `output { renderer = new JsonRenderer { converters { ... } } }` declares two path-keyed converters: `["count"] = (v) -> v * 10` and `["server.port"] = (p) -> p + 1`. The post-eval pass rewrites both values before the JSON renderer fires, so `count = 5` shows as 50 and `server.port = 8080` shows as 8081 in the rendered output.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli sandbox flags** — verifies: PKL-106 — tags: moonbit, cli, sandbox, prop, contract
+  > The native CLI accepts `-p NAME=VALUE` (repeatable) to populate the `prop:` resolver. The fixture reads two props via `read("prop:NAME")` and the rendered output binds the values back onto module keys so the contract can pattern-match on them. The flag lifts `prop:` into the `read` allow-list alongside `env:`; without the flag the same `read` call surfaces `read: prop <name> is not set`.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli scientific float** — verifies: PKL-128b — tags: moonbit, cli, parser, lexer, float, contract
