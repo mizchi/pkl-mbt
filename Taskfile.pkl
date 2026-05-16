@@ -101,6 +101,22 @@ local checkNative: Task = new {
   tools = commonTools
 }
 
+local checkWasm: Task = new {
+  name = "check-wasm"
+  description = "Type-check the wasm target with warnings denied — guarantees the @pkl library plus the cmd/mpkl wasm stub stay buildable for library consumers."
+  cmd = "moon check --deny-warn --target wasm"
+  inputs = moonSources
+  tools = commonTools
+}
+
+local checkWasmGc: Task = new {
+  name = "check-wasm-gc"
+  description = "Type-check the wasm-gc target with warnings denied — same surface as check-wasm but for the wasm-gc backend that modern hosts default to."
+  cmd = "moon check --deny-warn --target wasm-gc"
+  inputs = moonSources
+  tools = commonTools
+}
+
 local test: Task = new {
   name = "test"
   description = "Run MoonBit tests on the default JS target"
@@ -176,9 +192,9 @@ local ci: Task = new {
 
 local releaseCheck: Task = new {
   name = "release-check"
-  description = "Full local gate across JS and native targets"
+  description = "Full local gate across JS, native, and wasm / wasm-gc targets"
   cmd = "true"
-  deps { ci; checkNative; testNative; spec }
+  deps { ci; checkNative; checkWasm; checkWasmGc; testNative; spec }
   tools = commonTools
   cache = false
 }
@@ -209,6 +225,8 @@ tasks {
   infoCheck
   check
   checkNative
+  checkWasm
+  checkWasmGc
   test
   testNative
   benchNative

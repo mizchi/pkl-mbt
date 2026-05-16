@@ -6,11 +6,20 @@ import {
   "moonbitlang/x/sys" @sys,
 }
 
+// `async fn main` in main.mbt routes through moonbitlang/async's
+// `run_async_main`, which is `#cfg(target="native"|"js")` only.
+// The wasm / wasm-gc targets therefore can't host the CLI; restrict
+// every source file in this package to native + js. Wasm consumers
+// embed the `@pkl` library directly (it builds clean on all four
+// targets) — see README's Install section.
+
 options(
   "is-main": true,
   targets: {
+    "main.mbt": [ "native", "js" ],
+    "stdlib_check.mbt": [ "native", "js" ],
     "fetch_native.mbt": [ "native" ],
     "fetch_js.mbt": [ "js" ],
-    "fetch_wasm.mbt": [ "wasm", "wasm-gc" ],
+    "main_wasm.mbt": [ "wasm", "wasm-gc" ],
   },
 )

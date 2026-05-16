@@ -4,13 +4,13 @@ Pure MoonBit parser, typechecker, and evaluator for Apple's [Pkl](https://pkl-la
 
 ## Install
 
-CLI:
+CLI (`native` + `js` only — the wasm / wasm-gc targets ship a stub `main` that points users at the library):
 
 ```bash
 moon install mizchi/pkl/cmd/mpkl
 ```
 
-Library:
+Library — builds clean on all four MoonBit targets (`native`, `js`, `wasm`, `wasm-gc`); the @pkl surface is pure (no IO, no async), so an embedder running in a wasm sandbox can depend on it directly:
 
 ```bash
 moon add mizchi/pkl
