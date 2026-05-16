@@ -1,0 +1,24 @@
+// PKL-102: drives `pkl analyze` lint findings.
+// The intentional mistakes in this fixture exercise each rule the
+// analyser reports today:
+//   - `Helper` import is brought in but never referenced
+//   - `unusedLocal` is declared `local` but no expression mentions it
+//   - class `UnusedHelper` is never referenced; its `temp` property
+//     is also not consumed by siblings → unused-class-property
+//   - `Helper` binding name collides with the import of the same
+//     name → shadowed-identifier
+// The fixture intentionally does *not* round-trip through `pkl eval`
+// — the goal is to drive the CLI lint surface, not module evaluation.
+module fixtures.cli_lint_findings
+
+import "cli_lint_helper.pkl" as Helper
+
+local unusedLocal: Int = 42
+
+local Helper: Int = 0
+
+class UnusedHelper {
+  temp: Int = 7
+  used: Int = 8
+  computed: Int = used + 1
+}

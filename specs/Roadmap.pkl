@@ -38,18 +38,6 @@ local pklRepl: Spec.Scenario = new {
   severity = "minor"
 }
 
-local pklAnalyzeLint: Spec.Scenario = new {
-  id = "PKL-102"
-  name = "pkl analyze lint subcommand"
-  description =
-    "`moon run cmd/main -- analyze <file>` reports lint findings: unused local bindings, unused imports, unused class properties, shadowed identifiers. Diagnostics carry source position once PKL-107 lands."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-009" }
-  tags { "cli"; "lint"; "next" }
-  reviewStatus = "draft"
-  severity = "minor"
-}
-
 local cliAllowedModules: Spec.Scenario = new {
   id = "PKL-106"
   name = "cli sandbox flags"
@@ -57,7 +45,7 @@ local cliAllowedModules: Spec.Scenario = new {
     "`--allowed-modules <pattern>` / `--module-path <dir>` / `-p NAME=VALUE` populate the sandbox allow-list and the `prop:` resolver, lifting `read(\"prop:NAME\")` into the allow-list alongside `env:`."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-098" }
-  tags { "cli"; "sandbox" }
+  tags { "cli"; "sandbox"; "next" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -235,7 +223,6 @@ local lspServer: Spec.Scenario = new {
 
 entries: Listing<Spec.Scenario> = new {
   pklRepl
-  pklAnalyzeLint
   cliAllowedModules
   errorMessageUpstreamAlign
   upstreamFixtureSweepExpansion

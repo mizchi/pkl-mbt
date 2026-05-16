@@ -374,6 +374,24 @@ local cliFloatMagnitudeUnits = new Test {
   timeoutSec = 120
 }
 
+local cliLintFindings = new Test {
+  name = "cli lint findings"
+  description =
+    "The native CLI's `analyze` subcommand runs lint checks over the parsed module and prints one `path: rule: message` line per finding before exiting non-zero. The fixture intentionally exercises all four rules: an unused `local` binding, an unused import, an unused property on an unreferenced class, and a binding name that shadows an import."
+  tags { "moonbit"; "cli"; "lint"; "analyze"; "contract" }
+  specRef { "PKL-102" }
+  cmd = "moon run cmd/main --target native -- analyze fixtures/cli_lint_findings.pkl"
+  workdir = ".."
+  expectExitCode = 1
+  expectStdoutContains {
+    "unused-local-binding: local binding `unusedLocal` is never referenced"
+    "unused-import: import `Helper` (from \"cli_lint_helper.pkl\") is never referenced"
+    "unused-class-property: property `temp` of unused class `UnusedHelper` is never referenced"
+    "shadowed-identifier: binding `Helper` shadows existing import of the same name"
+  }
+  timeoutSec = 120
+}
+
 local cliAnnotationCapture = new Test {
   name = "cli annotation capture"
   description =
@@ -971,6 +989,7 @@ tests {
   cliStringUnicode
   cliYamlBlockScalars
   cliAnnotationCapture
+  cliLintFindings
   cliHeredocString
   cliFormat
   cliTestExamplesPass

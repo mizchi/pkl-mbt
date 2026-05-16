@@ -1812,6 +1812,38 @@ local floatMagnitudeUnits = new Scenario {
   }
 }
 
+local analyzeLintSubcommand = new Scenario {
+  id = "PKL-102"
+  name = "pkl analyze lint subcommand"
+  description =
+    "`moon run cmd/main -- analyze <file>` parses the module and runs a lint pass over the resulting `Program`. Four rules ship: `unused-local-binding` (a module-level `local` whose name never appears on any expression), `unused-import` (an import name never referenced), `unused-class-property` (a property of a class whose own name is never referenced — public schema classes are exempt to avoid noise), and `shadowed-identifier` (a binding whose name collides with an import / function / class / typealias at module scope). Findings render as `path: rule: message` one per line and the command exits non-zero when any finding surfaces, so editor integrations and CI can fail on lint regressions. Source positions become useful once PKL-107 propagates byte offsets into the AST; today's output is rule-driven."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-009" }
+  tags { "cli"; "lint"; "analyze" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Limit unused-class-property to classes whose own name is unreferenced"
+      rationale =
+        "Pkl class properties are typically the module's public schema — every property of a config-shaped class is intentionally `unused` by the module that declares it because the consumer is the caller / renderer. Linting every such property would flood the output. Restricting the rule to classes whose name itself is never referenced in the module catches the real failure mode (a private helper class left over after a refactor) without yelling about config schema. PKL-102's lint surface is intentionally tight; richer per-property visibility comes once Pkl gains a `local` modifier on class properties."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Substring scan for type-annotation references, not full type-expression parsing"
+      rationale =
+        "Type annotations in the AST today are stored as their raw textual form (`\"Listing<Box>\"`, `\"Box?\"`). The lint pass needs to spot references like `Box` inside `Listing<Box>` so that a class name used only as a generic argument doesn't get flagged as unused. A substring scan bounded by identifier-character boundaries (`[A-Za-z0-9_]`) is enough for the current surface and keeps the linter independent of the type-expression parser, which is being expanded incrementally by PKL-110 / PKL-115 / PKL-116. When the type-expression AST stabilises the scan can be swapped for a structured walk."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Single-rule per finding; no severity gradient"
+      rationale =
+        "The four ship-day rules are deterministic AST predicates with no false-positive nuance — every finding is actionable. Adding a severity field (info / warn / error) would force the CLI to gain `--max-severity` knobs and tempt the linter to ship rules that need configuration. Keeping output as `path: rule: message` with non-zero exit on any finding gives the simplest contract for CI integration; severity can land later as a `LintFinding` field once a rule needs it."
+    }
+  }
+}
+
 local annotationClassCapture = new Scenario {
   id = "PKL-128d"
   name = "annotation class capture"
@@ -3560,5 +3592,6 @@ scenarios {
   stringUnicodeMethods
   yamlBlockScalars
   annotationClassCapture
+  analyzeLintSubcommand
   ...roadmap.entries
 }

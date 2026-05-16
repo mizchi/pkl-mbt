@@ -1,6 +1,6 @@
 # Test SPEC
 
-194 tests across 2 module(s) — 145 pending, 49 active
+195 tests across 2 module(s) — 145 pending, 50 active
 
 ## `specs/`
 
@@ -179,7 +179,7 @@
   - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **cli sandbox flags** [draft] — verifies: PKL-106 — tags: cli, sandbox
+- [ ] **cli sandbox flags** [draft] — verifies: PKL-106 — tags: cli, sandbox, next
   > `--allowed-modules <pattern>` / `--module-path <dir>` / `-p NAME=VALUE` populate the sandbox allow-list and the `prop:` resolver, lifting `read("prop:NAME")` into the allow-list alongside `env:`.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-098
@@ -590,10 +590,11 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **pkl analyze lint subcommand** (minor) [draft] — verifies: PKL-102 — tags: cli, lint, next
-  > `moon run cmd/main -- analyze <file>` reports lint findings: unused local bindings, unused imports, unused class properties, shadowed identifiers. Diagnostics carry source position once PKL-107 lands.
+- [ ] **pkl analyze lint subcommand** (minor) — verifies: PKL-102 — tags: cli, lint, analyze
+  > `moon run cmd/main -- analyze <file>` parses the module and runs a lint pass over the resulting `Program`. Four rules ship: `unused-local-binding` (a module-level `local` whose name never appears on any expression), `unused-import` (an import name never referenced), `unused-class-property` (a property of a class whose own name is never referenced — public schema classes are exempt to avoid noise), and `shadowed-identifier` (a binding whose name collides with an import / function / class / typealias at module scope). Findings render as `path: rule: message` one per line and the command exits non-zero when any finding surfaces, so editor integrations and CI can fail on lint regressions. Source positions become useful once PKL-107 propagates byte offsets into the AST; today's output is rule-driven.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-009
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **pkl repl interactive evaluator** (minor) [draft] — verifies: PKL-101 — tags: cli, repl
@@ -1081,6 +1082,10 @@
 - [x] **cli is operator runtime** — verifies: PKL-114 — tags: moonbit, cli, evaluator, is-operator, contract
   > The native CLI evaluates a fixture that exercises the `is` operator at runtime: `5 is Int`, `1.5 is Float`, `Number` checks against both Int and Float values, a negative check (`"x" is Int = false`), and an `if (x is Int) ...` branch inside a function. No `parser-only` diagnostic is raised — the evaluator routes through `value_is_type` and produces concrete Bool values.
   - body: `cmd` (exit 0 expected)
+
+- [x] **cli lint findings** — verifies: PKL-102 — tags: moonbit, cli, lint, analyze, contract
+  > The native CLI's `analyze` subcommand runs lint checks over the parsed module and prints one `path: rule: message` line per finding before exiting non-zero. The fixture intentionally exercises all four rules: an unused `local` binding, an unused import, an unused property on an unreferenced class, and a binding name that shadows an import.
+  - body: `cmd` (exit 1 expected)
 
 - [x] **cli listing mapping functional** — verifies: PKL-135 — tags: moonbit, cli, stdlib, pkf-pkspec, contract
   > The native CLI evaluates a fixture that exercises `Listing.flatMap` / `count` / `every` / `any` / `none` / `find` / `findLast` / `findOrNull`, plus `Mapping.every` / `any` / `none` / `count`. Each method routes through `apply_function_value` per element and returns the value Apple Pkl produces for the equivalent call.

@@ -103,6 +103,8 @@ pub fn let_decl() -> @cst.SyntaxKind
 
 pub fn let_kw() -> @cst.SyntaxKind
 
+pub fn lint_program(Program) -> Array[LintFinding]
+
 pub fn listing_expr() -> @cst.SyntaxKind
 
 pub fn literal_expr() -> @cst.SyntaxKind
@@ -356,6 +358,11 @@ pub(all) struct FunctionParameter {
 pub(all) struct ImportDecl {
   uri : String
   import_name : String
+} derive(Eq, @debug.Debug)
+
+pub(all) struct LintFinding {
+  rule : String
+  message : String
 } derive(Eq, @debug.Debug)
 
 pub(all) struct MappingEntry {

@@ -1,9 +1,10 @@
 ///|
 fn usage() -> Unit {
-  println("usage: pkl <parse|check|eval|test|format> <file.pkl>")
+  println("usage: pkl <parse|check|eval|test|format|analyze> <file.pkl>")
   println("       pkl eval [-f|--format pcf|json|yaml|properties] <file.pkl>")
   println("       pkl test <file.pkl>")
   println("       pkl format <file.pkl>")
+  println("       pkl analyze <file.pkl>")
   println("       pkl parse-many <file.pkl>...")
 }
 
@@ -533,6 +534,25 @@ async fn main {
           @sys.exit(1)
         }
       }
+    }
+    "analyze" => {
+      // PKL-102: lightweight lint pass over the parsed module.
+      // Reports unused locals / imports / private-class properties
+      // and module-level shadowing. Exits non-zero when any finding
+      // surfaces so editors / CI can fail on lint regressions.
+      let parsed = @pkl.parse_source(source)
+      if parsed.diagnostics.length() > 0 {
+        print_diagnostics_with_source(parsed.diagnostics, path, source)
+        @sys.exit(1)
+      }
+      let findings = @pkl.lint_program(parsed.program)
+      for finding in findings {
+        println("\{path}: \{finding.rule}: \{finding.message}")
+      }
+      if findings.length() > 0 {
+        @sys.exit(1)
+      }
+      println("ok")
     }
     "format" => {
       // PKL-099: parse the source, evaluate it through the existing

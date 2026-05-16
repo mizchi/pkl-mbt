@@ -2849,6 +2849,86 @@ test "PKL-128d: typealias annotation captures" {
 }
 
 ///|
+test "PKL-102: unused local binding surfaces lint finding" {
+  let parsed = parse_source("local foo: Int = 1\nbar: Int = 2")
+  let findings = lint_program(parsed.program)
+  inspect(findings.length(), content="1")
+  inspect(findings[0].rule, content="unused-local-binding")
+  inspect(
+    findings[0].message,
+    content="local binding `foo` is never referenced",
+  )
+}
+
+///|
+test "PKL-102: referenced local binding is not flagged" {
+  let parsed = parse_source("local foo: Int = 1\nbar: Int = foo + 2")
+  let findings = lint_program(parsed.program)
+  inspect(findings.length(), content="0")
+}
+
+///|
+test "PKL-102: unused import surfaces lint finding" {
+  let parsed = parse_source("import \"other.pkl\" as Other\nbar: Int = 1")
+  let findings = lint_program(parsed.program)
+  inspect(findings.length(), content="1")
+  inspect(findings[0].rule, content="unused-import")
+}
+
+///|
+test "PKL-102: referenced import is not flagged" {
+  let parsed = parse_source(
+    "import \"other.pkl\" as Other\nbar: Int = Other.value",
+  )
+  let findings = lint_program(parsed.program)
+  inspect(findings.length(), content="0")
+}
+
+///|
+test "PKL-102: shadowed binding name surfaces lint finding" {
+  let parsed = parse_source(
+    "import \"other.pkl\" as Other\nlocal Other: Int = 1\nbar: Int = Other",
+  )
+  let findings = lint_program(parsed.program)
+  inspect(findings.length(), content="1")
+  inspect(findings[0].rule, content="shadowed-identifier")
+  inspect(
+    findings[0].message,
+    content="binding `Other` shadows existing import of the same name",
+  )
+}
+
+///|
+test "PKL-102: unused property of unreferenced class flagged" {
+  let parsed = parse_source(
+    "class Helper { temp: Int = 1; used: Int = 2; computed: Int = used + 1 }",
+  )
+  let findings = lint_program(parsed.program)
+  inspect(findings.length(), content="2")
+  let rules = findings.iter().map(fn(f) { f.rule }).collect()
+  inspect(rules[0], content="unused-class-property")
+  inspect(rules[1], content="unused-class-property")
+}
+
+///|
+test "PKL-102: properties of referenced class skipped" {
+  let parsed = parse_source(
+    "class Helper { value: Int = 1 }\nout: Helper = new Helper { value = 5 }",
+  )
+  let findings = lint_program(parsed.program)
+  inspect(findings.length(), content="0")
+}
+
+///|
+test "PKL-102: import referenced via generic type annotation counts" {
+  let parsed = parse_source(
+    "import \"other.pkl\" as Other\nlist: Listing<Other> = new {}",
+  )
+  let findings = lint_program(parsed.program)
+  inspect(findings.length(), content="0")
+}
+
+///|
 test "PKL-125: YAML literal block scalar clips with single trailing newline" {
   let v : Value = ObjectValue([
     ValueMember::{ name: "p", value: StringValue("line one\nline two\n") },
