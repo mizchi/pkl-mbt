@@ -1838,6 +1838,32 @@ local upstreamFixtureSweepExpansionScenario = new Scenario {
   }
 }
 
+local pairValueVariantScenario = new Scenario {
+  id = "PKL-119a"
+  name = "Pair Value variant"
+  description =
+    "Pair gets a dedicated value model. `Value` gains a `PairValue(Value, Value)` variant; the `Pair(first, second)` constructor returns it directly instead of the PKL-139 stop-gap `ListingValue` of size 2. Member access on the dedicated variant resolves `.first` and `.second` to the carried values; any other property name surfaces `Cannot find property \\`<name>\\` in object of type \\`Pair\\`.`, matching Apple Pkl's wording for typed containers. Renderer projection: PCF round-trips through `Pair(a, b)` (so the eval output is parser-readable), JSON / YAML / Properties / plist project as a 2-element sequence (`[a, b]` / sequence items / `<array>` of two elements). The typechecker gains `PairType(Type, Type)` alongside `ListingType` / `MappingType` so `Pair<A, B>` annotations stay distinct from `Listing<A | B>` — the same separation pkl-mbt's library consumers need to preserve embedder types. `Pair<A, B>` annotation lands through the `generic_argument_text` intercept; bare `Pair` (no generic arguments) is intentionally NOT a builtin so user-defined `class Pair` declarations still shadow per the existing generic-class-with-two-type-parameters test."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-075"; "PKL-139" }
+  tags { "evaluator"; "typechecker"; "stdlib" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-16"
+      summary = "Split PKL-119 (Set / Pair / Map / IntSeq) into sub-slices"
+      rationale =
+        "PKL-119 originally bundled all four stdlib value variants. Each variant touches the same broad surface (Value enum, eval constructors, member access, every renderer, typechecker Type enum, annotation parsing) but for different upstream types with different operation sets; bundling them produces a >1000-line diff and forces all four to land together. Splitting into PKL-119a (Pair) / PKL-119b (IntSeq) / PKL-119c (Set) / PKL-119d (Map) keeps each slice tight (one variant, one TYPE alias, the matching renderer arms) and lets the gold-match probe sweep land alongside each one. Pair leads the chain because it's the smallest blast radius — 2-arity, no operations, just member access."
+    }
+    new Decision {
+      date = "2026-05-16"
+      summary = "Bare `Pair` (no type arguments) is not a builtin type alias"
+      rationale =
+        "An earlier draft added `\"Pair\" => Some(PairType(UnknownType, UnknownType))` to `builtin_type_from_annotation` so unparameterised reads still typechecked. That arm shadowed user-defined `class Pair<A, B> { ... }` declarations and broke the existing `generic class declaration with two type parameters` test. The fix is to keep only the parameterised form (`Pair<A, B>`) as a typechecker hook, intercepted in `type_from_annotation` via `generic_argument_text`; the bare name flows through the standard env lookup so local class shadows still win. Test added (`PKL-119a: user-defined class Pair shadows the builtin generic`) to pin this contract."
+    }
+  }
+}
+
 local plistRendererScenario = new Scenario {
   id = "PKL-126a"
   name = "plist renderer"
@@ -3815,5 +3841,6 @@ scenarios {
   upstreamFixtureSweepExpansionScenario
   rendererStdlibModulesScenario
   plistRendererScenario
+  pairValueVariantScenario
   ...roadmap.entries
 }

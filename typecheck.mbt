@@ -12,6 +12,11 @@ pub(all) enum Type {
   ClassType(String, Array[TypeMember])
   ListingType(Array[Type])
   MappingType(Array[TypeEntry])
+  // PKL-119a: `Pair<A, B>` lives at the type level alongside Listing /
+  // Mapping. Distinct from `ListingType([a, b])` so that
+  // `Pair<Int, String>` and `Listing<Int | String>` stay separate,
+  // and so `.first` / `.second` resolve only on the Pair side.
+  PairType(Type, Type)
   FunctionType(Array[Type], Type)
   ConstrainedType(String, Type)
   UnionType(Array[Type])
@@ -190,6 +195,8 @@ pub fn render_type(typ : Type) -> String {
     ClassType(name, _) => name
     ListingType(_) => "Listing"
     MappingType(_) => "Mapping"
+    PairType(first, second) =>
+      "Pair<\{render_type(first)}, \{render_type(second)}>"
     FunctionType(_, _) => "Function"
     ConstrainedType(_, inner) => render_type(inner)
     UnionType(types) => {
@@ -549,6 +556,28 @@ fn type_from_annotation(name : String, type_env : Array[TypeBinding]) -> Type? {
         ) {
         (Some(key), Some(value)) =>
           return Some(MappingType([TypeEntry::{ key, value }]))
+        _ => return None
+      }
+    }
+    None => ()
+  }
+  // PKL-119a: `Pair<A, B>` annotation lands as the dedicated
+  // `PairType(A, B)`. Bare `Pair` (no arguments) reaches
+  // `builtin_type_from_annotation` below and resolves to
+  // `PairType(UnknownType, UnknownType)` so unparameterised reads
+  // still typecheck.
+  match generic_argument_text(name, "Pair") {
+    Some(inner_text) => {
+      let parts = split_top_level_generic_arguments(inner_text)
+      if parts.length() != 2 {
+        return None
+      }
+      match
+        (
+          type_from_annotation(parts[0], type_env),
+          type_from_annotation(parts[1], type_env),
+        ) {
+        (Some(first), Some(second)) => return Some(PairType(first, second))
         _ => return None
       }
     }
@@ -3207,6 +3236,37 @@ fn infer_call_expr(
       }
     _ => ()
   }
+  // PKL-119a: `Pair(first, second)` is a top-level constructor in
+  // Apple Pkl's surface, not a user-defined binding. Infer it
+  // directly into `PairType(first_type, second_type)` so call sites
+  // see the dedicated type and `.first` / `.second` accesses resolve.
+  if callee is Identifier("Pair") && find_type_binding(bindings, "Pair") is None {
+    if arguments.length() != 2 {
+      diagnostics.push(diag("Pair expects exactly two arguments"))
+      return UnknownType
+    }
+    let first_type = infer_expr_with_bindings(
+      arguments[0],
+      bindings,
+      env,
+      type_env,
+      cache,
+      stack,
+      diagnostics,
+      resolve_import,
+    )
+    let second_type = infer_expr_with_bindings(
+      arguments[1],
+      bindings,
+      env,
+      type_env,
+      cache,
+      stack,
+      diagnostics,
+      resolve_import,
+    )
+    return PairType(first_type, second_type)
+  }
   match
     infer_expr_with_bindings(
       callee, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
@@ -3419,6 +3479,22 @@ fn infer_expr_with_bindings(
             Some(typ) => member_contract_type(typ)
             None => {
               diagnostics.push(diag("Cannot find property `\{member_name}`."))
+              UnknownType
+            }
+          }
+        // PKL-119a: `.first` / `.second` on a PairType resolve to the
+        // two type parameters; anything else surfaces the standard
+        // Pkl wording naming the target type.
+        PairType(first, second) =>
+          match member_name {
+            "first" => first
+            "second" => second
+            _ => {
+              diagnostics.push(
+                diag(
+                  "Cannot find property `\{member_name}` in object of type `Pair`.",
+                ),
+              )
               UnknownType
             }
           }

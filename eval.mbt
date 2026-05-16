@@ -11,6 +11,13 @@ pub(all) enum Value {
   ObjectValue(Array[ValueMember])
   ListingValue(Array[Value])
   MappingValue(Array[ValueEntry])
+  // PKL-119a: Pair carries two ordered values with member access via
+  // `.first` / `.second`. Previously collapsed into `ListingValue` of
+  // size 2 (per the PKL-139 stop-gap), which lost the member-access
+  // shape and the type-level distinction from `Listing<T>`. The
+  // dedicated variant lets consumers using pkl-mbt as a library keep
+  // the upstream type semantics for `Pair<A, B>`.
+  PairValue(Value, Value)
   FunctionValue(Array[FunctionParameter], Expr, String?, Array[ValueBinding])
   // PKL-082: magnitude in the named unit. Mixed-unit arithmetic
   // normalizes to the smaller of the two units (the base unit of each
@@ -882,6 +889,7 @@ fn eval_value_type_name(value : Value) -> String {
     DataSizeValue(_, _) => "DataSize"
     RegexValue(_) => "Regex"
     BytesValue(_) => "Bytes"
+    PairValue(_, _) => "Pair"
   }
 }
 
@@ -4446,6 +4454,23 @@ fn eval_expr_with_bindings(
             eval_regex_property(pattern, member_name, diagnostics)
           Some(BytesValue(bytes)) =>
             eval_bytes_property(bytes, member_name, diagnostics)
+          // PKL-119a: `.first` / `.second` reach the two ordered
+          // elements directly off the dedicated `PairValue`. Other
+          // member names surface the standard upstream wording so a
+          // typo lands on the same error path as Listing / Mapping.
+          Some(PairValue(first, second)) =>
+            match member_name {
+              "first" => Some(first)
+              "second" => Some(second)
+              _ => {
+                diagnostics.push(
+                  diag(
+                    "Cannot find property `\{member_name}` in object of type `Pair`.",
+                  ),
+                )
+                None
+              }
+            }
           Some(_) => {
             diagnostics.push(diag("member access expects Object"))
             None
@@ -4887,12 +4912,12 @@ fn eval_expr_with_bindings(
       } else if callee is Identifier("Pair") &&
         !stack_contains_binding(stack, "Pair") &&
         find_binding(bindings, "Pair") is None {
-        // PKL-139: Apple Pkl's `Pair(first, second)` constructor. pkl-mbt
-        // doesn't have a dedicated PairValue (deferred to PKL-119), so
-        // model it as a 2-element ListingValue. Downstream code that
-        // accesses `.first` / `.second` will fail until PKL-119 lands;
-        // the constructor itself is at least no longer a hard parser-
-        // surface error.
+        // PKL-119a: `Pair(first, second)` constructs a dedicated
+        // `PairValue`. Member access (`.first` / `.second`) lands on
+        // the same value through the `PairValue` arm in
+        // `eval_member_access`, and renderers project it as
+        // `Pair(a, b)` (PCF) / `[a, b]` (JSON / YAML / Properties /
+        // plist).
         if arguments.length() != 2 {
           diagnostics.push(diag("Pair expects exactly two arguments"))
           None
@@ -4920,7 +4945,7 @@ fn eval_expr_with_bindings(
             resolve_import,
           )
           match (first, second) {
-            (Some(a), Some(b)) => Some(ListingValue([a, b]))
+            (Some(a), Some(b)) => Some(PairValue(a, b))
             _ => None
           }
         }
@@ -6794,6 +6819,16 @@ fn render_pcf_scalar(value : Value, buf : StringBuilder) -> Unit {
       }
       buf.write_string(" })")
     }
+    // PKL-119a: PCF round-trips `Pair(a, b)` through Apple Pkl's
+    // constructor form. Element values flow through `render_pcf_inline`
+    // so nested composites stay valid PCF (`Pair(new { x = 1 }, 2)`).
+    PairValue(first, second) => {
+      buf.write_string("Pair(")
+      render_pcf_inline(first, 0, buf)
+      buf.write_string(", ")
+      render_pcf_inline(second, 0, buf)
+      buf.write_char(')')
+    }
     ObjectValue(_) | ListingValue(_) | MappingValue(_) =>
       // Defensive: callers should route block values through
       // render_pcf_inline / render_pcf_block_body. Falling back keeps
@@ -6977,6 +7012,9 @@ fn render_json_value(value : Value, indent : Int, buf : StringBuilder) -> Unit {
     // formats, since none of these formats have a native bytes type
     // and base64 is the upstream-compatible representation.
     BytesValue(bytes) => render_json_string(@base64.encode(bytes[:]), buf)
+    // PKL-119a: Pair renders as a 2-element JSON array. Matches
+    // Apple Pkl's `Pair`-to-JSON projection.
+    PairValue(first, second) => render_json_array([first, second], indent, buf)
   }
 }
 
@@ -7226,6 +7264,13 @@ fn render_yaml_block_value(
         buf.write_char('\n')
         render_yaml_sequence(elements, indent, buf)
       }
+    // PKL-119a: Pair flows through the same block-sequence path as
+    // a 2-element Listing so YAML emits it as the canonical
+    // `- first\n- second` form rather than the PCF inline fallback.
+    PairValue(first, second) => {
+      buf.write_char('\n')
+      render_yaml_sequence([first, second], indent, buf)
+    }
     StringValue(s) =>
       match yaml_string_block_scalar_info(s) {
         Some((indicator, lines, trailing)) =>
@@ -7802,6 +7847,10 @@ fn render_plist_value(value : Value, indent : Int, buf : StringBuilder) -> Unit 
       write_plist_indent(buf, indent)
       buf.write_string("<string>\{@base64.encode(bytes[:])}</string>")
     }
+    // PKL-119a: Pair renders as a 2-element `<array>`; reuse the
+    // listing path so element indent / null handling stay consistent
+    // with sibling collections.
+    PairValue(first, second) => render_plist_array([first, second], indent, buf)
   }
 }
 
@@ -8075,6 +8124,16 @@ fn write_compact_json_value(value : Value, buf : StringBuilder) -> Unit {
     DataSizeValue(n, unit) => render_json_string("\{n}.\{unit}", buf)
     RegexValue(pattern) => render_json_string(pattern, buf)
     BytesValue(bytes) => render_json_string(@base64.encode(bytes[:]), buf)
+    // PKL-119a: properties uses the compact-JSON path for composite
+    // values; project Pair the same way so a `Pair(1, "a")` shows up
+    // as `[1,"a"]` inside the property line.
+    PairValue(first, second) => {
+      buf.write_char('[')
+      write_compact_json_value(first, buf)
+      buf.write_char(',')
+      write_compact_json_value(second, buf)
+      buf.write_char(']')
+    }
   }
 }
 

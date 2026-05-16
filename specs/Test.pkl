@@ -374,6 +374,27 @@ local cliFloatMagnitudeUnits = new Test {
   timeoutSec = 120
 }
 
+local cliPairValue = new Test {
+  name = "cli pair value"
+  description =
+    "The native CLI evaluates a fixture exercising the dedicated `PairValue` variant: top-level `Pair(\"alpha\", 42)`, `.first` / `.second` member access (Pkl scalars), nested `Pair(Pair(...), Pair(...))` (deep member access via `.first.second`), and `Pair<String, Int>` annotated bindings whose typed `.first: String` / `.second: Int` lookups participate in typecheck. PCF renders each Pair through Apple Pkl's `Pair(a, b)` constructor form rather than the previous PKL-139 `new Listing { a; b }` stop-gap."
+  tags { "moonbit"; "cli"; "evaluator"; "typechecker"; "stdlib"; "contract" }
+  specRef { "PKL-119a" }
+  cmd = "moon run cmd/main --target native -- eval fixtures/cli_pair_value.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "single = Pair(\"alpha\", 42)"
+    "first = \"alpha\""
+    "second = 42"
+    "nested = Pair(Pair(1, 2), Pair(3, 4))"
+    "deepFirst = 2"
+    "annotated = Pair(\"beta\", 7)"
+    "annotatedFirst = \"beta\""
+    "annotatedSecond = 7"
+  }
+  timeoutSec = 120
+}
+
 local cliRendererPlist = new Test {
   name = "cli renderer plist"
   description =
@@ -809,7 +830,7 @@ local cliPkspecPolish = new Test {
     "ctorEmpty {}"
     "ctorSet {"
     "ctorMap {"
-    "ctorPair {"
+    "ctorPair = Pair(\"k\", \"v\")"
   }
   timeoutSec = 120
 }
@@ -1124,6 +1145,7 @@ tests {
   cliCrossModuleFunction
   cliRendererStdlibModules
   cliRendererPlist
+  cliPairValue
   cliHeredocString
   cliFormat
   cliTestExamplesPass

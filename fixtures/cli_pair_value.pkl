@@ -1,0 +1,22 @@
+// PKL-119a: `Pair(first, second)` is a dedicated value variant with
+// `.first` / `.second` member access. PCF round-trips through the
+// `Pair(a, b)` constructor form; JSON / YAML project as a 2-element
+// sequence. The dedicated variant matters for consumers using pkl-mbt
+// as a MoonBit library — the upstream `Pair<A, B>` type stays
+// distinct from `Listing<A | B>` at both the value model and the
+// typechecker.
+single = Pair("alpha", 42)
+
+first = single.first
+
+second = single.second
+
+nested = Pair(Pair(1, 2), Pair(3, 4))
+
+deepFirst = nested.first.second
+
+annotated: Pair<String, Int> = Pair("beta", 7)
+
+annotatedFirst: String = annotated.first
+
+annotatedSecond: Int = annotated.second

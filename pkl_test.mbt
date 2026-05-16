@@ -2534,13 +2534,16 @@ test "PKL-139: Map(...) builds Mapping from alternating args" {
 }
 
 ///|
-test "PKL-139: Pair(a, b) collapses to 2-element Listing" {
+test "PKL-119a: Pair(a, b) produces a dedicated PairValue" {
   guard eval_source("p = Pair(\"first\", \"second\")")
     is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  guard members[0].value is ListingValue(items) else { panic() }
-  inspect(items.length(), content="2")
+  guard members[0].value is PairValue(first, second) else { panic() }
+  guard first is StringValue(s_first) else { panic() }
+  guard second is StringValue(s_second) else { panic() }
+  inspect(s_first, content="first")
+  inspect(s_second, content="second")
 }
 
 ///|
@@ -3416,6 +3419,110 @@ test "PKL-120: pkl:math.pi constant" {
     }
   }
   inspect(got, content="3.141592653589793")
+}
+
+///|
+test "PKL-119a: Pair.first / .second eval-side access" {
+  guard eval_source("p = Pair(\"alpha\", 42)\nf = p.first\ns = p.second")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut got_first = ""
+  let mut got_second = 0
+  for entry in members {
+    if entry.name == "f" {
+      guard entry.value is StringValue(s) else { panic() }
+      got_first = s
+    }
+    if entry.name == "s" {
+      guard entry.value is IntValue(n) else { panic() }
+      got_second = n
+    }
+  }
+  inspect(got_first, content="alpha")
+  inspect(got_second, content="42")
+}
+
+///|
+test "PKL-119a: Pair<A, B> annotation participates in typecheck" {
+  guard typecheck_source(
+      "p: Pair<Int, String> = Pair(1, \"hello\")\nf: Int = p.first\ns: String = p.second",
+    )
+    is TypeOk(_) else {
+    panic()
+  }
+}
+
+///|
+test "PKL-119a: Pair member typo surfaces Pair-named diagnostic" {
+  let result = typecheck_source("p = Pair(1, 2)\nbad = p.thirdy")
+  guard result is TypeError(diagnostics) else { panic() }
+  let messages = diagnostics.iter().map(fn(d) { d.message }).collect()
+  inspect(
+    messages[0],
+    content="Cannot find property `thirdy` in object of type `Pair`.",
+  )
+}
+
+///|
+test "PKL-119a: Pair arity mismatch reports diagnostic" {
+  let result = typecheck_source("p = Pair(1, 2, 3)")
+  guard result is TypeError(diagnostics) else { panic() }
+  let messages = diagnostics.iter().map(fn(d) { d.message }).collect()
+  inspect(messages[0], content="Pair expects exactly two arguments")
+}
+
+///|
+test "PKL-119a: PCF renders Pair as Pair(a, b) constructor" {
+  guard eval_source("p = Pair(1, \"two\")") is EvalOk(value) else { panic() }
+  inspect(@pkl.render_value(value), content="p = Pair(1, \"two\")")
+}
+
+///|
+test "PKL-119a: JSON renders Pair as 2-element array" {
+  guard eval_source("p = Pair(1, \"two\")") is EvalOk(value) else { panic() }
+  let json = @pkl.render_value_as_json(value)
+  let expected =
+    #|{
+    #|  "p": [
+    #|    1,
+    #|    "two"
+    #|  ]
+    #|}
+  inspect(json, content=expected)
+}
+
+///|
+test "PKL-119a: YAML renders Pair as a 2-element sequence" {
+  guard eval_source("p = Pair(1, \"two\")") is EvalOk(value) else { panic() }
+  let yaml = @pkl.render_value_as_yaml(value)
+  let expected =
+    #|p:
+    #|- 1
+    #|- two
+    #|
+  inspect(yaml, content=expected)
+}
+
+///|
+test "PKL-119a: nested Pair survives the PCF round-trip" {
+  guard eval_source("p = Pair(Pair(1, 2), Pair(3, 4))") is EvalOk(value) else {
+    panic()
+  }
+  inspect(@pkl.render_value(value), content="p = Pair(Pair(1, 2), Pair(3, 4))")
+}
+
+///|
+test "PKL-119a: user-defined class Pair shadows the builtin generic" {
+  // Mirrors `generic class declaration with two type parameters` —
+  // confirm the local `class Pair<A, B>` keeps winning over the
+  // PKL-119a typing hooks since they only kick in for `Pair<...>`
+  // annotations and bare `Pair(...)` constructor calls.
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "class Pair<A, B> { first: A; second: B }\np = new Pair { first = 1; second = \"hi\" }",
+  )
+  guard session.typecheck_path("main.pkl") is TypeOk(_) else { panic() }
 }
 
 ///|

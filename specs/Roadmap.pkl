@@ -31,7 +31,8 @@
 ///   - PKL-132 (LSP)                — out of scope for the library slice
 ///
 /// Active grouping (the ID ranges are conventional, not enforced):
-///   PKL-119      stdlib Value variants (Set / Pair / Map / IntSeq)
+///   PKL-119b/c/d stdlib Value variants (IntSeq / Set / Map)
+///                  — PKL-119a (Pair) landed; the rest stack on top
 ///   PKL-129b     parser / imports — package:// registry resolution
 ///   PKL-131      checker — codegen bridge (consumes typechecker state)
 @ModuleInfo { minPklVersion = "0.31.0" }
@@ -42,14 +43,38 @@ import "../pkspec/Spec.pkl"
 // ── ACTIVE ─────────────────────────────────────────────────────────────────
 // ── eval / typechecker precision ──
 
-local setPairMapIntSeqVariants: Spec.Scenario = new {
-  id = "PKL-119"
-  name = "Set / Pair / Map / IntSeq Value variants"
+local intSeqValueVariant: Spec.Scenario = new {
+  id = "PKL-119b"
+  name = "IntSeq Value variant"
   description =
-    "Introduce dedicated Value variants for `Set` / `Pair` / `Map` / `IntSeq` instead of folding into `ListingValue` / `MappingValue`. The renderer round-trip for these stdlib types becomes accurate (`Set(1, 2, 3)`, `Pair(a, b)`), equality / iteration matches upstream semantics, and the typechecker can keep them apart from the structurally similar `Listing` / `Mapping` shapes — the latter matters for consumers using pkl-mbt as a library, where collapsing the types loses information the embedder may need."
+    "Introduce `IntSeqValue(start, end, step)` and the matching `IntSeq(start, end[, step])` constructor. Today `IntSeq(...)` is not recognised at all — upstream fixtures that use it (range generation in `pListRenderer2.plist.pkl`, several `generators/` cases) trip on `Cannot find property IntSeq`. The dedicated variant gives the renderer the canonical `IntSeq(1, 4, 1)` PCF round-trip and gives the typechecker an `IntSeqType` to keep range-typed bindings distinct from `Listing<Int>`."
   contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-075" }
+  dependsOn { "PKL-119a" }
   tags { "evaluator"; "typechecker"; "stdlib"; "next" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local setValueVariant: Spec.Scenario = new {
+  id = "PKL-119c"
+  name = "Set Value variant"
+  description =
+    "Introduce a dedicated `SetValue(Array[Value])` carrier so `Set(1, 2, 3)` renders as `Set(1, 2, 3)` (PCF) instead of `new Listing { 1; 2; 3 }`, and so `Set<T>` / `Listing<T>` stay distinct at the typecheck layer. Insertion order is preserved (matching Apple Pkl); duplicates are dropped at construction. Operations (`add`, `remove`, `contains`, `union`, `intersection`, `difference`) layer on top."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-119a" }
+  tags { "evaluator"; "typechecker"; "stdlib" }
+  reviewStatus = "draft"
+  severity = "major"
+}
+
+local mapValueVariant: Spec.Scenario = new {
+  id = "PKL-119d"
+  name = "Map Value variant for the immutable functional map"
+  description =
+    "Apple Pkl distinguishes `Map<K, V>` (immutable functional map built with `Map(k, v, ...)`) from `Mapping<K, V>` (object-style mapping built with `new Mapping { ... }`, which carries constraints and default values). pkl-mbt currently collapses both into `MappingValue`. Introduce `MapValue(Array[ValueEntry])` and `MapType(K, V)` so the typechecker and renderer keep them apart and `Map`-specific methods (`getOrNull`, `keys`, `values`, `entries`, `containsKey`) dispatch off the dedicated variant."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-119a"; "PKL-119b"; "PKL-119c" }
+  tags { "evaluator"; "typechecker"; "stdlib" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -83,7 +108,9 @@ local codegenBridge: Spec.Scenario = new {
 }
 
 entries: Listing<Spec.Scenario> = new {
-  setPairMapIntSeqVariants
+  intSeqValueVariant
+  setValueVariant
+  mapValueVariant
   packagePklRegistry
   codegenBridge
 }

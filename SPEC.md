@@ -1,6 +1,6 @@
 # Test SPEC
 
-203 tests across 2 module(s) — 147 pending, 56 active
+201 tests across 2 module(s) — 144 pending, 57 active
 
 ## `specs/`
 
@@ -76,10 +76,10 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **LSP server foundation** [draft] — verifies: PKL-132 — tags: lsp, editor
-  > A Language Server Protocol server (stdio or socket transport) that surfaces hover, go-to-definition, find-references, completion, diagnostics, semantic tokens, and rename. The existing CST + typechecker + ripple-backed AnalysisSession provide the analysis substrate.
+- [ ] **IntSeq Value variant** [draft] — verifies: PKL-119b — tags: evaluator, typechecker, stdlib, next
+  > Introduce `IntSeqValue(start, end, step)` and the matching `IntSeq(start, end[, step])` constructor. Today `IntSeq(...)` is not recognised at all — upstream fixtures that use it (range generation in `pListRenderer2.plist.pkl`, several `generators/` cases) trip on `Cannot find property IntSeq`. The dedicated variant gives the renderer the canonical `IntSeq(1, 4, 1)` PCF round-trip and gives the typechecker an `IntSeqType` to keep range-typed bindings distinct from `Listing<Int>`.
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-107
+  - depends on: PKL-119a
   - body: _not yet implemented_
 
 - [ ] **Listing and Mapping element constraint propagation** — verifies: PKL-093 — tags: evaluator, typechecker, constraint, collection
@@ -103,6 +103,19 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **Map Value variant for the immutable functional map** [draft] — verifies: PKL-119d — tags: evaluator, typechecker, stdlib
+  > Apple Pkl distinguishes `Map<K, V>` (immutable functional map built with `Map(k, v, ...)`) from `Mapping<K, V>` (object-style mapping built with `new Mapping { ... }`, which carries constraints and default values). pkl-mbt currently collapses both into `MappingValue`. Introduce `MapValue(Array[ValueEntry])` and `MapType(K, V)` so the typechecker and renderer keep them apart and `Map`-specific methods (`getOrNull`, `keys`, `values`, `entries`, `containsKey`) dispatch off the dedicated variant.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-119a, PKL-119b, PKL-119c
+  - body: _not yet implemented_
+
+- [ ] **Pair Value variant** — verifies: PKL-119a — tags: evaluator, typechecker, stdlib
+  > Pair gets a dedicated value model. `Value` gains a `PairValue(Value, Value)` variant; the `Pair(first, second)` constructor returns it directly instead of the PKL-139 stop-gap `ListingValue` of size 2. Member access on the dedicated variant resolves `.first` and `.second` to the carried values; any other property name surfaces `Cannot find property \`<name>\` in object of type \`Pair\`.`, matching Apple Pkl's wording for typed containers. Renderer projection: PCF round-trips through `Pair(a, b)` (so the eval output is parser-readable), JSON / YAML / Properties / plist project as a 2-element sequence (`[a, b]` / sequence items / `<array>` of two elements). The typechecker gains `PairType(Type, Type)` alongside `ListingType` / `MappingType` so `Pair<A, B>` annotations stay distinct from `Listing<A | B>` — the same separation pkl-mbt's library consumers need to preserve embedder types. `Pair<A, B>` annotation lands through the `generic_argument_text` intercept; bare `Pair` (no generic arguments) is intentionally NOT a builtin so user-defined `class Pair` declarations still shadow per the existing generic-class-with-two-type-parameters test.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-075, PKL-139
+  - decisions: 2 entry(ies)
+  - body: _not yet implemented_
+
 - [ ] **Regex literal and Regex methods** — verifies: PKL-081 — tags: evaluator, renderer, regex, stdlib
   > `Regex("<pattern>")` is recognized as a constructor form before the generic call path runs; the call's single String argument is captured verbatim as a `RegexValue(String)` carrying the pattern. The `.pattern` property exposes the original source pattern as a `String`. Five Regex methods dispatch through the same MemberAccess / SafeMemberAccess sites as the other stdlib value methods: `.matches(input)` returns true only when the regex covers the entire input (anchored on both ends), `.find(input)` returns the first match's text or `null`, `.findAll(input)` returns a `Listing<String>` of every non-overlapping match, `.replace(input, repl)` substitutes the first match, and `.replaceAll(input, repl)` substitutes every non-overlapping match. Compilation is deferred to the first method call so a Regex value can be constructed even if its pattern is later unused; an invalid pattern reports a diagnostic at method-call time. The PCF renderer round-trips a `RegexValue(p)` back as `Regex("<escaped-p>")`; JSON / YAML / Properties project the pattern as a plain string.
   - contributes to: GOAL-PKL-PURE
@@ -110,10 +123,10 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **Set / Pair / Map / IntSeq Value variants** [draft] — verifies: PKL-119 — tags: evaluator, stdlib, renderer
-  > Introduce dedicated Value variants for `Set` / `Pair` / `Map` / `IntSeq` instead of folding into `ListingValue` / `MappingValue`. The renderer round-trip for these stdlib types becomes accurate (`Set(1, 2, 3)`, `Pair(a, b)`), and equality / iteration matches upstream semantics.
+- [ ] **Set Value variant** [draft] — verifies: PKL-119c — tags: evaluator, typechecker, stdlib
+  > Introduce a dedicated `SetValue(Array[Value])` carrier so `Set(1, 2, 3)` renders as `Set(1, 2, 3)` (PCF) instead of `new Listing { 1; 2; 3 }`, and so `Set<T>` / `Listing<T>` stay distinct at the typecheck layer. Insertion order is preserved (matching Apple Pkl); duplicates are dropped at construction. Operations (`add`, `remove`, `contains`, `union`, `intersection`, `difference`) layer on top.
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-075
+  - depends on: PKL-119a
   - body: _not yet implemented_
 
 - [ ] **String constraint predicates** — verifies: PKL-091 — tags: evaluator, typechecker, constraint, string
@@ -601,12 +614,6 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **pkl repl interactive evaluator** (minor) [draft] — verifies: PKL-101 — tags: cli, repl
-  > `moon run cmd/main -- repl` opens an interactive read-eval-print loop: each line parses as either a binding (`x = 5`) or an expression and prints the rendered result. Reuses the `AnalysisSession` so each entry incrementally extends the module.
-  - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-009
-  - body: _not yet implemented_
-
 - [ ] **pkl test examples and golden diff** — verifies: PKL-100 — tags: cli, pkl-test, examples
   > The native CLI `test` subcommand walks the module-level `examples` member alongside the existing `facts` walker. Each example is rendered through the PCF envelope (`examples { ["label"] { ... } }`) and the entire envelope is byte-diffed against a sibling `<file>-expected.pcf` golden file. A passing diff prints `PASS examples (N examples)`; a mismatch prints `FAIL examples diff against <path>` and contributes to the non-zero exit. The `--overwrite` CLI flag regenerates the golden file from the current rendering (printing `OVERWRITE <path>`), matching Apple Pkl's golden-file workflow. Modules without an `examples` member skip the diff entirely so facts-only fixtures keep working unchanged.
   - contributes to: GOAL-PKL-PURE
@@ -614,8 +621,8 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **pkl-codegen bridge** [draft] — verifies: PKL-131 — tags: cli, codegen
-  > Lower a typechecked Pkl module to a target language schema (Java / Kotlin / Swift / Go). The bridge consumes the existing typechecker state via `pkl:reflect`'s minimal stub once expanded.
+- [ ] **pkl-codegen bridge** [draft] — verifies: PKL-131 — tags: cli, codegen, typechecker
+  > Lower a typechecked Pkl module to a target language schema (Java / Kotlin / Swift / Go / MoonBit). The bridge consumes the existing typechecker state via `pkl:reflect`'s minimal stub once expanded. For pkl-mbt as a MoonBit library, the natural first target is MoonBit itself — emit a `struct` / `enum` skeleton matching the Pkl class / typealias surface so embedders can round-trip their schemas through the same type system.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-080, PKL-110
   - body: _not yet implemented_
@@ -639,12 +646,6 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-080
   - decisions: 3 entry(ies)
-  - body: _not yet implemented_
-
-- [ ] **pkldoc documentation generation** (minor) [draft] — verifies: PKL-130 — tags: cli, pkldoc
-  > `moon run cmd/main -- doc <module>` renders the module's class / typealias / function declarations as Markdown / HTML, using the doc-comment text already captured by the parser.
-  - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-080
   - body: _not yet implemented_
 
 - [ ] **plist renderer** — verifies: PKL-126a — tags: renderer, plist
@@ -673,12 +674,6 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-048, PKL-047, PKL-044
   - decisions: 1 entry(ies)
-  - body: _not yet implemented_
-
-- [ ] **protobuf renderer** [draft] — verifies: PKL-126c — tags: renderer, protobuf
-  > Serialize Pkl values against an externally provided `.proto` schema and emit the binary wire format. Requires a schema-lookup mechanism (the `pkl:protobuf` `Renderer` class carries the schema reference) and a way to surface bytes through the existing `BytesValue` carrier. Larger than PKL-126a / PKL-126b because of the schema parsing + wire encoding lift; tracked as its own slice.
-  - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-124, PKL-126a, PKL-126b
   - body: _not yet implemented_
 
 - [ ] **provide a usable CLI** — verifies: PKL-009
@@ -732,12 +727,6 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-072
   - decisions: 3 entry(ies)
-  - body: _not yet implemented_
-
-- [ ] **renderer converter machinery** [draft] — verifies: PKL-127 — tags: renderer, converter
-  > JSON / YAML / Properties renderers honor `converters { ["path"] = (value) -> ...; ["Class"] = (value) -> ... }`. Path lookups beat class lookups; the converter return value replaces the source value in the rendered output.
-  - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-104
   - body: _not yet implemented_
 
 - [ ] **renderer converters** — verifies: PKL-105 — tags: renderer, converter
@@ -1002,12 +991,6 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **xml renderer** [draft] — verifies: PKL-126b — tags: renderer, xml, next
-  > Emit Pkl objects as an XML element tree. Each property becomes an `<element-name>` node; listings render as repeated elements; mapping entries render with the key as the element name. The `xml.Element` and `xml.Inline` annotation classes from `pkl:xml` already exist (PKL-124); this slice wires the rendering side. `-f xml` and `output { renderer = new xml.Renderer { ... } }` both route here.
-  - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-124, PKL-126a
-  - body: _not yet implemented_
-
 ### `Test.pkl`
 
 - [x] **cli amends base merge** — verifies: PKL-137 — tags: moonbit, cli, evaluator, amends, pkf-pkspec, contract
@@ -1136,6 +1119,10 @@
 
 - [x] **cli output renderer driver** — verifies: PKL-104 — tags: moonbit, cli, renderer, output, contract
   > The native CLI evaluates a fixture that declares `output { renderer = new JsonRenderer {} }` without passing `-f`. The CLI reads the renderer class from the parsed AST, switches the format to `json`, strips the `output` block from the rendered envelope, and prints the JSON projection of the module's other properties.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli pair value** — verifies: PKL-119a — tags: moonbit, cli, evaluator, typechecker, stdlib, contract
+  > The native CLI evaluates a fixture exercising the dedicated `PairValue` variant: top-level `Pair("alpha", 42)`, `.first` / `.second` member access (Pkl scalars), nested `Pair(Pair(...), Pair(...))` (deep member access via `.first.second`), and `Pair<String, Int>` annotated bindings whose typed `.first: String` / `.second: Int` lookups participate in typecheck. PCF renders each Pair through Apple Pkl's `Pair(a, b)` constructor form rather than the previous PKL-139 `new Listing { a; b }` stop-gap.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli pkspec polish** — verifies: PKL-139 — tags: moonbit, cli, parser, evaluator, stdlib, pkf-pkspec, contract
