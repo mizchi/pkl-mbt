@@ -19,7 +19,11 @@ pub fn eval_source(String) -> EvalResult
 
 pub fn lint_program(Program) -> Array[LintFinding]
 
+pub fn lookup_triple_dot_resolution(String, String) -> String?
+
 pub fn parse_source(String) -> ParseResult
+
+pub fn register_triple_dot_resolution(String, String, String) -> Unit
 
 pub fn render_type(Type) -> String
 

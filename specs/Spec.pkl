@@ -1896,6 +1896,32 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklTripleDotImportResolverScenario = new Scenario {
+  id = "PKL-148r"
+  name = "triple-dot import resolves through ancestor directories"
+  description =
+    "Apple Pkl's `import \".../X/Y.pkl\"` form searches the parent directories of the importing module to find the first ancestor that contains the remainder path. The upstream test corpus uses this prefix 51 times (e.g. `import \".../input-helper/api/annotationConverter.pkl\"` from `input/api/pcfRenderer9.pkl`), and pkl-mbt was bailing on all of them with `Cannot find module` because `resolve_import_path` only handled bare-relative paths. Implemented in two halves: the CLI loader (`cmd/mpkl/main.mbt:resolve_import_path`) walks ancestor dirs via `@fs.path_exists` and registers the resolution into a sandbox-level `(from, uri) -> resolved` map; the IO-free analysis-layer resolver (`analysis.mbt:resolve_import_path`) consults the registry to map the same `(from, uri)` pair back to the absolute path the CLI loaded under, so the cache key agrees end-to-end. Three fixtures flip: `classes/constraints14` (custom constraint pulling in a helper file), `errors/const/constLocalAmendModule` (amend chain across the `input-helper` tree), `modules/amendModule6` (`amends \".../input-helper/modules/Birds.pkl\"`). The other 22+ with-gold triple-dot fixtures still need orthogonal work — `pkl:shell`, `pkl:yaml` parser flags, jsonnet renderer, `pkl:reflect.Module.imports`, `ConvertProperty` annotation framework, package registry resolution — so the resolver itself is the foundation and the rest land as their own slices. +3 gold-match fixtures, 111 → 114."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148q" }
+  tags { "cli"; "imports"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Split the resolver across CLI (FS) and analysis (registry lookup) instead of duplicating the ancestor walk in both"
+      rationale =
+        "The CLI loader is the only layer with FS access (the library surface deliberately stays IO-free so embedders in wasm sandboxes can depend on it). Doing the ancestor walk twice — once via `@fs.path_exists` at load time, once via the session source store at eval time — risked subtle drift if the walk order diverged. Caching the CLI's authoritative resolution into a sandbox-level `Map[String, String]` (keyed `\"<from>\\n<uri>\"`) gives the analysis layer a single, deterministic lookup that's guaranteed to agree with the path the CLI loaded the source under, without re-implementing the walk or pulling FS into the library."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Fall through to the bare uri (and the existing `Cannot find module` diagnostic) when no ancestor matches"
+      rationale =
+        "Returning the original `.../X` string preserves the diagnostic surface for the case where the triple-dot resolution legitimately has no answer (file genuinely absent). The alternative — synthesising a `not-found` path string — would produce noisy diagnostics like `Cannot find module \\`<concocted-prefix>/X\\``. Returning the original keeps the message readable and matches what the user typed."
+    }
+  }
+}
+
 local pklOutputTextByteExactScenario = new Scenario {
   id = "PKL-148q"
   name = "output.text emitted verbatim and upstream smoke diff goes bytewise"
@@ -4787,5 +4813,6 @@ scenarios {
   pklCatchOrNullAndBareConstraintScenario
   pklShebangPreambleScenario
   pklOutputTextByteExactScenario
+  pklTripleDotImportResolverScenario
   ...roadmap.entries
 }

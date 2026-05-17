@@ -212,6 +212,43 @@ async fn diagnose_package_uri(uri : String) -> Unit {
 
 ///|
 fn resolve_import_path(from : String, uri : String) -> String {
+  // PKL-148r: triple-dot import (`import ".../X/Y.pkl"`). Walk the
+  // ancestor directories of `from` looking for the first one that
+  // contains the remainder path as a file. Cache the resolution into
+  // the sandbox registry so the IO-free analysis layer can map the
+  // same `(from, uri)` pair back to the absolute path the CLI is
+  // about to load. When no ancestor matches, return `uri` unchanged
+  // so the caller's "Cannot find module" diagnostic surfaces with
+  // the original triple-dot URI.
+  if uri.has_prefix(".../") {
+    let remainder = String::unsafe_substring(uri, start=4, end=uri.length())
+    let mut current = match from.rev_find("/") {
+      Some(idx) => String::unsafe_substring(from, start=0, end=idx)
+      None => ""
+    }
+    let mut keep_walking = true
+    while keep_walking {
+      let candidate = if current == "" {
+        remainder
+      } else {
+        current + "/" + remainder
+      }
+      if @fs.path_exists(candidate) {
+        @pkl.register_triple_dot_resolution(from, uri, candidate)
+        return candidate
+      }
+      if current == "" || current == "/" {
+        keep_walking = false
+      } else {
+        match current.rev_find("/") {
+          Some(idx) =>
+            current = String::unsafe_substring(current, start=0, end=idx)
+          None => current = ""
+        }
+      }
+    }
+    return uri
+  }
   if uri.has_prefix("/") || uri.find(":") is Some(_) {
     return uri
   }

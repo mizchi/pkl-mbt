@@ -139,6 +139,19 @@ fn push_stack(stack : Array[String], path : String) -> Array[String] {
 
 ///|
 fn resolve_import_path(from : String, uri : String) -> String {
+  // PKL-148r: triple-dot import — the CLI loader's FS-aware walk has
+  // already cached the resolution into the sandbox registry. Consult
+  // it here so the analysis layer can produce the same absolute path
+  // without re-doing FS access. Falling through to the bare uri keeps
+  // the existing "Cannot find module" diagnostic shape for the case
+  // where the CLI never registered a resolution (e.g., embedder
+  // bypassing the CLI loader).
+  if uri.has_prefix(".../") {
+    match lookup_triple_dot_resolution(from, uri) {
+      Some(resolved) => return resolved
+      None => return uri
+    }
+  }
   if uri.has_prefix("/") || uri.find(":") is Some(_) {
     return uri
   }

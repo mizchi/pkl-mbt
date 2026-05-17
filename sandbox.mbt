@@ -23,6 +23,12 @@ priv struct SandboxConfig {
   mut props : Map[String, String]
   mut allowed_modules : Array[String]
   mut module_paths : Array[String]
+  // PKL-148r: triple-dot import resolutions cached by the CLI's load
+  // step (FS-based) so the IO-free analysis layer can map the same
+  // `(from, ".../X")` pair back to the absolute path the CLI already
+  // loaded into the session source store. Key shape is
+  // `"<from>\n<uri>"`.
+  triple_dot_resolutions : Map[String, String]
 }
 
 ///|
@@ -30,6 +36,7 @@ let sandbox_config : SandboxConfig = {
   props: Map([], capacity=8),
   allowed_modules: [],
   module_paths: [],
+  triple_dot_resolutions: Map([], capacity=8),
 }
 
 ///|
@@ -98,4 +105,26 @@ pub fn sandbox_is_module_allowed(uri : String) -> Bool {
 /// array directly keeps the loader free of an iterator wrapper.
 pub fn sandbox_module_paths() -> Array[String] {
   sandbox_config.module_paths
+}
+
+///|
+/// PKL-148r: register a triple-dot import resolution. Called by the
+/// CLI loader after `@fs.path_exists` finds the matching ancestor
+/// candidate, so the analysis-layer resolver can map the same
+/// `(from, uri)` pair back to the same absolute path without
+/// re-doing FS access.
+pub fn register_triple_dot_resolution(
+  from : String,
+  uri : String,
+  resolved : String,
+) -> Unit {
+  sandbox_config.triple_dot_resolutions[from + "\n" + uri] = resolved
+}
+
+///|
+/// PKL-148r: look up a previously-registered triple-dot resolution.
+/// Returns the absolute path the CLI loaded the module under, or
+/// `None` if the CLI never saw this `(from, uri)` pair.
+pub fn lookup_triple_dot_resolution(from : String, uri : String) -> String? {
+  sandbox_config.triple_dot_resolutions.get(from + "\n" + uri)
 }

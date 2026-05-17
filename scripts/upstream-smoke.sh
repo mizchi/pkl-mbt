@@ -123,6 +123,9 @@ GOLD_FIXTURES=(
   "implementation/inequality"
   "syntax/shebang"
   "api/moduleOutput"
+  "classes/constraints14"
+  "errors/const/constLocalAmendModule"
+  "modules/amendModule6"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output
