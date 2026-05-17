@@ -310,6 +310,7 @@ pub(all) enum Value {
   NullValue
   ObjectValue(Array[ValueMember])
   ListingValue(Array[Value])
+  ListValue(Array[Value])
   MappingValue(Array[ValueEntry])
   PairValue(Value, Value)
   IntSeqValue(Int, Int, Int)

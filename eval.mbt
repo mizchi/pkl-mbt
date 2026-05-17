@@ -10,6 +10,14 @@ pub(all) enum Value {
   NullValue
   ObjectValue(Array[ValueMember])
   ListingValue(Array[Value])
+  // PKL-148h: `List(...)` constructor result, kept distinct from
+  // `ListingValue` (the `new Listing { ... }` block form). The two
+  // share most method-dispatch surface but diverge on PCF rendering
+  // (`List(a, b, c)` vs `new { a; b; c }`), runtime type name
+  // (`List` vs `Listing`), and derived equality (List == Listing is
+  // false even when element arrays match — Apple Pkl treats them as
+  // distinct types).
+  ListValue(Array[Value])
   MappingValue(Array[ValueEntry])
   // PKL-119a: Pair carries two ordered values with member access via
   // `.first` / `.second`. Previously collapsed into `ListingValue` of
@@ -1700,6 +1708,7 @@ fn eval_value_type_name(value : Value) -> String {
     NullValue => "Null"
     ObjectValue(_) => "Object"
     ListingValue(_) => "Listing"
+    ListValue(_) => "List"
     MappingValue(_) => "Mapping"
     FunctionValue(_, _, _, _, _) => "Function"
     DurationValue(_, _) => "Duration"
@@ -1829,15 +1838,20 @@ fn eval_value_accepts_type_annotation(
     ("Object", ObjectValue(_)) => true
     ("Listing", ListingValue(_)) => true
     ("Mapping", MappingValue(_)) => true
-    // PKL-148e: until the proper List / Listing variant split lands
-    // (PKL-151), accept `List` for ListingValue and `Map` for
-    // MappingValue at the runtime acceptance layer. Apple Pkl's
-    // `Collection` is the join of List + Set; both ListingValue and
-    // SetValue satisfy it.
-    ("List", ListingValue(_)) => true
-    ("Collection", ListingValue(_)) | ("Collection", SetValue(_)) => true
+    // PKL-148h: `List<T>` accepts the dedicated `ListValue`; the older
+    // path accepting `ListingValue` is kept as a transitional aid for
+    // codepaths that still produce `ListingValue` for list-shaped input
+    // (e.g. `pkl:json.Parser` arrays). Apple Pkl's `Collection` is the
+    // join of List + Set, so all three list-shaped variants satisfy it.
+    // `Map` accepts both `MapValue` and `MappingValue` for the same
+    // reason; the split slice for Mapping is separate.
+    ("List", ListValue(_)) | ("List", ListingValue(_)) => true
+    ("Collection", ListValue(_))
+    | ("Collection", ListingValue(_))
+    | ("Collection", SetValue(_)) => true
     ("Map", MapValue(_)) | ("Map", MappingValue(_)) => true
-    ("Set", SetValue(_)) | ("Set", ListingValue(_)) => true
+    ("Set", SetValue(_)) | ("Set", ListingValue(_)) | ("Set", ListValue(_)) =>
+      true
     ("Pair", PairValue(_, _)) => true
     ("IntSeq", IntSeqValue(_, _, _)) => true
     ("Function", FunctionValue(_, _, _, _, _)) => true
@@ -3093,7 +3107,7 @@ fn eval_bytes_method(
         for i = 0; i < bytes.length(); i = i + 1 {
           elements.push(IntValue(bytes[i].to_int()))
         }
-        Some(ListingValue(elements))
+        Some(ListValue(elements))
       } else {
         diagnostics.push(diag("Bytes.toList takes no arguments"))
         None
@@ -3325,10 +3339,10 @@ fn eval_listing_property(
       } else {
         Some(elements[elements.length() - 1])
       }
-    // PKL-148: `Listing.toList` / `.toListing` are identity-shape
-    // conversions today (PKL-151 will split `ListValue` from
-    // `ListingValue`); `.toSet` builds a deduplicated Set.
-    "toList" => Some(ListingValue(elements))
+    // PKL-148h: `.toList()` tags as `ListValue` (round-trips through
+    // the `List(...)` constructor form); `.toListing()` keeps the
+    // Listing block tag. `.toSet` deduplicates and tags as Set.
+    "toList" => Some(ListValue(elements))
     "toListing" => Some(ListingValue(elements))
     "toSet" => {
       let seen : Array[Value] = []
@@ -3482,7 +3496,7 @@ fn eval_listing_method(
         return None
       }
       match arg_values[0] {
-        ListingValue(other) | SetValue(other) =>
+        ListingValue(other) | ListValue(other) | SetValue(other) =>
           if other.length() > elements.length() {
             Some(BoolValue(false))
           } else {
@@ -3700,12 +3714,11 @@ fn eval_listing_method(
       }
       Some(acc)
     }
-    // PKL-134: identity conversion. Apple Pkl distinguishes Listing
-    // (CST-typed builder) from List (immutable indexed collection), but
-    // pkl-mbt collapses both into `ListingValue`, so toList is the
-    // identity at the runtime layer. toMap on a Listing is the empty
-    // map — matches Apple Pkl's behaviour when the Listing is not a
-    // Listing-of-Pair (Pair lands with PKL-119).
+    // PKL-148h: `.toList()` on a Listing returns a `ListValue` so the
+    // renderer projects through the `List(...)` constructor form. The
+    // arity guard is preserved from the PKL-134 implementation. `.toMap`
+    // on a Listing without Pair entries is the empty map — matches
+    // Apple Pkl's behaviour when the Listing is not a Listing-of-Pair.
     "toList" => {
       if arg_values.length() != 0 {
         diagnostics.push(
@@ -3713,7 +3726,7 @@ fn eval_listing_method(
         )
         return None
       }
-      Some(ListingValue(elements))
+      Some(ListValue(elements))
     }
     "toMap" => {
       if arg_values.length() != 0 {
@@ -3750,7 +3763,7 @@ fn eval_listing_method(
             diagnostics,
             resolve_import,
           ) {
-          Some(ListingValue(inner)) =>
+          Some(ListingValue(inner)) | Some(ListValue(inner)) =>
             for v in inner {
               result.push(v)
             }
@@ -4381,7 +4394,14 @@ fn eval_set_method(
         )
         return None
       }
-      Some(ListingValue(elements))
+      // PKL-148h: `Set.toList` → `ListValue`, `Set.toListing` →
+      // `ListingValue`. Element order is preserved (Set walks in
+      // insertion order, matching the Apple Pkl PCF projection).
+      if method_name == "toList" {
+        Some(ListValue(elements))
+      } else {
+        Some(ListingValue(elements))
+      }
     }
     "toSet" => {
       if arg_values.length() != 0 {
@@ -6979,7 +6999,9 @@ fn eval_callable_call(
                   diagnostics,
                   resolve_import,
                 ) {
-                Some(ListingValue(elements)) | Some(SetValue(elements)) =>
+                Some(ListingValue(elements))
+                | Some(ListValue(elements))
+                | Some(SetValue(elements)) =>
                   // Apply with pre-evaluated values by wrapping each
                   // element back as a literal value expression. The
                   // call cache machinery only needs the values
@@ -7203,7 +7225,8 @@ fn eval_expr_with_bindings(
                 inner, bindings, env, class_env, cache, stack, declarations, diagnostics,
                 resolve_import,
               ) {
-              Some(ListingValue(inner_elements)) =>
+              Some(ListingValue(inner_elements))
+              | Some(ListValue(inner_elements)) =>
                 for v in inner_elements {
                   values.push(v)
                 }
@@ -7382,7 +7405,7 @@ fn eval_expr_with_bindings(
                   }
                 }
             }
-          Some(ListingValue(elements)) =>
+          Some(ListingValue(elements)) | Some(ListValue(elements)) =>
             if is_listing_property_name(member_name) {
               eval_listing_property(elements, member_name, diagnostics)
             } else {
@@ -7591,7 +7614,7 @@ fn eval_expr_with_bindings(
               None
             }
           }
-        Some(ListingValue(elements)) =>
+        Some(ListingValue(elements)) | Some(ListValue(elements)) =>
           if is_listing_property_name(member_name) {
             eval_listing_property(elements, member_name, diagnostics)
           } else {
@@ -7680,14 +7703,28 @@ fn eval_expr_with_bindings(
         resolve_import,
       )
       match (target, key) {
-        (Some(ListingValue(elements)), Some(IntValue(index))) =>
+        (Some(ListingValue(elements)), Some(IntValue(index)))
+        | (Some(ListValue(elements)), Some(IntValue(index))) =>
           if index >= 0 && index < elements.length() {
             Some(elements[index])
           } else {
-            diagnostics.push(diag("listing index out of bounds \{index}"))
+            // PKL-148h: match Apple Pkl's wording so `module.catch(...)`
+            // strings round-trip against gold. The container tag picks
+            // `List(...)` for `ListValue` and falls back to
+            // `Listing(...)` for the Listing block form.
+            let coll_text = match target {
+              Some(v) => render_pcf_value_inline(v)
+              None => ""
+            }
+            let upper = elements.length() - 1
+            diagnostics.push(
+              diag(
+                "Element index `\{index}` is out of range `0`..`\{upper}`. Collection: \{coll_text}",
+              ),
+            )
             None
           }
-        (Some(ListingValue(_)), Some(_)) => {
+        (Some(ListingValue(_)), Some(_)) | (Some(ListValue(_)), Some(_)) => {
           diagnostics.push(diag("listing index expects Int"))
           None
         }
@@ -7785,7 +7822,7 @@ fn eval_expr_with_bindings(
               diagnostics,
               resolve_import,
             ) {
-            Some(ListingValue(elements)) =>
+            Some(ListingValue(elements)) | Some(ListValue(elements)) =>
               build_bytes_from_int_listing(elements, diagnostics)
             Some(_) => {
               diagnostics.push(diag("Bytes expects a Listing of Int"))
@@ -8006,7 +8043,11 @@ fn eval_expr_with_bindings(
           }
           Some(SetValue(unique))
         } else {
-          Some(ListingValue(arg_values))
+          // PKL-148h: `List(...)` lands in the dedicated `ListValue`
+          // variant. Element-level operations (`+`, subscript, length,
+          // method dispatch) treat List/Listing/Set uniformly; only the
+          // PCF rendering and the type-tag diverge.
+          Some(ListValue(arg_values))
         }
       } else if callee is Identifier("Map") &&
         !stack_contains_binding(stack, "Map") &&
@@ -8465,8 +8506,14 @@ fn eval_expr_with_bindings(
                       declarations, diagnostics, resolve_import,
                     )
                   }
-                Some(ListingValue(elements)) =>
+                Some(ListingValue(elements)) | Some(ListValue(elements)) =>
                   if is_listing_method_name(method_name) {
+                    // PKL-148h: List and Listing share the method
+                    // surface (`.filter`, `.map`, `.length`, ...). The
+                    // dispatcher's element-walking logic is identical;
+                    // the receiver type only re-emerges at `.toList()` /
+                    // `.toListing()` (each tags its result with the
+                    // matching variant).
                     eval_listing_method(
                       elements, method_name, arguments, bindings, env, class_env,
                       cache, stack, declarations, diagnostics, resolve_import,
@@ -8636,8 +8683,14 @@ fn eval_expr_with_bindings(
                   diagnostics, resolve_import,
                 ) {
                 Some(NullValue) => Some(NullValue)
-                Some(ListingValue(elements)) =>
+                Some(ListingValue(elements)) | Some(ListValue(elements)) =>
                   if is_listing_method_name(method_name) {
+                    // PKL-148h: List and Listing share the method
+                    // surface (`.filter`, `.map`, `.length`, ...). The
+                    // dispatcher's element-walking logic is identical;
+                    // the receiver type only re-emerges at `.toList()` /
+                    // `.toListing()` (each tags its result with the
+                    // matching variant).
                     eval_listing_method(
                       elements, method_name, arguments, bindings, env, class_env,
                       cache, stack, declarations, diagnostics, resolve_import,
@@ -9164,6 +9217,65 @@ fn eval_expr_with_bindings(
           }
           Some(ListingValue(merged))
         }
+        // PKL-148h: `List + List` preserves the List type (matches
+        // upstream — Apple Pkl renders `List(1, 2) + List(3)` as
+        // `List(1, 2, 3)`). `List + Set` appends elements with no
+        // dedup and stays a List; `Set + List` unions and stays a Set;
+        // `List + Listing` widens to Listing (and the symmetric form
+        // stays Listing) — matches Apple Pkl's left-biased Collection
+        // dispatch where the LHS variant decides the result shape.
+        (Some(ListValue(la)), Some(ListValue(lb))) if op == Add => {
+          let merged : Array[Value] = []
+          for v in la {
+            merged.push(v)
+          }
+          for v in lb {
+            merged.push(v)
+          }
+          Some(ListValue(merged))
+        }
+        (Some(ListValue(la)), Some(SetValue(lb))) if op == Add => {
+          let merged : Array[Value] = []
+          for v in la {
+            merged.push(v)
+          }
+          for v in lb {
+            merged.push(v)
+          }
+          Some(ListValue(merged))
+        }
+        (Some(SetValue(la)), Some(ListValue(lb))) if op == Add => {
+          let merged : Array[Value] = []
+          for v in la {
+            merged.push(v)
+          }
+          for v in lb {
+            if !contains_value(merged, v) {
+              merged.push(v)
+            }
+          }
+          Some(SetValue(merged))
+        }
+        (Some(ListValue(la)), Some(ListingValue(lb))) if op == Add => {
+          let merged : Array[Value] = []
+          for v in la {
+            merged.push(v)
+          }
+          for v in lb {
+            merged.push(v)
+          }
+          Some(ListingValue(merged))
+        }
+        (Some(ListingValue(la)), Some(ListValue(lb))) if op == Add => {
+          let merged : Array[Value] = []
+          for v in la {
+            merged.push(v)
+          }
+          for v in lb {
+            merged.push(v)
+          }
+          Some(ListingValue(merged))
+        }
         (Some(MappingValue(ea)), Some(MappingValue(eb))) if op == Add => {
           let merged : Array[ValueEntry] = []
           for e in ea {
@@ -9427,7 +9539,7 @@ fn eval_for_generator(
   )
   let mut accumulated : Array[ValueMember] = []
   match source {
-    Some(ListingValue(elements)) =>
+    Some(ListingValue(elements)) | Some(ListValue(elements)) =>
       for i = 0; i < elements.length(); i = i + 1 {
         let iter_cache = copy_value_bindings(cache)
         match var2 {
@@ -10430,6 +10542,9 @@ fn escape_string(value : String) -> String {
 fn pcf_is_block_value(value : Value) -> Bool {
   match value {
     ObjectValue(_) | ListingValue(_) | MappingValue(_) => true
+    // PKL-148h: `ListValue` renders through the `List(...)` constructor
+    // form (handled in `render_pcf_scalar`), not as a `new { ... }`
+    // block — so callers must NOT prefix it with `new`.
     _ => false
   }
 }
@@ -10701,6 +10816,21 @@ fn render_pcf_scalar(value : Value, buf : StringBuilder) -> Unit {
       }
       buf.write_char(')')
     }
+    // PKL-148h: `ListValue` round-trips through `List(...)` to match
+    // upstream PCF (`new { 1; 2 }` would parse back as a Listing, not a
+    // List). Element values flow through `render_pcf_inline` so nested
+    // composites — including `new Listing { ... }` blocks inside a
+    // `List(...)` — stay valid PCF.
+    ListValue(elements) => {
+      buf.write_string("List(")
+      for i = 0; i < elements.length(); i = i + 1 {
+        if i > 0 {
+          buf.write_string(", ")
+        }
+        render_pcf_inline(elements[i], 0, buf)
+      }
+      buf.write_char(')')
+    }
     // PKL-119d: PCF round-trips through Apple Pkl's `Map(...)`
     // constructor form (alternating key, value, key, value, ...).
     // Reparsing the output yields the same MapValue.
@@ -10920,7 +11050,8 @@ fn render_json_value(value : Value, indent : Int, buf : StringBuilder) -> Unit {
       render_json_object_from_members(members, indent, buf)
     MappingValue(entries) =>
       render_json_object_from_entries(entries, indent, buf)
-    ListingValue(elements) => render_json_array(elements, indent, buf)
+    ListingValue(elements) | ListValue(elements) =>
+      render_json_array(elements, indent, buf)
     FunctionValue(_, _, _, _, _) => buf.write_string("null")
     // Upstream Pkl projects Duration / DataSize to a literal-style string
     // (e.g. `"5.min"`) in JSON / YAML / Properties. Match that shape until
@@ -11127,7 +11258,7 @@ fn render_yaml_root(value : Value, buf : StringBuilder) -> Unit {
       } else {
         render_yaml_mapping_entries(entries, 0, buf)
       }
-    ListingValue(elements) =>
+    ListingValue(elements) | ListValue(elements) =>
       if elements.length() == 0 {
         buf.write_string("[]\n")
       } else {
@@ -11192,7 +11323,7 @@ fn render_yaml_block_value(
         buf.write_char('\n')
         render_yaml_mapping_entries(entries, indent + 2, buf)
       }
-    ListingValue(elements) =>
+    ListingValue(elements) | ListValue(elements) =>
       if elements.length() == 0 {
         buf.write_string(" []\n")
       } else {
@@ -11309,7 +11440,7 @@ fn render_yaml_seq_item(
           render_yaml_block_value(entries[i].value, indent, buf)
         }
       }
-    ListingValue(elements) =>
+    ListingValue(elements) | ListValue(elements) =>
       if elements.length() == 0 {
         buf.write_string(" []\n")
       } else {
@@ -11790,7 +11921,8 @@ fn render_plist_value(value : Value, indent : Int, buf : StringBuilder) -> Unit 
     ObjectValue(members) => render_plist_dict_from_members(members, indent, buf)
     MappingValue(entries) =>
       render_plist_dict_from_entries(entries, indent, buf)
-    ListingValue(elements) => render_plist_array(elements, indent, buf)
+    ListingValue(elements) | ListValue(elements) =>
+      render_plist_array(elements, indent, buf)
     FunctionValue(_, _, _, _, _) => {
       write_plist_indent(buf, indent)
       buf.write_string("<string></string>")
@@ -12084,7 +12216,7 @@ fn write_compact_json_value(value : Value, buf : StringBuilder) -> Unit {
       }
       buf.write_char('}')
     }
-    ListingValue(elements) => {
+    ListingValue(elements) | ListValue(elements) => {
       buf.write_char('[')
       for i = 0; i < elements.length(); i = i + 1 {
         if i > 0 {

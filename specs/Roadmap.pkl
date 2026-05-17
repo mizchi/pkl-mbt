@@ -106,6 +106,18 @@
 ///                     object body short-circuits to sibling resolver
 ///                     when X is a binding; +5 gold-match fixtures,
 ///                     67 → 72
+///   PKL-148h (8th)    ListValue split from ListingValue — `List(...)`
+///                     and `.toList()` produce a dedicated variant that
+///                     renders through Apple Pkl's `List(elem, ...)`
+///                     constructor form (`ListingValue` keeps the
+///                     `new { ... }` block form); listing-method
+///                     dispatch / `+` / subscript / type-acceptance /
+///                     constraint walker accept both variants via
+///                     pattern alternation; subscript out-of-bounds
+///                     diagnostic switched to Apple Pkl's wording so
+///                     `module.catch(...)` strings round-trip; +10
+///                     gold-match fixtures, 72 → 82. Subsumes the
+///                     drafted PKL-151 listVariantSplit.
 @ModuleInfo { minPklVersion = "0.31.0" }
 module specs.Roadmap
 
@@ -123,12 +135,12 @@ import "../pkspec/Spec.pkl"
 // against `scripts/upstream-smoke.sh` after each landing.
 
 local pklSuperLateBindAndAmendLambda: Spec.Scenario = new {
-  id = "PKL-148h"
-  name = "super late binding amend lambda form list value split"
+  id = "PKL-148i"
+  name = "super late binding amend lambda form class-aware object equality"
   description =
-    "PKL-148g landed FunctionValue identity, virtual class method dispatch, `local <modifier>*` parsing, and the `this.X` sibling shortcut. The harder remaining pieces are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this — needed for `objects/super2` / `super3` / `super4`, `classes/supercallsInLet`); the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambda*` fixtures); runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`); constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13); ListValue split so `List(...)` literals render through `List(elem, ...)` PCF form (needed for `basic/list`, `basic/propertyDefaults` `coll = List()` / `list = List()`, `classes/inheritance{1,2}`); class-aware ObjectValue tagging so `new Person {} != new Person2 {}` (needed for `objects/equality`'s c-block); object-body amend chain (`(obj) { ... } { ... }` — needed for `objects/equality` a11); type-constraint enforcement on amend-time property overrides (`new Person { name = 42 }` should reject when `name: String` — `classes/wrongType5`, `classes/constraints9` / `13`); listing/mapping body re-eval on amend so listing `(x) {}` / `default = N` work (needed for `listings/equality`, `listings/inequality`, `mappings/equality`, `mappings/inequality`). Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along."
+    "PKL-148h split ListValue out of ListingValue and rerouted `List(...)` rendering through Apple Pkl's `List(elem, ...)` form (+10 gold-match fixtures). The harder remaining pieces — all of which require non-local evaluator work — are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this, needed for `objects/super2` / `super3` / `super4`, `classes/supercallsInLet`); the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambda*` fixtures); runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`); constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13); class-aware ObjectValue tagging so `new Person {} != new Person2 {}` (needed for `objects/equality`'s c-block); object-body amend chain (`(obj) { ... } { ... }` — needed for `objects/equality` a11); type-constraint enforcement on amend-time property overrides (`new Person { name = 42 }` should reject when `name: String` — `classes/wrongType5`, `classes/constraints9` / `13`); listing/mapping body re-eval on amend so listing `(x) {}` / `default = N` work (needed for `listings/equality`, `listings/inequality`, `mappings/equality`, `mappings/inequality`). Listing/List-method receiver-tag preservation (`list.map(...)` returns a List, `listing.map(...)` returns a Listing) is a sub-task too; today the dispatcher always re-wraps as ListingValue. Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along."
   contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-148g" }
+  dependsOn { "PKL-148h" }
   tags { "evaluator"; "stdlib"; "upstream"; "compat"; "next" }
   reviewStatus = "draft"
   severity = "major"
@@ -154,18 +166,6 @@ local asAndPipeRuntime: Spec.Scenario = new {
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-114"; "PKL-128" }
   tags { "evaluator"; "operator"; "upstream"; "compat" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
-local listVariantSplit: Spec.Scenario = new {
-  id = "PKL-151"
-  name = "List Value variant split from Listing"
-  description =
-    "PKL-119a/b/c/d split Pair / IntSeq / Set / Map out of the legacy `ListingValue` / `MappingValue` collapse, but `List(a, b, c)` still produces a `ListingValue` (the PKL-139 stop-gap). Methods that expect `List` reject the synthesized Listing (`method l return type annotation List<String> does not accept Listing` in `methods/methodParameterTypes3`). Introduce `ListValue(Array[Value])` parallel to `SetValue`, route the `List(...)` constructor through it, mirror the typechecker `ListType(Array[Type])`, and make `(ListingType, ListType)` interconvertible per Apple Pkl's `List <: Listing` rule."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-119d" }
-  tags { "evaluator"; "typechecker"; "stdlib"; "upstream"; "compat" }
   reviewStatus = "draft"
   severity = "major"
 }
@@ -198,7 +198,6 @@ entries: Listing<Spec.Scenario> = new {
   pklSuperLateBindAndAmendLambda
   upstreamResourceType
   asAndPipeRuntime
-  listVariantSplit
   anyTypeCoercion
   silentMismatchSurvey
 }

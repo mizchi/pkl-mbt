@@ -1224,7 +1224,7 @@ fn pkl_constrained_type_annotation_value_rejection_message_from_source(
   // whole Listing (e.g. `Listing<String>(!isEmpty)`) before delegating
   // element-side cascade to the existing collection walker.
   match value {
-    ListingValue(elements) =>
+    ListingValue(elements) | ListValue(elements) =>
       match
         pkl_constrained_listing_rejection_message_from_source(
           source_name, elements,
@@ -1314,7 +1314,7 @@ fn pkl_collection_element_rejection_message_from_source(
   match generic_argument_text(source_name, "Listing") {
     Some(element_type) =>
       match value {
-        ListingValue(elements) =>
+        ListingValue(elements) | ListValue(elements) =>
           for element in elements {
             match
               pkl_constrained_type_annotation_value_rejection_message_from_source(

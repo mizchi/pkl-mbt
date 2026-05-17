@@ -2168,7 +2168,7 @@ test "PKL-133: == accepts Any against any operand" {
 }
 
 ///|
-test "PKL-134: Listing.toList() returns same elements" {
+test "PKL-148h: Listing.toList() projects to a ListValue" {
   assert_true(
     eval_source("xs = new Listing { 1; 2; 3 }\nys = xs.toList()") ==
     EvalOk(
@@ -2179,7 +2179,7 @@ test "PKL-134: Listing.toList() returns same elements" {
         },
         ValueMember::{
           name: "ys",
-          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+          value: ListValue([IntValue(1), IntValue(2), IntValue(3)]),
         },
       ]),
     ),
@@ -2430,7 +2430,10 @@ test "PKL-138: empty new {} coerces to ListingValue under Listing<T>" {
     panic()
   }
   guard members[0].value is ListingValue(xs) else { panic() }
-  guard members[1].value is ListingValue(ys) else { panic() }
+  // PKL-148h: `.toList()` projects through the dedicated ListValue
+  // variant (PCF renders `List(...)`); the receiver Listing keeps the
+  // Listing tag, so the two members carry different variants.
+  guard members[1].value is ListValue(ys) else { panic() }
   inspect(xs.length(), content="0")
   inspect(ys.length(), content="0")
 }
@@ -2482,6 +2485,11 @@ test "PKL-139: dot-chain across newlines" {
     is EvalOk(ObjectValue(members)) else {
     panic()
   }
+  // PKL-148h: `.toList()` projects through ListValue, but the shared
+  // listing-method dispatcher always re-wraps `.map`'s result as a
+  // Listing — the receiver-variant-preserving thread is out of scope
+  // for this slice. Tracked separately under "list method receiver
+  // tagging".
   guard members[1].value is ListingValue(items) else { panic() }
   inspect(items.length(), content="3")
 }
@@ -2499,20 +2507,20 @@ test "PKL-139: module.foo self-reference resolves" {
 }
 
 ///|
-test "PKL-139: List(...) constructor produces Listing" {
+test "PKL-148h: List(...) constructor produces a ListValue" {
   guard eval_source("xs = List(1, 2, 3)") is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  guard members[0].value is ListingValue(items) else { panic() }
+  guard members[0].value is ListValue(items) else { panic() }
   inspect(items.length(), content="3")
 }
 
 ///|
-test "PKL-139: List() with no args produces empty Listing" {
+test "PKL-148h: List() with no args produces an empty ListValue" {
   guard eval_source("xs = List()") is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  guard members[0].value is ListingValue(items) else { panic() }
+  guard members[0].value is ListValue(items) else { panic() }
   inspect(items.length(), content="0")
 }
 
@@ -3767,13 +3775,16 @@ test "PKL-119c: Set.contains uses value equality" {
 }
 
 ///|
-test "PKL-119c: Set.toList / .toListing materialize to ListingValue" {
+test "PKL-148h: Set.toList materialises to ListValue, .toListing to ListingValue" {
   guard eval_source("xs = Set(1, 2, 3)\nl = xs.toList()\nlg = xs.toListing()")
     is EvalOk(ObjectValue(members)) else {
     panic()
   }
   for entry in members {
-    if entry.name == "l" || entry.name == "lg" {
+    if entry.name == "l" {
+      guard entry.value is ListValue(items) else { panic() }
+      inspect(items.length(), content="3")
+    } else if entry.name == "lg" {
       guard entry.value is ListingValue(items) else { panic() }
       inspect(items.length(), content="3")
     }
@@ -8723,7 +8734,7 @@ test "Pkl Bytes toList returns the underlying ints" {
       ObjectValue([
         ValueMember::{
           name: "xs",
-          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+          value: ListValue([IntValue(1), IntValue(2), IntValue(3)]),
         },
       ]),
     ),

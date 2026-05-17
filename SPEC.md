@@ -96,10 +96,11 @@
   - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **List Value variant split from Listing** [draft] — verifies: PKL-151 — tags: evaluator, typechecker, stdlib, upstream, compat
-  > PKL-119a/b/c/d split Pair / IntSeq / Set / Map out of the legacy `ListingValue` / `MappingValue` collapse, but `List(a, b, c)` still produces a `ListingValue` (the PKL-139 stop-gap). Methods that expect `List` reject the synthesized Listing (`method l return type annotation List<String> does not accept Listing` in `methods/methodParameterTypes3`). Introduce `ListValue(Array[Value])` parallel to `SetValue`, route the `List(...)` constructor through it, mirror the typechecker `ListType(Array[Type])`, and make `(ListingType, ListType)` interconvertible per Apple Pkl's `List <: Listing` rule.
+- [ ] **ListValue split from ListingValue for List constructor PCF round-trip** — verifies: PKL-148h — tags: evaluator, renderer, stdlib, upstream, compat
+  > Apple Pkl distinguishes `List<T>` (immutable indexed collection, constructor `List(...)`, PCF `List(elem, ...)`) from `Listing<T>` (CST-typed builder, `new Listing { ... }`, PCF `new { elem; ... }` block). pkl-mbt previously collapsed both into `ListingValue`, which meant `List(1, 2, 3)` rendered as `new { 1; 2; 3 }` — silent rendering divergence on every fixture that uses `List`. This slice splits the variant: `List(...)` and `.toList()` now produce a dedicated `ListValue(Array[Value])` that renders through `render_pcf_scalar` as `List(elem, ...)`; `.toListing()` and the existing `new Listing { ... }` literal path stay on `ListingValue`. Listing-method dispatch (`.filter`, `.map`, `.length`, `.startsWith`, `.flatMap`, `.toSet`, subscript, `+`) accepts both variants via pattern alternation — the dispatcher's element-walking logic is identical. The Apple-Pkl `module.catch(() -> list[i])` diagnostic text is also brought into shape (`Element index `i` is out of range `0`..`N`. Collection: List(...)`) so out-of-bounds string projections round-trip. Lifts gold-match from 72 to 82 PCF (`api/pair`, `basic/list`, `classes/inheritance1`, `classes/inheritance2`, `listings/listing1`, `mappings/mapping1`, `methods/methodParameterTypes2`, `modules/lists`, `modules/typedModuleProperties1`, `types/ThisInTypeConstraint`).
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-119d
+  - depends on: PKL-148g
+  - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **Listing and Mapping element constraint propagation** — verifies: PKL-093 — tags: evaluator, typechecker, constraint, collection
@@ -883,10 +884,10 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **super late binding amend lambda form list value split** [draft] — verifies: PKL-148h — tags: evaluator, stdlib, upstream, compat, next
-  > PKL-148g landed FunctionValue identity, virtual class method dispatch, `local <modifier>*` parsing, and the `this.X` sibling shortcut. The harder remaining pieces are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this — needed for `objects/super2` / `super3` / `super4`, `classes/supercallsInLet`); the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambda*` fixtures); runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`); constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13); ListValue split so `List(...)` literals render through `List(elem, ...)` PCF form (needed for `basic/list`, `basic/propertyDefaults` `coll = List()` / `list = List()`, `classes/inheritance{1,2}`); class-aware ObjectValue tagging so `new Person {} != new Person2 {}` (needed for `objects/equality`'s c-block); object-body amend chain (`(obj) { ... } { ... }` — needed for `objects/equality` a11); type-constraint enforcement on amend-time property overrides (`new Person { name = 42 }` should reject when `name: String` — `classes/wrongType5`, `classes/constraints9` / `13`); listing/mapping body re-eval on amend so listing `(x) {}` / `default = N` work (needed for `listings/equality`, `listings/inequality`, `mappings/equality`, `mappings/inequality`). Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along.
+- [ ] **super late binding amend lambda form class-aware object equality** [draft] — verifies: PKL-148i — tags: evaluator, stdlib, upstream, compat, next
+  > PKL-148h split ListValue out of ListingValue and rerouted `List(...)` rendering through Apple Pkl's `List(elem, ...)` form (+10 gold-match fixtures). The harder remaining pieces — all of which require non-local evaluator work — are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this, needed for `objects/super2` / `super3` / `super4`, `classes/supercallsInLet`); the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambda*` fixtures); runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`); constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13); class-aware ObjectValue tagging so `new Person {} != new Person2 {}` (needed for `objects/equality`'s c-block); object-body amend chain (`(obj) { ... } { ... }` — needed for `objects/equality` a11); type-constraint enforcement on amend-time property overrides (`new Person { name = 42 }` should reject when `name: String` — `classes/wrongType5`, `classes/constraints9` / `13`); listing/mapping body re-eval on amend so listing `(x) {}` / `default = N` work (needed for `listings/equality`, `listings/inequality`, `mappings/equality`, `mappings/inequality`). Listing/List-method receiver-tag preservation (`list.map(...)` returns a List, `listing.map(...)` returns a Listing) is a sub-task too; today the dispatcher always re-wraps as ListingValue. Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along.
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-148g
+  - depends on: PKL-148h
   - body: _not yet implemented_
 
 - [ ] **super method call** — verifies: PKL-117a — tags: evaluator, inheritance
@@ -1384,7 +1385,7 @@
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
-- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d, PKL-148e, PKL-148f, PKL-148g — tags: moonbit, upstream, compatibility, contract
+- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d, PKL-148e, PKL-148f, PKL-148g, PKL-148h — tags: moonbit, upstream, compatibility, contract
   > Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF and JSON).
   - body: `cmd` (exit 0 expected)
 

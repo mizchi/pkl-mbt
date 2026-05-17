@@ -1896,6 +1896,44 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklListValueSplitScenario = new Scenario {
+  id = "PKL-148h"
+  name = "ListValue split from ListingValue for List constructor PCF round-trip"
+  description =
+    "Apple Pkl distinguishes `List<T>` (immutable indexed collection, constructor `List(...)`, PCF `List(elem, ...)`) from `Listing<T>` (CST-typed builder, `new Listing { ... }`, PCF `new { elem; ... }` block). pkl-mbt previously collapsed both into `ListingValue`, which meant `List(1, 2, 3)` rendered as `new { 1; 2; 3 }` — silent rendering divergence on every fixture that uses `List`. This slice splits the variant: `List(...)` and `.toList()` now produce a dedicated `ListValue(Array[Value])` that renders through `render_pcf_scalar` as `List(elem, ...)`; `.toListing()` and the existing `new Listing { ... }` literal path stay on `ListingValue`. Listing-method dispatch (`.filter`, `.map`, `.length`, `.startsWith`, `.flatMap`, `.toSet`, subscript, `+`) accepts both variants via pattern alternation — the dispatcher's element-walking logic is identical. The Apple-Pkl `module.catch(() -> list[i])` diagnostic text is also brought into shape (`Element index `i` is out of range `0`..`N`. Collection: List(...)`) so out-of-bounds string projections round-trip. Lifts gold-match from 72 to 82 PCF (`api/pair`, `basic/list`, `classes/inheritance1`, `classes/inheritance2`, `listings/listing1`, `mappings/mapping1`, `methods/methodParameterTypes2`, `modules/lists`, `modules/typedModuleProperties1`, `types/ThisInTypeConstraint`)."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148g" }
+  tags { "evaluator"; "renderer"; "stdlib"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "ListValue variant carries the List(...) constructor form distinct from Listing"
+      rationale =
+        "Collapsing List and Listing into one variant forced the PCF renderer to pick a single shape — `new { ... }` was the previous default, which silently broke every `List(...)` literal's gold output. A dedicated `ListValue(Array[Value])` variant lets `render_pcf_scalar` emit `List(elem, ...)` (parallel to `Set(...)` and `Map(...)`) while keeping `ListingValue` on the block form. MoonBit's derived `==` now also distinguishes the two at runtime, matching Apple Pkl's `List != Listing` semantics."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Method dispatch shares the element-walking surface across List / Listing"
+      rationale =
+        "Apple Pkl's `.filter` / `.map` / `.length` / `.startsWith` / `.flatMap` work on both List and Listing — the element-walking logic is the same; only the receiver's type tag differs. Routing both `ListingValue(es)` and `ListValue(es)` into `eval_listing_method` via pattern alternation avoids duplicating the dispatcher. `.toList()` tags as `ListValue`, `.toListing()` as `ListingValue`; the receiver-variant-preserving thread for `.map` / `.filter` results stays out of scope for this slice (currently both project as `ListingValue` regardless of receiver, deferred until the upstream fixtures that exercise the distinction land)."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "`List + List` / `List + Set` preserves the List variant; `Set + List` widens to Set"
+      rationale =
+        "Apple Pkl's `Collection + Collection` dispatch is left-biased: the LHS variant decides the result shape. `List + List` appends and stays a `ListValue`, `List + Set` appends with no dedup (still a List), `Set + List` unions and stays a Set, `List + Listing` widens to Listing (left-side asymmetric — matches upstream's `Listing` super-type position in the join lattice). Eight dispatch arms cover the cross-product."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Subscript out-of-bounds diagnostic uses Apple Pkl's `Element index ... is out of range ... Collection: ...` wording"
+      rationale =
+        "`module.catch(() -> list[-1])` projects the runtime error as a String. Apple Pkl's wording embeds the rendered receiver inside the message (`Collection: List(1, \"two\", 3)`). Rendering the receiver through `render_pcf_value_inline` and templating the index range gives byte-exact gold match for the `basic/list` `subscript` block; the same template fires for Listing receivers (the tag inside the message follows the receiver's PCF render)."
+    }
+  }
+}
+
 local pklLambdaIdentityAndVirtualDispatchScenario = new Scenario {
   id = "PKL-148g"
   name = "lambda identity equality virtual method dispatch and this.X access"
@@ -4487,5 +4525,6 @@ scenarios {
   pklForwardRefSuperAndApplyScenario
   pklUnorderedEqualityAndTypedDefaultsScenario
   pklLambdaIdentityAndVirtualDispatchScenario
+  pklListValueSplitScenario
   ...roadmap.entries
 }
