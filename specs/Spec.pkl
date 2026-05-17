@@ -1896,6 +1896,32 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklCatchOrNullAndBareConstraintScenario = new Scenario {
+  id = "PKL-148o"
+  name = "catchOrNull wiring catch no-throw wording bare callable constraint diagnostic"
+  description =
+    "Three Apple-Pkl alignment fixes that share a code path (`pkl:test.catch` / `catchOrNull` plus the callable-parameter constraint diagnostic). (1) `module.catchOrNull(() -> ...)` / `test.catchOrNull(() -> ...)` wasn't wired into the CallExpr intercept — the snippetTest examples blocks lean on `catchOrNull(...) == null` to project Boolean throw-vs-no-throw, but pkl-mbt's eval surfaced `Cannot find property catchOrNull`. (2) `catch(fun)` on a non-throwing lambda returned the rendered value as a string instead of throwing — Apple Pkl's `TestNodes.catchMethod.eval` raises `expectedAnException` (`Expected an exception, but none was thrown.`) when the lambda exits normally. (3) The callable-parameter constraint check (`function add(n: Int(isPositive)) = n`, `class X { function int(int: Int(isPositive)) = int }`, etc.) wrapped its bare upstream message (`Type constraint isPositive violated. Value: -1`) with a `<label> argument N` prefix at all three eval entry points (`eval_lambda_application`, `apply_function_value`, class-method dispatch in `eval_member_access_call`), producing `function f argument 1 Type constraint isPositive violated. Value: -1` — Apple Pkl emits the bare form per its `errorMessages.properties#typeConstraintViolated` entry. New shared `pkl_test_catch_form_kind` predicate plus a `PklTestCatchOutcome` enum split keeps the binding-time intercept's catch / catchOrNull dispatch clean, the prefix wrapper is dropped at every eval call site (the typecheck-side wording in `typecheck.mbt` is unaffected), and four affected unit tests get their expected messages updated to the upstream-aligned bare form. No gold-match flip from this slice alone — the `basic/as*` and `methods/methodParameterConstraints2` fixtures that exercise these paths still need the broader per-element constraint deferral (`Set(...) as Set<Listing<Int>>` element access) and runtime constraint expression eval for lambdas with closures (`length > n` against a captured `n`), both deferred to PKL-148m (the super-late-bind cluster)."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148n" }
+  tags { "evaluator"; "diagnostics"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "Drop the `<label> argument N` prefix at every eval-time callable parameter constraint call site"
+      rationale =
+        "Apple Pkl's runtime emits the bare `Type constraint X violated. Value: V` per the `typeConstraintViolated` template — no `function f argument 1 ...` prefix. Our four affected unit tests had encoded the wrong (prefixed) form, so passing them was not evidence the message lined up with upstream. The typecheck-side prefix in `typecheck.mbt` is a separate code path serving the static analysis surface (it carries the call-site context for IDE diagnostics, not snippetTest round-trips) — that path stays as-is. The eval-side change unblocks the constraint-emitting half of fixtures like `lambdas/typedLambdas` (res4 now matches gold), though the runtime constraint expression eval for lambdas-with-closure (res6's `length > n` against a captured `n`) is the remaining blocker for full gold-match."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Split binding-time intercept dispatch by detecting `catch` vs `catchOrNull` form, instead of branching inside the shared body"
+      rationale =
+        "The pre-existing binding-time intercept passed every catch-shaped expression through `eval_pkl_test_catch_binding_value`, which had to decide whether to throw or return the value on no-throw. Mixing the two into one helper would require either a Boolean knob (ugly) or hard-coding the throw branch (wrong for catchOrNull). Adding the `PklTestCatchFormKind` enum + `pkl_test_catch_form_kind` predicate keeps each helper single-purpose; the call-expr-time intercept dispatches by callee match, and the binding-time intercept dispatches by AST shape, both routing into the same shared `eval_pkl_test_catch_outcome` core that returns a tagged ThrewOutcome / NoThrowOutcome."
+    }
+  }
+}
+
 local pklAsCastAndLocalInListingScenario = new Scenario {
   id = "PKL-148n"
   name = "as cast accepts generic-wrapped heads and local bindings inside listing bodies"
@@ -4706,5 +4732,6 @@ scenarios {
   pklCallableParamTypeRejectionScenario
   pklLocalDeclModifierScenario
   pklAsCastAndLocalInListingScenario
+  pklCatchOrNullAndBareConstraintScenario
   ...roadmap.entries
 }

@@ -6331,7 +6331,7 @@ test "enforce Pkl constrained method parameter annotations" {
   inspect(
     eval_diagnostics[0].message,
     content=(
-      #|method add argument 1 Type constraint `isBetween(0, 10)` violated. Value: 11
+      #|Type constraint `isBetween(0, 10)` violated. Value: 11
     ),
   )
 }
@@ -6984,7 +6984,7 @@ test "evaluate user-defined constrained Pkl callable arguments" {
   inspect(
     diagnostics[0].message,
     content=(
-      #|function check argument 1 Type constraint `above(5)` violated. Value: 1
+      #|Type constraint `above(5)` violated. Value: 1
     ),
   )
 }
@@ -7011,7 +7011,7 @@ test "evaluate user-defined constrained Pkl class method arguments" {
   inspect(
     diagnostics[0].message,
     content=(
-      #|method check argument 1 Type constraint `above(5)` violated. Value: 1
+      #|Type constraint `above(5)` violated. Value: 1
     ),
   )
 }
@@ -7251,7 +7251,7 @@ test "enforce Pkl constrained function parameter annotations" {
   inspect(
     eval_diagnostics[0].message,
     content=(
-      #|function f argument 1 Type constraint `isBetween(0, 10)` violated. Value: 11
+      #|Type constraint `isBetween(0, 10)` violated. Value: 11
     ),
   )
 }

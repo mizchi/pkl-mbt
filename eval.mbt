@@ -2338,7 +2338,18 @@ fn eval_lambda_application(
         declarations,
       ) {
       Some(message) => {
-        diagnostics.push(diag("\{label} argument \{i + 1} \{message}"))
+        // PKL-148o: Apple Pkl emits the bare constraint message
+        // (`Type constraint `isPositive` violated. Value: -1`) for
+        // callable-parameter constraint failures — no `<label>
+        // argument N` prefix. Drop the wrapper across all three
+        // call sites (this lambda application, `apply_function_value`,
+        // and the class-method dispatch in `eval_member_access_call`)
+        // so `test.catch(() -> f(-1))` round-trips the upstream
+        // wording byte-for-byte. `label` is preserved here in case a
+        // future diagnostic needs the caller's identity, but isn't
+        // included in the user-facing message.
+        let _ = label
+        diagnostics.push(diag(message))
         return None
       }
       None => ()
@@ -2431,7 +2442,10 @@ fn apply_function_value(
             declarations,
           ) {
           Some(message) => {
-            diagnostics.push(diag("\{label} argument \{i + 1} \{message}"))
+            // PKL-148o: bare upstream wording — see
+            // `eval_lambda_application` for the rationale.
+            let _ = label
+            diagnostics.push(diag(message))
             return None
           }
           None => ()
@@ -6499,11 +6513,10 @@ fn eval_class_method_call(
                         declarations,
                       ) {
                       Some(message) => {
-                        diagnostics.push(
-                          diag(
-                            "method \{method_name} argument \{i + 1} \{message}",
-                          ),
-                        )
+                        // PKL-148o: bare upstream wording — see
+                        // `eval_lambda_application` for the rationale.
+                        let _ = method_name
+                        diagnostics.push(diag(message))
                         return None
                       }
                       None => ()
@@ -8235,6 +8248,27 @@ fn eval_expr_with_bindings(
         // arity fall through to the generic CallExpr path so a future
         // proper `catch` member can take over.
         eval_pkl_test_catch_binding_value(
+          CallExpr(callee, arguments),
+          bindings,
+          env,
+          class_env,
+          cache,
+          stack,
+          declarations,
+          resolve_import,
+        )
+      } else if (
+          callee is MemberAccess(Identifier("module"), "catchOrNull") ||
+          callee is MemberAccess(Identifier("test"), "catchOrNull")
+        ) &&
+        !stack_contains_binding(stack, "catchOrNull") &&
+        find_binding(bindings, "catchOrNull") is None &&
+        arguments.length() == 1 {
+        // PKL-148o: `catchOrNull(fun)` mirrors `catch(fun)` but the
+        // no-throw branch returns `null` instead of throwing — used
+        // throughout the snippetTest examples blocks to project
+        // "did this throw?" as a Boolean (`catchOrNull(...) == null`).
+        eval_pkl_test_catch_or_null_binding_value(
           CallExpr(callee, arguments),
           bindings,
           env,
@@ -10308,10 +10342,13 @@ fn pkl_test_catch_lambda_body(expr : Expr) -> Expr? {
   // `catch` is inherited via `extends "pkl:test"`. Recognise both the
   // bare `test.catch(...)` form (binding-time intercept on the top
   // binding) and the `module.catch(...)` form so a fixture that uses
-  // the module-self reference still routes through this stub.
+  // the module-self reference still routes through this stub. PKL-148o
+  // extends the same lambda extraction to `catchOrNull`.
   let arguments = match expr {
     CallExpr(MemberAccess(Identifier("test"), "catch"), args) => args
     CallExpr(MemberAccess(Identifier("module"), "catch"), args) => args
+    CallExpr(MemberAccess(Identifier("test"), "catchOrNull"), args) => args
+    CallExpr(MemberAccess(Identifier("module"), "catchOrNull"), args) => args
     _ => return None
   }
   if arguments.length() != 1 {
@@ -10339,6 +10376,74 @@ fn eval_pkl_test_catch_binding_value(
   declarations : Array[Declaration],
   resolve_import : (String) -> EvalResult?,
 ) -> Value? {
+  // PKL-148o: when this entry recognises the bound expression as a
+  // `catch` / `catchOrNull` call, dispatch through the form-specific
+  // wrapper so the no-throw branch lines up with Apple Pkl's
+  // semantics: `catch` throws `Expected an exception, but none was
+  // thrown.`; `catchOrNull` returns `null`. The shared
+  // `pkl_test_catch_lambda_body` already accepts both forms, so the
+  // dispatch is keyed off the AST shape itself.
+  match pkl_test_catch_form_kind(expr) {
+    Some(CatchOrNullForm) =>
+      eval_pkl_test_catch_or_null_binding_value(
+        expr, bindings, env, class_env, cache, stack, declarations, resolve_import,
+      )
+    Some(CatchForm) =>
+      match
+        eval_pkl_test_catch_outcome(
+          expr, bindings, env, class_env, cache, stack, declarations, resolve_import,
+        ) {
+        Some(ThrewOutcome(message)) => Some(StringValue(message))
+        Some(NoThrowOutcome) =>
+          Some(StringValue("Expected an exception, but none was thrown."))
+        None => None
+      }
+    None => None
+  }
+}
+
+///|
+priv enum PklTestCatchFormKind {
+  CatchForm
+  CatchOrNullForm
+}
+
+///|
+fn pkl_test_catch_form_kind(expr : Expr) -> PklTestCatchFormKind? {
+  match expr {
+    CallExpr(MemberAccess(Identifier("test"), "catch"), _)
+    | CallExpr(MemberAccess(Identifier("module"), "catch"), _) =>
+      Some(CatchForm)
+    CallExpr(MemberAccess(Identifier("test"), "catchOrNull"), _)
+    | CallExpr(MemberAccess(Identifier("module"), "catchOrNull"), _) =>
+      Some(CatchOrNullForm)
+    _ => None
+  }
+}
+
+///|
+/// PKL-148o: shared core for `catch` / `catchOrNull` — evaluates the
+/// passed lambda body once, surfaces whether it threw (collected
+/// diagnostic) or returned a value, and lets the wrappers branch on
+/// the outcome. The probe runs `push_constrained_class_property_expr_diagnostics`
+/// first because some constraint failures are emitted at the
+/// expression-shape inspection phase rather than during evaluation.
+priv enum PklTestCatchOutcome {
+  ThrewOutcome(String)
+  NoThrowOutcome
+}
+
+///|
+fn eval_pkl_test_catch_outcome(
+  expr : Expr,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> PklTestCatchOutcome? {
   match pkl_test_catch_lambda_body(expr) {
     Some(body) => {
       let caught_diagnostics : Array[Diagnostic] = []
@@ -10346,27 +10451,48 @@ fn eval_pkl_test_catch_binding_value(
         body, declarations, caught_diagnostics,
       )
       if caught_diagnostics.length() > 0 {
-        return Some(StringValue(caught_diagnostics[0].message))
+        return Some(ThrewOutcome(caught_diagnostics[0].message))
       }
       match
         eval_expr_with_bindings(
           body, bindings, env, class_env, cache, stack, declarations, caught_diagnostics,
           resolve_import,
         ) {
-        Some(value) =>
+        Some(_value) =>
           if caught_diagnostics.length() > 0 {
-            Some(StringValue(caught_diagnostics[0].message))
+            Some(ThrewOutcome(caught_diagnostics[0].message))
           } else {
-            Some(StringValue(render_value(value)))
+            Some(NoThrowOutcome)
           }
         None =>
           if caught_diagnostics.length() > 0 {
-            Some(StringValue(caught_diagnostics[0].message))
+            Some(ThrewOutcome(caught_diagnostics[0].message))
           } else {
-            Some(StringValue("caught error"))
+            Some(ThrewOutcome("caught error"))
           }
       }
     }
+    None => None
+  }
+}
+
+///|
+fn eval_pkl_test_catch_or_null_binding_value(
+  expr : Expr,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match
+    eval_pkl_test_catch_outcome(
+      expr, bindings, env, class_env, cache, stack, declarations, resolve_import,
+    ) {
+    Some(ThrewOutcome(message)) => Some(StringValue(message))
+    Some(NoThrowOutcome) => Some(NullValue)
     None => None
   }
 }

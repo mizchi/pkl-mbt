@@ -244,6 +244,34 @@
 ///                     runtime value via the `("Any", _) => true`
 ///                     arm in `eval_value_accepts_type_annotation`
 ///                     (landed with PKL-148e).
+///   PKL-148o (15th)   `catch` / `catchOrNull` wiring plus bare
+///                     constraint diagnostic wording. Three Apple-
+///                     Pkl alignment fixes: (1) `module.catchOrNull`
+///                     / `test.catchOrNull` was unwired — eval
+///                     surfaced `Cannot find property catchOrNull`;
+///                     a new CallExpr intercept + helper routes
+///                     through the shared catch outcome core,
+///                     returning `null` on the no-throw branch;
+///                     (2) `catch(fun)` on a non-throwing lambda
+///                     returned the rendered value as a string —
+///                     Apple Pkl's `TestNodes.catchMethod` raises
+///                     `Expected an exception, but none was thrown.`
+///                     instead; (3) the callable-parameter
+///                     constraint check wrapped its bare upstream
+///                     message with `<label> argument N` prefix at
+///                     all three eval entry points — Apple Pkl
+///                     emits the bare form per
+///                     `errorMessages.properties#typeConstraintViolated`.
+///                     Dropping the prefix at every eval call site
+///                     (the typecheck-side wording is unaffected)
+///                     plus updating four affected unit tests to
+///                     the bare form. No gold-match flip — the
+///                     `basic/as*` and `methods/methodParameterConstraints2`
+///                     fixtures that exercise these paths still need
+///                     the broader per-element constraint deferral
+///                     and runtime constraint expression eval for
+///                     lambdas with closures, both deferred to the
+///                     super-late-bind cluster.
 @ModuleInfo { minPklVersion = "0.31.0" }
 module specs.Roadmap
 

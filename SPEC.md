@@ -1,6 +1,6 @@
 # Test SPEC
 
-234 tests across 2 module(s) — 169 pending, 65 active
+235 tests across 2 module(s) — 170 pending, 65 active
 
 ## `specs/`
 
@@ -239,6 +239,13 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-089, PKL-090
   - decisions: 4 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **catchOrNull wiring catch no-throw wording bare callable constraint diagnostic** (minor) — verifies: PKL-148o — tags: evaluator, diagnostics, upstream, compat
+  > Three Apple-Pkl alignment fixes that share a code path (`pkl:test.catch` / `catchOrNull` plus the callable-parameter constraint diagnostic). (1) `module.catchOrNull(() -> ...)` / `test.catchOrNull(() -> ...)` wasn't wired into the CallExpr intercept — the snippetTest examples blocks lean on `catchOrNull(...) == null` to project Boolean throw-vs-no-throw, but pkl-mbt's eval surfaced `Cannot find property catchOrNull`. (2) `catch(fun)` on a non-throwing lambda returned the rendered value as a string instead of throwing — Apple Pkl's `TestNodes.catchMethod.eval` raises `expectedAnException` (`Expected an exception, but none was thrown.`) when the lambda exits normally. (3) The callable-parameter constraint check (`function add(n: Int(isPositive)) = n`, `class X { function int(int: Int(isPositive)) = int }`, etc.) wrapped its bare upstream message (`Type constraint isPositive violated. Value: -1`) with a `<label> argument N` prefix at all three eval entry points (`eval_lambda_application`, `apply_function_value`, class-method dispatch in `eval_member_access_call`), producing `function f argument 1 Type constraint isPositive violated. Value: -1` — Apple Pkl emits the bare form per its `errorMessages.properties#typeConstraintViolated` entry. New shared `pkl_test_catch_form_kind` predicate plus a `PklTestCatchOutcome` enum split keeps the binding-time intercept's catch / catchOrNull dispatch clean, the prefix wrapper is dropped at every eval call site (the typecheck-side wording in `typecheck.mbt` is unaffected), and four affected unit tests get their expected messages updated to the upstream-aligned bare form. No gold-match flip from this slice alone — the `basic/as*` and `methods/methodParameterConstraints2` fixtures that exercise these paths still need the broader per-element constraint deferral (`Set(...) as Set<Listing<Int>>` element access) and runtime constraint expression eval for lambdas with closures (`length > n` against a captured `n`), both deferred to PKL-148m (the super-late-bind cluster).
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-148n
+  - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **class-as-value reflect mirror plus lexical scope walk** — verifies: PKL-148d — tags: evaluator, scope, amend, upstream, compat
@@ -1421,7 +1428,7 @@
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
-- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d, PKL-148e, PKL-148f, PKL-148g, PKL-148h, PKL-148i, PKL-148j, PKL-148k, PKL-148l, PKL-148m, PKL-148n — tags: moonbit, upstream, compatibility, contract
+- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d, PKL-148e, PKL-148f, PKL-148g, PKL-148h, PKL-148i, PKL-148j, PKL-148k, PKL-148l, PKL-148m, PKL-148n, PKL-148o — tags: moonbit, upstream, compatibility, contract
   > Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF and JSON).
   - body: `cmd` (exit 0 expected)
 
