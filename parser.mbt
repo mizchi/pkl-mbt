@@ -722,7 +722,27 @@ fn Parser::parse(self : Parser) -> ParseResult {
         }
       }
     } else if kind == local_kw() {
-      if is_decl_text(self.peek_non_trivia_text(self.pos + 1)) {
+      // PKL-148m: a `local` modifier in front of a class / function /
+      // typealias declaration was silently dropped (the whole member
+      // routed through `skip_unknown_member`), so `local class C`,
+      // `local function f`, and `local typealias T` never reached the
+      // declaration list — references to them later in the module
+      // raised `Cannot find property` / silently bypassed the
+      // typealias's constraint. Apple Pkl treats `local` here as a
+      // scope modifier (the declaration exists inside the module but
+      // is not exported); pkl-mbt records the declaration unchanged
+      // (the export-suppression side is a separate concern that only
+      // matters when another module re-imports this one). Bump past
+      // `local` and let the next loop iteration dispatch on the decl
+      // keyword.
+      let next_text = self.peek_non_trivia_text(self.pos + 1)
+      if next_text == "class" ||
+        next_text == "function" ||
+        next_text == "typealias" {
+        ignore(self.bump())
+        self.skip_whitespace()
+        continue
+      } else if is_decl_text(next_text) {
         self.skip_unknown_member()
       } else {
         match self.parse_local_decl() {

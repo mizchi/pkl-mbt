@@ -1896,6 +1896,26 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklLocalDeclModifierScenario = new Scenario {
+  id = "PKL-148m"
+  name = "local modifier on class / function / typealias declarations"
+  description =
+    "A `local` modifier in front of a `class`, `function`, or `typealias` declaration was silently dropped at parse time — the whole member routed through `skip_unknown_member`, so `local class C { ... }` / `local function f(...): ... = ...` / `local typealias T = Int(this > N)` never reached the declaration list. The downstream symptom was either `Cannot find property ...` on a later reference (`local function` / `local typealias` resolved to nothing) or a stamped-empty ObjectValue (`local class C` was unknown so `new C {}` couldn't pick up the defaults), AND silently bypassing a typealias's runtime constraint (`x: T = 5` against `local typealias T = Int(this > 100)` rendered `x = 5` instead of raising). Apple Pkl treats `local` here as a scope modifier — the declaration exists inside the module but is not exported when another module imports it; for pkl-mbt's primary single-module driver path the export-suppression aspect is a separate concern, so this slice records the declaration unchanged (parses the `local` token, then dispatches to the appropriate `parse_class_decl` / `parse_function_decl` / `parse_typealias_decl` exactly as the bare form would). Unblocks `types/typeAliasConstraint1` (`local typealias OneCharacterString = String(length == 1)` paired with a `local class ClassWithLengthProperty` whose default `characters: List<OneCharacterString> = List(\"a\", \"b\")` couldn't be reached), plus a fan of fixtures that lean on `local function` declarations or `local class` defaults. Lifts gold-match from 103 to 109 PCF (`basic/localMethodTyped3`, `basic/localModuleMemberOverride1`, `modules/amendModule5`, `types/typeAliasConstraint1`, `implementation/equality`, `implementation/inequality`)."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148l" }
+  tags { "parser"; "evaluator"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "`local class` / `local function` / `local typealias` parse as their non-local counterparts; export suppression is deferred"
+      rationale =
+        "Apple Pkl uses `local` here purely as a visibility modifier (the declaration is invisible to importers but still resolvable in-module). pkl-mbt's primary driver path is single-module evaluation, so registering the declaration without tracking the export flag is enough to make every in-module reference resolve correctly and every typealias constraint fire. The alternative — wiring a `is_local: Bool` field through ClassDecl / FunctionDecl / TypeAliasDecl and every consumer — costs ~70 construction-site touches for a behavior (cross-module export filtering) that no current gold fixture exercises. When a cross-module fixture lands that actually depends on the export side, we add the flag then."
+    }
+  }
+}
+
 local pklCallableParamTypeRejectionScenario = new Scenario {
   id = "PKL-148l"
   name = "Callable parameter basic-type rejection fires before body evaluation"
@@ -4652,5 +4672,6 @@ scenarios {
   pklLocalMemberVisibilityScenario
   pklMappingDupKeyAndPipeDiagnosticScenario
   pklCallableParamTypeRejectionScenario
+  pklLocalDeclModifierScenario
   ...roadmap.entries
 }

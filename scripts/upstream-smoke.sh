@@ -26,6 +26,8 @@ GOLD_FIXTURES=(
   "basic/fixedProperty2"
   "basic/fixedProperty3"
   "basic/identifier"
+  "basic/localMethodTyped3"
+  "basic/localModuleMemberOverride1"
   "basic/import1"
   "basic/import2"
   "basic/if"
@@ -88,6 +90,7 @@ GOLD_FIXTURES=(
   "modules/amendModule1"
   "modules/amendModule2"
   "modules/amendModule3"
+  "modules/amendModule5"
   "modules/filename with spaces"
   "modules/filename with spaces 2"
   "modules/library"
@@ -115,6 +118,9 @@ GOLD_FIXTURES=(
   "types/ThisInTypeConstraint"
   "types/helpers/someModule"
   "types/nothingWithUnions"
+  "types/typeAliasConstraint1"
+  "implementation/equality"
+  "implementation/inequality"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output
