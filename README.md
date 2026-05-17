@@ -66,7 +66,7 @@ These don't exist in Apple Pkl:
 ## Upstream compatibility
 
 - **Parser corpus**: 802 / 802 LanguageSnippetTests fixtures (parse-only)
-- **Eval gold-match**: 102 PCF + 1 JSON + 1 plist fixtures byte-for-byte against upstream
+- **Eval gold-match**: 103 PCF + 1 JSON + 1 plist fixtures byte-for-byte against upstream
 - **Diagnostic wording**: first-line messages aligned with Apple Pkl (`Cannot find type \`X\`.`, `Cannot find property \`x\`.`, `Cannot find module \`...\`.`)
 
 ## Development
@@ -86,4 +86,4 @@ git submodule update --init --recursive
 ./scripts/upstream-parse-suite.sh
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same gate on every push / PR. 146 implemented pkspec scenarios; see `SPEC.md` for the full rendered spec.
+CI (`.github/workflows/ci.yml`) runs the same gate on every push / PR. 147 implemented pkspec scenarios; see `SPEC.md` for the full rendered spec.

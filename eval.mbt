@@ -2040,6 +2040,56 @@ fn eval_type_name_is_type_parameter(
 }
 
 ///|
+/// PKL-148l: a callable's parameter declared with a basic type
+/// annotation (`a: Int`, `b: Number`, `s: String`, etc.) must reject
+/// arguments whose runtime type does not satisfy the annotation
+/// before the body runs. Apple Pkl emits the bare diagnostic
+/// (`Expected value of type \`Int\`, but got type \`Float\`. Value: 1.1`)
+/// with no `label argument N` prefix, so this helper mirrors the
+/// return-side wording.
+fn eval_callable_argument_type_rejection_message(
+  type_name : String?,
+  value : Value,
+  declarations : Array[Declaration],
+) -> String? {
+  match type_name {
+    Some(source) => {
+      if eval_type_name_is_type_parameter(source, declarations) {
+        return None
+      }
+      let aliases = eval_type_alias_bindings(declarations)
+      let resolved = eval_resolved_type_alias(source, aliases)
+      // Normalize the head for the acceptance check while keeping
+      // the original surface name in the diagnostic: strip a trailing
+      // constraint `(...)` and any generic `<...>` so e.g.
+      // `List<Set<...>>(thisisList)` collapses to `List` — the
+      // value-side acceptance only matches on the outermost head.
+      let without_constraint = match pkl_constrained_type_base_name(resolved) {
+        Some(base) => base
+        None => resolved
+      }
+      let head_for_check = match without_constraint.find("<") {
+        Some(idx) =>
+          String::unsafe_substring(without_constraint, start=0, end=idx)
+        None => without_constraint
+      }
+      if eval_value_accepts_type_annotation(head_for_check, value) {
+        return None
+      }
+      if value_satisfies_user_class_annotation(
+          head_for_check, value, declarations,
+        ) {
+        return None
+      }
+      Some(
+        "Expected value of type `\{source}`, but got type `\{eval_value_type_name(value)}`. Value: \{render_pcf_value_inline(value)}",
+      )
+    }
+    None => None
+  }
+}
+
+///|
 fn eval_callable_argument_rejection_message(
   type_name : String?,
   value : Value,
@@ -2270,6 +2320,18 @@ fn eval_lambda_application(
   let call_cache = copy_value_bindings(captured_env)
   for i = 0; i < parameters.length(); i = i + 1 {
     match
+      eval_callable_argument_type_rejection_message(
+        parameters[i].type_name,
+        argument_values[i],
+        declarations,
+      ) {
+      Some(message) => {
+        diagnostics.push(diag(message))
+        return None
+      }
+      None => ()
+    }
+    match
       eval_callable_argument_rejection_message(
         parameters[i].type_name,
         argument_values[i],
@@ -2350,6 +2412,18 @@ fn apply_function_value(
       }
       let call_cache = copy_value_bindings(captured_env)
       for i = 0; i < parameters.length(); i = i + 1 {
+        match
+          eval_callable_argument_type_rejection_message(
+            parameters[i].type_name,
+            args[i],
+            declarations,
+          ) {
+          Some(message) => {
+            diagnostics.push(diag(message))
+            return None
+          }
+          None => ()
+        }
         match
           eval_callable_argument_rejection_message(
             parameters[i].type_name,
@@ -6406,6 +6480,18 @@ fn eval_class_method_call(
                     method_cache, type_name, class_env, env, cache,
                   )
                   for i = 0; i < function_decl.parameters.length(); i = i + 1 {
+                    match
+                      eval_callable_argument_type_rejection_message(
+                        function_decl.parameters[i].type_name,
+                        argument_values[i],
+                        declarations,
+                      ) {
+                      Some(message) => {
+                        diagnostics.push(diag(message))
+                        return None
+                      }
+                      None => ()
+                    }
                     match
                       eval_callable_argument_rejection_message(
                         function_decl.parameters[i].type_name,

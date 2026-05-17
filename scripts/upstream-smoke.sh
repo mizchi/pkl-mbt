@@ -83,6 +83,7 @@ GOLD_FIXTURES=(
   "mappings/mapping1"
   "mappings2/duplicateComputedKey"
   "mappings2/mapping1"
+  "methods/methodParameterTypes1"
   "methods/methodParameterTypes2"
   "modules/amendModule1"
   "modules/amendModule2"

@@ -1896,6 +1896,32 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklCallableParamTypeRejectionScenario = new Scenario {
+  id = "PKL-148l"
+  name = "Callable parameter basic-type rejection fires before body evaluation"
+  description =
+    "Apple Pkl rejects a function/method call whose argument doesn't satisfy the parameter's basic type annotation before the body runs, with the bare diagnostic `Expected value of type `<T>`, but got type `<U>`. Value: <pcf>` — the same wording the return-side annotation already uses. pkl-mbt only ran a constraint-shaped check (`Int(isBetween(0, 10))`) on parameters, so a basic-type mismatch like `x.sum(1.1, 2)` against `sum(a: Int, b: Int): Int = a + b` slipped past the parameter gate and only failed inside the body (sometimes returning a Float, sometimes bubbling `operator + expects Int operands`). A new `eval_callable_argument_type_rejection_message` mirrors the return-side acceptance pipeline (resolve type alias → strip the trailing `(...)` constraint → strip any `<...>` generic suffix → fall through `eval_value_accepts_type_annotation` + `value_satisfies_user_class_annotation`) and emits the bare message (no `<label> argument N` prefix, matching Apple Pkl's exact wording). The check runs at all three callable entry points — `eval_lambda_application`, `apply_function_value`, and the class-method dispatch in `eval_member_access_call` — before the existing constraint check, so the constraint cascade still wraps with `<label> argument N <message>` while the basic-type rejection projects the wording byte-for-byte. Generic-head stripping is necessary so `List<Set<String(this==\"one\")>(thisisSet)>(thisisList)`-shaped annotations from `types/ThisInTypeConstraint` collapse to `List` and accept the `ListValue` argument without false-positive. Lifts gold-match from 102 to 103 PCF (`methods/methodParameterTypes1`)."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148k" }
+  tags { "evaluator"; "typecheck"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "Basic-type parameter check emits the bare Apple Pkl wording with no `<label> argument N` prefix"
+      rationale =
+        "The constraint-check call sites already wrap their message with `<label> argument N <message>` (`method add argument 1 Type constraint `isBetween(0, 10)` violated. Value: 11`), which matches how Apple Pkl prefixes constraint failures. Basic-type rejection however lands on the *same* wording as the return-side annotation rejection (`Expected value of type `Int`, but got type `Float`. Value: 1.1`) with no prefix at all — `test.catch(() -> x.sum(1.1, 2))` round-trips it through as a bare string. Keeping the two helpers separate (`_type_` vs the existing constraint helper) means each call site emits the right prefix shape without the wrapping logic having to inspect the message form."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Strip both trailing constraint `(...)` and generic `<...>` from the annotation head before the acceptance check"
+      rationale =
+        "`pkl_constrained_type_base_name` only strips the constraint paren suffix, so `List<Set<...>>(thisisList)` collapses to `List<Set<...>>` — which `eval_value_accepts_type_annotation` doesn't recognize, false-positive-rejecting valid `ListValue` arguments in `types/ThisInTypeConstraint`. The existing default-synthesizer at `synthesize_default_for_type` already uses `name.find(\"<\")` to strip the generic suffix; this helper mirrors that pattern. The original `source` is preserved for the diagnostic so the user sees the full annotation in `Expected value of type `<source>`, …`, while the acceptance check runs against the bare head — matching Apple Pkl's runtime, which only looks at the outermost type."
+    }
+  }
+}
+
 local pklMappingDupKeyAndPipeDiagnosticScenario = new Scenario {
   id = "PKL-148k"
   name = "Mapping literal duplicate scalar key detection and pipe operator diagnostic"
@@ -4625,5 +4651,6 @@ scenarios {
   pklAmendTimeLiteralTypeRejectionScenario
   pklLocalMemberVisibilityScenario
   pklMappingDupKeyAndPipeDiagnosticScenario
+  pklCallableParamTypeRejectionScenario
   ...roadmap.entries
 }
