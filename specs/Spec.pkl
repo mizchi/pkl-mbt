@@ -1896,6 +1896,32 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklOutputTextByteExactScenario = new Scenario {
+  id = "PKL-148q"
+  name = "output.text emitted verbatim and upstream smoke diff goes bytewise"
+  description =
+    "Apple Pkl writes `output.text` to stdout verbatim — the string itself decides whether a trailing newline is present, so `output { text = \"some string\" }` produces exactly `some string` with no `\\n`. pkl-mbt's CLI was calling `println(text)` in the `output.text` short-circuit, which always appended `\\n` and skewed the byte count for `api/moduleOutput` (whose gold ends without `\\n`). The fix routes the text bypass through `@fs.write_string_to_file(\"/dev/stdout\", text)` — `/dev/stdout` is a kernel-provided alias for fd 1 on both macOS and Linux, so the existing `moonbitlang/x/fs` API gives us a no-newline write without adding a new dep just for one CLI slot; the `try / catch` falls back to `println` if the open ever fails on an unusual host. The smoke script's PCF diff path was simultaneously hardened: `eval_matches_gold` previously captured CLI stdout into a shell variable via `$(...)` (which strips trailing newlines) and re-emitted it through `printf '%s\\n'` (which forces exactly one trailing `\\n`), so any disagreement on the final byte was silently masked. Replacing that with `mpkl eval ... > tmpfile; diff -u gold tmpfile` makes the comparison byte-exact, which is the only shape that catches `api/moduleOutput`-style mismatches and matches the contract documented in the README (\"byte-for-byte against upstream\"). +1 gold-match fixture (`api/moduleOutput`), 110 → 111."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148p" }
+  tags { "cli"; "smoke"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Route `output.text` through `@fs.write_string_to_file(\"/dev/stdout\", text)` instead of pulling in `mizchi/x/raw_fd` or shipping a bespoke `extern \"C\" fputs` stub"
+      rationale =
+        "MoonBit core only exposes `%println` (always appends `\\n`); adding raw_fd or libc FFI for a single CLI slot would inflate the dep tree and require per-target plumbing (native+js+wasm). `@fs.write_string_to_file` is already a dep, works on every target we ship to, and writing to `/dev/stdout` is the canonical Unix path for fd-1 emit. The `try / catch` keeps println as a graceful fallback on hosts where `/dev/stdout` isn't available (unlikely in our supported envs, but cheap insurance)."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Switch `eval_matches_gold` from `printf '%s\\n' \"$actual\"` wrapping to `mpkl eval > tmpfile; diff -u gold tmpfile`"
+      rationale =
+        "The shell-mediated `$(...)` + `printf '%s\\n'` shape silently normalised the CLI's trailing newline regardless of whether the gold file had one. That masked `api/moduleOutput`-shaped mismatches and meant our smoke gate wasn't enforcing the byte-for-byte contract the README advertises. A temp-file bytewise diff matches the contract; the existing PCF gold files all already terminate with `\\n` so no regressions (verified by re-running the script against the 110 prior-passing fixtures)."
+    }
+  }
+}
+
 local pklShebangPreambleScenario = new Scenario {
   id = "PKL-148p"
   name = "shebang preamble at module start consumed as trivia"
@@ -4760,5 +4786,6 @@ scenarios {
   pklAsCastAndLocalInListingScenario
   pklCatchOrNullAndBareConstraintScenario
   pklShebangPreambleScenario
+  pklOutputTextByteExactScenario
   ...roadmap.entries
 }

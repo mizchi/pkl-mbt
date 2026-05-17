@@ -122,6 +122,7 @@ GOLD_FIXTURES=(
   "implementation/equality"
   "implementation/inequality"
   "syntax/shebang"
+  "api/moduleOutput"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output
@@ -176,15 +177,23 @@ eval_matches_gold() {
   local label="$1"
   local input="$2"
   local gold="$3"
-  local actual
-  actual="$(moon run cmd/mpkl --target native -- eval "$input")"
-  if ! diff -u "$gold" <(printf '%s\n' "$actual") >/tmp/upstream-smoke-diff.$$; then
+  # PKL-148q: capture mpkl stdout to a temp file and bytewise-diff,
+  # instead of the previous `$(...)` capture + `printf '%s\n'` wrapping
+  # which always appended a trailing newline. The wrapper masked any
+  # disagreement on the final byte: `api/moduleOutput`'s gold ends
+  # without `\n` (Apple Pkl writes `output.text` verbatim), so the
+  # previous shape forced a 1-byte mismatch even after the CLI bypass
+  # emitted the correct payload.
+  local tmp
+  tmp="$(mktemp)"
+  moon run cmd/mpkl --target native -- eval "$input" > "$tmp"
+  if ! diff -u "$gold" "$tmp" >/tmp/upstream-smoke-diff.$$; then
     printf 'upstream eval mismatch: %s\n' "$label" >&2
     cat /tmp/upstream-smoke-diff.$$ >&2
-    rm -f /tmp/upstream-smoke-diff.$$
+    rm -f /tmp/upstream-smoke-diff.$$ "$tmp"
     exit 1
   fi
-  rm -f /tmp/upstream-smoke-diff.$$
+  rm -f /tmp/upstream-smoke-diff.$$ "$tmp"
   printf 'upstream eval ok: %s (gold match)\n' "$label"
 }
 

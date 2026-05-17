@@ -753,7 +753,17 @@ async fn main {
           // auto-detection.
           match extract_output_text(raw) {
             Some(text) => {
-              println(text)
+              // PKL-148q: Apple Pkl writes `output.text` verbatim — the
+              // string itself decides whether a trailing newline is
+              // present. `println` would always append one and skew the
+              // byte count for `api/moduleOutput`-shaped fixtures whose
+              // gold ends without `\n`. `@fs.write_string_to_file` to
+              // `/dev/stdout` is the smallest path to a no-newline write
+              // that's available cross-target (native + js) without
+              // pulling in an FFI dep just for one CLI slot.
+              @fs.write_string_to_file("/dev/stdout", text) catch {
+                _ => println(text)
+              }
               return
             }
             None => ()

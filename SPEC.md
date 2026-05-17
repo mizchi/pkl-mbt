@@ -1,6 +1,6 @@
 # Test SPEC
 
-236 tests across 2 module(s) — 171 pending, 65 active
+237 tests across 2 module(s) — 172 pending, 65 active
 
 ## `specs/`
 
@@ -680,6 +680,13 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **output.text emitted verbatim and upstream smoke diff goes bytewise** (minor) — verifies: PKL-148q — tags: cli, smoke, upstream, compat
+  > Apple Pkl writes `output.text` to stdout verbatim — the string itself decides whether a trailing newline is present, so `output { text = "some string" }` produces exactly `some string` with no `\n`. pkl-mbt's CLI was calling `println(text)` in the `output.text` short-circuit, which always appended `\n` and skewed the byte count for `api/moduleOutput` (whose gold ends without `\n`). The fix routes the text bypass through `@fs.write_string_to_file("/dev/stdout", text)` — `/dev/stdout` is a kernel-provided alias for fd 1 on both macOS and Linux, so the existing `moonbitlang/x/fs` API gives us a no-newline write without adding a new dep just for one CLI slot; the `try / catch` falls back to `println` if the open ever fails on an unusual host. The smoke script's PCF diff path was simultaneously hardened: `eval_matches_gold` previously captured CLI stdout into a shell variable via `$(...)` (which strips trailing newlines) and re-emitted it through `printf '%s\n'` (which forces exactly one trailing `\n`), so any disagreement on the final byte was silently masked. Replacing that with `mpkl eval ... > tmpfile; diff -u gold tmpfile` makes the comparison byte-exact, which is the only shape that catches `api/moduleOutput`-style mismatches and matches the contract documented in the README ("byte-for-byte against upstream"). +1 gold-match fixture (`api/moduleOutput`), 110 → 111.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-148p
+  - decisions: 2 entry(ies)
+  - body: _not yet implemented_
+
 - [ ] **package registry probe and structured diagnostic** — verifies: PKL-129b1 — tags: cli, parser, imports, sandbox, pkf-pkspec
   > The CLI accepts `package://<authority>/<path>@<version>[#<fragment>]` URIs and reports a structured diagnostic naming the package URI, the metadata URL (derived by direct scheme rewrite + drop the fragment), the optional fragment, and the `packageZipUrl` pulled out of the metadata JSON. The fetch path follows up to five 301 / 302 / 303 / 307 / 308 redirects so the `pkg.pkl-lang.org → CDN` hop the registry serves doesn't break the probe. `parse_package_uri` validates the shape (rejects authority-only URIs); `package_metadata_url` performs the rewrite; `extract_package_zip_url` substring-scans the metadata body for the `packageZipUrl` string (no full JSON parser stood up — the field is a simple unescaped URL string). On metadata fetch failure or missing field the diagnostic still surfaces the parsed pieces plus the workaround: download the zip manually (or with `pkl download-package`) and pass `--module-path <dir>`. The CLI exits with status 1 in either case. Full zipball download + DEFLATE unpack + cache + checksum verification land with PKL-129b2.
   - contributes to: GOAL-PKL-PURE
@@ -934,10 +941,10 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **super late binding amend lambda form class-aware object equality** [draft] — verifies: PKL-148p — tags: evaluator, stdlib, upstream, compat, next
-  > PKL-148i shipped the literal-valued slice of amend-time type enforcement (`new Person { name = 42 }` now rejects; +14 gold-match fixtures, 82 → 96); PKL-148j split the `@hidden$` / `@local$` storage prefixes so external `.X` access correctly hides `local` while keeping `hidden`-modifier properties reachable (+4 fixtures, 96 → 100); PKL-148k added Mapping literal duplicate-scalar-key detection plus the Apple-Pkl-shaped pipe-operator diagnostic (+2 fixtures, 100 → 102); PKL-148l fired callable-parameter basic-type rejection before the body runs (+1 fixture, 102 → 103); PKL-148m undropped `local class` / `local function` / `local typealias` in the parser (+6 fixtures, 103 → 109); PKL-148p added the shebang preamble skip in the lexer (+1 fixture, 109 → 110). The harder remaining pieces — all of which require non-local evaluator work — are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this, needed for `objects/super2` / `super3` / `super4`, `classes/supercallsInLet`); the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambda*` fixtures); runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`); constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13); class-aware ObjectValue tagging so `new Person {} != new Person2 {}` (needed for `objects/equality`'s c-block + composite Mapping keys in `mappings/mapping1` that PKL-148k currently sidesteps via a scalar-only duplicate-check gate — a prototype hidden `__class` marker landed in PKL-148i but was reverted after it broke 14 structural-equality unit tests; the right shape is a dedicated `ObjectValue(class_name: String?, members)` enum-shape refactor); the `pipeOperator` res11 diagnostic also needs the class-aware tag to project `pipeOperator#Person` / `new Person {}`; object-body amend chain (`(obj) { ... } { ... }` — needed for `objects/equality` a11); free-form (non-literal) amend-override rejections (`(res3) { y = expr }` against `Int(this > x)` constraints — gated today on the upstream forward-binding leak where a sibling object's `local x = 1` resolves into a later object body's identifier lookup); listing/mapping body re-eval on amend so listing `(x) {}` / `default = N` work (needed for `listings/equality`, `listings/inequality`, `mappings/equality`, `mappings/inequality`). Listing/List-method receiver-tag preservation (`list.map(...)` returns a List, `listing.map(...)` returns a Listing) is a sub-task too; today the dispatcher always re-wraps as ListingValue. Object-body `function f()` declarations also strand `basic/constModifier4` and friends (modifier ordering already tolerates `const local`, but the function-decl-in-body path itself is unimplemented). Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along.
+- [ ] **super late binding amend lambda form class-aware object equality** [draft] — verifies: PKL-148q — tags: evaluator, stdlib, upstream, compat, next
+  > PKL-148i shipped the literal-valued slice of amend-time type enforcement (`new Person { name = 42 }` now rejects; +14 gold-match fixtures, 82 → 96); PKL-148j split the `@hidden$` / `@local$` storage prefixes so external `.X` access correctly hides `local` while keeping `hidden`-modifier properties reachable (+4 fixtures, 96 → 100); PKL-148k added Mapping literal duplicate-scalar-key detection plus the Apple-Pkl-shaped pipe-operator diagnostic (+2 fixtures, 100 → 102); PKL-148l fired callable-parameter basic-type rejection before the body runs (+1 fixture, 102 → 103); PKL-148m undropped `local class` / `local function` / `local typealias` in the parser (+6 fixtures, 103 → 109); PKL-148p added the shebang preamble skip in the lexer (+1 fixture, 109 → 110); PKL-148q routed `output.text` through `/dev/stdout` and hardened the smoke diff to bytewise (+1 fixture, 110 → 111). The harder remaining pieces — all of which require non-local evaluator work — are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this, needed for `objects/super2` / `super3` / `super4`, `classes/supercallsInLet`); the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambda*` fixtures); runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`); constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13); class-aware ObjectValue tagging so `new Person {} != new Person2 {}` (needed for `objects/equality`'s c-block + composite Mapping keys in `mappings/mapping1` that PKL-148k currently sidesteps via a scalar-only duplicate-check gate — a prototype hidden `__class` marker landed in PKL-148i but was reverted after it broke 14 structural-equality unit tests; the right shape is a dedicated `ObjectValue(class_name: String?, members)` enum-shape refactor); the `pipeOperator` res11 diagnostic also needs the class-aware tag to project `pipeOperator#Person` / `new Person {}`; object-body amend chain (`(obj) { ... } { ... }` — needed for `objects/equality` a11); free-form (non-literal) amend-override rejections (`(res3) { y = expr }` against `Int(this > x)` constraints — gated today on the upstream forward-binding leak where a sibling object's `local x = 1` resolves into a later object body's identifier lookup); listing/mapping body re-eval on amend so listing `(x) {}` / `default = N` work (needed for `listings/equality`, `listings/inequality`, `mappings/equality`, `mappings/inequality`). Listing/List-method receiver-tag preservation (`list.map(...)` returns a List, `listing.map(...)` returns a Listing) is a sub-task too; today the dispatcher always re-wraps as ListingValue. Object-body `function f()` declarations also strand `basic/constModifier4` and friends (modifier ordering already tolerates `const local`, but the function-decl-in-body path itself is unimplemented). Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along.
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-148o
+  - depends on: PKL-148p
   - body: _not yet implemented_
 
 - [ ] **super method call** — verifies: PKL-117a — tags: evaluator, inheritance
@@ -1435,7 +1442,7 @@
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
-- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d, PKL-148e, PKL-148f, PKL-148g, PKL-148h, PKL-148i, PKL-148j, PKL-148k, PKL-148l, PKL-148m, PKL-148n, PKL-148o, PKL-148p — tags: moonbit, upstream, compatibility, contract
+- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d, PKL-148e, PKL-148f, PKL-148g, PKL-148h, PKL-148i, PKL-148j, PKL-148k, PKL-148l, PKL-148m, PKL-148n, PKL-148o, PKL-148p, PKL-148q — tags: moonbit, upstream, compatibility, contract
   > Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF and JSON).
   - body: `cmd` (exit 0 expected)
 
@@ -1443,3 +1450,375 @@
   > All apple/pkl LanguageSnippetTests parser fixtures, excluding the same invalid cases as ParserComparisonTest, parse through the native CLI.
   - body: `cmd` (exit 0 expected)
 
+## Spec implementation index
+
+- **PKL-001** — parse arithmetic expressions
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-002** — evaluate arithmetic and let bindings
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-003** — reject invalid integer operations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-004** — typecheck source through ripple
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-005** — support initial Pkl object and module syntax
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-006** — support Pkl imports and module resolution
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-007** — support Pkl standard library surface
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-008** — support richer Pkl type semantics
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-009** — provide a usable CLI
+  - test: `specs/Test.pkl` — cli eval
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-010** — support Pkl string escape compatibility
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-011** — use upstream apple/pkl fixtures as compatibility checks
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-012** — support Pkl comments and module property forward references
+  - test: `specs/Test.pkl` — moon unit tests
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-013** — support Pkl object body property shorthand
+  - test: `specs/Test.pkl` — moon unit tests
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-014** — support Pkl local module bindings and import expressions
+  - test: `specs/Test.pkl` — moon unit tests
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-015** — parse upstream apple/pkl snippet corpus
+  - test: `specs/Test.pkl` — upstream apple pkl parser suite
+- **PKL-016** — inventory unsupported syntax in tolerant parser output
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-017** — parse and evaluate Pkl collection expressions
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-018** — parse Pkl call lambda and operator expressions
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-019** — model Pkl class function and typealias declarations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-020** — support module extends amends and object amendments
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-021** — typecheck incrementally through ripple dependency graph
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-022** — typecheck Pkl function declarations lambdas and calls
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-023** — typecheck Pkl callable parameter and return annotations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-024** — typecheck Pkl nullable annotations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-025** — typecheck Pkl generic collection annotations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-026** — typecheck Pkl nullable and generic typealias annotations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-027** — typecheck Pkl union type annotations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-028** — typecheck rich Pkl is and as type operands
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-029** — narrow union types through Pkl is guards
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-030** — narrow union types through compound Pkl boolean guards
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-031** — narrow nullable types through Pkl null guards
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-032** — typecheck Pkl nullable postfix operators
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-033** — typecheck Pkl null-safe invocation chains
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-034** — infer Pkl class property default types
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-035** — allow Pkl class property defaults to satisfy missing members
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-036** — typecheck Pkl typed object expressions
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-037** — evaluate Pkl typed object class defaults
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-038** — support Pkl class inheritance defaults
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-039** — support Pkl qualified class inheritance types
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-040** — model Pkl class method declarations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-041** — evaluate Pkl class method invocations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-042** — evaluate Pkl function declarations lambdas and calls
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-043** — typecheck Pkl class method bodies with receiver bindings
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-044** — model Pkl callable runtime values
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-045** — typecheck Pkl constrained type annotations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-046** — evaluate Pkl constrained type annotation predicates
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-047** — enforce Pkl constrained function parameter annotations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-048** — preserve Pkl constrained callable signature metadata
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-049** — propagate Pkl constrained callable metadata through higher-order calls
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-050** — enforce Pkl constrained method parameter annotations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-051** — preserve Pkl constrained typealias metadata
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-052** — evaluate Pkl constrained typealias object member annotations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-053** — support additional Pkl numeric constraint predicates
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-054** — support multiple Pkl type constraint predicates
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-055** — support negated Pkl type constraint predicates
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-056** — evaluate Pkl user-defined type constraint functions
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-057** — parse Pkl const function declarations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-058** — evaluate Pkl constrained class property annotations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-059** — evaluate Pkl constrained class property default values
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-060** — evaluate upstream Pkl constraint fixture catch flow
+  - test: `specs/Test.pkl` — moon unit tests
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-061** — evaluate simple Pkl callable closure captures
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-062** — evaluate non-scalar Pkl callable closure captures
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-063** — evaluate Pkl callable return annotations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-064** — evaluate Pkl class method return annotations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-065** — evaluate constrained Pkl callable return annotations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-066** — evaluate user-defined constrained Pkl callable arguments
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-067** — typecheck constrained Pkl callable return bodies
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-068** — evaluate typealiased Pkl callable return annotations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-069** — evaluate typealiased Pkl callable argument annotations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-070** — render Pkl values as PCF primitives
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-071** — render Pkl objects and listings as PCF
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-072** — render Pkl values as JSON
+  - test: `specs/Test.pkl` — cli eval json
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-073** — render Pkl values as YAML
+  - test: `specs/Test.pkl` — cli eval yaml
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-074** — render Pkl values as Java Properties
+  - test: `specs/Test.pkl` — cli eval properties
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-075** — expose pkl:base Listing operations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-076** — expose pkl:base Mapping operations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-077** — expose pkl:base String operations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-078** — expose pkl:base Int operations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-079** — expand pkl:math beyond maxInt32
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-080** — minimal pkl:reflect support
+  - test: `specs/Test.pkl` — cli reflect minimal stub
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-081** — Regex literal and Regex methods
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-082** — Duration and DataSize literals with arithmetic comparison and unit conversion
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-083** — Bytes literal and Bytes methods
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-084** — trace and throw built-ins
+  - test: `specs/Test.pkl` — cli trace pass-through
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-085** — evaluate object body for-generators
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-086** — evaluate object body when-conditionals
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-087** — hidden and local object members
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-088** — null-coalescing operator and let expressions
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-089** — generic class declarations
+  - test: `specs/Test.pkl` — cli generic class and function declarations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-090** — generic function type parameters
+  - test: `specs/Test.pkl` — cli generic class and function declarations
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-091** — String constraint predicates
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-092** — Float numerics and constraint predicates
+  - test: `specs/Test.pkl` — cli float numerics and constraints
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-093** — Listing and Mapping element constraint propagation
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-094** — CLI --format flag for eval
+  - test: `specs/Test.pkl` — cli eval --format long form
+  - test: `specs/Test.pkl` — cli eval --format pcf
+  - test: `specs/Test.pkl` — cli eval json
+  - test: `specs/Test.pkl` — cli eval properties
+  - test: `specs/Test.pkl` — cli eval yaml
+- **PKL-095** — CLI test runner integrates pkl:test facts
+  - test: `specs/Test.pkl` — cli test failing facts
+  - test: `specs/Test.pkl` — cli test passing facts
+- **PKL-096** — evaluate broader upstream Pkl fixtures with gold byte-diff
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-097** — diff JSON evaluation output against apple/pkl gold files
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-098** — read built-in with sandbox-bounded env: scheme
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-099** — cli format subcommand
+  - test: `specs/Test.pkl` — cli format subcommand
+- **PKL-100** — pkl test examples and golden diff
+  - test: `specs/Test.pkl` — cli test examples diff fail
+  - test: `specs/Test.pkl` — cli test examples gold match
+- **PKL-102** — pkl analyze lint subcommand
+  - test: `specs/Test.pkl` — cli lint findings
+- **PKL-103** — nullable read form
+  - test: `specs/Test.pkl` — cli read nullable
+- **PKL-104** — output renderer driver
+  - test: `specs/Test.pkl` — cli output renderer driver
+- **PKL-105** — renderer converters
+  - test: `specs/Test.pkl` — cli renderer converters
+- **PKL-106** — cli sandbox flags
+  - test: `specs/Test.pkl` — cli sandbox flags
+- **PKL-107** — source position in diagnostics
+  - test: `specs/Test.pkl` — cli diagnostic position
+- **PKL-108** — diagnostic message text upstream alignment
+  - test: `specs/Test.pkl` — cli diagnostic upstream alignment
+- **PKL-109** — upstream fixture sweep expansion
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-110** — call-site generic inference
+  - test: `specs/Test.pkl` — cli generic call-site inference
+- **PKL-111** — Float Power IntDivide and Modulo semantics
+  - test: `specs/Test.pkl` — cli float power intdiv modulo
+- **PKL-112** — Float-threshold constraint predicates
+  - test: `specs/Test.pkl` — cli float threshold constraint predicates
+- **PKL-113** — equality typecheck operand match
+  - test: `specs/Test.pkl` — cli equality type match
+- **PKL-114** — is operator runtime evaluation
+  - test: `specs/Test.pkl` — cli is operator runtime
+- **PKL-115** — generic typealias instantiation
+  - test: `specs/Test.pkl` — cli generic typealias
+- **PKL-116** — type parameter bounds
+  - test: `specs/Test.pkl` — cli type parameter bounds
+- **PKL-117** — inheritance dispatch hardening remaining
+  - test: `specs/Test.pkl` — cli inheritance hardening
+- **PKL-117a** — super method call
+  - test: `specs/Test.pkl` — cli super method call
+- **PKL-118** — cross-module typecheck round-trip completeness
+  - test: `specs/Test.pkl` — cli cross module function
+- **PKL-119a** — Pair Value variant
+  - test: `specs/Test.pkl` — cli pair value
+- **PKL-119b** — IntSeq Value variant
+  - test: `specs/Test.pkl` — cli int seq value
+- **PKL-119be** — IntSeq sequence equality
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-119c** — Set Value variant
+  - test: `specs/Test.pkl` — cli set value
+- **PKL-119d** — Map Value variant for the immutable functional map
+  - test: `specs/Test.pkl` — cli map value
+- **PKL-120** — pkl:math Float operations
+  - test: `specs/Test.pkl` — cli math float ops
+- **PKL-121** — Float magnitude Duration and DataSize literals
+  - test: `specs/Test.pkl` — cli float magnitude units
+- **PKL-122** — String unicode and codepoint methods
+  - test: `specs/Test.pkl` — cli string unicode
+- **PKL-123** — pkl:platform and pkl:semver stdlib modules
+  - test: `specs/Test.pkl` — cli platform semver
+- **PKL-124** — pkl:json / pkl:yaml / pkl:xml / pkl:protobuf stdlib modules
+  - test: `specs/Test.pkl` — cli renderer stdlib modules
+- **PKL-125** — YAML literal block scalars
+  - test: `specs/Test.pkl` — cli yaml block scalars
+- **PKL-126a** — plist renderer
+  - test: `specs/Test.pkl` — cli renderer plist
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-128a** — string interpolation
+  - test: `specs/Test.pkl` — cli string interpolation
+- **PKL-128b** — scientific Float and triple-quoted heredoc
+  - test: `specs/Test.pkl` — cli heredoc string
+  - test: `specs/Test.pkl` — cli scientific float
+- **PKL-128c** — constraint predicate composition
+  - test: `specs/Test.pkl` — cli constraint composition
+- **PKL-128d** — annotation class capture
+  - test: `specs/Test.pkl` — cli annotation capture
+- **PKL-129** — URI imports via https with mizchi/x/http
+  - test: `specs/Test.pkl` — cli https URI import
+- **PKL-129b1** — package registry probe and structured diagnostic
+  - test: `specs/Test.pkl` — cli package registry probe
+  - test: `specs/Test.pkl` — cli package uri offline diagnostic
+- **PKL-131** — pkl codegen bridge to MoonBit
+  - test: `specs/Test.pkl` — cli codegen moonbit
+- **PKL-133** — Any top type
+  - test: `specs/Test.pkl` — cli any top type
+- **PKL-134** — Listing and Mapping stdlib core methods
+  - test: `specs/Test.pkl` — cli listing mapping stdlib
+- **PKL-135** — Listing and Mapping functional methods
+  - test: `specs/Test.pkl` — cli listing mapping functional
+- **PKL-136** — when conditional property in Listing / Mapping bodies
+  - test: `specs/Test.pkl` — cli when conditional property
+- **PKL-137** — amends base module property and type merge
+  - test: `specs/Test.pkl` — cli amends base merge
+- **PKL-138** — new body inference from first token and binding annotation
+  - test: `specs/Test.pkl` — cli new body inference
+- **PKL-139** — parser and evaluator polish for pkspec
+  - test: `specs/Test.pkl` — cli pkspec polish
+- **PKL-140** — Apple Pkl stdlib declaration modifiers
+  - test: `specs/Test.pkl` — cli stdlib modifiers
+- **PKL-141** — mpkl stdlib coverage probe
+  - test: `specs/Test.pkl` — cli stdlib coverage probe
+- **PKL-143** — pkl:reflect class / module introspection
+  - test: `specs/Test.pkl` — cli reflect introspection
+- **PKL-144** — pkl:json.Parser.parse implementation
+  - test: `specs/Test.pkl` — moon unit tests
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-145** — hidden class property modifier
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-146** — pkl:yaml.Parser.parse implementation
+  - test: `specs/Test.pkl` — moon unit tests
+- **PKL-147** — snippetTest harness foundation
+  - test: `specs/Test.pkl` — moon unit tests
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-148** — pkl:base method surface expansion first wave
+  - test: `specs/Test.pkl` — moon unit tests
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-148b** — pkl:base method surface second wave
+  - test: `specs/Test.pkl` — moon unit tests
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-148c** — runtime evaluation of arbitrary constraint expressions
+  - test: `specs/Test.pkl` — moon unit tests
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-148d** — class-as-value reflect mirror plus lexical scope walk
+  - test: `specs/Test.pkl` — moon unit tests
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-148e** — object body forward refs amend super and Function apply surface
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-148f** — unordered equality plus typed-property default synthesis
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-148g** — lambda identity equality virtual method dispatch and this.X access
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-148h** — ListValue split from ListingValue for List constructor PCF round-trip
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-148i** — literal-valued class property assignments enforce declared type
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-148j** — local and hidden member visibility split with Collection default
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-148k** — Mapping literal duplicate scalar key detection and pipe operator diagnostic
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-148l** — Callable parameter basic-type rejection fires before body evaluation
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-148m** — local modifier on class / function / typealias declarations
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-148n** — as cast accepts generic-wrapped heads and local bindings inside listing bodies
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-148o** — catchOrNull wiring catch no-throw wording bare callable constraint diagnostic
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-148p** — shebang preamble at module start consumed as trivia
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-148q** — output.text emitted verbatim and upstream smoke diff goes bytewise
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-149** — Resource type for read return values
+  - _No active implementation._
+- **PKL-150** — as and pipe operator runtime semantics
+  - _No active implementation._
+- **PKL-153** — Silent-mismatch survey
+  - _No active implementation._
