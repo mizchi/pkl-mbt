@@ -66,7 +66,7 @@ These don't exist in Apple Pkl:
 ## Upstream compatibility
 
 - **Parser corpus**: 802 / 802 LanguageSnippetTests fixtures (parse-only)
-- **Eval gold-match**: 40 PCF + 1 JSON + 1 plist fixtures byte-for-byte against upstream
+- **Eval gold-match**: 43 PCF + 1 JSON + 1 plist fixtures byte-for-byte against upstream
 - **Diagnostic wording**: first-line messages aligned with Apple Pkl (`Cannot find type \`X\`.`, `Cannot find property \`x\`.`, `Cannot find module \`...\`.`)
 
 ## Development

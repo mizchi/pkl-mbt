@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklRuntimeConstraintEvalScenario = new Scenario {
+  id = "PKL-148c"
+  name = "runtime evaluation of arbitrary constraint expressions"
+  description =
+    "Falls back to a generic runtime evaluator after the static predicate cascade (`isBetween`, `isPositive`, `length.isBetween`, `ThisCompare`, `!isEmpty`) returns no match for a class-property constraint. The fallback parses the constraint text by wrapping it as `__probe = (text)` through the regular parser, binds the candidate value as `this` plus the enclosing class's other property values into a fresh env, and rewrites bare `Identifier(name)` references inside the expression to `MemberAccess(Identifier(\"this\"), name)` when `name` is otherwise unresolved — Apple Pkl's constraint body uses implicit-receiver lookup, so `abs` in `Int(abs < 100)` resolves as `this.abs`, `street` in `Address(street.endsWith(\"St.\"))` resolves as `this.street`, and `min` in `Int(this >= min)` falls through to the sibling-property push. Diagnostic text is re-spaced through `pretty_constraint_text` because the existing `parse_type_text` strips trivia (so the captured form reads `this>=min` rather than Apple Pkl's `this >= min`). Also aligns the `if` condition diagnostic wording to `Expected value of type \\\\\\\\\\\\\\`Boolean\\\\\\\\\\\\\\`, but got type \\\\\\\\\\\\\\`X\\\\\\\\\\\\\\`. Value: V` (with a dedicated null branch). Lifts gold-match from 40 to 43 PCF (`basic/if`, `classes/constraints4`, `classes/constraints6`)."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148b" }
+  tags { "evaluator"; "constraints"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "Runtime constraint eval uses the host parser via a __probe wrapper"
+      rationale =
+        "Embedding a second mini-expression parser would diverge from Apple Pkl's surface (operator precedence, string escape rules, member-access chains, etc.). Wrapping the constraint text as `__probe = (text)` and pulling the parsed binding's value back out reuses the live parser at zero parser-maintenance cost; if the wrapped form fails to parse, the fallback silently returns None so the static cascade owns the diagnostic shape."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Implicit-receiver lookup is AST rewriting, not a runtime arm"
+      rationale =
+        "Adding a `this` fallback inside `eval_expr_with_bindings`'s `Identifier` arm would shift global semantics — every unresolved identifier in any expression would suddenly try a `this.` projection. Pre-rewriting the AST in `rewrite_implicit_this_in_expr` keeps the change scoped to the constraint pathway: only names that aren't already in `bindings` / `env` / `cache` get rewritten, and the rewrite happens once before eval, not on every Identifier reach."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "pretty_constraint_text re-inserts spaces around operators"
+      rationale =
+        "`parse_type_text` drops trivia, which means the captured constraint text reads `this>=min`. Re-rendering with `pretty_constraint_text` (which walks the text, skips string literals, and inserts spaces around `>=`, `<=`, `==`, `!=`, `>`, `<`, `&&`, `||`) reaches Apple Pkl's `this >= min` form. The alternative — preserving whitespace at parse time — would touch every `parse_type_*` caller (class properties, function parameters, method returns, type aliases, …) for a one-fixture-cluster win."
+    }
+  }
+}
+
 local pklBaseMethodSurfaceFollowupScenario = new Scenario {
   id = "PKL-148b"
   name = "pkl:base method surface second wave"
@@ -4298,5 +4330,6 @@ scenarios {
   snippetTestHarnessScenario
   pklBaseMethodSurfaceScenario
   pklBaseMethodSurfaceFollowupScenario
+  pklRuntimeConstraintEvalScenario
   ...roadmap.entries
 }

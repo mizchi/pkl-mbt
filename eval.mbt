@@ -738,6 +738,321 @@ fn eval_class_property_annotation(
 }
 
 ///|
+
+///|
+/// PKL-148c: pretty-print a constraint text by re-inserting whitespace
+/// around binary comparison / logical operators. `parse_type_text`
+/// strips trivia so the captured constraint reads `this>=min` rather
+/// than Apple Pkl's `this >= min`; this helper restores the spaces
+/// before the text reaches the diagnostic.
+fn pretty_constraint_text(text : String) -> String {
+  let trimmed = pkl_constraint_trim(text)
+  let multi : Array[String] = [">=", "<=", "==", "!=", "&&", "||"]
+  let single : Array[Char] = ['>', '<']
+  let buf = StringBuilder::new()
+  let n = trimmed.length()
+  let mut i = 0
+  let mut depth = 0
+  while i < n {
+    let c = trimmed[i].to_int().unsafe_to_char()
+    if c == '"' {
+      // copy a string literal verbatim
+      buf.write_char(c)
+      i = i + 1
+      while i < n {
+        let cc = trimmed[i].to_int().unsafe_to_char()
+        buf.write_char(cc)
+        i = i + 1
+        if cc == '\\' && i < n {
+          buf.write_char(trimmed[i].to_int().unsafe_to_char())
+          i = i + 1
+        } else if cc == '"' {
+          break
+        }
+      }
+      continue
+    }
+    if c == '(' || c == '[' {
+      depth = depth + 1
+    } else if c == ')' || c == ']' {
+      depth = depth - 1
+    }
+    if depth >= 0 {
+      // Check multi-char ops first.
+      let mut matched = false
+      for op in multi {
+        let m = op.length()
+        if i + m <= n {
+          let mut equal = true
+          for j = 0; j < m; j = j + 1 {
+            if trimmed[i + j] != op[j] {
+              equal = false
+              break
+            }
+          }
+          if equal {
+            ensure_trailing_space(buf)
+            buf.write_string(op)
+            buf.write_char(' ')
+            i = i + m
+            matched = true
+            break
+          }
+        }
+      }
+      if matched {
+        continue
+      }
+      let mut single_matched = false
+      for op in single {
+        if c == op {
+          // Don't space a `<` / `>` that's part of a generic type
+          // argument list (rare in constraint texts, but defensive).
+          ensure_trailing_space(buf)
+          buf.write_char(op)
+          buf.write_char(' ')
+          i = i + 1
+          single_matched = true
+          break
+        }
+      }
+      if single_matched {
+        continue
+      }
+    }
+    buf.write_char(c)
+    i = i + 1
+  }
+  collapse_spaces(buf.to_string())
+}
+
+///|
+fn ensure_trailing_space(buf : StringBuilder) -> Unit {
+  let current = buf.to_string()
+  if current.length() > 0 {
+    let last = current[current.length() - 1].to_int().unsafe_to_char()
+    if last != ' ' {
+      buf.write_char(' ')
+    }
+  }
+}
+
+///|
+fn collapse_spaces(text : String) -> String {
+  let buf = StringBuilder::new()
+  let mut prev_space = false
+  for i = 0; i < text.length(); i = i + 1 {
+    let c = text[i].to_int().unsafe_to_char()
+    if c == ' ' {
+      if !prev_space {
+        buf.write_char(' ')
+      }
+      prev_space = true
+    } else {
+      buf.write_char(c)
+      prev_space = false
+    }
+  }
+  pkl_constraint_trim(buf.to_string())
+}
+
+///|
+/// PKL-148c: walk an `Expr` tree and replace each bare
+/// `Identifier(name)` whose name doesn't appear in the constraint's
+/// known scope with `MemberAccess(Identifier("this"), name)`. Apple
+/// Pkl's constraint expression body uses implicit-receiver lookup —
+/// `abs` inside `Int(abs < 100)` resolves as `this.abs`. We pre-rewrite
+/// instead of overloading the Identifier eval arm so the standard
+/// resolver stays unchanged for non-constraint expressions.
+fn rewrite_implicit_this_in_expr(
+  expr : Expr,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  cache : Array[ValueBinding],
+) -> Expr {
+  match expr {
+    Identifier(name) => {
+      if name == "this" ||
+        name == "module" ||
+        name == "true" ||
+        name == "false" ||
+        name == "null" {
+        return expr
+      }
+      let in_bindings = find_binding(bindings, name) is Some(_)
+      let in_env = lookup_value(env, name) is Some(_)
+      let in_cache = lookup_value(cache, name) is Some(_)
+      if in_bindings || in_env || in_cache {
+        expr
+      } else {
+        MemberAccess(Identifier("this"), name)
+      }
+    }
+    MemberAccess(target, name) =>
+      MemberAccess(
+        rewrite_implicit_this_in_expr(target, bindings, env, cache),
+        name,
+      )
+    SafeMemberAccess(target, name) =>
+      SafeMemberAccess(
+        rewrite_implicit_this_in_expr(target, bindings, env, cache),
+        name,
+      )
+    SubscriptAccess(target, key) =>
+      SubscriptAccess(
+        rewrite_implicit_this_in_expr(target, bindings, env, cache),
+        rewrite_implicit_this_in_expr(key, bindings, env, cache),
+      )
+    CallExpr(callee, args) => {
+      let new_callee = rewrite_implicit_this_in_expr(
+        callee, bindings, env, cache,
+      )
+      let new_args : Array[Expr] = []
+      for a in args {
+        new_args.push(rewrite_implicit_this_in_expr(a, bindings, env, cache))
+      }
+      CallExpr(new_callee, new_args)
+    }
+    NullSafeCallExpr(callee, args) => {
+      let new_callee = rewrite_implicit_this_in_expr(
+        callee, bindings, env, cache,
+      )
+      let new_args : Array[Expr] = []
+      for a in args {
+        new_args.push(rewrite_implicit_this_in_expr(a, bindings, env, cache))
+      }
+      NullSafeCallExpr(new_callee, new_args)
+    }
+    UnaryExpr(op, inner) =>
+      UnaryExpr(op, rewrite_implicit_this_in_expr(inner, bindings, env, cache))
+    BinaryExpr(op, l, r) =>
+      BinaryExpr(
+        op,
+        rewrite_implicit_this_in_expr(l, bindings, env, cache),
+        rewrite_implicit_this_in_expr(r, bindings, env, cache),
+      )
+    NonNullExpr(inner) =>
+      NonNullExpr(rewrite_implicit_this_in_expr(inner, bindings, env, cache))
+    ConditionalExpr(c, t, e) =>
+      ConditionalExpr(
+        rewrite_implicit_this_in_expr(c, bindings, env, cache),
+        rewrite_implicit_this_in_expr(t, bindings, env, cache),
+        rewrite_implicit_this_in_expr(e, bindings, env, cache),
+      )
+    _ => expr
+  }
+}
+
+///|
+/// PKL-148c: parse a constraint expression text into an `Expr`. Uses
+/// the regular parser by wrapping the source as `__probe = (text)` and
+/// pulling the binding's value back out. Returns `None` when the parse
+/// fails or the binding is missing — the caller falls through to the
+/// existing static predicate path.
+fn parse_constraint_expression(text : String) -> Expr? {
+  let wrapped = "__probe = (" + text + ")"
+  let parsed = parse_source(wrapped)
+  for binding in parsed.program.bindings {
+    if binding.name == "__probe" {
+      return Some(binding.value)
+    }
+  }
+  None
+}
+
+///|
+/// PKL-148c: run an arbitrary constraint expression against a candidate
+/// value with `this` bound. When the candidate is an `ObjectValue`, the
+/// object's members are also hoisted into the env so the implicit
+/// receiver form (`street.endsWith("St.")` rather than
+/// `this.street.endsWith("St.")`) resolves. Returns the canonical
+/// diagnostic text when the predicate evaluates to `false`.
+fn eval_runtime_constraint_for_property(
+  class_name : String,
+  property_name : String,
+  property_value : Value,
+  enclosing_members : Array[ValueMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> String? {
+  let source_name = match
+    eval_class_property_annotation(declarations, class_name, property_name) {
+    Some(s) => s
+    None => return None
+  }
+  let text = match pkl_constrained_type_constraint_text(source_name) {
+    Some(t) => t
+    None => return None
+  }
+  let parts = pkl_split_constraint_arguments(text)
+  for part in parts {
+    let expr = match parse_constraint_expression(part) {
+      Some(e) => e
+      None => continue
+    }
+    // Build a fresh env with `this` bound to the candidate. If the
+    // candidate is an ObjectValue, push its members under their bare
+    // names too so identifier lookup picks them up before falling
+    // through to the surrounding scope (implicit receiver). The
+    // enclosing class's other property values are also added so a
+    // sibling reference (`Int(this >= min)`) resolves.
+    let new_env : Array[ValueBinding] = []
+    for binding in env {
+      new_env.push(binding)
+    }
+    new_env.push({ name: "this", value: property_value })
+    match property_value {
+      ObjectValue(receiver_members) =>
+        for value_member in receiver_members {
+          if !is_hidden_member_name(value_member.name) {
+            new_env.push({ name: value_member.name, value: value_member.value })
+          }
+        }
+      _ => ()
+    }
+    for value_member in enclosing_members {
+      if !is_hidden_member_name(value_member.name) &&
+        value_member.name != property_name {
+        new_env.push({ name: value_member.name, value: value_member.value })
+      }
+    }
+    // PKL-148c: rewrite bare `Identifier(name)` nodes inside the
+    // constraint expression to `MemberAccess(Identifier("this"), name)`
+    // when `name` is neither a binding nor in env. Apple Pkl treats
+    // `abs` inside `Int(abs < 100)` as `this.abs` because the
+    // candidate value is the implicit receiver of the constraint
+    // body. Pre-rewriting the tree keeps the existing
+    // `eval_expr_with_bindings` flow untouched.
+    let rewritten = rewrite_implicit_this_in_expr(
+      expr, bindings, new_env, cache,
+    )
+    let probe_diags : Array[Diagnostic] = []
+    match
+      eval_expr_with_bindings(
+        rewritten, bindings, new_env, class_env, cache, stack, declarations, probe_diags,
+        resolve_import,
+      ) {
+      Some(BoolValue(true)) => ()
+      Some(BoolValue(false)) =>
+        return Some(
+          "Type constraint `\{pretty_constraint_text(part)}` violated. Value: \{render_pcf_value_inline(property_value)}",
+        )
+      // A non-Bool result or a diagnostic from inside the expression
+      // means the predicate is shape-incompatible with this slice's
+      // runtime — fall through silently rather than masking the
+      // original static-predicate path.
+      _ => ()
+    }
+  }
+  None
+}
+
+///|
 fn eval_class_property_constraint_value_rejection_message(
   class_name : String,
   property_name : String,
@@ -6000,7 +6315,34 @@ fn eval_expr_with_bindings(
                 diagnostics.push(diag(message))
                 violation_emitted = true
               }
-              None => ()
+              None =>
+                // PKL-148c: static predicate cascade returned no
+                // match; try a runtime evaluation of the constraint
+                // expression with `this` bound to the candidate value
+                // (and the surrounding object's members hoisted into
+                // env via implicit receiver). Catches the harder
+                // forms: `Int(this >= min)`, `Int(abs < 100)`,
+                // `Address(street.endsWith("St."))`, etc.
+                match
+                  eval_runtime_constraint_for_property(
+                    type_name,
+                    field.name,
+                    member_value,
+                    merged,
+                    bindings,
+                    env,
+                    class_env,
+                    cache,
+                    stack,
+                    declarations,
+                    resolve_import,
+                  ) {
+                  Some(message) => {
+                    diagnostics.push(diag(message))
+                    violation_emitted = true
+                  }
+                  None => ()
+                }
             }
           None => ()
         }
@@ -8035,8 +8377,20 @@ fn eval_expr_with_bindings(
             else_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
             resolve_import,
           )
-        Some(_) => {
-          diagnostics.push(diag("if condition expects Boolean"))
+        Some(NullValue) => {
+          // PKL-148c: Apple Pkl renders null condition as a dedicated
+          // form (no `Value: ...` segment).
+          diagnostics.push(
+            diag("Expected value of type `Boolean`, but got `null`."),
+          )
+          None
+        }
+        Some(other) => {
+          diagnostics.push(
+            diag(
+              "Expected value of type `Boolean`, but got type `\{eval_value_type_name(other)}`. Value: \{render_pcf_value_inline(other)}",
+            ),
+          )
           None
         }
         None => None

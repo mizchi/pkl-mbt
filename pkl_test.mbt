@@ -3973,6 +3973,60 @@ test "PKL-119b: IntSeq.fold reduces left-to-right" {
 }
 
 ///|
+test "PKL-148c: arbitrary constraint expression with sibling reference" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:test\"\nclass Gauge { min: Int = 4; max: Int(this >= min) = 6 }\nres = test.catch(() -> new Gauge { min = 4; max = 3 }.max)",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered.contains("Type constraint `this >= min` violated. Value: 3"),
+    content="true",
+  )
+}
+
+///|
+test "PKL-148c: constraint expression with implicit-receiver property access" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:test\"\nclass X { y: Int(abs < 100) }\nres = test.catch(() -> new X { y = -100 }.y)",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered.contains("Type constraint `abs < 100` violated. Value: -100"),
+    content="true",
+  )
+}
+
+///|
+test "PKL-148c: if-condition diagnostic uses Apple Pkl wording" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:test\"\nres = test.catch(() -> if (\"\") 1 else 2)",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut message : String = ""
+  for entry in members {
+    if entry.name == "res" {
+      match entry.value {
+        StringValue(s) => message = s
+        _ => ()
+      }
+    }
+  }
+  inspect(
+    message.contains(
+      "Expected value of type `Boolean`, but got type `String`. Value: \"\"",
+    ),
+    content="true",
+  )
+}
+
+///|
 test "PKL-148b: this <op> N bare-comparison constraint fires the diagnostic" {
   let session = AnalysisSession::new()
   session.set_source(

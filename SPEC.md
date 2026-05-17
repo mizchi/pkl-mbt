@@ -1,6 +1,6 @@
 # Test SPEC
 
-224 tests across 2 module(s) — 159 pending, 65 active
+225 tests across 2 module(s) — 160 pending, 65 active
 
 ## `specs/`
 
@@ -223,6 +223,12 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-089, PKL-090
   - decisions: 4 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **class-as-value super dispatch and scope resolution polish** [draft] — verifies: PKL-148d — tags: evaluator, stdlib, upstream, compat, next
+  > PKL-148c handled arbitrary constraint expressions; PKL-148d covers the remaining harder pieces: class names as first-class values (`Person.foo` → `Cannot find property foo in object of type Class.`), `super.method(...)` dispatch from a subclass body, the `(lambda) { body }` amend form for lambdas that return lambdas, late-bound forward references inside object bodies (`x = y; y = 5` where `y` resolves after definition), implicit-receiver scope walking for nested object bodies (`bar { y = x + 3 }` should see the enclosing `bar.x` first), value rendering inside diagnostics that includes the class name (`new Address { street = "..." }` rather than `new { street = "..." }`), and the remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module). Should collapse another ~15-25 silent-mismatch fixtures.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-148c
   - body: _not yet implemented_
 
 - [ ] **cli format subcommand** — verifies: PKL-099 — tags: cli, renderer, format
@@ -697,12 +703,6 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **pkl:base method surface third wave** [draft] — verifies: PKL-148c — tags: evaluator, stdlib, upstream, compat, next
-  > PKL-148 / PKL-148b together covered the bulk of the bare-method / bare-property surface plus the `this <op> N` / Listing-host constraint forms. The third wave needs the harder pieces: runtime evaluation of arbitrary constraint expressions (`Int(abs < 100)`, `Address(street.endsWith("St."))`, `Int(this >= min)`) with implicit-receiver resolution against the candidate value, super-call dispatch (`super.method(...)` from a subclass), class-as-value semantics (`Person.foo` → `Cannot find property \\\\\\\`foo\\\\\\\` in object of type \\\\\\\`Class\\\\\\\`.`), the `(lambda) { body }` amend form for lambdas that return lambdas, and the long-tail stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module, late-bound forward references inside object bodies). Should collapse another ~20-30 silent-mismatch fixtures.
-  - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-148b
-  - body: _not yet implemented_
-
 - [ ] **pkl:json / pkl:yaml / pkl:xml / pkl:protobuf stdlib modules** — verifies: PKL-124 — tags: stdlib, renderer
   > The renderer-driver classes the `output { renderer = ... }` path looks up are now part of the typechecker's stdlib surface. `JsonRenderer`, `YamlRenderer`, `PcfRenderer`, `PropertiesRenderer`, and `PListRenderer` are seeded as unqualified `ClassType` entries in `builtin_type_from_annotation` because Apple Pkl re-exports them through the implicitly-imported `pkl:base`; references like `new JsonRenderer { indent = "    " }` typecheck without an explicit import. Four synthetic stdlib modules — `pkl:json`, `pkl:yaml`, `pkl:xml`, `pkl:protobuf` — are added to `builtin_stdlib_source` so `import "pkl:json" as json` succeeds and `new json.Parser { ... }` / `new xml.Renderer { ... }` / `new protobuf.Renderer { ... }` reach the qualified-type lookup. Each renderer class is declared with an empty (or default-only) member surface; field-level typing for `converters`, `extension`, etc. is deferred to PKL-127 where the converter machinery actually consumes those properties. Unknown renderer names still trip `Cannot find type` — the surface is opt-in, not a silent open-world fallback. The CLI's existing `renderer_format_from_class` mapping is unchanged; the format dispatch was already AST-driven and the typecheck visibility was the missing link.
   - contributes to: GOAL-PKL-PURE
@@ -830,6 +830,13 @@
   > `output { renderer = new JsonRenderer { converters { ["path.to.field"] = (value) -> ... } } }` rewrites the value at the named dotted path before the renderer serialises the module. Each converter is a `(value) -> newValue` lambda; `eval_program` collects the path-keyed converters from the post-eval result's `output.renderer.converters` MappingValue, then walks the value tree applying `apply_function_value(callback, [matched_node])` at each matching path. Both `ObjectValue` members and `MappingValue` entries with `StringValue` keys participate; unmatched paths are silently skipped (matching Apple Pkl's lenient behaviour). Class-keyed converters (`["MyClass"] = ...`) are recognised but deferred — pkl-mbt's `ObjectValue` doesn't yet carry its source class. The `parse_object_member` brace-body parser now delegates to `parse_inferred_new_body` (mirroring the property-decl fix in PKL-137) so `converters { ["k"] = v }` parses as a mapping rather than an object body that silently drops bracket-keyed entries.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-104
+  - decisions: 3 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **runtime evaluation of arbitrary constraint expressions** — verifies: PKL-148c — tags: evaluator, constraints, upstream, compat
+  > Falls back to a generic runtime evaluator after the static predicate cascade (`isBetween`, `isPositive`, `length.isBetween`, `ThisCompare`, `!isEmpty`) returns no match for a class-property constraint. The fallback parses the constraint text by wrapping it as `__probe = (text)` through the regular parser, binds the candidate value as `this` plus the enclosing class's other property values into a fresh env, and rewrites bare `Identifier(name)` references inside the expression to `MemberAccess(Identifier("this"), name)` when `name` is otherwise unresolved — Apple Pkl's constraint body uses implicit-receiver lookup, so `abs` in `Int(abs < 100)` resolves as `this.abs`, `street` in `Address(street.endsWith("St."))` resolves as `this.street`, and `min` in `Int(this >= min)` falls through to the sibling-property push. Diagnostic text is re-spaced through `pretty_constraint_text` because the existing `parse_type_text` strips trivia (so the captured form reads `this>=min` rather than Apple Pkl's `this >= min`). Also aligns the `if` condition diagnostic wording to `Expected value of type \\\\\\\`Boolean\\\\\\\`, but got type \\\\\\\`X\\\\\\\`. Value: V` (with a dedicated null branch). Lifts gold-match from 40 to 43 PCF (`basic/if`, `classes/constraints4`, `classes/constraints6`).
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-148b
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
@@ -1345,11 +1352,11 @@
   > The native CLI evaluates a fixture that declares `output { renderer = new YamlRenderer {} }` and several multiline String values. The YAML output renders them as literal block scalars: `|` (one trailing newline, clip), `|-` (no trailing newline, strip), `|+` (multiple trailing newlines, keep), with two-space content indentation. Strings whose lines start with whitespace fall back to double-quoted form, and listing items in block context also pick up the block-scalar projection.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-080, PKL-081, PKL-082, PKL-083, PKL-084, PKL-085, PKL-086, PKL-087, PKL-088, PKL-089, PKL-090, PKL-091, PKL-092, PKL-093, PKL-098, PKL-119be, PKL-144, PKL-145, PKL-146, PKL-147, PKL-148, PKL-148b — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-080, PKL-081, PKL-082, PKL-083, PKL-084, PKL-085, PKL-086, PKL-087, PKL-088, PKL-089, PKL-090, PKL-091, PKL-092, PKL-093, PKL-098, PKL-119be, PKL-144, PKL-145, PKL-146, PKL-147, PKL-148, PKL-148b, PKL-148c — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
-- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b — tags: moonbit, upstream, compatibility, contract
+- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c — tags: moonbit, upstream, compatibility, contract
   > Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF and JSON).
   - body: `cmd` (exit 0 expected)
 
