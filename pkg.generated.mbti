@@ -315,7 +315,7 @@ pub(all) enum Value {
   IntSeqValue(Int, Int, Int)
   SetValue(Array[Value])
   MapValue(Array[ValueEntry])
-  FunctionValue(Array[FunctionParameter], Expr, String?, Array[ValueBinding])
+  FunctionValue(Array[FunctionParameter], Expr, String?, Array[ValueBinding], Int)
   DurationValue(Double, String)
   DataSizeValue(Double, String)
   RegexValue(String)

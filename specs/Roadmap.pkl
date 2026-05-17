@@ -99,6 +99,13 @@
 ///                     `extends` parent class scope inherited through
 ///                     analysis-side import resolver; +7 gold-match
 ///                     fixtures, 60 → 67
+///   PKL-148g (7th)    FunctionValue identity stamp (lambda equality is
+///                     reference-based, not structural), virtual class
+///                     method dispatch (parent → derived push order),
+///                     `local <modifier>* name` parsing, `this.X` in
+///                     object body short-circuits to sibling resolver
+///                     when X is a binding; +5 gold-match fixtures,
+///                     67 → 72
 @ModuleInfo { minPklVersion = "0.31.0" }
 module specs.Roadmap
 
@@ -116,12 +123,12 @@ import "../pkspec/Spec.pkl"
 // against `scripts/upstream-smoke.sh` after each landing.
 
 local pklSuperLateBindAndAmendLambda: Spec.Scenario = new {
-  id = "PKL-148g"
-  name = "super late binding amend lambda form lambda identity equality"
+  id = "PKL-148h"
+  name = "super late binding amend lambda form list value split"
   description =
-    "PKL-148f tightened equality (set / object / map / IntSeq) and unblocked the typed-default fixture cluster. The harder remaining pieces are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this — needed for `objects/super2` / `super3` / `super4` where parent has inter-property dependencies); identity-based lambda equality (`(() -> 1) == (() -> 1)` is false but `local f = () -> 1; f == f` is true — needs a fresh id stamp on each LambdaExpr evaluation); the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambdaThatReturnsAnotherLambda.pkl` and friends); runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`); constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13); module-level `this` / `module` self-reference value (for `basic/let`'s `res19`); ListValue split so `List(...)` literals render through the `List(elem, ...)` PCF form rather than the `new { ... }` block form (needed for `basic/list`, `basic/propertyDefaults` `coll = List()` / `list = List()`); class-aware ObjectValue tagging so `new Person {} != new Person2 {}` (needed for `objects/equality`'s c-block); object-body amend chain (`(obj) { ... } { ... }` — needed for objects/equality a11). Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along."
+    "PKL-148g landed FunctionValue identity, virtual class method dispatch, `local <modifier>*` parsing, and the `this.X` sibling shortcut. The harder remaining pieces are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this — needed for `objects/super2` / `super3` / `super4`, `classes/supercallsInLet`); the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambda*` fixtures); runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`); constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13); ListValue split so `List(...)` literals render through `List(elem, ...)` PCF form (needed for `basic/list`, `basic/propertyDefaults` `coll = List()` / `list = List()`, `classes/inheritance{1,2}`); class-aware ObjectValue tagging so `new Person {} != new Person2 {}` (needed for `objects/equality`'s c-block); object-body amend chain (`(obj) { ... } { ... }` — needed for `objects/equality` a11); type-constraint enforcement on amend-time property overrides (`new Person { name = 42 }` should reject when `name: String` — `classes/wrongType5`, `classes/constraints9` / `13`); listing/mapping body re-eval on amend so listing `(x) {}` / `default = N` work (needed for `listings/equality`, `listings/inequality`, `mappings/equality`, `mappings/inequality`). Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along."
   contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-148f" }
+  dependsOn { "PKL-148g" }
   tags { "evaluator"; "stdlib"; "upstream"; "compat"; "next" }
   reviewStatus = "draft"
   severity = "major"

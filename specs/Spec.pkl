@@ -1896,6 +1896,44 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklLambdaIdentityAndVirtualDispatchScenario = new Scenario {
+  id = "PKL-148g"
+  name = "lambda identity equality virtual method dispatch and this.X access"
+  description =
+    "Closes the next batch of upstream silent-mismatch fixtures. FunctionValue carries an identity stamp (fresh `Int` id generated when a `LambdaExpr` is evaluated or a function declaration is loaded) so structural-only payloads no longer collide under MoonBit's derived `==` — Apple Pkl's identity-based lambda equality (`(() -> 1) == (() -> 1)` is false; `local f = ...; f == f` is true) now round-trips. Sibling class methods are seeded parent-first so the derived class's same-named override wins under `lookup_value`'s last-match rule, fixing virtual dispatch when a method body references another method that's overridden in the subclass. Module-level `local const x = ...` (and any `local <modifier>* x` combination) is parsed as a hidden binding; the modifier keywords were previously stealing the slot for the binding name and the actual identifier was being parsed as a separate property. `this.X` inside an object body short-circuits to `resolve_binding_value` when `X` is in the implicit-receiver scope (siblings / enclosing bindings), letting `bar = this.baz + 1` and `super.X`-free fixtures resolve their cross-references; value-derived properties (`this.abs` on an Int receiver, used by `Int(abs < 100)` after the constraint runtime's implicit-this rewrite) still flow through the standard MemberAccess path. Lifts gold-match from 67 to 72 PCF (`classes/functions1`, `classes/functions4`, `lambdas/equality`, `lambdas/inequality`, `objects/this1`)."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148f" }
+  tags { "evaluator"; "equality"; "dispatch"; "scope"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "FunctionValue carries a fresh identity stamp per LambdaExpr evaluation"
+      rationale =
+        "Apple Pkl's `==` on functions is identity-based: two distinct lambda literals never equate, but the same bound lambda equates with itself. MoonBit's derived `derive(Eq)` would equate `(() -> 1)` and `(() -> 1)` structurally. Adding an `Int` id to the FunctionValue payload (fresh-counter on LambdaExpr / function-decl evaluation, preserved when re-wrapping via `.apply` / `.applyToList` / `.getClass`) gives identity without re-implementing the equality dispatcher — the derived `Eq` now compares structure plus id."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Sibling class method seeding walks parent → derived so overrides win"
+      rationale =
+        "`lookup_value` returns the last-match in the binding cache. The previous push order (derived first, then parent) inverted the priority: a class method override in the subclass was shadowed by the parent's same-named method. Collecting the inheritance chain bottom-up and pushing parent → derived restores virtual dispatch — derived `Y.a` lands after parent `X.a` in the cache and wins the lookup."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "`local <modifier>* name` consumes optional modifiers after `local`"
+      rationale =
+        "`parse_local_decl` consumed `local` then expected an identifier name; for `local const x = ...` the next identifier was `const` (a soft keyword), so the binding name became `const` and `x = 1` was parsed as a separate property. Apple Pkl accepts any combination of `local` plus a modifier keyword (`const`, `hidden`, `fixed`, `open`, `external`, `abstract`); swallowing them between `local` and the name fixes the property-name capture for the common `local const` form."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "`this.X` short-circuits to sibling-binding lookup only when X is in scope"
+      rationale =
+        "`this` is the implicit receiver of an object body — `bar = this.baz + 1` should resolve `baz` the same as bare `baz`. Routing `MemberAccess(Identifier(\"this\"), X)` to `resolve_binding_value` mirrors the existing `module.X` shortcut. But the runtime constraint helper rewrites bare `abs` inside `Int(abs < 100)` as `this.abs`, and `abs` isn't a binding — it's a property on the Int receiver. Gating the shortcut on `X is in bindings / env / cache` keeps both forms working: `this.sibling_prop` hits the lazy resolver, `this.abs` falls through to the standard MemberAccess dispatch."
+    }
+  }
+}
+
 local pklUnorderedEqualityAndTypedDefaultsScenario = new Scenario {
   id = "PKL-148f"
   name = "unordered equality plus typed-property default synthesis"
@@ -4448,5 +4486,6 @@ scenarios {
   pklClassAsValueAndScopeScenario
   pklForwardRefSuperAndApplyScenario
   pklUnorderedEqualityAndTypedDefaultsScenario
+  pklLambdaIdentityAndVirtualDispatchScenario
   ...roadmap.entries
 }

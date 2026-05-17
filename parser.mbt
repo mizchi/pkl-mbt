@@ -874,6 +874,15 @@ fn Parser::parse_let_decl(self : Parser) -> Binding? {
 fn Parser::parse_local_decl(self : Parser) -> Binding? {
   self.builder.start_node(let_decl())
   ignore(self.expect(local_kw(), "local"))
+  // Apple Pkl accepts modifier keywords after `local` (`local const x`,
+  // `local hidden x`); swallow any combination so the identifier that
+  // follows is read as the binding name rather than as the second
+  // modifier.
+  self.skip_whitespace()
+  while self.at(identifier()) && is_modifier_text(self.peek().text()) {
+    ignore(self.bump())
+    self.skip_whitespace()
+  }
   let name = match self.expect(identifier(), "identifier") {
     Some(tok) => tok.text()
     None => ""

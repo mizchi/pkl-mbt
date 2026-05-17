@@ -55,9 +55,13 @@ GOLD_FIXTURES=(
   "classes/constraints8"
   "classes/constraintsLambdaThis"
   "classes/equality"
+  "classes/functions1"
   "classes/functions2"
   "classes/functions3"
+  "classes/functions4"
   "generators/propertyGenerators"
+  "lambdas/equality"
+  "lambdas/inequality"
   "lambdas/lambda1"
   "lambdas/lambda2"
   "lambdas/lambda5"
@@ -78,6 +82,7 @@ GOLD_FIXTURES=(
   "objects/implicitReceiver3"
   "objects/super1"
   "objects/super5"
+  "objects/this1"
   "types/nothingWithUnions"
 )
 

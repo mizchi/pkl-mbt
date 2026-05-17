@@ -5777,23 +5777,26 @@ test "typealiased function argument annotation accepts in-range value" {
   session.set_source(
     "main.pkl", "typealias Small = Int(isBetween(0, 10))\nincrement = (x: Small) -> x + 1\ngood = increment(5)",
   )
-  assert_true(
-    session.eval_path("main.pkl") ==
-    EvalOk(
-      ObjectValue([
-        ValueMember::{
-          name: "increment",
-          value: FunctionValue(
-            [{ name: "x", type_name: Some("Small") }],
-            BinaryExpr(Add, Identifier("x"), IntLiteral(1)),
-            None,
-            [],
-          ),
-        },
-        ValueMember::{ name: "good", value: IntValue(6) },
-      ]),
-    ),
-  )
+  // PKL-148g: FunctionValue carries an identity stamp now, so the
+  // structural `==` would diverge from the constructed pattern.
+  // Destructure the shape and assert each visible component.
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  assert_eq(members.length(), 2)
+  assert_eq(members[0].name, "increment")
+  guard members[0].value
+    is FunctionValue(parameters, body, return_type_name, captured_env, _) else {
+    panic()
+  }
+  assert_eq(parameters.length(), 1)
+  assert_eq(parameters[0].name, "x")
+  assert_true(parameters[0].type_name == Some("Small"))
+  assert_true(body == BinaryExpr(Add, Identifier("x"), IntLiteral(1)))
+  assert_true(return_type_name is None)
+  assert_eq(captured_env.length(), 0)
+  assert_eq(members[1].name, "good")
+  assert_true(members[1].value == IntValue(6))
 }
 
 ///|

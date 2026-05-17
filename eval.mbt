@@ -42,7 +42,17 @@ pub(all) enum Value {
   // than the Mapping block form, and keeps `Map<K, V>` separate
   // from `Mapping<K, V>` at the typechecker.
   MapValue(Array[ValueEntry])
-  FunctionValue(Array[FunctionParameter], Expr, String?, Array[ValueBinding])
+  // PKL-148g: identity stamp so `(() -> 1) == (() -> 1)` is false
+  // (distinct LambdaExpr evaluations) while `local f = () -> 1; f == f`
+  // is true (the same cached instance). MoonBit's derived `==` includes
+  // the id, so structural-only payloads no longer falsely equate.
+  FunctionValue(
+    Array[FunctionParameter],
+    Expr,
+    String?,
+    Array[ValueBinding],
+    Int
+  )
   // PKL-082: magnitude in the named unit. Mixed-unit arithmetic
   // normalizes to the smaller of the two units (the base unit of each
   // family — `ns` for Duration, `b` for DataSize — when no common
@@ -448,6 +458,21 @@ fn deep_merge_amend_value(base : Value, replacement : Value) -> Value {
       ObjectValue(merge_value_members(base_members, over_members))
     _ => replacement
   }
+}
+
+///|
+
+///|
+/// Monotonic counter that hands out a fresh identity stamp every time
+/// a LambdaExpr is evaluated or a function declaration is loaded.
+/// Distinct lambda literals get distinct ids, so structural payloads
+/// no longer collide under `==`.
+let lambda_id_counter : Ref[Int] = { val: 0 }
+
+///|
+fn fresh_function_id() -> Int {
+  lambda_id_counter.val = lambda_id_counter.val + 1
+  lambda_id_counter.val
 }
 
 ///|
@@ -1630,28 +1655,37 @@ fn push_sibling_class_methods(
   cache : Array[ValueBinding],
 ) -> Unit {
   let captured_env = capture_value_bindings(env, cache)
+  // Collect the inheritance chain bottom-up, then push parent → derived
+  // so a derived class's method ends up *after* its parent's same-named
+  // method in the cache. `lookup_value` returns the last match, so the
+  // most-derived override wins (virtual dispatch).
+  let chain : Array[ClassBinding] = []
   let mut current : String? = Some(class_name)
   while current is Some(name) {
     match lookup_class_binding(class_env, name) {
       Some(class_binding) => {
-        for class_method in class_binding.methods {
-          match class_method.body {
-            Some(body) =>
-              method_cache.push({
-                name: class_method.name,
-                value: FunctionValue(
-                  class_method.parameters,
-                  body,
-                  class_method.return_type_name,
-                  captured_env,
-                ),
-              })
-            None => ()
-          }
-        }
+        chain.push(class_binding)
         current = class_binding.parent_name
       }
       None => current = None
+    }
+  }
+  for i = chain.length() - 1; i >= 0; i = i - 1 {
+    for class_method in chain[i].methods {
+      match class_method.body {
+        Some(body) =>
+          method_cache.push({
+            name: class_method.name,
+            value: FunctionValue(
+              class_method.parameters,
+              body,
+              class_method.return_type_name,
+              captured_env,
+              fresh_function_id(),
+            ),
+          })
+        None => ()
+      }
     }
   }
 }
@@ -1667,7 +1701,7 @@ fn eval_value_type_name(value : Value) -> String {
     ObjectValue(_) => "Object"
     ListingValue(_) => "Listing"
     MappingValue(_) => "Mapping"
-    FunctionValue(_, _, _, _) => "Function"
+    FunctionValue(_, _, _, _, _) => "Function"
     DurationValue(_, _) => "Duration"
     DataSizeValue(_, _) => "DataSize"
     RegexValue(_) => "Regex"
@@ -1806,7 +1840,7 @@ fn eval_value_accepts_type_annotation(
     ("Set", SetValue(_)) | ("Set", ListingValue(_)) => true
     ("Pair", PairValue(_, _)) => true
     ("IntSeq", IntSeqValue(_, _, _)) => true
-    ("Function", FunctionValue(_, _, _, _)) => true
+    ("Function", FunctionValue(_, _, _, _, _)) => true
     ("Duration", DurationValue(_, _)) => true
     ("DataSize", DataSizeValue(_, _)) => true
     ("Regex", RegexValue(_)) => true
@@ -2102,6 +2136,7 @@ fn eval_lambda_application(
           lambda_body,
           lambda_return_type_name,
           copy_value_bindings(call_cache),
+          fresh_function_id(),
         ),
         declarations,
         diagnostics,
@@ -2147,7 +2182,7 @@ fn apply_function_value(
   resolve_import : (String) -> EvalResult?,
 ) -> Value? {
   match fn_value {
-    FunctionValue(parameters, body, return_type_name, captured_env) => {
+    FunctionValue(parameters, body, return_type_name, captured_env, _id) => {
       if parameters.length() != args.length() {
         diagnostics.push(
           diag(
@@ -6898,7 +6933,9 @@ fn eval_callable_call(
           target_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
           resolve_import,
         ) {
-        Some(FunctionValue(parameters, body, return_type_name, captured_env)) =>
+        Some(
+          FunctionValue(parameters, body, return_type_name, captured_env, id)
+        ) =>
           match method_name {
             "apply" =>
               return eval_lambda_application(
@@ -6951,7 +6988,7 @@ fn eval_callable_call(
                   return apply_function_value(
                     callee_label(callee),
                     FunctionValue(
-                      parameters, body, return_type_name, captured_env,
+                      parameters, body, return_type_name, captured_env, id,
                     ),
                     elements,
                     bindings,
@@ -6989,7 +7026,7 @@ fn eval_callable_call(
                 return Some(
                   synth_class_mirror_for_value(
                     FunctionValue(
-                      parameters, body, return_type_name, captured_env,
+                      parameters, body, return_type_name, captured_env, id,
                     ),
                   ),
                 )
@@ -7009,7 +7046,7 @@ fn eval_callable_call(
       callee, bindings, env, class_env, cache, stack, declarations, diagnostics,
       resolve_import,
     ) {
-    Some(FunctionValue(parameters, body, return_type_name, captured_env)) =>
+    Some(FunctionValue(parameters, body, return_type_name, captured_env, _id)) =>
       eval_lambda_application(
         callee_label(callee),
         parameters,
@@ -7251,6 +7288,23 @@ fn eval_expr_with_bindings(
       // module's binding env rather than treating `module` as an
       // ordinary identifier (which would fail with "unbound identifier").
       if target_expr is Identifier("module") {
+        resolve_binding_value(
+          member_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
+        )
+      } else if target_expr is Identifier("this") &&
+        (
+          find_binding(bindings, member_name) is Some(_) ||
+          lookup_value(env, member_name) is Some(_) ||
+          lookup_value(cache, member_name) is Some(_)
+        ) {
+        // PKL-148g: `this.X` inside an object body resolves the same as
+        // a bare `X` reference when `X` is in the implicit-receiver
+        // scope (siblings + enclosing bindings). When `X` is a
+        // value-derived property (e.g. `abs` on an Int receiver), fall
+        // through to the standard member-access dispatch instead so the
+        // runtime constraint helper's `this.abs < 100` rewrite still
+        // resolves through `eval_int_property`.
         resolve_binding_value(
           member_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
           resolve_import,
@@ -8692,6 +8746,7 @@ fn eval_expr_with_bindings(
           body,
           return_type_name,
           capture_value_bindings(env, cache),
+          fresh_function_id(),
         ),
       )
     NonNullExpr(inner_expr) =>
@@ -10591,7 +10646,7 @@ fn render_pcf_scalar(value : Value, buf : StringBuilder) -> Unit {
       buf.write_char('"')
     }
     NullValue => buf.write_string("null")
-    FunctionValue(_, _, _, _) => buf.write_string("<function>")
+    FunctionValue(_, _, _, _, _) => buf.write_string("<function>")
     DurationValue(n, unit) => buf.write_string("\{n}.\{unit}")
     DataSizeValue(n, unit) => buf.write_string("\{n}.\{unit}")
     RegexValue(pattern) => {
@@ -10866,7 +10921,7 @@ fn render_json_value(value : Value, indent : Int, buf : StringBuilder) -> Unit {
     MappingValue(entries) =>
       render_json_object_from_entries(entries, indent, buf)
     ListingValue(elements) => render_json_array(elements, indent, buf)
-    FunctionValue(_, _, _, _) => buf.write_string("null")
+    FunctionValue(_, _, _, _, _) => buf.write_string("null")
     // Upstream Pkl projects Duration / DataSize to a literal-style string
     // (e.g. `"5.min"`) in JSON / YAML / Properties. Match that shape until
     // the dedicated projection table from `pkl:base` lands.
@@ -11736,7 +11791,7 @@ fn render_plist_value(value : Value, indent : Int, buf : StringBuilder) -> Unit 
     MappingValue(entries) =>
       render_plist_dict_from_entries(entries, indent, buf)
     ListingValue(elements) => render_plist_array(elements, indent, buf)
-    FunctionValue(_, _, _, _) => {
+    FunctionValue(_, _, _, _, _) => {
       write_plist_indent(buf, indent)
       buf.write_string("<string></string>")
     }
@@ -11972,7 +12027,7 @@ fn render_properties_leaf(
       } else {
         render_properties_entries(entries, full_key, buf)
       }
-    ListingValue(_) | FunctionValue(_, _, _, _) => {
+    ListingValue(_) | FunctionValue(_, _, _, _, _) => {
       let compact = render_properties_compact_json(value)
       write_properties_key(full_key, buf)
       buf.write_string(" = ")
@@ -12039,7 +12094,7 @@ fn write_compact_json_value(value : Value, buf : StringBuilder) -> Unit {
       }
       buf.write_char(']')
     }
-    FunctionValue(_, _, _, _) => buf.write_string("null")
+    FunctionValue(_, _, _, _, _) => buf.write_string("null")
     DurationValue(n, unit) => render_json_string("\{n}.\{unit}", buf)
     DataSizeValue(n, unit) => render_json_string("\{n}.\{unit}", buf)
     RegexValue(pattern) => render_json_string(pattern, buf)
