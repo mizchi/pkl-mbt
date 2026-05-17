@@ -35,6 +35,8 @@ GOLD_FIXTURES=(
   "basic/parens"
   "basic/semicolon"
   "classes/class1"
+  "classes/constraints1"
+  "classes/constraints2"
   "classes/constraintsLambdaThis"
   "classes/functions2"
   "generators/propertyGenerators"

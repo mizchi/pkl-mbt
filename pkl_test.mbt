@@ -3973,6 +3973,89 @@ test "PKL-119b: IntSeq.fold reduces left-to-right" {
 }
 
 ///|
+test "PKL-148b: this <op> N bare-comparison constraint fires the diagnostic" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:test\"\nclass Person { age: Int(this > 0) }\nres = test.catch(() -> new Person { age = -30 }.age)",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered.contains("Type constraint `this > 0` violated. Value: -30"),
+    content="true",
+  )
+}
+
+///|
+test "PKL-148b: Listing-host !isEmpty constraint fires at construction" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:test\"\nclass P { l: Listing<String>(!isEmpty) }\nres = test.catch(() -> new P { l {} }.l)",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered.contains("Type constraint `!isEmpty` violated."),
+    content="true",
+  )
+}
+
+///|
+test "PKL-148b: pipe operator desugars to a single-arg call" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "double = (x: Int) -> x * 2\nres = 21 |> double",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("res = 42"), content="true")
+}
+
+///|
+test "PKL-148b: as does a runtime type assertion" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "good = (\"abc\" as String).length\nimport \"pkl:test\"\nbad = test.catch(() -> 1 as String)",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("good = 3"), content="true")
+  inspect(
+    rendered.contains(
+      "Expected value of type `String`, but got type `Int`. Value: 1",
+    ),
+    content="true",
+  )
+}
+
+///|
+test "PKL-148b: Duration / DataSize scalar arithmetic" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "a = 5.s * 3\nb = 3 * 4.s\nc = 12.s / 4\nd = 2.gb * 2",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("a = 15.s"), content="true")
+  inspect(rendered.contains("b = 12.s"), content="true")
+  inspect(rendered.contains("c = 3.s"), content="true")
+  inspect(rendered.contains("d = 4.gb"), content="true")
+}
+
+///|
+test "PKL-148b: Int.isBetween and Int.toFloat" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "a = 5.isBetween(0, 10)\nb = 11.isBetween(0, 10)\nc = 3.toFloat()",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("a = true"), content="true")
+  inspect(rendered.contains("b = false"), content="true")
+  inspect(rendered.contains("c = 3.0"), content="true")
+}
+
+///|
 test "PKL-148: Bool xor and implies dispatch through the method path" {
   let session = AnalysisSession::new()
   session.set_source(

@@ -33,6 +33,23 @@ priv enum ConstraintIntPredicate {
   NotCustomLessThan(String, Double)
   NotCustomGreaterOrEqual(String, Double)
   NotCustomLessOrEqual(String, Double)
+  // PKL-148b: `Int(this > 0)` / `Int(0 < this)`-style bare comparison
+  // constraints. The constraint name renders as the literal source
+  // ("this > 0") to match Apple Pkl's diagnostic wording, and the
+  // accepts side runs the comparison with the candidate substituted
+  // for `this`.
+  ThisCompare(ConstraintCompareOp, Double, Bool)
+  NotThisCompare(ConstraintCompareOp, Double, Bool)
+}
+
+///|
+priv enum ConstraintCompareOp {
+  CmpGreaterThan
+  CmpGreaterOrEqual
+  CmpLessThan
+  CmpLessOrEqual
+  CmpEqual
+  CmpNotEqual
 }
 
 ///|
@@ -375,6 +392,8 @@ fn pkl_int_constraint_predicate(text : String) -> ConstraintIntPredicate? {
       Some(IsPositive) => return Some(NotIsPositive)
       Some(IsGreaterThan(threshold)) => return Some(NotIsGreaterThan(threshold))
       Some(IsLessThan(threshold)) => return Some(NotIsLessThan(threshold))
+      Some(ThisCompare(op, t, leftish)) =>
+        return Some(NotThisCompare(op, t, leftish))
       _ => return None
     }
   }
@@ -391,6 +410,12 @@ fn pkl_int_constraint_predicate(text : String) -> ConstraintIntPredicate? {
   }
   match pkl_single_int_constraint_argument(text, "isLessThan") {
     Some(threshold) => return Some(IsLessThan(threshold))
+    None => ()
+  }
+  // PKL-148b: `this <op> N` bare comparison falls through last so it
+  // doesn't shadow the named-predicate forms above.
+  match pkl_parse_this_comparison(text) {
+    Some(predicate) => return Some(predicate)
     None => ()
   }
   None
@@ -725,7 +750,131 @@ fn pkl_constraint_name(predicate : ConstraintIntPredicate) -> String {
       "!" + name + "(\{format_constraint_arg(t)})"
     NotCustomLessOrEqual(name, t) =>
       "!" + name + "(\{format_constraint_arg(t)})"
+    ThisCompare(op, t, this_on_left) =>
+      if this_on_left {
+        "this \{constraint_compare_op_text(op)} \{format_constraint_arg(t)}"
+      } else {
+        "\{format_constraint_arg(t)} \{constraint_compare_op_text(op)} this"
+      }
+    NotThisCompare(op, t, this_on_left) =>
+      if this_on_left {
+        "!(this \{constraint_compare_op_text(op)} \{format_constraint_arg(t)})"
+      } else {
+        "!(\{format_constraint_arg(t)} \{constraint_compare_op_text(op)} this)"
+      }
   }
+}
+
+///|
+fn constraint_compare_op_text(op : ConstraintCompareOp) -> String {
+  match op {
+    CmpGreaterThan => ">"
+    CmpGreaterOrEqual => ">="
+    CmpLessThan => "<"
+    CmpLessOrEqual => "<="
+    CmpEqual => "=="
+    CmpNotEqual => "!="
+  }
+}
+
+///|
+fn _pkl_binary_op_to_compare(op : BinaryOp) -> ConstraintCompareOp? {
+  match op {
+    GreaterThan => Some(CmpGreaterThan)
+    GreaterOrEqual => Some(CmpGreaterOrEqual)
+    LessThan => Some(CmpLessThan)
+    LessOrEqual => Some(CmpLessOrEqual)
+    Equal => Some(CmpEqual)
+    NotEqual => Some(CmpNotEqual)
+    _ => None
+  }
+}
+
+///|
+/// PKL-148b: parse a `this <op> N` or `N <op> this` bare comparison
+/// from the constraint text into a `ThisCompare` predicate. Whitespace
+/// is normalised; the supported ops are >, >=, <, <=, ==, !=.
+fn pkl_parse_this_comparison(text : String) -> ConstraintIntPredicate? {
+  let trimmed = pkl_constraint_trim(text)
+  let ops : Array[(String, ConstraintCompareOp)] = [
+    (">=", CmpGreaterOrEqual),
+    ("<=", CmpLessOrEqual),
+    ("==", CmpEqual),
+    ("!=", CmpNotEqual),
+    (">", CmpGreaterThan),
+    ("<", CmpLessThan),
+  ]
+  for op_pair in ops {
+    let op_text = op_pair.0
+    let op = op_pair.1
+    match pkl_split_on_op(trimmed, op_text) {
+      Some((left, right)) => {
+        let left_trim = pkl_constraint_trim(left)
+        let right_trim = pkl_constraint_trim(right)
+        if left_trim == "this" {
+          match pkl_parse_constraint_double_text(right_trim) {
+            Some(n) => return Some(ThisCompare(op, n, true))
+            None => ()
+          }
+        } else if right_trim == "this" {
+          match pkl_parse_constraint_double_text(left_trim) {
+            Some(n) => return Some(ThisCompare(op, n, false))
+            None => ()
+          }
+        }
+      }
+      None => ()
+    }
+  }
+  None
+}
+
+///|
+fn pkl_split_on_op(text : String, op : String) -> (String, String)? {
+  let n = text.length()
+  let m = op.length()
+  let mut i = 0
+  while i + m <= n {
+    let mut equal = true
+    for j = 0; j < m; j = j + 1 {
+      if text[i + j] != op[j] {
+        equal = false
+        break
+      }
+    }
+    if equal {
+      // Reject if the op text appears inside a longer operator (e.g.
+      // matching `>` inside `>=`).
+      let prev = if i > 0 {
+        Some(text[i - 1].to_int().unsafe_to_char())
+      } else {
+        None
+      }
+      let next = if i + m < n {
+        Some(text[i + m].to_int().unsafe_to_char())
+      } else {
+        None
+      }
+      let ambiguous = match (op, prev, next) {
+        (">", _, Some('=')) | ("<", _, Some('=')) => true
+        ("=", Some('='), _)
+        | ("=", Some('!'), _)
+        | ("=", Some('<'), _)
+        | ("=", Some('>'), _) => true
+        _ => false
+      }
+      if !ambiguous {
+        return Some(
+          (
+            String::unsafe_substring(text, start=0, end=i),
+            String::unsafe_substring(text, start=i + m, end=n),
+          ),
+        )
+      }
+    }
+    i = i + 1
+  }
+  None
 }
 
 ///|
@@ -913,6 +1062,35 @@ fn pkl_constraint_predicate_accepts_float(
     NotCustomLessThan(_, threshold) => !(value < threshold)
     NotCustomGreaterOrEqual(_, threshold) => !(value >= threshold)
     NotCustomLessOrEqual(_, threshold) => !(value <= threshold)
+    ThisCompare(op, threshold, this_on_left) =>
+      pkl_constraint_compare_eval(value, op, threshold, this_on_left)
+    NotThisCompare(op, threshold, this_on_left) =>
+      !pkl_constraint_compare_eval(value, op, threshold, this_on_left)
+  }
+}
+
+///|
+/// PKL-148b: run a `this <op> N` (or `N <op> this`) bare comparison
+/// against a candidate value. Used by ThisCompare / NotThisCompare;
+/// kept separate so the predicate evaluator stays branch-flat.
+fn pkl_constraint_compare_eval(
+  value : Double,
+  op : ConstraintCompareOp,
+  threshold : Double,
+  this_on_left : Bool,
+) -> Bool {
+  let (left, right) = if this_on_left {
+    (value, threshold)
+  } else {
+    (threshold, value)
+  }
+  match op {
+    CmpGreaterThan => left > right
+    CmpGreaterOrEqual => left >= right
+    CmpLessThan => left < right
+    CmpLessOrEqual => left <= right
+    CmpEqual => left == right
+    CmpNotEqual => left != right
   }
 }
 
@@ -1042,9 +1220,85 @@ fn pkl_constrained_type_annotation_value_rejection_message_from_source(
       )
     None => ()
   }
+  // PKL-148b: `Listing<T>(...)` host constraints fire against the
+  // whole Listing (e.g. `Listing<String>(!isEmpty)`) before delegating
+  // element-side cascade to the existing collection walker.
+  match value {
+    ListingValue(elements) =>
+      match
+        pkl_constrained_listing_rejection_message_from_source(
+          source_name, elements,
+        ) {
+        Some(message) => return Some(message)
+        None => ()
+      }
+    _ => ()
+  }
   pkl_collection_element_rejection_message_from_source(
     display_name, source_name, value,
   )
+}
+
+///|
+/// PKL-148b: evaluate the `Listing<T>(<predicate>)` host constraint
+/// against the actual Listing value. Today the supported predicates are
+/// the bare `isEmpty` / `!isEmpty` zero-arg form; richer ones land as
+/// follow-up.
+fn pkl_constrained_listing_rejection_message_from_source(
+  source_name : String,
+  elements : Array[Value],
+) -> String? {
+  // Only fire when the host name is `Listing(<...>)` — the inner element
+  // type doesn't affect the host predicate.
+  match pkl_constrained_type_base_name(source_name) {
+    Some(base) =>
+      if !(base == "Listing" || base.has_prefix("Listing<")) {
+        return None
+      }
+    None => return None
+  }
+  let text = match pkl_constrained_type_constraint_text(source_name) {
+    Some(t) => pkl_constraint_trim(t)
+    None => return None
+  }
+  let parts = pkl_split_constraint_arguments(text)
+  for part in parts {
+    let trimmed = pkl_constraint_trim(part)
+    let negated = trimmed.has_prefix("!")
+    let bare = if negated {
+      pkl_constraint_trim(
+        String::unsafe_substring(trimmed, start=1, end=trimmed.length()),
+      )
+    } else {
+      trimmed
+    }
+    if bare == "isEmpty" {
+      let is_empty = elements.length() == 0
+      let violated = if negated { is_empty } else { !is_empty }
+      if violated {
+        // Render the rejected Listing using PCF inline form so the
+        // user sees what was rejected.
+        let buf = StringBuilder::new()
+        render_listing_for_diag(elements, buf)
+        return Some(
+          "Type constraint `\{trimmed}` violated. Value: \{buf.to_string()}",
+        )
+      }
+    }
+  }
+  None
+}
+
+///|
+fn render_listing_for_diag(
+  elements : Array[Value],
+  buf : StringBuilder,
+) -> Unit {
+  if elements.length() == 0 {
+    buf.write_string("new Listing {}")
+  } else {
+    buf.write_string("new Listing { ... }")
+  }
 }
 
 ///|

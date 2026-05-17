@@ -104,6 +104,7 @@ local moonUnit = new Test {
     "PKL-146"
     "PKL-147"
     "PKL-148"
+    "PKL-148b"
   }
   cmd = "moon test --target js"
   timeoutSec = 120
@@ -1261,6 +1262,7 @@ local upstreamSmoke = new Test {
     "PKL-144"
     "PKL-147"
     "PKL-148"
+    "PKL-148b"
   }
   cmd = "./scripts/upstream-smoke.sh"
   workdir = ".."
@@ -1280,6 +1282,8 @@ local upstreamSmoke = new Test {
     "upstream eval ok: basic/minPklVersion (gold match)"
     "upstream eval ok: basic/moduleRefLibrary (gold match)"
     "upstream eval ok: classes/class1 (gold match)"
+    "upstream eval ok: classes/constraints1 (gold match)"
+    "upstream eval ok: classes/constraints2 (gold match)"
     "upstream eval ok: generators/propertyGenerators (gold match)"
     "upstream eval ok: listings/cacheStealingTypeCheck (gold match)"
     "upstream eval ok: modules/amendModule1 (gold match)"
@@ -1287,7 +1291,7 @@ local upstreamSmoke = new Test {
     "upstream eval ok: classes/constraints8.pkl"
     "upstream json eval ok: api/jsonRenderer1.json (gold match)"
     "upstream eval ok: api/pListRenderer1.plist (gold match)"
-    "upstream-smoke: 38 gold-match fixtures passed"
+    "upstream-smoke: 40 gold-match fixtures passed"
     "upstream-smoke: 1 json gold-match fixtures passed"
     "upstream-smoke: 1 plist gold-match fixtures passed"
   }

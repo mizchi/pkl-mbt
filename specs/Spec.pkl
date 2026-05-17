@@ -1896,6 +1896,44 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklBaseMethodSurfaceFollowupScenario = new Scenario {
+  id = "PKL-148b"
+  name = "pkl:base method surface second wave"
+  description =
+    "Follows the PKL-148 first wave with runtime support for `this <op> N` bare-comparison constraints (`Int(this > 0)` etc. via the new `ThisCompare` predicate variant), the `as` and `|>` operators (parser-only stops being parser-only — `as` does a runtime type assertion and `|>` desugars to a single-arg call), Duration / DataSize scalar arithmetic (`5.s * 3`, `2.gb / 4`, the symmetric Int/Float on either side), Set + Listing (and Listing + Set) concat that mirrors Apple Pkl's collection-union semantics, Int methods (`isBetween(a, b)`, `toFloat()`), Listing.isDistinctBy(keyFn), Listing-host constraints (`Listing<T>(!isEmpty)`), and construction-time enforcement of class-property constraints so `new P { l {} }.l` raises the violation at construction rather than only at the outer binding boundary. Lifts gold-match from 38 to 40 PCF (`classes/constraints1`, `classes/constraints2`)."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148" }
+  tags { "evaluator"; "stdlib"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "ThisCompare is a first-class constraint predicate"
+      rationale =
+        "`Int(this > 0)` is far enough off the named-predicate template (`isPositive`, `isGreaterThan(N)`, …) that it needs its own predicate variant. Storing the op + threshold + which side is `this` keeps both the accept check and the diagnostic rendering tight; the constraint name renders as the literal source (`this > 0`) so snippetTest fixtures match upstream wording."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Construction-time constraint enforcement on TypedObjectLiteral"
+      rationale =
+        "Apple Pkl raises class-property constraint violations the moment the value is built, not only when the outer binding is finalised. snippetTest's `new P { l {} }.l` would otherwise dodge the check entirely because the outer binding's expression is a `MemberAccess`, not a `TypedObjectLiteral`. The check is gated on provided members so default values that haven't been amended don't re-run."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "as does a runtime type assertion, not a static no-op"
+      rationale =
+        "The typechecker pass that would erase `as` to a no-op isn't always reachable (think dynamic Listing<Any> contents). Running the same `eval_value_accepts_type_annotation` check at runtime preserves Apple Pkl's diagnostic shape and keeps the operator from being a silent identity that can hide bugs."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Listing constraint host check runs before element cascade"
+      rationale =
+        "`Listing<String>(!isEmpty)` and `Listing<Int(isPositive)>` are different beasts — the host predicate fires against the Listing as a whole; the element predicate fires per element. The dispatch order matters: host check first, then element cascade, so an empty Listing fails `!isEmpty` rather than silently passing the no-elements case of the element cascade."
+    }
+  }
+}
+
 local pklBaseMethodSurfaceScenario = new Scenario {
   id = "PKL-148"
   name = "pkl:base method surface expansion first wave"
@@ -4259,5 +4297,6 @@ scenarios {
   reflectIntrospectionScenario
   snippetTestHarnessScenario
   pklBaseMethodSurfaceScenario
+  pklBaseMethodSurfaceFollowupScenario
   ...roadmap.entries
 }

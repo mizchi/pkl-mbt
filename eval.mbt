@@ -748,14 +748,19 @@ fn eval_class_property_constraint_value_rejection_message(
     eval_class_property_annotation(declarations, class_name, property_name) {
     Some(source_name) => {
       let display_name = "\{class_name} member \{property_name}"
+      // PKL-148b: a class property typed `Listing<...>(...)` whose
+      // amend body is empty (`l {}`) initially evaluates to an empty
+      // ObjectValue. Coerce to ListingValue before the constraint
+      // dispatch so the Listing-host predicate (e.g. `!isEmpty`) fires.
+      let coerced = coerce_value_to_annotated_type(value, Some(source_name))
       match
         pkl_constrained_type_annotation_value_rejection_message_from_source(
-          display_name, source_name, value,
+          display_name, source_name, coerced,
         ) {
         Some(message) => Some(message)
         None =>
           pkl_user_defined_constrained_type_annotation_value_rejection_message_from_source(
-            display_name, source_name, value, declarations,
+            display_name, source_name, coerced, declarations,
           )
       }
     }
@@ -1783,6 +1788,9 @@ fn is_listing_method_name(name : String) -> Bool {
     | "getOrNull"
     | "startsWith"
     | "endsWith"
+    // PKL-148b: Listing.isDistinctBy(keyFn) — checks whether elements
+    // are unique under the key extractor.
+    | "isDistinctBy"
     // PKL-134: read-only conversion methods used by pkf / pkspec's
     // shape inspection chains (`tests.toList().map(...)`).
     | "toList"
@@ -1900,7 +1908,9 @@ fn is_int_property_name(name : String) -> Bool {
 ///|
 fn is_int_method_name(name : String) -> Bool {
   match name {
-    "toString" | "toChar" => true
+    // PKL-148b: pkl:base Int method surface adds `isBetween(a, b)`,
+    // `toFloat()`, `shl` / `shr` / `ushr` / `or` / `and` / `xor`.
+    "toString" | "toChar" | "toFloat" | "isBetween" => true
     _ => false
   }
 }
@@ -2519,6 +2529,44 @@ fn eval_listing_method(
         return None
       }
       Some(BoolValue(contains_value(elements, arg_values[0])))
+    }
+    "isDistinctBy" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.isDistinctBy expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      let keys : Array[Value] = []
+      let mut distinct = true
+      for element in elements {
+        match
+          apply_function_value(
+            "Listing.isDistinctBy keyFn",
+            arg_values[0],
+            [element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(key) =>
+            if contains_value(keys, key) {
+              distinct = false
+              break
+            } else {
+              keys.push(key)
+            }
+          None => return None
+        }
+      }
+      Some(BoolValue(distinct))
     }
     // PKL-148: pkl:base Listing.getOrNull(index) — returns the element
     // at `index` or null when out of bounds. Apple Pkl's signature is
@@ -4256,6 +4304,41 @@ fn eval_int_method(
       buf.write_char(n.unsafe_to_char())
       Some(StringValue(buf.to_string()))
     }
+    // PKL-148b: Int.isBetween(lower, upper) — inclusive range check.
+    "isBetween" => {
+      if arg_values.length() != 2 {
+        diagnostics.push(
+          diag("Int.isBetween expects 2 arguments, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let lower = match arg_values[0] {
+        IntValue(v) => v.to_double()
+        FloatValue(v) => v
+        _ => {
+          diagnostics.push(diag("Int.isBetween expects Number arguments"))
+          return None
+        }
+      }
+      let upper = match arg_values[1] {
+        IntValue(v) => v.to_double()
+        FloatValue(v) => v
+        _ => {
+          diagnostics.push(diag("Int.isBetween expects Number arguments"))
+          return None
+        }
+      }
+      let v = n.to_double()
+      Some(BoolValue(v >= lower && v <= upper))
+    }
+    // PKL-148b: Int.toFloat() — widens to Float (no precision loss).
+    "toFloat" =>
+      if arg_values.length() == 0 {
+        Some(FloatValue(n.to_double()))
+      } else {
+        diagnostics.push(diag("Int.toFloat takes no arguments"))
+        None
+      }
     _ => None
   }
 }
@@ -5885,21 +5968,49 @@ fn eval_expr_with_bindings(
           ),
         ),
       )
-    TypedObjectLiteral(type_name, members) =>
-      Some(
-        ObjectValue(
-          merge_value_members(
-            eval_class_default_members(
-              type_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
-              resolve_import,
-            ),
-            eval_object_members(
-              members, bindings, env, class_env, cache, stack, declarations, diagnostics,
-              resolve_import,
-            ),
-          ),
+    TypedObjectLiteral(type_name, members) => {
+      let merged = merge_value_members(
+        eval_class_default_members(
+          type_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
+        ),
+        eval_object_members(
+          members, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
         ),
       )
+      // PKL-148b: fire class-property constraints at construction time
+      // so `new P { l {} }` where `l: Listing<String>(!isEmpty)` raises
+      // the violation diagnostic right where the value is built, not
+      // only at the top-level binding boundary. The check returns the
+      // first violation; subsequent ones still surface if the outer
+      // binding pass re-runs the check.
+      let mut violation_emitted = false
+      for field in members {
+        match lookup_member(merged, field.name) {
+          Some(member_value) =>
+            match
+              eval_class_property_constraint_value_rejection_message(
+                type_name,
+                field.name,
+                member_value,
+                declarations,
+              ) {
+              Some(message) => {
+                diagnostics.push(diag(message))
+                violation_emitted = true
+              }
+              None => ()
+            }
+          None => ()
+        }
+      }
+      if violation_emitted {
+        None
+      } else {
+        Some(ObjectValue(merged))
+      }
+    }
     ListingLiteral(elements) => {
       let values : Array[Value] = []
       for element in elements {
@@ -7533,10 +7644,55 @@ fn eval_expr_with_bindings(
               return None
             }
           }
-        As | Pipe => {
-          diagnostics.push(diag("operator \{operator_name(op)} is parser-only"))
-          return None
+        // PKL-148b: `as` is a runtime type cast. The typechecker has
+        // already verified the assignment-compatibility statically; at
+        // runtime we just need to ensure the value matches the
+        // annotation and surface a diagnostic otherwise. The cast is
+        // shape-preserving (no coercion / widening).
+        As => {
+          let value_opt = eval_expr_with_bindings(
+            left_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
+          )
+          match (value_opt, right_expr) {
+            (Some(value), Identifier(type_name)) => {
+              let aliases = eval_type_alias_bindings(declarations)
+              let resolved = eval_resolved_type_alias(type_name, aliases)
+              if eval_value_accepts_type_annotation(resolved, value) {
+                return Some(value)
+              } else {
+                diagnostics.push(
+                  diag(
+                    "Expected value of type `\{type_name}`, but got type `\{eval_value_type_name(value)}`. Value: \{render_pcf_value_inline(value)}",
+                  ),
+                )
+                return None
+              }
+            }
+            (None, _) => return None
+            _ => {
+              diagnostics.push(
+                diag("operator as right operand must be a type name"),
+              )
+              return None
+            }
+          }
         }
+        // PKL-148b: `x |> f` is the forward-pipe operator — desugars
+        // to `f(x)`. Apple Pkl's runtime semantics match a direct
+        // single-arg call against the right operand.
+        Pipe =>
+          return eval_expr_with_bindings(
+            CallExpr(right_expr, [left_expr]),
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          )
         _ => ()
       }
       let left = eval_expr_with_bindings(
@@ -7745,6 +7901,31 @@ fn eval_expr_with_bindings(
           }
           Some(SetValue(merged))
         }
+        // PKL-148b: Set + Listing (or List, since both project as
+        // ListingValue today) widens to a Set with the right-hand
+        // elements unioned in. Mirrors Apple Pkl's `Set + Collection`.
+        (Some(SetValue(la)), Some(ListingValue(lb))) if op == Add => {
+          let merged : Array[Value] = []
+          for v in la {
+            merged.push(v)
+          }
+          for v in lb {
+            if !contains_value(merged, v) {
+              merged.push(v)
+            }
+          }
+          Some(SetValue(merged))
+        }
+        (Some(ListingValue(la)), Some(SetValue(lb))) if op == Add => {
+          let merged : Array[Value] = []
+          for v in la {
+            merged.push(v)
+          }
+          for v in lb {
+            merged.push(v)
+          }
+          Some(ListingValue(merged))
+        }
         (Some(MappingValue(ea)), Some(MappingValue(eb))) if op == Add => {
           let merged : Array[ValueEntry] = []
           for e in ea {
@@ -7787,6 +7968,33 @@ fn eval_expr_with_bindings(
         }
         (Some(StringValue(sa)), Some(StringValue(sb))) if op == Add =>
           Some(StringValue(sa + sb))
+        // PKL-148b: Duration / DataSize scalar arithmetic. Multiplying
+        // by Int / Float scales the magnitude; dividing by Int / Float
+        // scales it down. Apple Pkl preserves the magnitude unit.
+        (Some(DurationValue(n, unit)), Some(IntValue(k))) if op == Multiply =>
+          Some(DurationValue(n * k.to_double(), unit))
+        (Some(DurationValue(n, unit)), Some(FloatValue(k))) if op == Multiply =>
+          Some(DurationValue(n * k, unit))
+        (Some(IntValue(k)), Some(DurationValue(n, unit))) if op == Multiply =>
+          Some(DurationValue(n * k.to_double(), unit))
+        (Some(FloatValue(k)), Some(DurationValue(n, unit))) if op == Multiply =>
+          Some(DurationValue(n * k, unit))
+        (Some(DurationValue(n, unit)), Some(IntValue(k))) if op == Divide &&
+          k != 0 => Some(DurationValue(n / k.to_double(), unit))
+        (Some(DurationValue(n, unit)), Some(FloatValue(k))) if op == Divide &&
+          k != 0.0 => Some(DurationValue(n / k, unit))
+        (Some(DataSizeValue(n, unit)), Some(IntValue(k))) if op == Multiply =>
+          Some(DataSizeValue(n * k.to_double(), unit))
+        (Some(DataSizeValue(n, unit)), Some(FloatValue(k))) if op == Multiply =>
+          Some(DataSizeValue(n * k, unit))
+        (Some(IntValue(k)), Some(DataSizeValue(n, unit))) if op == Multiply =>
+          Some(DataSizeValue(n * k.to_double(), unit))
+        (Some(FloatValue(k)), Some(DataSizeValue(n, unit))) if op == Multiply =>
+          Some(DataSizeValue(n * k, unit))
+        (Some(DataSizeValue(n, unit)), Some(IntValue(k))) if op == Divide &&
+          k != 0 => Some(DataSizeValue(n / k.to_double(), unit))
+        (Some(DataSizeValue(n, unit)), Some(FloatValue(k))) if op == Divide &&
+          k != 0.0 => Some(DataSizeValue(n / k, unit))
         (Some(a), Some(b)) if op == Equal => Some(BoolValue(a == b))
         (Some(a), Some(b)) if op == NotEqual => Some(BoolValue(a != b))
         (Some(_), Some(_)) => {

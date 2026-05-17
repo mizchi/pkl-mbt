@@ -58,6 +58,12 @@
 ///                     for typed empty new {}, Apple Pkl-aligned constraint
 ///                     diagnostic wording, +/concat for collection variants;
 ///                     +3 gold-match fixtures, 35 → 38)
+///   PKL-148b (2nd)    `this <op> N` constraint, `as` / `|>` operators,
+///                     Duration / DataSize scalar arithmetic, Set+Listing,
+///                     Int.isBetween / .toFloat, Listing.isDistinctBy,
+///                     Listing-host constraint (`Listing<T>(!isEmpty)`),
+///                     construction-time constraint enforcement;
+///                     +2 gold-match fixtures, 38 → 40
 @ModuleInfo { minPklVersion = "0.31.0" }
 module specs.Roadmap
 
@@ -74,13 +80,13 @@ import "../pkspec/Spec.pkl"
 // fixture category it should unblock so progress is measurable
 // against `scripts/upstream-smoke.sh` after each landing.
 
-local pklBaseMethodSurfaceFollowup: Spec.Scenario = new {
-  id = "PKL-148b"
-  name = "pkl:base method surface second wave"
+local pklBaseMethodSurfaceThirdWave: Spec.Scenario = new {
+  id = "PKL-148c"
+  name = "pkl:base method surface third wave"
   description =
-    "PKL-148's first wave (landed) covered Bool / Float / Int / String / Listing / Mapping / Set / Map / Pair zero-arg accessors plus a handful of common methods, Apple Pkl-aligned constraint diagnostic wording, class-default expansion for typed empty `new {}`, and the collection `+` operator. The follow-up wave needs: scope-resolution fixes for late-bound forward references (`y = 3` after `x = y; y = 5` in the same object body), super-call semantics (`super.method(...)`), class-as-value (`Person.foo` → `Cannot find property foo in object of type Class`), the `(lambda) { ... }` amend form for lambda-returning lambdas, `Listing<T>(!isEmpty)` Listing-constraint dispatch, and the remaining stdlib methods (Listing.isDistinctBy, DataSize.isBinaryUnit, Duration.isBetween, Int.isBetween, jsonnet renderer module). Once those land the silent-mismatch bucket should collapse another ~30 fixtures into gold-match."
+    "PKL-148 / PKL-148b together covered the bulk of the bare-method / bare-property surface plus the `this <op> N` / Listing-host constraint forms. The third wave needs the harder pieces: runtime evaluation of arbitrary constraint expressions (`Int(abs < 100)`, `Address(street.endsWith(\"St.\"))`, `Int(this >= min)`) with implicit-receiver resolution against the candidate value, super-call dispatch (`super.method(...)` from a subclass), class-as-value semantics (`Person.foo` → `Cannot find property \\\\\\\\\\\\\\`foo\\\\\\\\\\\\\\` in object of type \\\\\\\\\\\\\\`Class\\\\\\\\\\\\\\`.`), the `(lambda) { body }` amend form for lambdas that return lambdas, and the long-tail stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module, late-bound forward references inside object bodies). Should collapse another ~20-30 silent-mismatch fixtures."
   contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-148" }
+  dependsOn { "PKL-148b" }
   tags { "evaluator"; "stdlib"; "upstream"; "compat"; "next" }
   reviewStatus = "draft"
   severity = "major"
@@ -147,7 +153,7 @@ local silentMismatchSurvey: Spec.Scenario = new {
 }
 
 entries: Listing<Spec.Scenario> = new {
-  pklBaseMethodSurfaceFollowup
+  pklBaseMethodSurfaceThirdWave
   upstreamResourceType
   asAndPipeRuntime
   listVariantSplit

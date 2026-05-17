@@ -1,6 +1,6 @@
 # Test SPEC
 
-223 tests across 2 module(s) — 158 pending, 65 active
+224 tests across 2 module(s) — 159 pending, 65 active
 
 ## `specs/`
 
@@ -690,10 +690,17 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **pkl:base method surface second wave** [draft] — verifies: PKL-148b — tags: evaluator, stdlib, upstream, compat, next
-  > PKL-148's first wave (landed) covered Bool / Float / Int / String / Listing / Mapping / Set / Map / Pair zero-arg accessors plus a handful of common methods, Apple Pkl-aligned constraint diagnostic wording, class-default expansion for typed empty `new {}`, and the collection `+` operator. The follow-up wave needs: scope-resolution fixes for late-bound forward references (`y = 3` after `x = y; y = 5` in the same object body), super-call semantics (`super.method(...)`), class-as-value (`Person.foo` → `Cannot find property foo in object of type Class`), the `(lambda) { ... }` amend form for lambda-returning lambdas, `Listing<T>(!isEmpty)` Listing-constraint dispatch, and the remaining stdlib methods (Listing.isDistinctBy, DataSize.isBinaryUnit, Duration.isBetween, Int.isBetween, jsonnet renderer module). Once those land the silent-mismatch bucket should collapse another ~30 fixtures into gold-match.
+- [ ] **pkl:base method surface second wave** — verifies: PKL-148b — tags: evaluator, stdlib, upstream, compat
+  > Follows the PKL-148 first wave with runtime support for `this <op> N` bare-comparison constraints (`Int(this > 0)` etc. via the new `ThisCompare` predicate variant), the `as` and `|>` operators (parser-only stops being parser-only — `as` does a runtime type assertion and `|>` desugars to a single-arg call), Duration / DataSize scalar arithmetic (`5.s * 3`, `2.gb / 4`, the symmetric Int/Float on either side), Set + Listing (and Listing + Set) concat that mirrors Apple Pkl's collection-union semantics, Int methods (`isBetween(a, b)`, `toFloat()`), Listing.isDistinctBy(keyFn), Listing-host constraints (`Listing<T>(!isEmpty)`), and construction-time enforcement of class-property constraints so `new P { l {} }.l` raises the violation at construction rather than only at the outer binding boundary. Lifts gold-match from 38 to 40 PCF (`classes/constraints1`, `classes/constraints2`).
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-148
+  - decisions: 4 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **pkl:base method surface third wave** [draft] — verifies: PKL-148c — tags: evaluator, stdlib, upstream, compat, next
+  > PKL-148 / PKL-148b together covered the bulk of the bare-method / bare-property surface plus the `this <op> N` / Listing-host constraint forms. The third wave needs the harder pieces: runtime evaluation of arbitrary constraint expressions (`Int(abs < 100)`, `Address(street.endsWith("St."))`, `Int(this >= min)`) with implicit-receiver resolution against the candidate value, super-call dispatch (`super.method(...)` from a subclass), class-as-value semantics (`Person.foo` → `Cannot find property \\\\\\\`foo\\\\\\\` in object of type \\\\\\\`Class\\\\\\\`.`), the `(lambda) { body }` amend form for lambdas that return lambdas, and the long-tail stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module, late-bound forward references inside object bodies). Should collapse another ~20-30 silent-mismatch fixtures.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-148b
   - body: _not yet implemented_
 
 - [ ] **pkl:json / pkl:yaml / pkl:xml / pkl:protobuf stdlib modules** — verifies: PKL-124 — tags: stdlib, renderer
@@ -1338,11 +1345,11 @@
   > The native CLI evaluates a fixture that declares `output { renderer = new YamlRenderer {} }` and several multiline String values. The YAML output renders them as literal block scalars: `|` (one trailing newline, clip), `|-` (no trailing newline, strip), `|+` (multiple trailing newlines, keep), with two-space content indentation. Strings whose lines start with whitespace fall back to double-quoted form, and listing items in block context also pick up the block-scalar projection.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-080, PKL-081, PKL-082, PKL-083, PKL-084, PKL-085, PKL-086, PKL-087, PKL-088, PKL-089, PKL-090, PKL-091, PKL-092, PKL-093, PKL-098, PKL-119be, PKL-144, PKL-145, PKL-146, PKL-147, PKL-148 — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-080, PKL-081, PKL-082, PKL-083, PKL-084, PKL-085, PKL-086, PKL-087, PKL-088, PKL-089, PKL-090, PKL-091, PKL-092, PKL-093, PKL-098, PKL-119be, PKL-144, PKL-145, PKL-146, PKL-147, PKL-148, PKL-148b — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
-- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148 — tags: moonbit, upstream, compatibility, contract
+- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b — tags: moonbit, upstream, compatibility, contract
   > Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF and JSON).
   - body: `cmd` (exit 0 expected)
 
