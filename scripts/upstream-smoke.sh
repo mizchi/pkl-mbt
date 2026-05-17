@@ -130,6 +130,7 @@ GOLD_FIXTURES=(
   "methods/methodParameterConstraints1"
   "types/typeAlias1"
   "modules/typedModuleMethods1"
+  "types/typeAlias2"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output

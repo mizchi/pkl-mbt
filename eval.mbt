@@ -10638,14 +10638,23 @@ fn eval_class_default_members(
   match lookup_class_binding(class_env, type_name) {
     Some(class_binding) => {
       match class_binding.parent_name {
-        Some(parent_name) =>
+        Some(parent_name) => {
+          // PKL-148v: resolve a typealias-named parent
+          // (`class Baz extends Bar` where `typealias Bar = Foo`)
+          // through the eval-side alias chain before recursing. Apple
+          // Pkl walks the alias to the underlying class declaration
+          // for default inheritance; without this `Baz`'s defaults
+          // would lose every `Foo`-declared property.
+          let aliases = eval_type_alias_bindings(declarations)
+          let resolved_parent = eval_resolved_type_alias(parent_name, aliases)
           for
             value_member in eval_class_default_members(
-              parent_name, bindings, env, class_env, cache, stack, declarations,
+              resolved_parent, bindings, env, class_env, cache, stack, declarations,
               diagnostics, resolve_import,
             ) {
             base_values.push(value_member)
           }
+        }
         None => ()
       }
       for property in class_binding.properties {

@@ -1896,6 +1896,26 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklClassParentTypealiasResolutionScenario = new Scenario {
+  id = "PKL-148v"
+  name = "class parent typealias resolved through alias chain"
+  description =
+    "Apple Pkl walks the type-alias chain when looking up the parent class for default inheritance — `class Baz extends Bar` where `typealias Bar = Foo` resolves to `Foo`'s declarations for the default-property surface, so `new Baz {}.value` reads through to the `value: Int = 42` declared on `Foo`. pkl-mbt's `eval_class_default_members` recursed on `class_binding.parent_name` directly through `lookup_class_binding`; since `Bar` is a typealias not a class binding, the lookup returned None and `Baz` lost every inherited property. The fix is a one-spot alias resolve: when the parent_name is set, run it through `eval_resolved_type_alias` before the recursive class-default lookup. +1 fixture (`types/typeAlias2`), 118 → 119; types category 29.4% → 35.3%."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148u" }
+  tags { "evaluator"; "typecheck"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Resolve the typealias chain at the parent-name recursion site rather than rewriting `ClassBinding.parent_name` at collection time"
+      rationale =
+        "Rewriting the field at `collect_class_bindings` time would require threading the alias bindings into the collector (which currently has no access to declarations beyond the class kind), and would make the on-disk shape diverge from the source AST. Resolving in-place at the recursion site keeps the AST canonical and the alias lookup local — same pattern as PKL-148r's analysis-side resolver consult. Other consumers of `parent_name` (constraint inheritance, reflect mirror, virtual-method dispatch) keep the source spelling for now; they'll be migrated in the same shape as gold fixtures surface the need."
+    }
+  }
+}
+
 local pklLazyClassDefaultTypeRejectionScenario = new Scenario {
   id = "PKL-148u"
   name = "structural type rejection with lazy per-property class-default semantics"
@@ -4907,5 +4927,6 @@ scenarios {
   pklSpreadMemberScenario
   pklTypeAliasNormalisationScenario
   pklLazyClassDefaultTypeRejectionScenario
+  pklClassParentTypealiasResolutionScenario
   ...roadmap.entries
 }
