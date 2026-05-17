@@ -4909,7 +4909,9 @@ test "PKL-128b: triple-quoted heredoc strips dedent" {
     panic()
   }
   guard members[0].value is StringValue(s) else { panic() }
-  assert_eq(s, "hello\nworld\n")
+  // PKL-148e: Apple Pkl strips the newline immediately preceding the
+  // closing delimiter's own indent line.
+  assert_eq(s, "hello\nworld")
 }
 
 ///|

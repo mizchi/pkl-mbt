@@ -885,6 +885,14 @@ fn Parser::parse_local_decl(self : Parser) -> Binding? {
     }) {
     ignore(self.bump())
     self.parse_expr()
+  } else if ({
+      self.skip_whitespace()
+      self.at(lbrace())
+    }) {
+    // PKL-148e: `local a { body }` (no `=`, brace body) is the local
+    // form of Apple Pkl's amend-shorthand. Dispatch through the same
+    // body-inference path that `parse_property_decl` uses.
+    self.parse_inferred_new_body()
   } else {
     self.parse_empty_unsupported_expr()
   }
@@ -1142,6 +1150,19 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
     self.consume_separators()
     while !self.at(eof()) && !self.at(rbrace()) {
       self.skip_member_header()
+      // PKL-148e: `local` modifier on a class property. Apple Pkl's
+      // local class properties are usable from class methods but
+      // hidden from PCF output / external access. Consume the keyword
+      // and route through the regular property parser; the hidden
+      // prefix gates rendering and `push_receiver_method_bindings`
+      // strips it when seeding the method cache.
+      let local_modifier = if self.at(local_kw()) {
+        ignore(self.bump())
+        self.skip_whitespace()
+        true
+      } else {
+        false
+      }
       if self.at_text("function") {
         match self.parse_function_decl() {
           Some(class_method) => methods.push(class_method)
@@ -1149,7 +1170,16 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
         }
       } else if self.at_property_decl() {
         match self.parse_class_property_decl() {
-          Some(property) => properties.push(property)
+          Some(property) =>
+            if local_modifier {
+              properties.push({
+                name: hidden_member_name(property.name),
+                type_name: property.type_name,
+                value: property.value,
+              })
+            } else {
+              properties.push(property)
+            }
           None => ()
         }
       } else {
@@ -1158,9 +1188,11 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
       self.consume_separators()
     }
     ignore(self.expect(rbrace(), "}"))
-  } else {
-    self.skip_unknown_member()
   }
+  // PKL-148e: bodyless `class Foo` is well-formed; the previous
+  // `skip_unknown_member` fallback ate the following separator + next
+  // declaration into the current `class_decl` node, hiding subsequent
+  // `class Foo2` from the top-level dispatcher.
   self.builder.finish_node()
   if name == "" {
     None
@@ -2886,10 +2918,25 @@ fn strip_heredoc_indent(body : String) -> String {
     start=indent_start,
     end=body.length(),
   )
+  // PKL-148e: Apple Pkl treats the newline immediately preceding the
+  // closing delimiter's own line as the line terminator for that line
+  // and strips it from the content. Without this, `"""<nl>x<nl>"""`
+  // (and indented variants) carry a stray trailing `\n` that breaks
+  // gold-match for fixtures like `basic/identifier`.
+  let mut body_end = indent_start
+  if body_end > start {
+    let c = body[body_end - 1].to_int().unsafe_to_char()
+    if c == '\n' {
+      body_end = body_end - 1
+      if body_end > start &&
+        body[body_end - 1].to_int().unsafe_to_char() == '\r' {
+        body_end = body_end - 1
+      }
+    }
+  }
   // Walk each line, strip the indent prefix when present.
   let buf = StringBuilder::new()
   let mut i = start
-  let body_end = indent_start
   let mut at_line_start = true
   while i < body_end {
     if at_line_start && indent_len > 0 && i + indent_len <= body_end {

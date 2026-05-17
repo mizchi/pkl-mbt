@@ -76,6 +76,17 @@
 ///                     semantics for nested ObjectValues, class-name
 ///                     hint in constraint diagnostics; +7 gold-match
 ///                     fixtures, 43 → 50
+///   PKL-148e (5th)    object-body forward refs, amend-body super (simple
+///                     form), Function.apply / applyToList / toString /
+///                     getClass, stdlib class-as-value mirror (Int / Float
+///                     / List / Set / Map / Pair / IntSeq / Function /
+///                     ...), bodyless `class Foo` parser fix, `local`
+///                     class property + sibling class methods visible
+///                     to method bodies, `local name { body }` (untyped
+///                     local amend), leading-dot Float literal, heredoc
+///                     trailing-newline strip, Any / List / Collection /
+///                     Set / user-class loose runtime acceptance;
+///                     +10 gold-match fixtures, 50 → 60
 @ModuleInfo { minPklVersion = "0.31.0" }
 module specs.Roadmap
 
@@ -92,13 +103,13 @@ import "../pkspec/Spec.pkl"
 // fixture category it should unblock so progress is measurable
 // against `scripts/upstream-smoke.sh` after each landing.
 
-local pklSuperAndForwardRef: Spec.Scenario = new {
-  id = "PKL-148e"
-  name = "super dispatch lambda amend and forward references"
+local pklSuperLateBindAndAmendLambda: Spec.Scenario = new {
+  id = "PKL-148f"
+  name = "super late binding amend lambda form and runtime user function constraint"
   description =
-    "PKL-148d landed class-as-value + lexical scope + deep-merge amend; the remaining harder pieces are `super.method(...)` / `super.prop` dispatch (currently `super.X` outside a class body errors `Cannot find property super`), the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambdaThatReturnsAnotherLambda.pkl` and friends), late-bound forward references inside object bodies (`x = y; y = 5` where `y` is declared after its first reference), runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`), and constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13). The remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along."
+    "PKL-148e landed object-body forward refs, simple-parent super, Function method surface, stdlib class mirror, and the loose runtime acceptance widening. The remaining harder pieces are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this — needed for `objects/super2` / `super3` / `super4` where parent has inter-property dependencies), the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambdaThatReturnsAnotherLambda.pkl` and friends), runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`), constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13), and module-level `this` / `module` self-reference value (for `basic/let`'s `res19`). Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along."
   contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-148d" }
+  dependsOn { "PKL-148e" }
   tags { "evaluator"; "stdlib"; "upstream"; "compat"; "next" }
   reviewStatus = "draft"
   severity = "major"
@@ -165,7 +176,7 @@ local silentMismatchSurvey: Spec.Scenario = new {
 }
 
 entries: Listing<Spec.Scenario> = new {
-  pklSuperAndForwardRef
+  pklSuperLateBindAndAmendLambda
   upstreamResourceType
   asAndPipeRuntime
   listVariantSplit

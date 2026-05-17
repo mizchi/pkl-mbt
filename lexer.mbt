@@ -142,6 +142,33 @@ fn Lexer::next_token(self : Lexer) -> Token {
     let text = self.slice_from(start)
     return Token::new(keyword_or_identifier(text), text)
   }
+  // PKL-148e: a `.` immediately followed by a digit lexes as a
+  // leading-dot Float (`.3` → `0.3`). Member access `foo.bar` requires
+  // an identifier after the dot, so `.<digit>` is unambiguous here.
+  if c == '.' && self.pos + 1 < self.len && is_digit(self.char_at(self.pos + 1)) {
+    self.pos += 1
+    while self.pos < self.len &&
+          (is_digit(self.char_at(self.pos)) || self.char_at(self.pos) == '_') {
+      self.pos += 1
+    }
+    if self.pos < self.len {
+      let exp_char = self.char_at(self.pos)
+      if exp_char == 'e' || exp_char == 'E' {
+        let mut probe = self.pos + 1
+        if probe < self.len &&
+          (self.char_at(probe) == '+' || self.char_at(probe) == '-') {
+          probe = probe + 1
+        }
+        if probe < self.len && is_digit(self.char_at(probe)) {
+          self.pos = probe
+          while self.pos < self.len && is_digit(self.char_at(self.pos)) {
+            self.pos += 1
+          }
+        }
+      }
+    }
+    return Token::new(float_token(), self.slice_from(start))
+  }
   if is_digit(c) {
     self.pos += 1
     // PKL-147: Apple Pkl integer literals support `0x` / `0b` / `0o`

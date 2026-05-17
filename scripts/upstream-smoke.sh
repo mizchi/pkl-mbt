@@ -24,6 +24,7 @@ GOLD_FIXTURES=(
   "basic/fixedProperty1"
   "basic/fixedProperty2"
   "basic/fixedProperty3"
+  "basic/identifier"
   "basic/import1"
   "basic/import2"
   "basic/if"
@@ -35,6 +36,7 @@ GOLD_FIXTURES=(
   "basic/minPklVersion"
   "basic/moduleRefLibrary"
   "basic/nonNull"
+  "basic/objectMember"
   "basic/parens"
   "basic/semicolon"
   "classes/class1"
@@ -44,9 +46,15 @@ GOLD_FIXTURES=(
   "classes/constraints3"
   "classes/constraints4"
   "classes/constraints6"
+  "classes/constraints8"
   "classes/constraintsLambdaThis"
+  "classes/equality"
   "classes/functions2"
+  "classes/functions3"
   "generators/propertyGenerators"
+  "lambdas/lambda1"
+  "lambdas/lambda2"
+  "lambdas/lambda5"
   "listings/cacheStealing"
   "listings/cacheStealingTypeCheck"
   "modules/amendModule1"
@@ -61,6 +69,8 @@ GOLD_FIXTURES=(
   "objects/implicitReceiver1"
   "objects/implicitReceiver2"
   "objects/implicitReceiver3"
+  "objects/super1"
+  "objects/super5"
   "types/nothingWithUnions"
 )
 
@@ -98,7 +108,6 @@ PARSE_ONLY=(
   "modules/filename with spaces.pkl"
   "modules/filename with spaces 2.pkl"
   "modules/objects.pkl"
-  "classes/constraints8.pkl"
 )
 
 parse_ok() {
@@ -198,15 +207,6 @@ for label in "${PLIST_GOLD_FIXTURES[@]}"; do
   eval_matches_gold "$label" "$UPSTREAM/$label.pkl" "$GOLD/$label"
   plist_ok_count=$((plist_ok_count + 1))
 done
-
-# classes/constraints8 carries our project-specific error diagnostic wording
-# rather than Apple Pkl's "Type constraint ... violated. Value: ..." text,
-# so we keep the partial substring check until the diagnostic surface is
-# aligned with upstream wording.
-eval_contains \
-  "classes/constraints8.pkl" \
-  "$UPSTREAM/classes/constraints8.pkl" \
-  "res2 = \"Type constraint \`isGreaterThan(5)\` violated. Value: 5\""
 
 printf 'upstream-smoke: %d gold-match fixtures passed\n' "$ok_count"
 printf 'upstream-smoke: %d json gold-match fixtures passed\n' "$json_ok_count"

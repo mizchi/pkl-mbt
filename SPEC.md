@@ -1,6 +1,6 @@
 # Test SPEC
 
-226 tests across 2 module(s) — 161 pending, 65 active
+227 tests across 2 module(s) — 162 pending, 65 active
 
 ## `specs/`
 
@@ -615,6 +615,13 @@
   - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **object body forward refs amend super and Function apply surface** — verifies: PKL-148e — tags: evaluator, parser, scope, amend, stdlib, upstream, compat
+  > Closes the next batch of upstream silent-mismatch fixtures. Object bodies now register every sibling member as a binding before evaluating any RHS, so `parent { x = 1 + y; y = 2 }` resolves `y` through the lazy `resolve_binding_value` path — cycle detection still uses the existing `stack` guard. Amend bodies expose `super` as the pre-amend ObjectValue, unlocking `(parent) { x = super.x + 100 }` for the simple-parent case (full Apple-Pkl super recursion against re-evaluated parents lands later). The `Function` value surface gains `.apply(args...)`, `.applyToList(list)`, `.toString()` / `.getClass()` plus the `(lambda).apply()` form, by intercepting MemberAccess(target, methodName) in `eval_callable_call` before the catch-all object-only lookup. Stdlib type identifiers (`Int`, `Float`, `String`, `Listing`, `Set`, `Map`, `Pair`, `IntSeq`, `Function`, etc.) project to a Class mirror just like user-declared classes, so `Int == Int`, `Int == 3.getClass()`, `Int != Float` round-trip. Bodyless `class Foo` is no longer eaten by the `skip_unknown_member` fallback that previously merged the following declaration into the current class node. `local` modifier on a class property now hoists via the hidden prefix and `push_receiver_method_bindings` strips it when seeding the method cache; sibling class methods are pushed as FunctionValues so `function compute() = b(c)` resolves `b` and `c` from the enclosing class. `let (x: Int = 42) body`'s typed binder threads through `parse_let_expr` already (no change required); the parser fix lands at `local name { body }` (was unsupported) and `.` immediately followed by a digit (leading-dot Float, used by `{1.2;.3;.4;.5}`). Heredoc dedent strips the newline immediately preceding the closing delimiter's indent line so `"""\\n hello\\n"""` reads as `"hello"` rather than `"hello\\n"`. The runtime type-acceptance widens: `Any` accepts every value (was rejecting), `List` / `Collection` accept ListingValue, `Set` accepts SetValue or ListingValue (until PKL-151's split), `Pair` / `IntSeq` route to their dedicated variants, and a user-declared class type accepts any ObjectValue (Apple Pkl checks the dynamic class on the instance; pkl-mbt's ObjectValue erases it). Lifts gold-match from 50 to 60 PCF (`api/moduleOutput`, `basic/identifier`, `basic/objectMember`, `classes/equality`, `classes/functions3`, `lambdas/lambda1`, `lambdas/lambda2`, `lambdas/lambda5`, `objects/super1`, `objects/super5`) and promotes `classes/constraints8` from substring to full gold-match.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-148d
+  - decisions: 4 entry(ies)
+  - body: _not yet implemented_
+
 - [ ] **output renderer driver** — verifies: PKL-104 — tags: renderer, output, driver, pkf-pkspec
   > The CLI's `eval` command picks its rendered format from the module's `output { renderer = new JsonRenderer { ... } }` block when the user did not pass `-f` / `--format`. The renderer's class name is read directly from the parsed AST — `parse_source(source).program.bindings` is walked for an `output` binding whose `ObjectLiteral` body has a `renderer` member; the renderer's `TypedObjectLiteral(class_name, _)` (or an `AmendExpr` peeling back to one) maps onto the existing format string (`JsonRenderer` → `"json"`, `YamlRenderer` → `"yaml"`, `PropertiesRenderer` → `"properties"`, `PcfRenderer` → `"pcf"`). The eval result's `ObjectValue` does not carry the source class, so this path stays AST-driven rather than tagging values. The `output` block itself is then stripped from the rendered envelope by `extract_output_value` (when there's no explicit `output.value` subtree) so the renderer doesn't echo its own configuration. An explicit `-f` flag still wins over the renderer-class detection so existing fixtures behave unchanged.
   - contributes to: GOAL-PKL-PURE
@@ -869,10 +876,10 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **super dispatch lambda amend and forward references** [draft] — verifies: PKL-148e — tags: evaluator, stdlib, upstream, compat, next
-  > PKL-148d landed class-as-value + lexical scope + deep-merge amend; the remaining harder pieces are `super.method(...)` / `super.prop` dispatch (currently `super.X` outside a class body errors `Cannot find property super`), the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambdaThatReturnsAnotherLambda.pkl` and friends), late-bound forward references inside object bodies (`x = y; y = 5` where `y` is declared after its first reference), runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`), and constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13). The remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along.
+- [ ] **super late binding amend lambda form and runtime user function constraint** [draft] — verifies: PKL-148f — tags: evaluator, stdlib, upstream, compat, next
+  > PKL-148e landed object-body forward refs, simple-parent super, Function method surface, stdlib class mirror, and the loose runtime acceptance widening. The remaining harder pieces are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this — needed for `objects/super2` / `super3` / `super4` where parent has inter-property dependencies), the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambdaThatReturnsAnotherLambda.pkl` and friends), runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`), constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13), and module-level `this` / `module` self-reference value (for `basic/let`'s `res19`). Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along.
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-148d
+  - depends on: PKL-148e
   - body: _not yet implemented_
 
 - [ ] **super method call** — verifies: PKL-117a — tags: evaluator, inheritance
@@ -1363,7 +1370,7 @@
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
-- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d — tags: moonbit, upstream, compatibility, contract
+- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d, PKL-148e — tags: moonbit, upstream, compatibility, contract
   > Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF and JSON).
   - body: `cmd` (exit 0 expected)
 

@@ -1896,6 +1896,44 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklForwardRefSuperAndApplyScenario = new Scenario {
+  id = "PKL-148e"
+  name = "object body forward refs amend super and Function apply surface"
+  description =
+    "Closes the next batch of upstream silent-mismatch fixtures. Object bodies now register every sibling member as a binding before evaluating any RHS, so `parent { x = 1 + y; y = 2 }` resolves `y` through the lazy `resolve_binding_value` path — cycle detection still uses the existing `stack` guard. Amend bodies expose `super` as the pre-amend ObjectValue, unlocking `(parent) { x = super.x + 100 }` for the simple-parent case (full Apple-Pkl super recursion against re-evaluated parents lands later). The `Function` value surface gains `.apply(args...)`, `.applyToList(list)`, `.toString()` / `.getClass()` plus the `(lambda).apply()` form, by intercepting MemberAccess(target, methodName) in `eval_callable_call` before the catch-all object-only lookup. Stdlib type identifiers (`Int`, `Float`, `String`, `Listing`, `Set`, `Map`, `Pair`, `IntSeq`, `Function`, etc.) project to a Class mirror just like user-declared classes, so `Int == Int`, `Int == 3.getClass()`, `Int != Float` round-trip. Bodyless `class Foo` is no longer eaten by the `skip_unknown_member` fallback that previously merged the following declaration into the current class node. `local` modifier on a class property now hoists via the hidden prefix and `push_receiver_method_bindings` strips it when seeding the method cache; sibling class methods are pushed as FunctionValues so `function compute() = b(c)` resolves `b` and `c` from the enclosing class. `let (x: Int = 42) body`'s typed binder threads through `parse_let_expr` already (no change required); the parser fix lands at `local name { body }` (was unsupported) and `.` immediately followed by a digit (leading-dot Float, used by `{1.2;.3;.4;.5}`). Heredoc dedent strips the newline immediately preceding the closing delimiter's indent line so `\"\"\"\\\\n hello\\\\n\"\"\"` reads as `\"hello\"` rather than `\"hello\\\\n\"`. The runtime type-acceptance widens: `Any` accepts every value (was rejecting), `List` / `Collection` accept ListingValue, `Set` accepts SetValue or ListingValue (until PKL-151's split), `Pair` / `IntSeq` route to their dedicated variants, and a user-declared class type accepts any ObjectValue (Apple Pkl checks the dynamic class on the instance; pkl-mbt's ObjectValue erases it). Lifts gold-match from 50 to 60 PCF (`api/moduleOutput`, `basic/identifier`, `basic/objectMember`, `classes/equality`, `classes/functions3`, `lambdas/lambda1`, `lambdas/lambda2`, `lambdas/lambda5`, `objects/super1`, `objects/super5`) and promotes `classes/constraints8` from substring to full gold-match."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148d" }
+  tags { "evaluator"; "parser"; "scope"; "amend"; "stdlib"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "Object body siblings pre-register as bindings for forward refs"
+      rationale =
+        "Apple Pkl evaluates `parent { x = 1 + y; y = 2 }` by reading the binder before the RHS — the binding order is positional but the lookup order is contents-first. Pre-registering every member as a Binding inside `eval_object_members` before the per-field eval loop hooks into the existing lazy resolver: `resolve_binding_value` already walks bindings on demand and the stack guard catches direct cycles. The alternative (multi-pass with explicit dependency analysis) would have added a parallel resolver."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Amend body super exposes the pre-amend ObjectValue, not late-bound parent"
+      rationale =
+        "Apple Pkl's super.X re-evaluates the parent's X with the amended this — full late binding requires re-running the parent's body against the current object's siblings. PKL-148e ships only the simple form (`super` = the evaluated parent ObjectValue), enough for super1 / super5 / class2a's super reads where the parent has no inter-property dependencies. super2 / super3 / super4 still need true late binding; they remain on the silent-mismatch list."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Function method dispatch intercept at eval_callable_call entry"
+      rationale =
+        "`.apply` / `.applyToList` / `.toString` / `.getClass` on a FunctionValue can't route through the regular method dispatcher because the receiver-type gate (`is_listing_method_name` / `is_string_method_name` / ...) doesn't include Function method names and the MemberAccess fallback rejects FunctionValue with `member access expects Object`. Intercepting at the top of `eval_callable_call` is the narrowest fix — the four method names are exhaustive for the Function class today, and the intercept fires before the regular evaluate-callee path so the lookup never sees the FunctionValue."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Sibling class methods are scope-visible; user-class annotations accept ObjectValue"
+      rationale =
+        "Apple Pkl treats `function f(...)` inside a class as scope-visible from sibling methods (no `this.` required); `push_sibling_class_methods` seeds the method cache with FunctionValue mirrors walking the parent chain, so an override in a subclass shadows the parent. For `param: Person` accepts `new {}` — Apple Pkl validates against the instance's dynamic class, but pkl-mbt's ObjectValue erases it; `value_satisfies_user_class_annotation` accepts any ObjectValue whose declared type matches a known user class, trading some tightness for upstream compatibility until ObjectValue carries a class tag."
+    }
+  }
+}
+
 local pklClassAsValueAndScopeScenario = new Scenario {
   id = "PKL-148d"
   name = "class-as-value reflect mirror plus lexical scope walk"
@@ -4370,5 +4408,6 @@ scenarios {
   pklBaseMethodSurfaceFollowupScenario
   pklRuntimeConstraintEvalScenario
   pklClassAsValueAndScopeScenario
+  pklForwardRefSuperAndApplyScenario
   ...roadmap.entries
 }

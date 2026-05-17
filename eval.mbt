@@ -1489,6 +1489,18 @@ fn push_receiver_method_bindings(
 ) -> Unit {
   for value_member in receiver_members {
     method_cache.push({ name: value_member.name, value: value_member.value })
+    // PKL-148e: hidden (`@hidden$X`) members include `local` class
+    // properties. The method body references them by their bare name
+    // (`c`, not `@hidden$c`); push the stripped form alongside the
+    // prefixed one so cache lookup resolves both.
+    if value_member.name.has_prefix(hidden_member_prefix) {
+      let bare = String::unsafe_substring(
+        value_member.name,
+        start=hidden_member_prefix.length(),
+        end=value_member.name.length(),
+      )
+      method_cache.push({ name: bare, value: value_member.value })
+    }
   }
   method_cache.push({ name: "this", value: ObjectValue(receiver_members) })
 }
@@ -1506,6 +1518,48 @@ fn push_super_dispatch_marker(
     name: "@current_class",
     value: StringValue(current_class),
   })
+}
+
+///|
+/// PKL-148e: expose sibling class methods to a method body. Apple Pkl
+/// scopes class methods like locals — `function compute() = b(c)` can
+/// call `function b(x) = ...` declared in the same class without
+/// `this.b(c)`. Walk the parent chain so an override (or new method)
+/// in a subclass shadows the parent definition, matching the
+/// inheritance order. Already-bound names (parameters, properties) win
+/// because they were pushed onto the cache earlier.
+fn push_sibling_class_methods(
+  method_cache : Array[ValueBinding],
+  class_name : String,
+  class_env : Array[ClassBinding],
+  env : Array[ValueBinding],
+  cache : Array[ValueBinding],
+) -> Unit {
+  let captured_env = capture_value_bindings(env, cache)
+  let mut current : String? = Some(class_name)
+  while current is Some(name) {
+    match lookup_class_binding(class_env, name) {
+      Some(class_binding) => {
+        for class_method in class_binding.methods {
+          match class_method.body {
+            Some(body) =>
+              method_cache.push({
+                name: class_method.name,
+                value: FunctionValue(
+                  class_method.parameters,
+                  body,
+                  class_method.return_type_name,
+                  captured_env,
+                ),
+              })
+            None => ()
+          }
+        }
+        current = class_binding.parent_name
+      }
+      None => current = None
+    }
+  }
 }
 
 ///|
@@ -1558,6 +1612,59 @@ fn synth_class_mirror_for_name(name : String) -> Value {
 }
 
 ///|
+/// PKL-148e: a stdlib type name (`Int` / `Float` / `String` / etc.)
+/// is usable as a class-as-value just like a user-declared `class Foo`.
+/// Apple Pkl exposes them through `pkl:base` so `Int == Int`,
+/// `Int == 3.getClass()`, `Int != Float` round-trip via the Class
+/// mirror's `name` / `simpleName` / `reflectee` fields.
+fn is_stdlib_class_name(name : String) -> Bool {
+  match name {
+    "Int"
+    | "Int8"
+    | "Int16"
+    | "Int32"
+    | "UInt"
+    | "UInt8"
+    | "UInt16"
+    | "UInt32"
+    | "Float"
+    | "Number"
+    | "String"
+    | "Boolean"
+    | "Bool"
+    | "Null"
+    | "Bytes"
+    | "Duration"
+    | "DataSize"
+    | "Regex"
+    | "Listing"
+    | "Mapping"
+    | "Set"
+    | "Map"
+    | "List"
+    | "Pair"
+    | "IntSeq"
+    | "Dynamic"
+    | "Typed"
+    | "Object"
+    | "Any"
+    | "Class"
+    | "Module"
+    | "TypeAlias"
+    | "Annotation"
+    | "Resource"
+    | "Function"
+    | "Function0"
+    | "Function1"
+    | "Function2"
+    | "Function3"
+    | "Function4"
+    | "Function5" => true
+    _ => false
+  }
+}
+
+///|
 fn eval_value_accepts_type_annotation(
   type_name : String,
   value : Value,
@@ -1579,6 +1686,10 @@ fn eval_value_accepts_type_annotation(
     return eval_value_accepts_type_annotation(inner_name, value)
   }
   match (type_name, value) {
+    // PKL-148e: `Any` is Apple Pkl's top type — it accepts every
+    // runtime value, matching `eval_value_accepts_type_annotation`'s
+    // top-level surface.
+    ("Any", _) => true
     ("Int", IntValue(_)) => true
     ("Float", FloatValue(_)) => true
     // PKL-092: `Number` is the type-system union of Int and Float; both
@@ -1590,6 +1701,17 @@ fn eval_value_accepts_type_annotation(
     ("Object", ObjectValue(_)) => true
     ("Listing", ListingValue(_)) => true
     ("Mapping", MappingValue(_)) => true
+    // PKL-148e: until the proper List / Listing variant split lands
+    // (PKL-151), accept `List` for ListingValue and `Map` for
+    // MappingValue at the runtime acceptance layer. Apple Pkl's
+    // `Collection` is the join of List + Set; both ListingValue and
+    // SetValue satisfy it.
+    ("List", ListingValue(_)) => true
+    ("Collection", ListingValue(_)) | ("Collection", SetValue(_)) => true
+    ("Map", MapValue(_)) | ("Map", MappingValue(_)) => true
+    ("Set", SetValue(_)) | ("Set", ListingValue(_)) => true
+    ("Pair", PairValue(_, _)) => true
+    ("IntSeq", IntSeqValue(_, _, _)) => true
     ("Function", FunctionValue(_, _, _, _)) => true
     ("Duration", DurationValue(_, _)) => true
     ("DataSize", DataSizeValue(_, _)) => true
@@ -1724,6 +1846,35 @@ fn render_pcf_value_inline_compact(
 }
 
 ///|
+/// PKL-148e: looser check that accepts ObjectValue for any
+/// user-declared class name (and the stdlib `Dynamic` / `Typed`
+/// supertypes). Apple Pkl's runtime carries the dynamic class along
+/// with the instance; pkl-mbt's ObjectValue erases it. Until we
+/// recover the class on the value, accept any ObjectValue against a
+/// declared class type — the alternative (rejecting every
+/// `param: Person` call site) is strictly worse for upstream
+/// compatibility.
+fn value_satisfies_user_class_annotation(
+  type_name : String,
+  value : Value,
+  declarations : Array[Declaration],
+) -> Bool {
+  match value {
+    ObjectValue(_) => {
+      if type_name == "Dynamic" || type_name == "Typed" {
+        return true
+      }
+      let base = match pkl_constrained_type_base_name(type_name) {
+        Some(b) => b
+        None => type_name
+      }
+      eval_lookup_class_decl(declarations, base) is Some(_)
+    }
+    _ => false
+  }
+}
+
+///|
 fn eval_callable_return_rejection_message(
   label : String,
   return_type_name : String?,
@@ -1737,7 +1888,10 @@ fn eval_callable_return_rejection_message(
       }
       let aliases = eval_type_alias_bindings(declarations)
       let resolved_type_name = eval_resolved_type_alias(type_name, aliases)
-      if !eval_value_accepts_type_annotation(resolved_type_name, value) {
+      if !eval_value_accepts_type_annotation(resolved_type_name, value) &&
+        !value_satisfies_user_class_annotation(
+          resolved_type_name, value, declarations,
+        ) {
         // PKL-148: align with Apple Pkl's diagnostic wording so
         // snippetTest fixtures that capture this exact string via
         // `test.catch(...)` match byte-for-byte. The trailing
@@ -5673,6 +5827,15 @@ fn eval_class_method_call(
                   // evaluate so `super.method(...)` inside the body
                   // can locate the parent class.
                   push_super_dispatch_marker(method_cache, type_name)
+                  // PKL-148e: sibling class methods are addressable
+                  // by bare name from within a method body — Apple Pkl
+                  // treats them like locally-scoped functions. Seed
+                  // the method cache with every sibling as a
+                  // FunctionValue so `Identifier(b)` inside `compute`
+                  // resolves to `function b(x) = ...`.
+                  push_sibling_class_methods(
+                    method_cache, type_name, class_env, env, cache,
+                  )
                   for i = 0; i < function_decl.parameters.length(); i = i + 1 {
                     match
                       eval_callable_argument_rejection_message(
@@ -6329,6 +6492,147 @@ fn eval_callable_call(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value? {
+  // PKL-148e: `g.apply(args...)` / `g?.apply(args...)` route to
+  // direct lambda application when `g` evaluates to a FunctionValue.
+  // Without this intercept the MemberAccess on a FunctionValue hits
+  // the catch-all "member access expects Object" arm — Apple Pkl
+  // exposes `.apply` on every `Function<...>` value. `.toString()` /
+  // `.getClass()` ride along the same intercept since they share the
+  // same dispatch shape.
+  let function_method : (Expr, String)? = match callee {
+    MemberAccess(target_expr, method_name) =>
+      if method_name == "apply" ||
+        method_name == "applyToList" ||
+        method_name == "toString" ||
+        method_name == "getClass" {
+        Some((target_expr, method_name))
+      } else {
+        None
+      }
+    SafeMemberAccess(target_expr, method_name) =>
+      if method_name == "apply" ||
+        method_name == "applyToList" ||
+        method_name == "toString" ||
+        method_name == "getClass" {
+        Some((target_expr, method_name))
+      } else {
+        None
+      }
+    _ => None
+  }
+  match function_method {
+    Some((target_expr, method_name)) =>
+      match
+        eval_expr_with_bindings(
+          target_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
+        ) {
+        Some(FunctionValue(parameters, body, return_type_name, captured_env)) =>
+          match method_name {
+            "apply" =>
+              return eval_lambda_application(
+                callee_label(callee),
+                parameters,
+                body,
+                return_type_name,
+                captured_env,
+                arguments,
+                bindings,
+                env,
+                class_env,
+                cache,
+                stack,
+                declarations,
+                diagnostics,
+                resolve_import,
+              )
+            "applyToList" => {
+              // PKL-148e: `lambda.applyToList(list)` unpacks `list`
+              // into positional arguments before applying. Mirrors
+              // Apple Pkl's `Function.applyToList` which delegates to
+              // `apply(elements[0], elements[1], ...)`.
+              if arguments.length() != 1 {
+                diagnostics.push(
+                  diag(
+                    "Function.applyToList expects 1 argument, got \{arguments.length()}",
+                  ),
+                )
+                return None
+              }
+              match
+                eval_expr_with_bindings(
+                  arguments[0],
+                  bindings,
+                  env,
+                  class_env,
+                  cache,
+                  stack,
+                  declarations,
+                  diagnostics,
+                  resolve_import,
+                ) {
+                Some(ListingValue(elements)) | Some(SetValue(elements)) =>
+                  // Apply with pre-evaluated values by wrapping each
+                  // element back as a literal value expression. The
+                  // call cache machinery only needs the values
+                  // themselves at lambda-body entry; the simplest
+                  // bridge is `apply_function_value`.
+                  return apply_function_value(
+                    callee_label(callee),
+                    FunctionValue(
+                      parameters, body, return_type_name, captured_env,
+                    ),
+                    elements,
+                    bindings,
+                    env,
+                    class_env,
+                    cache,
+                    stack,
+                    declarations,
+                    diagnostics,
+                    resolve_import,
+                  )
+                Some(_) => {
+                  diagnostics.push(
+                    diag("Function.applyToList expects a List argument"),
+                  )
+                  return None
+                }
+                None => return None
+              }
+            }
+            "toString" =>
+              if arguments.length() != 0 {
+                diagnostics.push(diag("Function.toString takes no arguments"))
+                return None
+              } else {
+                return Some(
+                  StringValue("new Function\{parameters.length()} {}"),
+                )
+              }
+            "getClass" =>
+              if arguments.length() != 0 {
+                diagnostics.push(diag("Function.getClass takes no arguments"))
+                return None
+              } else {
+                return Some(
+                  synth_class_mirror_for_value(
+                    FunctionValue(
+                      parameters, body, return_type_name, captured_env,
+                    ),
+                  ),
+                )
+              }
+            _ => ()
+          }
+        Some(NullValue) =>
+          if callee is SafeMemberAccess(_, _) {
+            return Some(NullValue)
+          }
+        _ => ()
+      }
+    None => ()
+  }
   match
     eval_expr_with_bindings(
       callee, bindings, env, class_env, cache, stack, declarations, diagnostics,
@@ -6981,18 +7285,26 @@ fn eval_expr_with_bindings(
           base_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
           resolve_import,
         ) {
-        Some(ObjectValue(base_members)) =>
+        Some(ObjectValue(base_members)) => {
+          // PKL-148e: thread `super` into the body cache. `(target)
+          // { body }` lets the body reference `super.X` to read the
+          // pre-amend value of property `X` on the target, matching
+          // Apple Pkl's amend-chain semantics in `objects/super1` and
+          // friends.
+          let amend_cache = copy_value_bindings(cache)
+          amend_cache.push({ name: "super", value: ObjectValue(base_members) })
           Some(
             ObjectValue(
               merge_value_members(
                 base_members,
                 eval_object_members(
-                  members, bindings, env, class_env, cache, stack, declarations,
+                  members, bindings, env, class_env, amend_cache, stack, declarations,
                   diagnostics, resolve_import,
                 ),
               ),
             ),
           )
+        }
         Some(_) => {
           diagnostics.push(diag("object amendment expects Object"))
           None
@@ -7013,10 +7325,17 @@ fn eval_expr_with_bindings(
           // captures via `test.catch(...)`, plus future Class-arg APIs.
           match lookup_class_binding(class_env, name) {
             Some(_) => Some(synth_class_mirror_for_name(name))
-            None => {
-              diagnostics.push(diag("Cannot find property `\{name}`."))
-              None
-            }
+            None =>
+              // PKL-148e: stdlib type names (`Int` / `Float` / `String`
+              // / ...) also project to a Class mirror so equality and
+              // comparison fixtures (`Int == Int`, `Int == 3.getClass()`)
+              // round-trip without a user class declaration.
+              if is_stdlib_class_name(name) {
+                Some(synth_class_mirror_for_name(name))
+              } else {
+                diagnostics.push(diag("Cannot find property `\{name}`."))
+                None
+              }
           }
       }
     CallExpr(callee, arguments) =>
@@ -8715,6 +9034,35 @@ fn eval_object_members(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Array[ValueMember] {
+  // PKL-148e: pre-register every sibling member as a binding so a
+  // forward reference (`x = 1 + y; y = 2`) resolves through the
+  // bindings-driven lazy lookup path. Cycle detection still kicks in
+  // via the `stack` argument inside `resolve_binding_value`.
+  let local_bindings : Array[Binding] = []
+  for binding in bindings {
+    local_bindings.push(binding)
+  }
+  for field in members {
+    if field.name == "@when" || field.name == "@for" {
+      continue
+    }
+    let bare = if is_hidden_member_name(field.name) {
+      String::unsafe_substring(
+        field.name,
+        start=hidden_member_prefix.length(),
+        end=field.name.length(),
+      )
+    } else {
+      field.name
+    }
+    local_bindings.push({
+      name: bare,
+      type_name: field.type_name,
+      value: field.value,
+      exported: true,
+      abstract_slot: false,
+    })
+  }
   let values : Array[ValueMember] = []
   for field in members {
     // PKL-148d: build a per-field eval env that shadows the outer
@@ -8745,7 +9093,7 @@ fn eval_object_members(
     match
       eval_expr_with_bindings(
         field.value,
-        bindings,
+        local_bindings,
         local_env,
         class_env,
         cache,
