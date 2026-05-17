@@ -1896,6 +1896,32 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklMappingDupKeyAndPipeDiagnosticScenario = new Scenario {
+  id = "PKL-148k"
+  name = "Mapping literal duplicate scalar key detection and pipe operator diagnostic"
+  description =
+    "Two tiny Apple-Pkl-shaped diagnostics that travel through `test.catch(...)` and project the failure as a String. `new Mapping { [\"barn owl\"] = 1; [\"bar\" + \"n owl\"] = 3 }` must reject with `Duplicate definition of member `\"barn owl\"`.` even though the two key expressions are different string-concat compositions: the check fires at MappingLiteral eval time, after each key is resolved, and quotes the first colliding key through `render_pcf_value_inline`. The check is restricted to scalar key shapes (String / Int / Float / Bool / Null / Duration / DataSize / Regex / Bytes) — composite-key equality (ObjectValue / ListingValue / MappingValue) collapses without class identity, so the same gate would false-positive on `mappings/mapping1`'s `[new Dynamic {...}]` / `[new Person {...}]` keys that share identical visible members. The composite-key case lands alongside the class-aware ObjectValue refactor (PKL-148l). Pipe-operator (`|>`) projects the dedicated Apple Pkl diagnostic when the RHS isn't callable (`module.catch(() -> 42 |> 21)` → `Operator `|>` is not defined for operand types `Int` and `Int`. Left operand : 42 Right operand: 21`) instead of bubbling the desugared `CallExpr`'s generic `call expects Function`; the right operand is evaluated first so the diagnostic captures the actual runtime type / inline-PCF render. Lifts gold-match from 100 to 102 PCF (`mappings/duplicateComputedKey`, `mappings2/duplicateComputedKey`)."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148j" }
+  tags { "evaluator"; "diagnostics"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "Mapping duplicate-key check is gated on scalar key shapes"
+      rationale =
+        "A naive `existing.key == k` check against every key would false-positive on `mappings/mapping1`'s composite keys (`[new Dynamic { name = \"Pigeon\"; age = 42 }]` and `[new Person { name = \"Pigeon\"; age = 42 }]` are different in Apple Pkl because the class identity differs, but both project to identical structural ObjectValue today). Restricting the duplicate check to scalar primitives keeps `mappings/duplicateComputedKey` working while leaving the composite case deferred until ObjectValue gains a class tag (PKL-148l)."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Pipe operator evaluates the RHS before the LHS to capture the non-callable diagnostic"
+      rationale =
+        "`x |> f` previously desugared straight into `CallExpr(f, [x])`, so the non-callable failure surfaced as the generic `call expects Function` and lost the pipe-operator context that `test.catch(() -> 42 |> 21)` round-trips into a string. Evaluating the RHS first, checking for `FunctionValue`, and routing the call through `CallExpr` only on a match preserves the existing fast path while letting the non-callable branch emit Apple Pkl's full `Operator `|>` is not defined for operand types `Int` and `Int`. Left operand : 42 Right operand: 21` (renders both operands inline through `render_pcf_value_inline`)."
+    }
+  }
+}
+
 local pklLocalMemberVisibilityScenario = new Scenario {
   id = "PKL-148j"
   name = "local and hidden member visibility split with Collection default"
@@ -4598,5 +4624,6 @@ scenarios {
   pklListValueSplitScenario
   pklAmendTimeLiteralTypeRejectionScenario
   pklLocalMemberVisibilityScenario
+  pklMappingDupKeyAndPipeDiagnosticScenario
   ...roadmap.entries
 }

@@ -7431,6 +7431,7 @@ fn eval_expr_with_bindings(
     }
     MappingLiteral(entries) => {
       let values : Array[ValueEntry] = []
+      let mut duplicate_emitted = false
       for entry in entries {
         // PKL-136: a synthetic MappingEntry with `key = WhenSpread(inner)`
         // is the Mapping-body when block. Evaluate the wrapper and spread
@@ -7476,13 +7477,68 @@ fn eval_expr_with_bindings(
               resolve_import,
             )
             match (key, value) {
-              (Some(k), Some(v)) => values.push({ key: k, value: v })
+              (Some(k), Some(v)) => {
+                // PKL-148k: Apple Pkl rejects two entries that resolve
+                // to the same key inside a single Mapping body (even
+                // when the key expressions themselves are different
+                // string-concat compositions like `"barn owl"` and
+                // `"bar" + "n owl"`). The rejection text quotes the
+                // duplicate key via inline PCF render and aborts the
+                // whole literal — emit the first violation and skip
+                // the rest of the body. The check is restricted to
+                // scalar key shapes: composite-key equality
+                // (ObjectValue, ListingValue, MappingValue, ...)
+                // collapses without class identity, so two
+                // structurally-identical `new Dynamic {}` /
+                // `new Person {}` keys would false-positive as
+                // duplicates against `mappings/mapping1`. Composite
+                // keys fall through to the unchecked push until
+                // ObjectValue carries a class tag (PKL-148k full
+                // slice).
+                let is_scalar_key = match k {
+                  IntValue(_)
+                  | FloatValue(_)
+                  | StringValue(_)
+                  | BoolValue(_)
+                  | NullValue
+                  | DurationValue(_, _)
+                  | DataSizeValue(_, _)
+                  | RegexValue(_)
+                  | BytesValue(_) => true
+                  _ => false
+                }
+                let mut is_duplicate = false
+                if is_scalar_key {
+                  for existing in values {
+                    if existing.key == k {
+                      is_duplicate = true
+                      break
+                    }
+                  }
+                }
+                if is_duplicate {
+                  if !duplicate_emitted {
+                    diagnostics.push(
+                      diag(
+                        "Duplicate definition of member `\{render_pcf_value_inline(k)}`.",
+                      ),
+                    )
+                    duplicate_emitted = true
+                  }
+                } else {
+                  values.push({ key: k, value: v })
+                }
+              }
               _ => ()
             }
           }
         }
       }
-      Some(MappingValue(values))
+      if duplicate_emitted {
+        None
+      } else {
+        Some(MappingValue(values))
+      }
     }
     MemberAccess(target_expr, member_name) =>
       // PKL-139: `module.foo` is Apple Pkl's self-reference to the
@@ -9173,19 +9229,55 @@ fn eval_expr_with_bindings(
         }
         // PKL-148b: `x |> f` is the forward-pipe operator — desugars
         // to `f(x)`. Apple Pkl's runtime semantics match a direct
-        // single-arg call against the right operand.
-        Pipe =>
-          return eval_expr_with_bindings(
-            CallExpr(right_expr, [left_expr]),
-            bindings,
-            env,
-            class_env,
-            cache,
-            stack,
-            declarations,
-            diagnostics,
+        // single-arg call against the right operand. PKL-148k: when
+        // the right side isn't a callable, project Apple Pkl's
+        // dedicated diagnostic (`Operator `|>` is not defined for
+        // operand types `<L>` and `<R>`. Left operand : <l> Right
+        // operand: <r>`) instead of the generic `call expects
+        // Function`; the latter loses the pipe context that
+        // `module.catch(() -> 42 |> 21)` round-trips.
+        Pipe => {
+          let right_value = eval_expr_with_bindings(
+            right_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
             resolve_import,
           )
+          match right_value {
+            Some(FunctionValue(_, _, _, _, _)) =>
+              return eval_expr_with_bindings(
+                CallExpr(right_expr, [left_expr]),
+                bindings,
+                env,
+                class_env,
+                cache,
+                stack,
+                declarations,
+                diagnostics,
+                resolve_import,
+              )
+            Some(right_val) => {
+              let left_value = eval_expr_with_bindings(
+                left_expr, bindings, env, class_env, cache, stack, declarations,
+                diagnostics, resolve_import,
+              )
+              match left_value {
+                Some(left_val) => {
+                  let left_type = eval_value_type_name(left_val)
+                  let right_type = eval_value_type_name(right_val)
+                  let left_render = render_pcf_value_inline(left_val)
+                  let right_render = render_pcf_value_inline(right_val)
+                  diagnostics.push(
+                    diag(
+                      "Operator `|>` is not defined for operand types `\{left_type}` and `\{right_type}`. Left operand : \{left_render} Right operand: \{right_render}",
+                    ),
+                  )
+                }
+                None => ()
+              }
+              return None
+            }
+            None => return None
+          }
+        }
         _ => ()
       }
       let left = eval_expr_with_bindings(
