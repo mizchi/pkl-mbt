@@ -323,6 +323,36 @@ fn reflect_is_subclass_of(
 }
 
 ///|
+
+///|
+/// PKL-148u: prefix marker for a deferred class-default type
+/// rejection. `eval_object_members` stamps a `@error$<name>` member
+/// next to the (type-invalid) value when the structural check
+/// rejects; the ObjectValue access path picks it up at `bad.<name>`
+/// time, raises the diagnostic, and short-circuits the lookup —
+/// mirroring Apple Pkl's lazy per-property semantics.
+fn pending_error_member_name(name : String) -> String {
+  "@error$" + name
+}
+
+///|
+fn lookup_pending_error_message(
+  members : Array[ValueMember],
+  name : String,
+) -> String? {
+  let prefixed = pending_error_member_name(name)
+  for field in members {
+    if field.name == prefixed {
+      match field.value {
+        StringValue(message) => return Some(message)
+        _ => ()
+      }
+    }
+  }
+  None
+}
+
+///|
 fn lookup_member(members : Array[ValueMember], name : String) -> Value? {
   // Hidden / local members carry the `hidden_member_prefix` /
   // `local_member_prefix` marker in their stored name so renderers can
@@ -1784,15 +1814,35 @@ fn resolve_binding_value(
                   raw_value,
                   binding.type_name,
                 )
-                if pkl_constrained_type_annotation_value_is_valid(
-                    binding.type_name,
-                    value,
-                    diagnostics,
-                  ) {
-                  cache.push({ name, value })
-                  Some(value)
-                } else {
-                  None
+                // PKL-148u: structural type rejection ahead of the
+                // constraint cascade. Module-level bindings surface
+                // the diagnostic eagerly (no lazy access-time
+                // intercept; the binding is evaluated once on
+                // reference). For class defaults, see the deferred
+                // `@error$` encoding in `eval_object_members`.
+                let structural_reject = match binding.type_name {
+                  Some(annotation) =>
+                    eval_resolved_annotation_structural_rejection_message(
+                      annotation, value, declarations,
+                    )
+                  None => None
+                }
+                match structural_reject {
+                  Some(message) => {
+                    diagnostics.push(diag(message))
+                    None
+                  }
+                  None =>
+                    if pkl_constrained_type_annotation_value_is_valid(
+                        binding.type_name,
+                        value,
+                        diagnostics,
+                      ) {
+                      cache.push({ name, value })
+                      Some(value)
+                    } else {
+                      None
+                    }
                 }
               }
               None => None
@@ -2142,8 +2192,27 @@ fn eval_callable_argument_type_rejection_message(
       if union_accepted {
         return None
       }
+      // PKL-148u: Apple Pkl quotes the RESOLVED type name in the
+      // rejection diagnostic (not the source alias name). Strip a
+      // trailing `?` so `Nullable = Duration?` shows as `Duration`.
+      let diag_name = {
+        let trimmed = pkl_constraint_trim(resolved)
+        let without_constraint = match pkl_constrained_type_base_name(trimmed) {
+          Some(base) => base
+          None => trimmed
+        }
+        if without_constraint.has_suffix("?") {
+          String::unsafe_substring(
+            without_constraint,
+            start=0,
+            end=without_constraint.length() - 1,
+          )
+        } else {
+          without_constraint
+        }
+      }
       Some(
-        "Expected value of type `\{source}`, but got type `\{eval_value_type_name(value)}`. Value: \{render_pcf_value_inline(value)}",
+        "Expected value of type `\{diag_name}`, but got type `\{eval_value_type_name(value)}`. Value: \{render_pcf_value_inline(value)}",
       )
     }
     None => None
@@ -7828,35 +7897,53 @@ fn eval_expr_with_bindings(
                     }
                 }
               _ =>
-                // PKL-148j: external member access on an ObjectValue
-                // hides `local` members from the outside-of-body
-                // namespace (`foo.x` where `foo` declares `local x = 2`
-                // should not resolve to `2`); switch from the
-                // hidden-aware `lookup_member` to `lookup_visible_member`
-                // so the local slot is invisible here. Module-level
-                // function declarations are also stored under the
-                // hidden prefix (to keep them out of rendered output)
-                // but stay reachable to importers via `Base.func`, so
-                // a FunctionValue match through `lookup_member` is
-                // still allowed as a follow-up. The diagnostic matches
-                // Apple Pkl's wording (`in object of type \`Dynamic\``);
-                // class-tagged objects would carry their host class
-                // name instead, but until ObjectValue grows a class
-                // tag the best default is `Dynamic`.
-                match lookup_visible_member(members, member_name) {
-                  Some(value) => Some(value)
+                // PKL-148u: a pending `@error$<name>` member from
+                // class-default structural rejection takes precedence
+                // — surface its message and short-circuit the lookup
+                // so `test.catch(() -> bad.res13)` catches just that
+                // property's rejection (not the first-encountered
+                // diagnostic of the surrounding class). The sibling
+                // member with the actual (type-invalid) value is left
+                // in place for equality / iteration but is unreachable
+                // through this lookup path.
+                match lookup_pending_error_message(members, member_name) {
+                  Some(message) => {
+                    diagnostics.push(diag(message))
+                    None
+                  }
                   None =>
-                    match lookup_member(members, member_name) {
-                      Some(FunctionValue(_, _, _, _, _) as exported) =>
-                        Some(exported)
-                      _ => {
-                        diagnostics.push(
-                          diag(
-                            "Cannot find property `\{member_name}` in object of type `Dynamic`.",
-                          ),
-                        )
-                        None
-                      }
+                    // PKL-148j: external member access on an
+                    // ObjectValue hides `local` members from the
+                    // outside-of-body namespace (`foo.x` where `foo`
+                    // declares `local x = 2` should not resolve to
+                    // `2`); switch from the hidden-aware
+                    // `lookup_member` to `lookup_visible_member` so
+                    // the local slot is invisible here. Module-level
+                    // function declarations are also stored under the
+                    // hidden prefix (to keep them out of rendered
+                    // output) but stay reachable to importers via
+                    // `Base.func`, so a FunctionValue match through
+                    // `lookup_member` is still allowed as a follow-up.
+                    // The diagnostic matches Apple Pkl's wording (`in
+                    // object of type \`Dynamic\``); class-tagged
+                    // objects would carry their host class name
+                    // instead, but until ObjectValue grows a class
+                    // tag the best default is `Dynamic`.
+                    match lookup_visible_member(members, member_name) {
+                      Some(value) => Some(value)
+                      None =>
+                        match lookup_member(members, member_name) {
+                          Some(FunctionValue(_, _, _, _, _) as exported) =>
+                            Some(exported)
+                          _ => {
+                            diagnostics.push(
+                              diag(
+                                "Cannot find property `\{member_name}` in object of type `Dynamic`.",
+                              ),
+                            )
+                            None
+                          }
+                        }
                     }
                 }
             }
@@ -10133,6 +10220,42 @@ fn eval_object_members(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Array[ValueMember] {
+  eval_object_members_with_options(
+    members,
+    bindings,
+    env,
+    class_env,
+    cache,
+    stack,
+    declarations,
+    diagnostics,
+    resolve_import,
+    defer_property_errors=false,
+  )
+}
+
+///|
+/// PKL-148u: extended form with `defer_property_errors`. When true,
+/// any property whose evaluation produces a diagnostic (or a
+/// structural rejection) has the first diagnostic captured into a
+/// `@error$<name>` sentinel member instead of bubbling to the outer
+/// `diagnostics` array. The ObjectValue access path picks the
+/// sentinel up at `obj.<name>` time, raises the diag, and short-
+/// circuits — matching Apple Pkl's lazy per-property class-default
+/// semantics. Module-binding eval and user-body literal eval keep
+/// the default eager behaviour (defer=false).
+fn eval_object_members_with_options(
+  members : Array[ObjectMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+  defer_property_errors~ : Bool,
+) -> Array[ValueMember] {
   // PKL-148e: pre-register every sibling member as a binding so a
   // forward reference (`x = 1 + y; y = 2`) resolves through the
   // bindings-driven lazy lookup path. Cycle detection still kicks in
@@ -10179,6 +10302,17 @@ fn eval_object_members(
         local_env.push({ name: prior.name, value: prior.value })
       }
     }
+    // PKL-148u: when `defer_property_errors` is true, route each
+    // property's eval through a local diagnostics buffer so a
+    // failure becomes a per-property `@error$<name>` sentinel
+    // instead of bubbling to the outer diagnostics array. Sentinel
+    // members are picked up by the ObjectValue access path
+    // (`lookup_pending_error_message`) at access time.
+    let property_diagnostics : Array[Diagnostic] = if defer_property_errors {
+      []
+    } else {
+      diagnostics
+    }
     match
       eval_expr_with_bindings(
         field.value,
@@ -10188,7 +10322,7 @@ fn eval_object_members(
         cache,
         stack,
         declarations,
-        diagnostics,
+        property_diagnostics,
         resolve_import,
       ) {
       Some(raw_value) => {
@@ -10200,7 +10334,7 @@ fn eval_object_members(
                 values.push(branch_member)
               }
             _ =>
-              diagnostics.push(
+              property_diagnostics.push(
                 diag("object-body generator must produce an object body"),
               )
           }
@@ -10219,22 +10353,272 @@ fn eval_object_members(
               }
             NullValue => ()
             _ =>
-              diagnostics.push(
+              property_diagnostics.push(
                 diag("spread in object body expects Object or null"),
               )
           }
-        } else if pkl_constrained_type_annotation_value_is_valid(
-            field.type_name,
-            value,
-            diagnostics,
-          ) {
-          values.push({ name: field.name, value })
+        } else {
+          let structural_reject = match field.type_name {
+            Some(annotation) =>
+              eval_resolved_annotation_structural_rejection_message(
+                annotation, value, declarations,
+              )
+            None => None
+          }
+          match structural_reject {
+            Some(message) => {
+              property_diagnostics.push(diag(message))
+              values.push({ name: field.name, value })
+            }
+            None =>
+              if pkl_constrained_type_annotation_value_is_valid(
+                  field.type_name,
+                  value,
+                  property_diagnostics,
+                ) {
+                values.push({ name: field.name, value })
+              }
+          }
+        }
+      }
+      None => ()
+    }
+    // PKL-148u: post-process the per-property buffer when deferring.
+    // Any diagnostic landed during this property's eval becomes a
+    // `@error$<name>` sentinel that the ObjectValue access path
+    // surfaces lazily; the outer diagnostics array stays untouched
+    // so a sibling property's eval has its own clean slate. If the
+    // property failed without producing a member (e.g. function-call
+    // rejection that returned `None`), push a `NullValue` placeholder
+    // so external `.X` access doesn't surface "Cannot find property"
+    // before the pending-error intercept fires.
+    if defer_property_errors && property_diagnostics.length() > 0 {
+      let mut already_present = false
+      for entry in values {
+        if entry.name == field.name {
+          already_present = true
+          break
+        }
+      }
+      if !already_present {
+        values.push({ name: field.name, value: NullValue })
+      }
+      values.push({
+        name: pending_error_member_name(field.name),
+        value: StringValue(property_diagnostics[0].message),
+      })
+    }
+  }
+  values
+}
+
+///|
+/// PKL-148u: detect whether `base` is the name of a generic
+/// typealias declaration (`typealias Box<T> = Listing<T>`). Used to
+/// suppress structural rejection of `Box<Int>` etc., since the
+/// eval-side alias resolver doesn't substitute type parameters yet
+/// — the typechecker handles those via
+/// `try_generic_alias_substitution`.
+fn has_generic_typealias_declaration(
+  declarations : Array[Declaration],
+  base : String,
+) -> Bool {
+  for declaration in declarations {
+    match declaration {
+      TypeAliasDeclaration(type_alias) =>
+        if type_alias.name == base && type_alias.type_parameters.length() > 0 {
+          return true
+        }
+      _ => ()
+    }
+  }
+  false
+}
+
+///|
+/// PKL-148u: structural type-shape rejection for class-default and
+/// module-binding annotations. Resolves the alias chain, splits on
+/// top-level `|` (unions), and for each choice strips the trailing
+/// `(...)` constraint plus the outermost `<...>` generic head before
+/// the value-side acceptance check. Returns `Some(message)` when no
+/// choice accepts the value and the (post-strip) head names a stdlib
+/// type or a known user class; returns `None` otherwise (no rejection
+/// or unknown annotation). The diagnostic surface mirrors
+/// `eval_class_property_type_rejection_message`'s wording so
+/// snippetTest fixtures that catch this exact string via `test.catch`
+/// match upstream byte-for-byte.
+fn eval_resolved_annotation_structural_rejection_message(
+  annotation : String,
+  value : Value,
+  declarations : Array[Declaration],
+) -> String? {
+  if eval_type_name_is_type_parameter(annotation, declarations) {
+    return None
+  }
+  let aliases = eval_type_alias_bindings(declarations)
+  let resolved = eval_resolved_type_alias(annotation, aliases)
+  // PKL-148u: a generic-typealias instantiation (`Box<Int>` against
+  // `typealias Box<T> = Listing<T>`) doesn't resolve through the
+  // bare-name `eval_resolved_type_alias` — the eval-side substitution
+  // for generic params isn't wired (the typechecker handles it via
+  // `try_generic_alias_substitution`). Skip the structural rejection
+  // when the annotation has the `<...>` shape AND the alias didn't
+  // change the name, so the constraint cascade keeps running and
+  // existing PKL-115 fixtures don't regress.
+  if resolved == annotation && annotation.find("<") is Some(_) {
+    let base = match annotation.find("<") {
+      Some(idx) => String::unsafe_substring(annotation, start=0, end=idx)
+      None => annotation
+    }
+    if has_generic_typealias_declaration(declarations, base) {
+      return None
+    }
+  }
+  let choices = split_top_level_union_choices(resolved)
+  let mut any_known_head = false
+  // PKL-148u: Apple Pkl quotes the RESOLVED type name in the
+  // rejection diagnostic (e.g. `Expected value of type \`String\``
+  // for `Simple = String`; `Expected value of type \`Int|Boolean\``
+  // for `Union = Int|Boolean`). Strip a trailing `?` since the
+  // gold format is `\`Duration\`` not `\`Duration?\``.
+  let diag_name = {
+    let trimmed = pkl_constraint_trim(resolved)
+    let without_constraint = match pkl_constrained_type_base_name(trimmed) {
+      Some(base) => base
+      None => trimmed
+    }
+    if without_constraint.has_suffix("?") {
+      String::unsafe_substring(
+        without_constraint,
+        start=0,
+        end=without_constraint.length() - 1,
+      )
+    } else {
+      without_constraint
+    }
+  }
+  for choice in choices {
+    let trimmed = pkl_constraint_trim(choice)
+    let without_constraint = match pkl_constrained_type_base_name(trimmed) {
+      Some(base) => base
+      None => trimmed
+    }
+    // Tolerate an optional `?` suffix — `String?` accepts null plus
+    // the bare-`String` arm.
+    let stripped_q = if without_constraint.has_suffix("?") {
+      String::unsafe_substring(
+        without_constraint,
+        start=0,
+        end=without_constraint.length() - 1,
+      )
+    } else {
+      without_constraint
+    }
+    if without_constraint.has_suffix("?") && value is NullValue {
+      return None
+    }
+    let head = match stripped_q.find("<") {
+      Some(idx) => String::unsafe_substring(stripped_q, start=0, end=idx)
+      None => stripped_q
+    }
+    if eval_value_accepts_type_annotation(head, value) ||
+      value_satisfies_user_class_annotation(head, value, declarations) {
+      // Structural shape matched. Recurse element-wise for
+      // List<T> / Listing<T> / Set<T> / Map<K,V> / Mapping<K,V>
+      // so `res: List<String> = List(42)` rejects with the inner
+      // type-mismatch ("Expected value of type `String`...").
+      return eval_resolved_collection_element_structural_rejection_message(
+        stripped_q, value, declarations,
+      )
+    }
+    if is_stdlib_class_name(head) ||
+      eval_lookup_class_decl(declarations, head) is Some(_) {
+      any_known_head = true
+    }
+  }
+  if !any_known_head {
+    return None
+  }
+  Some(
+    "Expected value of type `\{diag_name}`, but got type `\{eval_value_type_name(value)}`. Value: \{render_pcf_value_inline(value)}",
+  )
+}
+
+///|
+/// PKL-148u: element-wise structural check for collection annotations
+/// (`List<T>`, `Listing<T>`, `Set<T>`, `Map<K,V>`, `Mapping<K,V>`,
+/// `Pair<A,B>`). Returns the FIRST element/key/value mismatch found
+/// using the same alias / generic / union normalisation as
+/// `eval_resolved_annotation_structural_rejection_message`. Recursive
+/// calls let nested generics (`Map<String, List<Int>>`) cascade.
+fn eval_resolved_collection_element_structural_rejection_message(
+  type_name : String,
+  value : Value,
+  declarations : Array[Declaration],
+) -> String? {
+  let prefixes = ["List", "Listing", "Set", "Collection"]
+  for prefix in prefixes {
+    match generic_argument_text(type_name, prefix) {
+      Some(element_type) =>
+        match value {
+          ListingValue(elements) | ListValue(elements) | SetValue(elements) =>
+            for element in elements {
+              match
+                eval_resolved_annotation_structural_rejection_message(
+                  element_type, element, declarations,
+                ) {
+                Some(message) => return Some(message)
+                None => ()
+              }
+            } nobreak {
+              return None
+            }
+          _ => return None
+        }
+      None => ()
+    }
+  }
+  let map_prefixes = ["Map", "Mapping"]
+  for prefix in map_prefixes {
+    match generic_argument_text(type_name, prefix) {
+      Some(inner_text) => {
+        let parts = split_top_level_generic_arguments(inner_text)
+        if parts.length() != 2 {
+          return None
+        }
+        let key_type = parts[0]
+        let value_type = parts[1]
+        match value {
+          MappingValue(entries) | MapValue(entries) =>
+            for entry in entries {
+              match
+                eval_resolved_annotation_structural_rejection_message(
+                  key_type,
+                  entry.key,
+                  declarations,
+                ) {
+                Some(message) => return Some(message)
+                None => ()
+              }
+              match
+                eval_resolved_annotation_structural_rejection_message(
+                  value_type,
+                  entry.value,
+                  declarations,
+                ) {
+                Some(message) => return Some(message)
+                None => ()
+              }
+            } nobreak {
+              return None
+            }
+          _ => return None
         }
       }
       None => ()
     }
   }
-  values
+  None
 }
 
 ///|
@@ -10280,9 +10664,17 @@ fn eval_class_default_members(
   }
   merge_value_members(
     base_values,
-    eval_object_members(
-      defaults, bindings, env, class_env, cache, stack, declarations, diagnostics,
+    eval_object_members_with_options(
+      defaults,
+      bindings,
+      env,
+      class_env,
+      cache,
+      stack,
+      declarations,
+      diagnostics,
       resolve_import,
+      defer_property_errors=true,
     ),
   )
 }

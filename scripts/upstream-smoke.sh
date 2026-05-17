@@ -128,6 +128,8 @@ GOLD_FIXTURES=(
   "modules/amendModule6"
   "generators/spreadSyntaxNullable"
   "methods/methodParameterConstraints1"
+  "types/typeAlias1"
+  "modules/typedModuleMethods1"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output

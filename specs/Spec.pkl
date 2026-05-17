@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklLazyClassDefaultTypeRejectionScenario = new Scenario {
+  id = "PKL-148u"
+  name = "structural type rejection with lazy per-property class-default semantics"
+  description =
+    "Apple Pkl rejects a value whose runtime type doesn't satisfy the declared annotation independently of any constraint predicate — `res: String = 42` (or the aliased `res: Simple = 42` where `typealias Simple = String`) emits `Expected value of type \\`String\\`, but got type \\`Int\\`. Value: 42`. pkl-mbt's binding-level and class-default checks were only running the CONSTRAINT cascade (`pkl_constrained_type_annotation_value_is_valid`) which silently accepts when the source type has no predicate, so the entire `typeAlias1`-shape gold cluster fell through with `Expected an exception, but none was thrown`. The fix has two parts: (1) a new `eval_resolved_annotation_structural_rejection_message` helper that resolves type aliases, splits top-level unions (`Int|Boolean`), strips each choice's `(...)` constraint and outermost `<...>` generic head, recurses element-wise for `List<T>` / `Listing<T>` / `Set<T>` / `Map<K,V>` / `Mapping<K,V>`, and produces the rejection diagnostic using the RESOLVED type name (not the source alias). The helper only fires for stdlib type names or known user classes so partially-implemented surfaces stay silent. (2) An `eval_object_members_with_options(... defer_property_errors~)` variant that captures each class-default property's diagnostics into a per-property buffer; failures are stored as a sentinel `@error$<name>` member on the resulting ObjectValue instead of bubbling to the outer diagnostics array. The ObjectValue access path (`MemberAccess` arm in `eval_expr_with_bindings`) consults `lookup_pending_error_message` first; when a sentinel matches, it raises THAT property's diagnostic and short-circuits. The net effect: `test.catch(() -> bad.res13)` catches `res13`'s rejection; `test.catch(() -> bad.res14)` independently catches `res14`'s — even though `bad = new Bad {}` is cached after first construction. The callable-argument and binding-level diagnostics also align with Apple Pkl's wording (use resolved name, strip trailing `?` so `Nullable = Duration?` shows as `Duration`). +2 fixtures (`types/typeAlias1`, `modules/typedModuleMethods1`), 116 → 118; types category 23.5% → 29.4%, modules 57.1% → 61.9%, TOTAL 29.7% → 30.2%."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148t" }
+  tags { "evaluator"; "typecheck"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Encode per-property class-default failures as `@error$<name>` sentinels instead of materialising a `ThunkValue` variant or a side-table of pending errors"
+      rationale =
+        "A `ThunkValue` variant would force every consumer of the `Value` enum (renderers, equality, operator dispatch, mbti surface) to handle the new shape — a multi-day refactor for a single Apple-Pkl correctness gap. A side-table keyed on `(object_id, property_name)` would need either weak references or explicit lifetime management. The sentinel-member approach lives inside the existing `Array[ValueMember]` storage, is invisible to renderers (the `@error$` prefix is already filtered out alongside `@hidden$` / `@local$` by `visible_members`), and only one access site (`MemberAccess` on `ObjectValue`) needs the `lookup_pending_error_message` consult. The downside — a phantom `name: NullValue` member when the original eval returned None — is masked by the same intercept (the sentinel wins) and doesn't leak into renders."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Apply the deferred-error encoding only inside `eval_class_default_members` (via `defer_property_errors=true`); user-body literals and module bindings keep eager rejection"
+      rationale =
+        "Apple Pkl's lazy class-default semantics only apply to the CLASS BODY where each property's RHS evaluates independently on access. User-body amends (`new Person { name = 42 }`) and module-level bindings (`res2: Parameterized = List(42)`) are checked eagerly upstream and surface their diagnostics at construction time. Reusing the same flag across both would erase the PKL-148i literal-rejection wording for `new Person { name = 42 }` and silently accept module-level type mismatches until next access. Keeping the lazy variant strictly to class defaults preserves all three behaviours."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Quote the RESOLVED type name (with trailing `?` stripped) in rejection diagnostics, not the source alias"
+      rationale =
+        "Apple Pkl's `typeMismatch` template renders the resolved type — `String` for `Simple = String`, `Int|Boolean` for `Union = Int|Boolean`, `Duration` for `Nullable = Duration?`. Quoting the source alias (our previous behaviour) made the diagnostic less informative (the user has to chase the alias chain to see what the rejected value should have been) and broke gold-match for every typealias-using fixture. The strip-trailing-`?` rule matches the gold's `Duration` vs `Duration?` distinction; the union shape is preserved as-is so `Int|Boolean` lands verbatim."
+    }
+  }
+}
+
 local pklTypeAliasNormalisationScenario = new Scenario {
   id = "PKL-148t"
   name = "callable return / argument type checks resolve aliases generics and unions"
@@ -4874,5 +4906,6 @@ scenarios {
   pklTripleDotImportResolverScenario
   pklSpreadMemberScenario
   pklTypeAliasNormalisationScenario
+  pklLazyClassDefaultTypeRejectionScenario
   ...roadmap.entries
 }
