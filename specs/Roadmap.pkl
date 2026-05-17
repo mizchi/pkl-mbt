@@ -146,12 +146,15 @@
 ///                     `hidden`-modifier properties (Apple Pkl's
 ///                     distinction). Missing `Collection<T>` /
 ///                     `List<T>` auto-default also routes to
-///                     `ListValue([])`. +2 gold-match fixtures:
-///                     `basic/localProperty2` (external access on
-///                     local rejects with the Apple Pkl wording
-///                     "Cannot find property `x` in object of type
-///                     `Dynamic`.") and `basic/propertyDefaults`
-///                     (Collection / List defaults), 96 → 98.
+///                     `ListValue([])`. Follow-up: amend merge now
+///                     uses strict storage-name matching so the
+///                     local namespace (`@local$l`) and the visible
+///                     namespace (bare `l`) stay independent slots
+///                     across an amend body. +4 gold-match fixtures:
+///                     `basic/localProperty2`,
+///                     `basic/propertyDefaults`,
+///                     `basic/localPropertyOverride1`,
+///                     `basic/localPropertyOverride2`, 96 → 100.
 @ModuleInfo { minPklVersion = "0.31.0" }
 module specs.Roadmap
 

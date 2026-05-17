@@ -1354,9 +1354,11 @@ local upstreamSmoke = new Test {
     "upstream eval ok: types/helpers/someModule (gold match)"
     "upstream eval ok: basic/localProperty2 (gold match)"
     "upstream eval ok: basic/propertyDefaults (gold match)"
+    "upstream eval ok: basic/localPropertyOverride1 (gold match)"
+    "upstream eval ok: basic/localPropertyOverride2 (gold match)"
     "upstream json eval ok: api/jsonRenderer1.json (gold match)"
     "upstream eval ok: api/pListRenderer1.plist (gold match)"
-    "upstream-smoke: 98 gold-match fixtures passed"
+    "upstream-smoke: 100 gold-match fixtures passed"
     "upstream-smoke: 1 json gold-match fixtures passed"
     "upstream-smoke: 1 plist gold-match fixtures passed"
   }

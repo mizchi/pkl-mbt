@@ -462,7 +462,14 @@ fn merge_value_members(
 ) -> Array[ValueMember] {
   let merged : Array[ValueMember] = []
   for value_member in base {
-    match lookup_member(overrides, value_member.name) {
+    // PKL-148j: match base / override slots by exact storage name, not
+    // by bare name. `local l` and a separately-declared visible `l`
+    // occupy different namespaces in Apple Pkl — amending an object
+    // that declares `local l = "original"` with `l = "override"` adds
+    // a fresh visible `l` slot rather than overwriting the local.
+    // `lookup_member` would conflate the two because it accepts either
+    // form; `find_member_exact` matches only the stored name.
+    match find_member_exact(overrides, value_member.name) {
       Some(value) =>
         merged.push({
           name: value_member.name,
@@ -472,11 +479,27 @@ fn merge_value_members(
     }
   }
   for value_member in overrides {
-    if lookup_member(base, value_member.name) is None {
+    if find_member_exact(base, value_member.name) is None {
       merged.push(value_member)
     }
   }
   merged
+}
+
+///|
+/// PKL-148j: strict storage-name lookup. Used by `merge_value_members`
+/// so an amend body's bare `l` doesn't accidentally hit a base's
+/// `@local$l` (different namespace) or the inverse. Matches only the
+/// literal field name; callers that want bare-name resolution should
+/// stay on `lookup_member`.
+fn find_member_exact(members : Array[ValueMember], name : String) -> Value? {
+  let mut found : Value? = None
+  for field in members {
+    if field.name == name {
+      found = Some(field.value)
+    }
+  }
+  found
 }
 
 ///|

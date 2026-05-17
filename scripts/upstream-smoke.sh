@@ -36,6 +36,8 @@ GOLD_FIXTURES=(
   "basic/list"
   "basic/localProperty1"
   "basic/localProperty2"
+  "basic/localPropertyOverride1"
+  "basic/localPropertyOverride2"
   "basic/localPropertyOverride3"
   "basic/propertyDefaults"
   "basic/minPklVersion"

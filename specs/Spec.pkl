@@ -1925,6 +1925,12 @@ local pklLocalMemberVisibilityScenario = new Scenario {
       rationale =
         "Apple Pkl renders both `coll: Collection<Person>` (no initializer) and `list: List<Person>` as `List()`. The `synthesize_default_for_type` helper covered Listing / Mapping / Set / Map but had no arm for Collection or List, so `basic/propertyDefaults` dropped the `coll` and `list` lines entirely. Adding both arms (route to `ListValue([])`) matches the gold and keeps the dedicated `ListValue` variant introduced in PKL-148h consistent across construction + default paths."
     }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Amend merge uses strict storage-name matching to keep local and visible namespaces independent"
+      rationale =
+        "`merge_value_members` previously called `lookup_member` to find an amend body's override against the base — that lookup accepts either the bare or prefixed form, so `local l` in a base and visible `l` in an amend body collided on the same slot. Apple Pkl treats them as different namespaces: `(foo3) { l = \"override\" }` where `foo3` declares `local l = \"original\"` keeps the local at its old value AND adds a fresh visible `l` member. `find_member_exact` resolves only the literal storage name; using it in both merge passes keeps `@local$l` and bare `l` as independent slots, unblocking `basic/localPropertyOverride1` / `localPropertyOverride2`."
+    }
   }
 }
 
