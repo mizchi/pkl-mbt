@@ -100,6 +100,22 @@ fn Lexer::next_token(self : Lexer) -> Token {
   }
   let start = self.pos
   let c = self.char_at(start)
+  // PKL-148p: a shebang preamble (`#!...`) at module start is consumed
+  // as a comment trivia so the parser sees it the same way as `//...`.
+  // Apple Pkl's `pkl eval` strips the shebang line silently — without
+  // this branch the `#` would surface as `unsupported expression` and
+  // `syntax/shebang.pkl` (`#!/usr/bin/env pkl eval` + body) would fail
+  // before reaching `foo = 1`.
+  if start == 0 &&
+    c == '#' &&
+    self.pos + 1 < self.len &&
+    self.char_at(self.pos + 1) == '!' {
+    self.pos += 2
+    while self.pos < self.len && self.char_at(self.pos) != '\n' {
+      self.pos += 1
+    }
+    return Token::new(comment(), self.slice_from(start))
+  }
   if is_horizontal_space(c) {
     self.pos += 1
     while self.pos < self.len && is_horizontal_space(self.char_at(self.pos)) {

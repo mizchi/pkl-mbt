@@ -8781,3 +8781,13 @@ test "render Pkl Bytes values as Bytes(new Listing { ... }) PCF literals" {
     ),
   )
 }
+
+///|
+test "Pkl shebang preamble at module start is consumed as trivia (PKL-148p)" {
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", "#!/usr/bin/env pkl eval\nfoo = 1\n")
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(ObjectValue([ValueMember::{ name: "foo", value: IntValue(1) }])),
+  )
+}

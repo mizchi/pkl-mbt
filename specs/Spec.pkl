@@ -1896,6 +1896,32 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklShebangPreambleScenario = new Scenario {
+  id = "PKL-148p"
+  name = "shebang preamble at module start consumed as trivia"
+  description =
+    "Apple Pkl tolerates a `#!...` shebang as the first line of a `.pkl` source — `pkl eval` strips it silently and parses the rest of the module, so `#!/usr/bin/env pkl eval` + `foo = 1` evaluates to the same `foo = 1` PCF as the body alone. pkl-mbt's lexer had no `#` branch, so the leading `#!` surfaced as `unsupported expression` and `syntax/shebang.pkl` failed before the body parsed. The fix is a tiny lexer-level branch in `Lexer::next_token`: when `pos == 0` and the first two bytes are `#!`, consume the line up to (not including) the next `\\n` and emit it as a `comment()` trivia token — the existing trivia handling in the parser then skips it the same way it skips a `//` line comment. The `pos == 0` guard keeps a stray `#!` later in the source from being silently swallowed (Apple Pkl only treats the preamble shebang specially). +1 gold-match fixture (`syntax/shebang`), 109 → 110."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148o" }
+  tags { "lexer"; "parser"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "Emit shebang as a `comment()` trivia token instead of stripping bytes from the source string"
+      rationale =
+        "The parser's `byte_offset` tracker increments by each consumed token's text length, so silently skipping bytes inside `tokenize` (without emitting a token) would skew every subsequent diagnostic position by the length of the shebang line. Routing the shebang through the existing `comment()` token kind preserves byte-offset accounting and reuses the trivia-skip logic that already handles `//` / `/* */`."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Guard the shebang branch on `start == 0` so a `#` later in the source stays unrecognized"
+      rationale =
+        "Apple Pkl only honours the shebang as the very first bytes of the module. A `#!` appearing after any other token would be a syntax error upstream — the lexer should reflect that. Without the `start == 0` guard, a stray `#!` mid-module would silently swallow the rest of its line and produce confusing downstream errors."
+    }
+  }
+}
+
 local pklCatchOrNullAndBareConstraintScenario = new Scenario {
   id = "PKL-148o"
   name = "catchOrNull wiring catch no-throw wording bare callable constraint diagnostic"
@@ -4733,5 +4759,6 @@ scenarios {
   pklLocalDeclModifierScenario
   pklAsCastAndLocalInListingScenario
   pklCatchOrNullAndBareConstraintScenario
+  pklShebangPreambleScenario
   ...roadmap.entries
 }

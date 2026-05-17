@@ -121,6 +121,7 @@ GOLD_FIXTURES=(
   "types/typeAliasConstraint1"
   "implementation/equality"
   "implementation/inequality"
+  "syntax/shebang"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output
