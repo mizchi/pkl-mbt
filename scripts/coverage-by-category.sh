@@ -46,12 +46,18 @@ if [ ! -f "$goldpcf" ]; then
   printf '%s|NOGOLD\n' "$f"
   exit 0
 fi
-actual="$("$MPKL" eval "$UPSTREAM/$f.pkl" 2>/dev/null || true)"
-if diff -q "$goldpcf" <(printf '%s\n' "$actual") >/dev/null 2>&1; then
+# PKL-148q: bytewise diff via temp file so fixtures whose gold ends
+# without a trailing newline (e.g. `api/moduleOutput`) align with the
+# upstream-smoke gate. The previous `$(...)` capture + `printf '%s\n'`
+# wrapping always normalised the final byte and undercounted PASS.
+tmp="$(mktemp)"
+"$MPKL" eval "$UPSTREAM/$f.pkl" > "$tmp" 2>/dev/null || true
+if diff -q "$goldpcf" "$tmp" >/dev/null 2>&1; then
   printf '%s|PASS\n' "$f"
 else
   printf '%s|DIFF\n' "$f"
 fi
+rm -f "$tmp"
 EOF
 chmod +x "$PROBE"
 
