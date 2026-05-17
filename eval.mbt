@@ -419,7 +419,11 @@ fn merge_value_members(
   let merged : Array[ValueMember] = []
   for value_member in base {
     match lookup_member(overrides, value_member.name) {
-      Some(value) => merged.push({ name: value_member.name, value })
+      Some(value) =>
+        merged.push({
+          name: value_member.name,
+          value: deep_merge_amend_value(value_member.value, value),
+        })
       None => merged.push(value_member)
     }
   }
@@ -429,6 +433,21 @@ fn merge_value_members(
     }
   }
   merged
+}
+
+///|
+/// PKL-148d: deep-merge an amend body into a base value. When both
+/// sides are ObjectValue, recursively merge their members so a nested
+/// amend (`(x) { foo { bar = 11 } }`) preserves the base's
+/// uninvolved members (`foo.num2`, `foo.baz.num3`). For other shapes
+/// the override wins outright — Apple Pkl treats a typed Listing /
+/// Mapping override as replacement, not append.
+fn deep_merge_amend_value(base : Value, replacement : Value) -> Value {
+  match (base, replacement) {
+    (ObjectValue(base_members), ObjectValue(over_members)) =>
+      ObjectValue(merge_value_members(base_members, over_members))
+    _ => replacement
+  }
 }
 
 ///|
@@ -1038,10 +1057,36 @@ fn eval_runtime_constraint_for_property(
         resolve_import,
       ) {
       Some(BoolValue(true)) => ()
-      Some(BoolValue(false)) =>
+      Some(BoolValue(false)) => {
+        // PKL-148d: the diagnostic's `Value:` segment renders
+        // ObjectValue candidates with their declared class name
+        // (`new Address { ... }` rather than `new { ... }`), matching
+        // Apple Pkl's compact-line form.
+        let hint = match pkl_constrained_type_base_name(source_name) {
+          Some(base) =>
+            if base == "Int" ||
+              base == "Float" ||
+              base == "Number" ||
+              base == "Boolean" ||
+              base == "String" ||
+              base == "Listing" ||
+              base == "Mapping" ||
+              base == "Set" ||
+              base == "Map" ||
+              base.has_prefix("Listing<") ||
+              base.has_prefix("Mapping<") ||
+              base.has_prefix("Set<") ||
+              base.has_prefix("Map<") {
+              None
+            } else {
+              Some(base)
+            }
+          None => None
+        }
         return Some(
-          "Type constraint `\{pretty_constraint_text(part)}` violated. Value: \{render_pcf_value_inline(property_value)}",
+          "Type constraint `\{pretty_constraint_text(part)}` violated. Value: \{render_pcf_value_inline_compact(property_value, hint)}",
         )
+      }
       // A non-Bool result or a diagnostic from inside the expression
       // means the predicate is shape-incompatible with this slice's
       // runtime — fall through silently rather than masking the
@@ -1382,6 +1427,16 @@ fn resolve_binding_value(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value? {
+  // PKL-148d: lexical scope wins over module-level bindings. Apple
+  // Pkl's implicit-receiver chain walks the innermost object body
+  // first (`bar { x = 2; y = x + 3 }` resolves the RHS `x` to the
+  // inner `x = 2`, not the module-level `x = 0`). The env slot now
+  // carries the inner-scope members so a lookup must check it before
+  // the module's binding cache.
+  match lookup_value(env, name) {
+    Some(value) => return Some(value)
+    None => ()
+  }
   match lookup_value(cache, name) {
     Some(value) => Some(value)
     None =>
@@ -1422,7 +1477,7 @@ fn resolve_binding_value(
               None => None
             }
           }
-        None => lookup_value(env, name)
+        None => None
       }
   }
 }
@@ -1483,7 +1538,17 @@ fn eval_value_type_name(value : Value) -> String {
 /// and `name` to satisfy the common usage. The `__kind` marker keeps
 /// the value compatible with the existing reflect-introspection path.
 fn synth_class_mirror_for_value(value : Value) -> Value {
-  let name = eval_value_type_name(value)
+  synth_class_mirror_for_name(eval_value_type_name(value))
+}
+
+///|
+/// PKL-148d: build the same `pkl:reflect.Class` mirror from a bare
+/// class name. Used when a class identifier (`Person`) is read as a
+/// value rather than as a type annotation — Apple Pkl treats the
+/// identifier as a Class instance whose member-access surface
+/// produces `Cannot find property \`X\` in object of type \`Class\`.`
+/// for anything other than `simpleName` / `name`.
+fn synth_class_mirror_for_name(name : String) -> Value {
   ObjectValue([
     { name: hidden_member_name("__kind"), value: StringValue("Class") },
     { name: hidden_member_name("reflectee"), value: StringValue(name) },
@@ -1610,6 +1675,51 @@ fn eval_callable_argument_rejection_message(
 fn render_pcf_value_inline(value : Value) -> String {
   let buf = StringBuilder::new()
   render_pcf_inline(value, 0, buf)
+  buf.to_string()
+}
+
+///|
+/// PKL-148d: compact single-line render used by constraint diagnostics
+/// (`Type constraint \`X\` violated. Value: <text>`). Apple Pkl renders
+/// the offending ObjectValue as `new ClassName { x = "..." }` on one
+/// line, with the class name pulled from the host constraint target.
+/// Listing / Mapping fall back to `new Listing {}` / `new Mapping {}`
+/// for empty cases so the existing PKL-148b output stays stable; the
+/// non-empty inline form mirrors `render_pcf_inline` but on a single
+/// line.
+fn render_pcf_value_inline_compact(
+  value : Value,
+  class_hint : String?,
+) -> String {
+  let buf = StringBuilder::new()
+  match value {
+    ObjectValue(members) => {
+      buf.write_string("new ")
+      match class_hint {
+        Some(name) => {
+          buf.write_string(name)
+          buf.write_char(' ')
+        }
+        None => ()
+      }
+      let visible = visible_members(members)
+      if visible.length() == 0 {
+        buf.write_string("{}")
+      } else {
+        buf.write_string("{ ")
+        for i = 0; i < visible.length(); i = i + 1 {
+          if i > 0 {
+            buf.write_string("; ")
+          }
+          buf.write_string(visible[i].name)
+          buf.write_string(" = ")
+          render_pcf_scalar(visible[i].value, buf)
+        }
+        buf.write_string(" }")
+      }
+    }
+    _ => render_pcf_inline(value, 0, buf)
+  }
   buf.to_string()
 }
 
@@ -1748,10 +1858,16 @@ fn eval_lambda_application(
         declarations,
         diagnostics,
       )
-    _ =>
+    _ => {
+      // PKL-148d: same lexical-isolation as `apply_function_value`.
+      // The lambda body must not see the caller's env (which may
+      // shadow a parameter, e.g. `import "pkl:semver" as s` colliding
+      // with the lambda parameter `s`). captured_env + parameters
+      // already live in `call_cache`.
+      let body_env : Array[ValueBinding] = []
       match
         eval_expr_with_bindings(
-          body, bindings, env, class_env, call_cache, stack, declarations, diagnostics,
+          body, bindings, body_env, class_env, call_cache, stack, declarations, diagnostics,
           resolve_import,
         ) {
         Some(value) =>
@@ -1760,6 +1876,7 @@ fn eval_lambda_application(
           )
         None => None
       }
+    }
   }
 }
 
@@ -1773,7 +1890,7 @@ fn apply_function_value(
   fn_value : Value,
   args : Array[Value],
   bindings : Array[Binding],
-  env : Array[ValueBinding],
+  _env : Array[ValueBinding],
   class_env : Array[ClassBinding],
   _cache : Array[ValueBinding],
   stack : Array[String],
@@ -1807,9 +1924,17 @@ fn apply_function_value(
         }
         call_cache.push({ name: parameters[i].name, value: args[i] })
       }
+      // PKL-148d: a lambda's body sees its captured_env + parameters
+      // (both in `call_cache`) plus the module-level bindings; the
+      // caller's lexical env (e.g. an import alias that happens to
+      // shadow a lambda parameter, like `import "pkl:semver" as s`
+      // colliding with `parse = (s) -> ...`) must NOT bleed in. Pass
+      // an empty env so the env-first lookup order doesn't pick up
+      // the caller's bindings.
+      let body_env : Array[ValueBinding] = []
       match
         eval_expr_with_bindings(
-          body, bindings, env, class_env, call_cache, stack, declarations, diagnostics,
+          body, bindings, body_env, class_env, call_cache, stack, declarations, diagnostics,
           resolve_import,
         ) {
         Some(value) =>
@@ -6490,8 +6615,14 @@ fn eval_expr_with_bindings(
                     match lookup_member(members, member_name) {
                       Some(value) => Some(value)
                       None => {
+                        // PKL-148d: Apple Pkl reports member-access
+                        // failures on a Class mirror with a `in object
+                        // of type Class` suffix so users see the
+                        // class-as-value context.
                         diagnostics.push(
-                          diag("Cannot find property `\{member_name}`."),
+                          diag(
+                            "Cannot find property `\{member_name}` in object of type `Class`.",
+                          ),
                         )
                         None
                       }
@@ -6875,10 +7006,18 @@ fn eval_expr_with_bindings(
           resolve_import,
         ) {
         Some(value) => Some(value)
-        None => {
-          diagnostics.push(diag("Cannot find property `\{name}`."))
-          None
-        }
+        None =>
+          // PKL-148d: a bare class name (`Person`) used as a value
+          // projects to a `pkl:reflect.Class` mirror. This unlocks
+          // `Person.foo` / `Person.bar()` failure paths that snippetTest
+          // captures via `test.catch(...)`, plus future Class-arg APIs.
+          match lookup_class_binding(class_env, name) {
+            Some(_) => Some(synth_class_mirror_for_name(name))
+            None => {
+              diagnostics.push(diag("Cannot find property `\{name}`."))
+              None
+            }
+          }
       }
     CallExpr(callee, arguments) =>
       if callee is Identifier("Bytes") &&
@@ -7356,6 +7495,16 @@ fn eval_expr_with_bindings(
                 target_expr, method_name, arguments, false, bindings, env, class_env,
                 cache, stack, declarations, diagnostics, resolve_import,
               )
+            } else if target_expr is Identifier(class_name) &&
+              lookup_class_binding(class_env, class_name) is Some(_) {
+              // PKL-148d: `Person.bar()` where `Person` is a class name
+              // and `bar` isn't a static-callable method. Apple Pkl
+              // reports `Cannot find method \`bar\` in class \`Class\`.`
+              // — distinct from the property-access wording.
+              diagnostics.push(
+                diag("Cannot find method `\{method_name}` in class `Class`."),
+              )
+              None
             } else if method_name == "getClass" && arguments.length() == 0 {
               // PKL-148: `value.getClass()` returns a `pkl:reflect.Class`
               // mirror exposing `simpleName` / `name`. snippetTest's
@@ -8568,11 +8717,36 @@ fn eval_object_members(
 ) -> Array[ValueMember] {
   let values : Array[ValueMember] = []
   for field in members {
+    // PKL-148d: build a per-field eval env that shadows the outer
+    // scope with the members already produced inside this body. Apple
+    // Pkl's implicit-receiver resolution means `bar { x = 2; y = x +
+    // 3 }` resolves `x` in `y`'s RHS to the inner `x = 2` first, not
+    // the enclosing `foo.x`. The env entries are pushed in
+    // declaration order so a later field sees the earlier values.
+    let local_env : Array[ValueBinding] = []
+    for binding in env {
+      local_env.push(binding)
+    }
+    for prior in values {
+      if is_hidden_member_name(prior.name) {
+        // PKL-148d: a `local l = 2` member surfaces as `@hidden$l`;
+        // strip the prefix when hoisting into env so subsequent
+        // sibling expressions can reference it by its bare name.
+        let bare = String::unsafe_substring(
+          prior.name,
+          start=hidden_member_prefix.length(),
+          end=prior.name.length(),
+        )
+        local_env.push({ name: bare, value: prior.value })
+      } else {
+        local_env.push({ name: prior.name, value: prior.value })
+      }
+    }
     match
       eval_expr_with_bindings(
         field.value,
         bindings,
-        env,
+        local_env,
         class_env,
         cache,
         stack,
@@ -8583,11 +8757,6 @@ fn eval_object_members(
       Some(raw_value) => {
         let value = coerce_value_to_annotated_type(raw_value, field.type_name)
         if field.name == "@when" || field.name == "@for" {
-          // Synthetic when-conditional / for-generator emitted by the
-          // matching parse helper. The value is the picked branch's (or the
-          // accumulated iteration's) object literal — spread its members
-          // into the parent so the generator doesn't surface as a real
-          // property.
           match value {
             ObjectValue(branch_members) =>
               for branch_member in branch_members {

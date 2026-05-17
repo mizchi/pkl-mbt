@@ -3973,6 +3973,64 @@ test "PKL-119b: IntSeq.fold reduces left-to-right" {
 }
 
 ///|
+test "PKL-148d: lexical scope wins over module bindings for nested objects" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "x = 0\nfoo {\n  x = 1\n  bar {\n    x = 2\n    y = x + 3\n  }\n}",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("y = 5"), content="true")
+}
+
+///|
+test "PKL-148d: local properties hoist into env with their bare name" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "local l = 1\nfoo {\n  local l = 2\n  bar {\n    baz = l\n  }\n}",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("baz = 2"), content="true")
+}
+
+///|
+test "PKL-148d: class name as value projects to a Class mirror" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:test\"\nclass Person { foo = 1 }\nres = test.catch(() -> Person.foo)",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut message : String = ""
+  for entry in members {
+    if entry.name == "res" {
+      match entry.value {
+        StringValue(s) => message = s
+        _ => ()
+      }
+    }
+  }
+  inspect(
+    message.contains("Cannot find property `foo` in object of type `Class`."),
+    content="true",
+  )
+}
+
+///|
+test "PKL-148d: deep-merge amend preserves uninvolved subtree members" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "x {\n  foo {\n    bar {\n      a = 1\n      b = 2\n    }\n  }\n}\ny = (x) {\n  foo {\n    bar {\n      a = 11\n    }\n  }\n}",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("a = 11"), content="true")
+  inspect(rendered.contains("b = 2"), content="true")
+}
+
+///|
 test "PKL-148c: arbitrary constraint expression with sibling reference" {
   let session = AnalysisSession::new()
   session.set_source(

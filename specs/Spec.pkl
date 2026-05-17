@@ -1896,6 +1896,44 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklClassAsValueAndScopeScenario = new Scenario {
+  id = "PKL-148d"
+  name = "class-as-value reflect mirror plus lexical scope walk"
+  description =
+    "Adds class-as-value semantics — a bare class identifier (`Person`) projects to a `pkl:reflect.Class` mirror; member access on the mirror reports `Cannot find property \\\\\\\\\\\\\\`X\\\\\\\\\\\\\\` in object of type \\\\\\\\\\\\\\`Class\\\\\\\\\\\\\\`.` and call-form access reports `Cannot find method \\\\\\\\\\\\\\`X\\\\\\\\\\\\\\` in class \\\\\\\\\\\\\\`Class\\\\\\\\\\\\\\`.`. Lexical scope now wins over module-level bindings: `resolve_binding_value` checks `env` before the module's `bindings` / `cache`, and `eval_object_members` hoists each prior member (including `local` properties whose `@hidden$` prefix gets stripped during the hoist) into a per-field env so a nested `bar { x = 2; y = x + 3 }` resolves `x` to the inner `2` rather than the enclosing `foo.x = 1` or module-level `x = 0`. Amend operations now deep-merge ObjectValue members rather than wholesale-replacing them — `(x) { foo { bar { num1 = 11 } } }` keeps `foo.bar.num2` and `foo.baz` from the base. Constraint diagnostics that quote a class-typed value render with the host class name (`new Address { street = \"Garlic Blvd.\" }` rather than the multi-line PCF block form). Lifts gold-match from 43 to 50 PCF (`basic/localProperty1`, `basic/localPropertyOverride3`, `classes/class4`, `classes/constraints3`, `objects/configureObjectAssign`, `objects/implicitReceiver1`, `objects/implicitReceiver2`)."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148c" }
+  tags { "evaluator"; "scope"; "amend"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "env wins over module bindings in resolve_binding_value"
+      rationale =
+        "Apple Pkl's lookup order is lexical-scope-first: an enclosing object body's properties shadow same-named module bindings. The pre-PKL-148d order (cache → bindings → env) made the module-level `x = 0` win even when `bar { x = 2; y = x + 3 }` was supposed to see `x = 2`. The reorder is local to `resolve_binding_value` so nothing else in the eval pipeline shifts."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Local members hoist into env with their bare name"
+      rationale =
+        "`local l = 2` stores the member as `@hidden$l` so the renderer skips it. For subsequent sibling expressions to see `l` (Apple Pkl's `local` is a fresh binding in the enclosing scope, not a hidden output), the hoist into env strips the `@hidden$` prefix. The renderer still hides the member at output time via the existing `visible_members` filter."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "merge_value_members deep-merges same-name ObjectValue members"
+      rationale =
+        "Apple Pkl's amend semantics traverse nested objects: `(x) { foo { bar { num1 = 11 } } }` preserves `x.foo.bar.num2` because the amend only overrides what's named, not the full subtree. Pre-PKL-148d the same-name override replaced the entire subtree, which made every multi-level amend lose siblings. Listing / Mapping / scalar overrides still replace outright — Apple Pkl's typed-collection amend is replacement, not append."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Class mirror diagnostic uses property/method wording by context"
+      rationale =
+        "Apple Pkl reports `Cannot find property X in object of type Class.` for `Person.foo` (read form) and `Cannot find method X in class Class.` for `Person.bar()` (call form). The wording differs because the surface chrome differs; routing the CallExpr's MemberAccess(class-identifier, name) arm separately keeps both messages exact without splitting Class-mirror logic across two value variants."
+    }
+  }
+}
+
 local pklRuntimeConstraintEvalScenario = new Scenario {
   id = "PKL-148c"
   name = "runtime evaluation of arbitrary constraint expressions"
@@ -4331,5 +4369,6 @@ scenarios {
   pklBaseMethodSurfaceScenario
   pklBaseMethodSurfaceFollowupScenario
   pklRuntimeConstraintEvalScenario
+  pklClassAsValueAndScopeScenario
   ...roadmap.entries
 }

@@ -1,6 +1,6 @@
 # Test SPEC
 
-225 tests across 2 module(s) — 160 pending, 65 active
+226 tests across 2 module(s) — 161 pending, 65 active
 
 ## `specs/`
 
@@ -225,10 +225,11 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **class-as-value super dispatch and scope resolution polish** [draft] — verifies: PKL-148d — tags: evaluator, stdlib, upstream, compat, next
-  > PKL-148c handled arbitrary constraint expressions; PKL-148d covers the remaining harder pieces: class names as first-class values (`Person.foo` → `Cannot find property foo in object of type Class.`), `super.method(...)` dispatch from a subclass body, the `(lambda) { body }` amend form for lambdas that return lambdas, late-bound forward references inside object bodies (`x = y; y = 5` where `y` resolves after definition), implicit-receiver scope walking for nested object bodies (`bar { y = x + 3 }` should see the enclosing `bar.x` first), value rendering inside diagnostics that includes the class name (`new Address { street = "..." }` rather than `new { street = "..." }`), and the remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module). Should collapse another ~15-25 silent-mismatch fixtures.
+- [ ] **class-as-value reflect mirror plus lexical scope walk** — verifies: PKL-148d — tags: evaluator, scope, amend, upstream, compat
+  > Adds class-as-value semantics — a bare class identifier (`Person`) projects to a `pkl:reflect.Class` mirror; member access on the mirror reports `Cannot find property \\\\\\\`X\\\\\\\` in object of type \\\\\\\`Class\\\\\\\`.` and call-form access reports `Cannot find method \\\\\\\`X\\\\\\\` in class \\\\\\\`Class\\\\\\\`.`. Lexical scope now wins over module-level bindings: `resolve_binding_value` checks `env` before the module's `bindings` / `cache`, and `eval_object_members` hoists each prior member (including `local` properties whose `@hidden$` prefix gets stripped during the hoist) into a per-field env so a nested `bar { x = 2; y = x + 3 }` resolves `x` to the inner `2` rather than the enclosing `foo.x = 1` or module-level `x = 0`. Amend operations now deep-merge ObjectValue members rather than wholesale-replacing them — `(x) { foo { bar { num1 = 11 } } }` keeps `foo.bar.num2` and `foo.baz` from the base. Constraint diagnostics that quote a class-typed value render with the host class name (`new Address { street = "Garlic Blvd." }` rather than the multi-line PCF block form). Lifts gold-match from 43 to 50 PCF (`basic/localProperty1`, `basic/localPropertyOverride3`, `classes/class4`, `classes/constraints3`, `objects/configureObjectAssign`, `objects/implicitReceiver1`, `objects/implicitReceiver2`).
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-148c
+  - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **cli format subcommand** — verifies: PKL-099 — tags: cli, renderer, format
@@ -868,6 +869,12 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **super dispatch lambda amend and forward references** [draft] — verifies: PKL-148e — tags: evaluator, stdlib, upstream, compat, next
+  > PKL-148d landed class-as-value + lexical scope + deep-merge amend; the remaining harder pieces are `super.method(...)` / `super.prop` dispatch (currently `super.X` outside a class body errors `Cannot find property super`), the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambdaThatReturnsAnotherLambda.pkl` and friends), late-bound forward references inside object bodies (`x = y; y = 5` where `y` is declared after its first reference), runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`), and constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13). The remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-148d
+  - body: _not yet implemented_
+
 - [ ] **super method call** — verifies: PKL-117a — tags: evaluator, inheritance
   > `super.method(args)` inside a subclass method body dispatches to the parent class's implementation while keeping the current `this`. `eval_class_method_call` pushes a synthetic `@current_class` marker onto the method cache when it enters a class body; `eval_super_method_call` reads that marker, looks up the class binding's `parent_name`, finds the named method on the parent, and invokes it with the same receiver members plus the freshly bound parameters. Errors surface cleanly when `super` is used outside a class body, when the current class has no parent, or when the parent class doesn't define the method. The abstract-method enforcement and override-direction type compatibility halves of PKL-117 remain on the original ticket — the dispatch slice unblocks the most common usage in pkspec adapters.
   - contributes to: GOAL-PKL-PURE
@@ -1352,11 +1359,11 @@
   > The native CLI evaluates a fixture that declares `output { renderer = new YamlRenderer {} }` and several multiline String values. The YAML output renders them as literal block scalars: `|` (one trailing newline, clip), `|-` (no trailing newline, strip), `|+` (multiple trailing newlines, keep), with two-space content indentation. Strings whose lines start with whitespace fall back to double-quoted form, and listing items in block context also pick up the block-scalar projection.
   - body: `cmd` (exit 0 expected)
 
-- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-080, PKL-081, PKL-082, PKL-083, PKL-084, PKL-085, PKL-086, PKL-087, PKL-088, PKL-089, PKL-090, PKL-091, PKL-092, PKL-093, PKL-098, PKL-119be, PKL-144, PKL-145, PKL-146, PKL-147, PKL-148, PKL-148b, PKL-148c — tags: moonbit, unit, contract
+- [x] **moon unit tests** — verifies: PKL-001, PKL-002, PKL-003, PKL-004, PKL-005, PKL-006, PKL-007, PKL-008, PKL-009, PKL-010, PKL-012, PKL-013, PKL-014, PKL-016, PKL-017, PKL-018, PKL-019, PKL-020, PKL-021, PKL-022, PKL-023, PKL-024, PKL-025, PKL-026, PKL-027, PKL-028, PKL-029, PKL-030, PKL-031, PKL-032, PKL-033, PKL-034, PKL-035, PKL-036, PKL-037, PKL-038, PKL-039, PKL-040, PKL-041, PKL-042, PKL-043, PKL-044, PKL-045, PKL-046, PKL-047, PKL-048, PKL-049, PKL-050, PKL-051, PKL-052, PKL-053, PKL-054, PKL-055, PKL-056, PKL-057, PKL-058, PKL-059, PKL-060, PKL-061, PKL-062, PKL-063, PKL-064, PKL-065, PKL-066, PKL-067, PKL-068, PKL-069, PKL-070, PKL-071, PKL-072, PKL-073, PKL-074, PKL-075, PKL-076, PKL-077, PKL-078, PKL-079, PKL-080, PKL-081, PKL-082, PKL-083, PKL-084, PKL-085, PKL-086, PKL-087, PKL-088, PKL-089, PKL-090, PKL-091, PKL-092, PKL-093, PKL-098, PKL-119be, PKL-144, PKL-145, PKL-146, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d — tags: moonbit, unit, contract
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
-- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c — tags: moonbit, upstream, compatibility, contract
+- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d — tags: moonbit, upstream, compatibility, contract
   > Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF and JSON).
   - body: `cmd` (exit 0 expected)
 
