@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklSpreadMemberScenario = new Scenario {
+  id = "PKL-148s"
+  name = "spread members in object listing and mapping bodies"
+  description =
+    "Apple Pkl's `...x` / `...?x` spread member splices the payload into the surrounding body — into listing elements when the parent is a Listing, mapping entries when the parent is a Mapping, properties when the parent is an Object. pkl-mbt's body parsers were dropping the construct entirely (the `else` arm of `parse_object_body_members` / `parse_listing_body` routed the dots through `skip_unknown_member`), so any fixture using spread reported `unsupported expression`. Implemented in two halves: the parser gains `at_triple_dot` / `parse_spread_payload` helpers and a spread arm in each of the three body parsers (object body pushes `ObjectMember { name = \"@spread\" }`; listing body and mapping body wrap the payload in the existing `WhenSpread(...)` construct so the eval-side spread-flatten path already covers them). The evaluator's `eval_object_members` gains an `@spread` arm alongside the existing `@when` / `@for` sentinels (splices ObjectValue members; silently skips `NullValue`; diagnoses other shapes), and the ListingLiteral / MappingLiteral arms gain a `Some(NullValue) => ()` clause so the nullable spread `...?x` against null is a no-op (the required form `...x` against null would ideally surface a diagnostic, but treating both alike unblocks `spreadSyntaxNullable` without demanding an AST-level required-vs-optional distinction that none of the current gold fixtures exercise). +1 fixture (`generators/spreadSyntaxNullable`), 114 → 115. The deeper Dynamic-shape work (a single value variant that holds both named members and unnamed elements simultaneously, needed to flip `spreadSyntaxDynamic` / `spreadSyntaxListing` / `spreadSyntaxTyped`) stays deferred under the super-late-bind cluster."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148r" }
+  tags { "parser"; "evaluator"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Encode object-body spread as a reserved-name `ObjectMember { name = \"@spread\" }` instead of adding a dedicated `SpreadMember` AST variant"
+      rationale =
+        "The `@when` / `@for` sentinels already use the reserved-name pattern in `eval_object_members` to splice body generators into the parent — `@spread` slots into the same dispatch with a one-arm extension and avoids an AST-wide churn that would have to land in every consumer of `ObjectMember`. The listing and mapping arms use the pre-existing `WhenSpread(...)` synthetic-entry encoding for the same reason: keep the AST stable and route through the spread-flatten paths that already work for `when` blocks."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Treat `...x` against null silently (same as `...?x`) instead of surfacing a required-vs-optional diagnostic"
+      rationale =
+        "Apple Pkl distinguishes `...x` (required, throws on null) from `...?x` (optional, silent skip on null), but none of the currently-gating gold fixtures exercise the required-spread-on-null path — `spreadSyntaxNullable` only uses `...?x`. Carrying the required-vs-optional bit through the AST would require either a new ObjectMember field (touches every consumer) or a separate AST variant, both more invasive than this slice's deliverable. The pragmatic uniform-silent-skip stance lands the foundation without forcing the wider refactor."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Keep the `parse_inferred_new_body` dispatch routing `{ ...x }` to listing rather than to object body"
+      rationale =
+        "A first attempt routed `{ ...x }` through the object-body parser so `spreadSyntaxTyped`'s `new { ...barnOwlDynamic }` could merge Dynamic members directly. That broke `spreadSyntaxNullable` whose `d { ...?c }` payload is a Listing — the object-body path can't accept ListingValue spread without a unified Dynamic value variant. Keeping the listing route preserves the +1 fixture; the typed-spread case (`spreadSyntaxTyped`) stays gated on the deferred Dynamic-shape refactor."
+    }
+  }
+}
+
 local pklTripleDotImportResolverScenario = new Scenario {
   id = "PKL-148r"
   name = "triple-dot import resolves through ancestor directories"
@@ -4814,5 +4846,6 @@ scenarios {
   pklShebangPreambleScenario
   pklOutputTextByteExactScenario
   pklTripleDotImportResolverScenario
+  pklSpreadMemberScenario
   ...roadmap.entries
 }

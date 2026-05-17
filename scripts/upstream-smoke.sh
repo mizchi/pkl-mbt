@@ -126,6 +126,7 @@ GOLD_FIXTURES=(
   "classes/constraints14"
   "errors/const/constLocalAmendModule"
   "modules/amendModule6"
+  "generators/spreadSyntaxNullable"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output

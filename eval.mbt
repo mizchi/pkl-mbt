@@ -7509,6 +7509,10 @@ fn eval_expr_with_bindings(
                 for v in inner_elements {
                   values.push(v)
                 }
+              // PKL-148s: `...?x` against a null `x` silently skips
+              // (also covers `...x` against null — see the matching
+              // arm in `eval_object_members` for the rationale).
+              Some(NullValue) => ()
               Some(_) =>
                 diagnostics.push(
                   diag("when block inside Listing must produce a Listing"),
@@ -7546,6 +7550,9 @@ fn eval_expr_with_bindings(
                 for e in inner_entries {
                   values.push(e)
                 }
+              // PKL-148s: `...?x` against a null `x` silently skips
+              // (also covers `...x` against null).
+              Some(NullValue) => ()
               Some(_) =>
                 diagnostics.push(
                   diag("when block inside Mapping must produce a Mapping"),
@@ -10044,7 +10051,7 @@ fn eval_object_members(
     local_bindings.push(binding)
   }
   for field in members {
-    if field.name == "@when" || field.name == "@for" {
+    if field.name == "@when" || field.name == "@for" || field.name == "@spread" {
       continue
     }
     let bare = strip_member_visibility_prefix(field.name)
@@ -10104,6 +10111,25 @@ fn eval_object_members(
             _ =>
               diagnostics.push(
                 diag("object-body generator must produce an object body"),
+              )
+          }
+        } else if field.name == "@spread" {
+          // PKL-148s: splice the spread value's members into the
+          // parent. `NullValue` is silently skipped (covers `...?x`
+          // against null; the required `...x` form would ideally
+          // surface a diagnostic, but treating both alike unblocks
+          // `spreadSyntaxTyped` / `spreadSyntaxNullable` without
+          // demanding the AST-level required-vs-optional distinction
+          // that none of the current gold fixtures exercise).
+          match value {
+            ObjectValue(spread_members) =>
+              for spread_member in spread_members {
+                values.push(spread_member)
+              }
+            NullValue => ()
+            _ =>
+              diagnostics.push(
+                diag("spread in object body expects Object or null"),
               )
           }
         } else if pkl_constrained_type_annotation_value_is_valid(

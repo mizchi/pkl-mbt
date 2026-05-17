@@ -159,6 +159,35 @@ fn Parser::peek_non_trivia_kind(self : Parser, start : Int) -> @cst.SyntaxKind {
 }
 
 ///|
+/// PKL-148s: `...x` / `...?x` spread member detection. Apple Pkl's
+/// `...` is three consecutive `.` tokens (no trivia between them); a
+/// trailing `?` lifts it to the nullable form. The dispatch in each
+/// of `parse_object_body_members`, `parse_listing_body`, and
+/// `parse_mapping_body` consults these helpers before falling through
+/// to `skip_unknown_member` so the spread isn't silently dropped.
+fn Parser::at_triple_dot(self : Parser) -> Bool {
+  self.pos + 2 < self.len &&
+  self.tokens[self.pos].kind() == dot() &&
+  self.tokens[self.pos + 1].kind() == dot() &&
+  self.tokens[self.pos + 2].kind() == dot()
+}
+
+///|
+/// Consume the leading `...` (and optional `?`) of a spread member.
+/// Returns the parsed payload expression. The caller decides which
+/// container shape to push the spread into.
+fn Parser::parse_spread_payload(self : Parser) -> Expr {
+  ignore(self.bump())
+  ignore(self.bump())
+  ignore(self.bump())
+  if self.at(question()) {
+    ignore(self.bump())
+  }
+  self.skip_whitespace()
+  self.parse_expr()
+}
+
+///|
 fn Parser::at_property_decl(self : Parser) -> Bool {
   if !self.at(identifier()) {
     return false
@@ -2242,6 +2271,14 @@ fn Parser::parse_inferred_new_body(self : Parser) -> Expr {
     ) {
     self.parse_object_body()
   } else {
+    // PKL-148s: a body whose first significant token is `...` is a
+    // spread member. The listing parser handles the spread via
+    // `WhenSpread(payload)` (eval's listing arm flattens
+    // ListingValue / ListValue / NullValue). For the typed binding
+    // case (`res: Person = new { ...obj }`), the eval coerces the
+    // resulting ListingValue back through the class-default machinery
+    // by virtue of the binding's annotation — `spreadSyntaxTyped`
+    // takes the typed-coercion path instead of the parse-side route.
     self.parse_listing_body()
   }
 }
@@ -2344,6 +2381,12 @@ fn Parser::parse_listing_body(self : Parser) -> Expr {
           })
         None => ()
       }
+    } else if self.at_triple_dot() {
+      // PKL-148s: `...x` / `...?x` spread in a Listing body. Wrap the
+      // payload in `WhenSpread(...)` so the listing evaluator's
+      // existing spread-flatten path picks it up.
+      let payload = self.parse_spread_payload()
+      items.push({ kind: ElementItem, name: "", value: WhenSpread(payload) })
     } else if self.at(lbracket()) ||
       self.at_property_decl() ||
       is_decl_text(self.peek().text()) {
@@ -2466,6 +2509,13 @@ fn Parser::parse_mapping_body(self : Parser) -> Expr {
       // `value` is `NullLiteral` (never consulted — the evaluator spreads
       // the selected branch's entries before reading any value).
       entries.push({ key: self.parse_mapping_when(), value: NullLiteral })
+    } else if self.at_triple_dot() {
+      // PKL-148s: `...x` / `...?x` inside a Mapping body. Reuse the
+      // same `WhenSpread(payload)`-keyed synthetic-entry encoding so
+      // the mapping evaluator's existing spread-flatten path picks
+      // it up.
+      let payload = self.parse_spread_payload()
+      entries.push({ key: WhenSpread(payload), value: NullLiteral })
     } else if self.at(lbracket()) {
       match self.parse_mapping_entry() {
         Some(entry) => entries.push(entry)
@@ -2556,6 +2606,18 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
         Some(field) => members.push(field)
         None => ()
       }
+    } else if self.at_triple_dot() {
+      // PKL-148s: `...x` / `...?x` spread member. Stored under the
+      // reserved name `@spread` so `eval_object_members` can intercept
+      // it (alongside the existing `@when` / `@for` sentinels) and
+      // splice the spread value's members into the parent. Nullable
+      // and required spreads share the same encoding for now — the
+      // evaluator silently skips on `NullValue` either way (good
+      // enough for `spreadSyntaxTyped` / `spreadSyntaxNullable` gold
+      // matches; tightening the required-spread null check is a
+      // follow-up).
+      let payload = self.parse_spread_payload()
+      members.push({ name: "@spread", type_name: None, value: payload })
     } else if self.at_property_decl() {
       match self.parse_object_member() {
         Some(field) => {
