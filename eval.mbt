@@ -9293,7 +9293,29 @@ fn eval_expr_with_bindings(
             (Some(value), Identifier(type_name)) => {
               let aliases = eval_type_alias_bindings(declarations)
               let resolved = eval_resolved_type_alias(type_name, aliases)
-              if eval_value_accepts_type_annotation(resolved, value) {
+              // PKL-150: Apple Pkl's `as` is a shape-preserving cast at
+              // the outermost head — `Set(...) as Set<Listing<Int>>`
+              // accepts the SetValue without iterating the elements;
+              // per-element constraint mismatches surface only when
+              // the inner values are actually read. Mirror PKL-148l's
+              // generic-head strip so the cast acceptance lines up
+              // with that runtime semantics. The diagnostic still
+              // quotes the surface name so user-facing messages
+              // preserve the full annotation.
+              let without_constraint = match
+                pkl_constrained_type_base_name(resolved) {
+                Some(base) => base
+                None => resolved
+              }
+              let head_for_check = match without_constraint.find("<") {
+                Some(idx) =>
+                  String::unsafe_substring(without_constraint, start=0, end=idx)
+                None => without_constraint
+              }
+              if eval_value_accepts_type_annotation(head_for_check, value) ||
+                value_satisfies_user_class_annotation(
+                  head_for_check, value, declarations,
+                ) {
                 return Some(value)
               } else {
                 diagnostics.push(

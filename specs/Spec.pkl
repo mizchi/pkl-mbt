@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklAsCastAndLocalInListingScenario = new Scenario {
+  id = "PKL-148n"
+  name = "as cast accepts generic-wrapped heads and local bindings inside listing bodies"
+  description =
+    "Two infrastructure changes for the asAndPipeRuntime (PKL-150) work cluster, both gating the upstream `basic/as*` fixtures. (1) The `as` operator (Apple Pkl's runtime type cast) ran its acceptance check on the raw type-name string, so `Set(...) as Set<Listing<Int>>` rejected upfront with `Expected value of type `Set<Listing<Int>>`, but got type `Set`.` even though the outer Set shape was correct — Apple Pkl's runtime treats `as` as shape-preserving at the outermost head, with per-element constraint mismatches surfacing only when the inner values are read. Mirrors PKL-148l's generic-head strip (`pkl_constrained_type_base_name` then `name.find(\"<\")`) so the cast check matches Apple Pkl semantics, and also threads `value_satisfies_user_class_annotation` so `value as MyClass<T>` round-trips. (2) `local NAME = EXPR` declarations interleaved with element expressions inside a Listing body (e.g., `examples { [\"set of listing\"] { local s1 = Set(...) as Set<Listing<Int>>; s1.first[0]; module.catchOrNull(() -> s1.first) == null } }` from `basic/as3`) were silently dropped by `parse_listing_body` (the catch-all `skip_unknown_member` ate the entire declaration), so any element after a local rendered as nothing. The parser now captures each body item as either an Element or a LocalBinding and desugars the chain into nested `let` expressions wrapped by `WhenSpread` (each `local` opens a fresh CallExpr(LambdaExpr, …) whose body is the recursively-desugared remainder; the resulting ListingValue spreads back into the parent so the binding stays transparent at render time). `parse_inferred_new_body` also gained a look-ahead helper (`skip_local_decls_from`) so an inferred body that leads with `local …` is dispatched to the listing parser when subsequent items are bare expressions, instead of always picking the object-body branch. Coverage counter doesn't move on this slice alone — the affected fixtures (`basic/as`, `basic/as2`, `basic/as3`) need follow-up work on `pkl:test.catch` / `catchOrNull` (currently the non-throw branch returns the value uncasted) and on per-element constraint deferral. The PKL-152 (`anyTypeCoercion`) roadmap entry is also retired here — `Any` already accepts every runtime value via `eval_value_accepts_type_annotation`'s `(\"Any\", _) => true` arm (PKL-148e), so no separate slice is needed."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148m" }
+  tags { "evaluator"; "parser"; "operator"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "`as` strips both `(...)` constraint and `<...>` generic head before the acceptance check, matching PKL-148l's callable-parameter normalisation"
+      rationale =
+        "`Set(...) as Set<Listing<Int>>` should accept any SetValue without iterating the elements — Apple Pkl's runtime `as` is shape-preserving at the outermost head, with inner-element checks deferred to access time. Reusing the same two-step strip (`pkl_constrained_type_base_name` then `name.find(\"<\")`) keeps the behaviour aligned across `as`, callable parameter rejection, and class-property acceptance. The surface name is preserved in the diagnostic so `Expected value of type `Set<Listing<Int>>`, but got type `Set`. Value: …` still quotes the full annotation if the head itself doesn't match."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Listing-body local bindings desugar to nested `let` chains wrapped in `WhenSpread` rather than adding a new Expr variant"
+      rationale =
+        "A new `LocalBindingMarker` Expr variant would touch every exhaustive `match expr` pattern across analysis / typecheck / codegen / format / lint (~13 sites). The `let (NAME = VALUE) BODY` form already desugars to `CallExpr(LambdaExpr([{NAME}], BODY, None), [VALUE])` and the listing evaluator already recognises `WhenSpread(inner)` as a flatten-into-parent marker (used by `when` blocks). Wrapping the binding chain as `WhenSpread(CallExpr(LambdaExpr(...), [value]))` reuses both existing machineries, so the parser's `build_listing_body` is the only new code — every downstream consumer treats the produced AST as normal."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Retire the PKL-152 (`anyTypeCoercion`) scenario without a dedicated slice"
+      rationale =
+        "The roadmap entry described a one-arm fix in `eval_value_accepts_type_annotation` to make `Any` accept every runtime value, citing `methods/methodParameterTypes2` as the unblocked fixture. Both are already in: PKL-148e's `(\"Any\", _) => true` arm covers the runtime side, and `methods/methodParameterTypes2` already gold-matches without change. Carrying the draft forward would just churn the roadmap."
+    }
+  }
+}
+
 local pklLocalDeclModifierScenario = new Scenario {
   id = "PKL-148m"
   name = "local modifier on class / function / typealias declarations"
@@ -4673,5 +4705,6 @@ scenarios {
   pklMappingDupKeyAndPipeDiagnosticScenario
   pklCallableParamTypeRejectionScenario
   pklLocalDeclModifierScenario
+  pklAsCastAndLocalInListingScenario
   ...roadmap.entries
 }

@@ -217,6 +217,33 @@
 ///                     `types/typeAliasConstraint1`,
 ///                     `implementation/equality`,
 ///                     `implementation/inequality`).
+///   PKL-148n (14th)   Infrastructure split for the asAndPipeRuntime
+///                     (PKL-150) cluster: (1) `as` strips both the
+///                     trailing `(...)` constraint and any `<...>`
+///                     generic head before the acceptance check, so
+///                     `Set(...) as Set<Listing<Int>>` accepts the
+///                     outer SetValue without iterating elements
+///                     (matches Apple Pkl's shape-preserving runtime
+///                     `as`); (2) `local NAME = EXPR` declarations
+///                     interleaved with element expressions inside
+///                     a Listing body are no longer dropped by
+///                     `parse_listing_body` — the parser captures
+///                     each body item as Element or LocalBinding
+///                     and desugars the chain into nested `let`
+///                     wrapped in `WhenSpread`, reusing existing
+///                     evaluator machinery instead of adding a new
+///                     Expr variant; `parse_inferred_new_body` also
+///                     gained a `skip_local_decls_from` look-ahead
+///                     so `{ local … ; bare-expr }` routes to the
+///                     listing parser. No gold-match flip on this
+///                     slice alone (the `basic/as*` fixtures still
+///                     need `pkl:test.catch` / `catchOrNull` and
+///                     per-element constraint deferral work). The
+///                     PKL-152 (`anyTypeCoercion`) roadmap entry is
+///                     also retired — `Any` already accepts every
+///                     runtime value via the `("Any", _) => true`
+///                     arm in `eval_value_accepts_type_annotation`
+///                     (landed with PKL-148e).
 @ModuleInfo { minPklVersion = "0.31.0" }
 module specs.Roadmap
 
@@ -261,24 +288,12 @@ local asAndPipeRuntime: Spec.Scenario = new {
   id = "PKL-150"
   name = "as and pipe operator runtime semantics"
   description =
-    "The parser already recognises `value as Type` and `lhs |> rhs` (PKL-114 / PKL-128) but the evaluator returns `operator <op> is parser-only`. Wire the runtime: `as` performs a type coercion matching the type-coercion path Apple Pkl uses (Int → Float widening, NullableType narrowing, ClassType cast); `|>` desugars to `rhs(lhs)` at eval time. Surfaces in `api/protobuf` and `generators/forGeneratorInMixins` plus several `lambdas/` fixtures."
+    "PKL-148n landed the foundational pieces (`as` strips the trailing constraint and generic head so `Set(...) as Set<Listing<Int>>` accepts the outer SetValue; `|>` already projects Apple Pkl's diagnostic for non-callable RHS via PKL-148k; `local NAME = EXPR` inside Listing bodies now desugars into a `WhenSpread(let(...) body)` chain so the `basic/as*` fixtures' inline locals parse through). The remaining work needed before `basic/as`, `basic/as2`, `basic/as3`, and `lambdas/pipeOperator` byte-match the gold: (1) `pkl:test.catch` / `catchOrNull` currently runs the no-throw branch but returns the wrapped value uncasted — Apple Pkl returns the value as-is and the surrounding `== null` / pcf-render comparison drives the example output (needs the lambda body to evaluate THROUGH the lambda before catch decides whether to surface the result or the diagnostic); (2) per-element constraint deferral — `Set(new Listing { 'one' }) as Set<Listing<Int>>` accepts the outer SetValue at cast time, but reading `s2.first[0]` must fire the inner `Listing<Int>` constraint against the actual `String` element, requiring constraint storage on the cast value or a wrapper that knows its declared inner type; (3) the class-aware ObjectValue refactor (PKL-148m parent dep — `pipeOperator` res11 needs `new Person {}` to render with its class identity so the diagnostic projects `pipeOperator#Person` instead of bare `Object`)."
   contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-114"; "PKL-128" }
+  dependsOn { "PKL-148n" }
   tags { "evaluator"; "operator"; "upstream"; "compat" }
   reviewStatus = "draft"
   severity = "major"
-}
-
-local anyTypeCoercion: Spec.Scenario = new {
-  id = "PKL-152"
-  name = "Any type accepts every runtime value"
-  description =
-    "The runtime annotation validator rejects `String` / `Listing` etc. against an `Any` return type annotation (`method o return type annotation Any does not accept String`). `AnyType` already exists at the typecheck layer (PKL-133); the runtime side needs to treat `Any` as accept-everything, matching Apple Pkl's top-type semantics. One-arm fix in `eval_value_accepts_type_annotation`. Unblocks the `methods/methodParameterTypes2` cluster plus several `pkl:reflect`-flavoured fixtures that round-trip through `Any` returns."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-133" }
-  tags { "evaluator"; "typechecker"; "upstream"; "compat" }
-  reviewStatus = "draft"
-  severity = "minor"
 }
 
 local silentMismatchSurvey: Spec.Scenario = new {
@@ -297,7 +312,6 @@ entries: Listing<Spec.Scenario> = new {
   pklSuperLateBindAndAmendLambda
   upstreamResourceType
   asAndPipeRuntime
-  anyTypeCoercion
   silentMismatchSurvey
 }
 

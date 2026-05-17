@@ -2200,23 +2200,103 @@ fn Parser::parse_inferred_new_body(self : Parser) -> Expr {
   } else {
     self.tokens[first_idx].text()
   }
-  if first == lbracket() {
+  // PKL-150: `{ local NAME = EXPR; … }` can sit in either an object
+  // body (subsequent members are property declarations) or a listing
+  // body (subsequent members are bare element expressions). Disambiguate
+  // by skipping past every leading `local …;` block and looking at the
+  // first non-`local` token: a property-decl form → object, anything
+  // else → listing.
+  let after_locals_idx = self.skip_local_decls_from(first_idx)
+  let after_locals_kind = if after_locals_idx >= self.len {
+    eof()
+  } else {
+    self.tokens[after_locals_idx].kind()
+  }
+  let after_locals_text = if after_locals_idx >= self.len {
+    ""
+  } else {
+    self.tokens[after_locals_idx].text()
+  }
+  let body_first = if first == local_kw() { after_locals_kind } else { first }
+  let body_first_idx = if first == local_kw() {
+    after_locals_idx
+  } else {
+    first_idx
+  }
+  let body_first_text = if first == local_kw() {
+    after_locals_text
+  } else {
+    first_text
+  }
+  if body_first == lbracket() {
     self.parse_mapping_body()
-  } else if first == rbrace() ||
-    first == when_kw() ||
-    first == for_kw() ||
-    first == local_kw() ||
-    self.at_property_decl_from(first_idx) ||
+  } else if body_first == rbrace() ||
+    body_first == when_kw() ||
+    body_first == for_kw() ||
+    self.at_property_decl_from(body_first_idx) ||
     // `hidden` / `fixed` are identifiers token-wise but mark a
     // property declaration when they precede an identifier.
     (
-      (first_text == "hidden" || first_text == "fixed") &&
-      self.at_property_decl_from(self.skip_trivia_from(first_idx + 1))
+      (body_first_text == "hidden" || body_first_text == "fixed") &&
+      self.at_property_decl_from(self.skip_trivia_from(body_first_idx + 1))
     ) {
     self.parse_object_body()
   } else {
     self.parse_listing_body()
   }
+}
+
+///|
+/// Walk past every `local NAME [: TYPE] = EXPR` declaration starting
+/// at `start`, returning the index of the first non-`local` significant
+/// token. Used by `parse_inferred_new_body` to disambiguate object-vs-
+/// listing bodies that lead with one or more `local` bindings — the
+/// body kind is determined by what follows the leading locals, not by
+/// the `local` keyword itself.
+fn Parser::skip_local_decls_from(self : Parser, start : Int) -> Int {
+  let mut i = start
+  while i < self.len {
+    let i_skipped = self.skip_trivia_from(i)
+    if i_skipped >= self.len {
+      return i_skipped
+    }
+    if self.tokens[i_skipped].kind() != local_kw() {
+      return i_skipped
+    }
+    // Skip `local`, then walk to the end of the declaration (the next
+    // separator at zero-balance brace/paren/bracket depth).
+    let mut j = i_skipped + 1
+    let mut parens = 0
+    let mut braces = 0
+    let mut brackets = 0
+    while j < self.len {
+      let kind = self.tokens[j].kind()
+      if parens == 0 && braces == 0 && brackets == 0 {
+        if kind == rbrace() || kind == rparen() || kind == rbracket() {
+          break
+        }
+        if is_separator(kind) {
+          break
+        }
+      }
+      if kind == lparen() {
+        parens += 1
+      } else if kind == rparen() && parens > 0 {
+        parens -= 1
+      } else if kind == lbrace() {
+        braces += 1
+      } else if kind == rbrace() && braces > 0 {
+        braces -= 1
+      } else if kind == lbracket() {
+        brackets += 1
+      } else if kind == rbracket() && brackets > 0 {
+        brackets -= 1
+      }
+      j += 1
+    }
+    i = j
+  }
+  i
 }
 
 ///|
@@ -2234,7 +2314,14 @@ fn Parser::skip_trivia_from(self : Parser, start : Int) -> Int {
 fn Parser::parse_listing_body(self : Parser) -> Expr {
   self.builder.start_node(listing_expr())
   ignore(self.expect(lbrace(), "{"))
-  let elements : Array[Expr] = []
+  // PKL-150: Apple Pkl allows `local NAME = EXPR` declarations
+  // interleaved with element expressions inside a Listing body —
+  // the binding scopes to the rest of the body so subsequent
+  // elements can reference it (e.g. `local s1 = Set(...) as
+  // Set<Listing<Int>>; s1.first[0]`). Capture each item as either
+  // an Element or a LocalBinding so the chain can be desugared
+  // into nested `let` expressions after the body is fully read.
+  let items : Array[ListingBodyItem] = []
   self.consume_separators()
   while !self.at(eof()) && !self.at(rbrace()) {
     self.skip_member_header()
@@ -2242,19 +2329,100 @@ fn Parser::parse_listing_body(self : Parser) -> Expr {
       // PKL-136: `when (cond) { ... } [else { ... }]` inside a Listing body.
       // The branches re-parse as Listing bodies so the wrapped Expr stays
       // ListingLiteral on both sides; the spread happens at eval time.
-      elements.push(self.parse_listing_when())
-    } else if self.at(local_kw()) ||
-      self.at(lbracket()) ||
+      items.push({
+        kind: ElementItem,
+        name: "",
+        value: self.parse_listing_when(),
+      })
+    } else if self.at(local_kw()) {
+      match self.parse_local_decl() {
+        Some(binding) =>
+          items.push({
+            kind: LocalBindingItem,
+            name: binding.name,
+            value: binding.value,
+          })
+        None => ()
+      }
+    } else if self.at(lbracket()) ||
       self.at_property_decl() ||
       is_decl_text(self.peek().text()) {
       self.skip_unknown_member()
     } else {
-      elements.push(self.parse_expr())
+      items.push({ kind: ElementItem, name: "", value: self.parse_expr() })
     }
     self.consume_separators()
   }
   ignore(self.expect(rbrace(), "}"))
   self.builder.finish_node()
+  build_listing_body(items)
+}
+
+///|
+priv enum ListingBodyItemKind {
+  ElementItem
+  LocalBindingItem
+} derive(Eq)
+
+///|
+priv struct ListingBodyItem {
+  kind : ListingBodyItemKind
+  name : String
+  value : Expr
+}
+
+///|
+/// Desugar a Listing body that may contain `local NAME = EXPR`
+/// declarations into a `ListingLiteral` whose elements include
+/// `WhenSpread`-wrapped `let`-chains. The strategy is to walk the
+/// items in order: every `local` opens a fresh scope (a CallExpr to
+/// a LambdaExpr binding the name to the value) whose body is the
+/// recursively-desugared remainder; the resulting ListingValue gets
+/// spread back into the parent via WhenSpread so the binding stays
+/// transparent at render time.
+fn build_listing_body(items : Array[ListingBodyItem]) -> Expr {
+  let any_local = {
+    let mut found = false
+    for item in items {
+      if item.kind == LocalBindingItem {
+        found = true
+        break
+      }
+    }
+    found
+  }
+  if !any_local {
+    let elements : Array[Expr] = []
+    for item in items {
+      elements.push(item.value)
+    }
+    return ListingLiteral(elements)
+  }
+  build_listing_body_chain(items, 0)
+}
+
+///|
+fn build_listing_body_chain(
+  items : Array[ListingBodyItem],
+  start : Int,
+) -> Expr {
+  let elements : Array[Expr] = []
+  let mut i = start
+  while i < items.length() {
+    let item = items[i]
+    if item.kind == LocalBindingItem {
+      let body = build_listing_body_chain(items, i + 1)
+      let bound = CallExpr(
+        LambdaExpr([{ name: item.name, type_name: None }], body, None),
+        [item.value],
+      )
+      elements.push(WhenSpread(bound))
+      return ListingLiteral(elements)
+    } else {
+      elements.push(item.value)
+      i = i + 1
+    }
+  }
   ListingLiteral(elements)
 }
 
