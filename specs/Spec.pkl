@@ -1896,6 +1896,32 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklTypeAliasNormalisationScenario = new Scenario {
+  id = "PKL-148t"
+  name = "callable return / argument type checks resolve aliases generics and unions"
+  description =
+    "Apple Pkl's function-parameter and function-return type checks resolve type aliases (`typealias Parameterized = List<String>`), strip the outermost generic head before the value-side acceptance check, and split top-level unions (`typealias Union = Int|Boolean`) into alternative choices. pkl-mbt's `eval_callable_return_rejection_message` was running the resolved alias through `eval_value_accepts_type_annotation` directly — `List<String>` didn't match any arm (which key on bare names like `List`), so functions declared with aliased generic return types (`function l(l: List<String(!isEmpty)>): List<String(!isEmpty)> = l`) wrongly rejected every valid return value. The argument-side check had the generic-head strip but lacked union splitting. Both sites now share the same shape: split on top-level `|` via `split_top_level_union_choices`, strip each choice's `(...)` constraint, strip its outermost `<...>` generic head, then accept if any choice matches either the builtin acceptance set or the user-class annotation cascade. PKL-148t also addresses a separate `qux = qux(...)` shadow case: when a property binding's RHS self-references the same name but a sibling module-level `function` shares it, `resolve_binding_value` now falls through to the function-shaped binding before surfacing the cycle diagnostic (the property `qux` and function `qux` live in different namespaces in Apple Pkl's lexical model). +1 fixture (`methods/methodParameterConstraints1`), 115 → 116; methods category 40% → 60%. The remaining typeAlias* fixtures stay gated on per-property lazy class instantiation (each `test.catch(() -> bad.res13)` should isolate that one property's check rather than re-evaluating all 12 properties on `new Bad {}`) — separate slice."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148s" }
+  tags { "evaluator"; "typecheck"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Reuse `typecheck.mbt:split_top_level_union_choices` from the eval-side check instead of duplicating the splitter"
+      rationale =
+        "The typecheck layer already has a `<>`-and-`()` aware top-level `|` splitter for static union acceptance; reusing it from eval avoids two parallel implementations that could drift on edge cases like `List<Int|String>|Set<Bytes>`. The two layers live in the same package so direct call is free."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Fall through to the function-shaped sibling binding before surfacing `cyclic property reference X`"
+      rationale =
+        "Apple Pkl's `qux = qux(...)` form is idiomatic — function namespace and property namespace are distinct, and the RHS `qux` resolves through the function namespace first. Our `all_eval_bindings` synthesises both into one `Array[Binding]` (functions first, then properties), and `find_binding` returns the LAST match (property), causing the cyclic. The fallback only fires when (a) the currently-resolving binding is non-function, and (b) a sibling LambdaExpr-valued binding exists with the same name — both conditions keep the change scoped so a real cycle on a function-only binding still surfaces the diagnostic."
+    }
+  }
+}
+
 local pklSpreadMemberScenario = new Scenario {
   id = "PKL-148s"
   name = "spread members in object listing and mapping bodies"
@@ -4847,5 +4873,6 @@ scenarios {
   pklOutputTextByteExactScenario
   pklTripleDotImportResolverScenario
   pklSpreadMemberScenario
+  pklTypeAliasNormalisationScenario
   ...roadmap.entries
 }

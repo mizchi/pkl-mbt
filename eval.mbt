@@ -545,6 +545,25 @@ fn find_binding(bindings : Array[Binding], name : String) -> Binding? {
 }
 
 ///|
+/// PKL-148t: locate a sibling binding whose value is a `LambdaExpr`
+/// (i.e., a module-level `function NAME(...) = ...` synthesised into
+/// the binding list by `all_eval_bindings`). Used to break the
+/// self-cycle when `qux = qux(...)` shadows a same-named function:
+/// Apple Pkl resolves the RHS occurrence through the function
+/// namespace before falling through to the property's own binding.
+fn find_function_binding(bindings : Array[Binding], name : String) -> Binding? {
+  for binding in bindings {
+    if binding.name == name {
+      match binding.value {
+        LambdaExpr(_, _, _) => return Some(binding)
+        _ => ()
+      }
+    }
+  }
+  None
+}
+
+///|
 fn all_eval_bindings(program : Program) -> Array[Binding] {
   let bindings : Array[Binding] = []
   for declaration in program.declarations {
@@ -1715,6 +1734,36 @@ fn resolve_binding_value(
       match find_binding(bindings, name) {
         Some(binding) =>
           if stack_contains_binding(stack, name) {
+            // PKL-148t: when a property's RHS self-references the
+            // same name but a sibling module-level function shares
+            // it (`function qux(...) = ...` beside `qux = qux(...)`),
+            // Apple Pkl resolves the RHS occurrence through the
+            // function namespace first. Try the function-shaped
+            // binding before surfacing the cycle diagnostic — only
+            // when the currently-resolving binding is itself NOT a
+            // function (otherwise the fallback would short-circuit
+            // back to the same binding).
+            let cyclic_is_function = match binding.value {
+              LambdaExpr(_, _, _) => true
+              _ => false
+            }
+            if !cyclic_is_function {
+              match find_function_binding(bindings, name) {
+                Some(fn_binding) =>
+                  return eval_expr_with_bindings(
+                    fn_binding.value,
+                    bindings,
+                    env,
+                    class_env,
+                    cache,
+                    stack,
+                    declarations,
+                    diagnostics,
+                    resolve_import,
+                  )
+                None => ()
+              }
+            }
             diagnostics.push(diag("cyclic property reference \{name}"))
             None
           } else {
@@ -2059,26 +2108,38 @@ fn eval_callable_argument_type_rejection_message(
       }
       let aliases = eval_type_alias_bindings(declarations)
       let resolved = eval_resolved_type_alias(source, aliases)
-      // Normalize the head for the acceptance check while keeping
-      // the original surface name in the diagnostic: strip a trailing
-      // constraint `(...)` and any generic `<...>` so e.g.
-      // `List<Set<...>>(thisisList)` collapses to `List` — the
-      // value-side acceptance only matches on the outermost head.
-      let without_constraint = match pkl_constrained_type_base_name(resolved) {
-        Some(base) => base
-        None => resolved
+      // PKL-148t: alias resolution may produce a union shape
+      // (`Union` → `Int|Boolean`) or a generic head
+      // (`Parameterized` → `List<String>`). Walk every choice in the
+      // top-level union split, stripping each choice's `(...)`
+      // constraint and outermost `<...>` generic head — accept if
+      // any choice matches via the builtin acceptance set or the
+      // user-class annotation cascade.
+      let union_accepted = {
+        let mut matched = false
+        for choice in split_top_level_union_choices(resolved) {
+          let trimmed = pkl_constraint_trim(choice)
+          let without_constraint = match
+            pkl_constrained_type_base_name(trimmed) {
+            Some(base) => base
+            None => trimmed
+          }
+          let head_for_check = match without_constraint.find("<") {
+            Some(idx) =>
+              String::unsafe_substring(without_constraint, start=0, end=idx)
+            None => without_constraint
+          }
+          if eval_value_accepts_type_annotation(head_for_check, value) ||
+            value_satisfies_user_class_annotation(
+              head_for_check, value, declarations,
+            ) {
+            matched = true
+            break
+          }
+        }
+        matched
       }
-      let head_for_check = match without_constraint.find("<") {
-        Some(idx) =>
-          String::unsafe_substring(without_constraint, start=0, end=idx)
-        None => without_constraint
-      }
-      if eval_value_accepts_type_annotation(head_for_check, value) {
-        return None
-      }
-      if value_satisfies_user_class_annotation(
-          head_for_check, value, declarations,
-        ) {
+      if union_accepted {
         return None
       }
       Some(
@@ -2223,10 +2284,40 @@ fn eval_callable_return_rejection_message(
       }
       let aliases = eval_type_alias_bindings(declarations)
       let resolved_type_name = eval_resolved_type_alias(type_name, aliases)
-      if !eval_value_accepts_type_annotation(resolved_type_name, value) &&
-        !value_satisfies_user_class_annotation(
-          resolved_type_name, value, declarations,
-        ) {
+      // PKL-148t: alias resolution may produce a generic
+      // (`Parameterized` → `List<String>`) or a union
+      // (`Union` → `Int|Boolean`); the value-side acceptance only
+      // matches on a bare head, so split the resolved name on
+      // top-level `|`, strip each choice's `(...)` constraint and
+      // outermost `<...>` generic head, and accept if any choice
+      // matches. Mirrors PKL-148l's callable-parameter normalisation
+      // (which the parameter side already runs via
+      // `eval_callable_argument_type_rejection_message`).
+      let union_accepted = {
+        let mut matched = false
+        for choice in split_top_level_union_choices(resolved_type_name) {
+          let trimmed = pkl_constraint_trim(choice)
+          let without_constraint = match
+            pkl_constrained_type_base_name(trimmed) {
+            Some(base) => base
+            None => trimmed
+          }
+          let head_for_check = match without_constraint.find("<") {
+            Some(idx) =>
+              String::unsafe_substring(without_constraint, start=0, end=idx)
+            None => without_constraint
+          }
+          if eval_value_accepts_type_annotation(head_for_check, value) ||
+            value_satisfies_user_class_annotation(
+              head_for_check, value, declarations,
+            ) {
+            matched = true
+            break
+          }
+        }
+        matched
+      }
+      if !union_accepted {
         // PKL-148: align with Apple Pkl's diagnostic wording so
         // snippetTest fixtures that capture this exact string via
         // `test.catch(...)` match byte-for-byte. The trailing
