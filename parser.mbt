@@ -1164,7 +1164,10 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
       // hidden from PCF output / external access. Consume the keyword
       // and route through the regular property parser; the hidden
       // prefix gates rendering and `push_receiver_method_bindings`
-      // strips it when seeding the method cache.
+      // strips it when seeding the method cache. PKL-148j: switch to
+      // the dedicated `local_member_prefix` so external `.X` resolves
+      // through `lookup_visible_member` and rejects with "Cannot find
+      // property `X`".
       let local_modifier = if self.at(local_kw()) {
         ignore(self.bump())
         self.skip_whitespace()
@@ -1182,7 +1185,7 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
           Some(property) =>
             if local_modifier {
               properties.push({
-                name: hidden_member_name(property.name),
+                name: local_member_name(property.name),
                 type_name: property.type_name,
                 value: property.value,
               })
@@ -2353,7 +2356,7 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
   let members : Array[ObjectMember] = []
   self.consume_separators()
   while !self.at(eof()) && !self.at(rbrace()) {
-    let hidden = self.consume_member_visibility_modifiers()
+    let visibility = self.consume_member_visibility_modifiers()
     self.skip_member_header()
     if self.at(when_kw()) {
       match self.parse_when_member() {
@@ -2367,16 +2370,18 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
       }
     } else if self.at_property_decl() {
       match self.parse_object_member() {
-        Some(field) =>
-          if hidden {
-            members.push({
-              name: hidden_member_name(field.name),
-              type_name: field.type_name,
-              value: field.value,
-            })
-          } else {
-            members.push(field)
+        Some(field) => {
+          let stored_name = match visibility {
+            VisibleMember => field.name
+            HiddenMember => hidden_member_name(field.name)
+            LocalMember => local_member_name(field.name)
           }
+          members.push({
+            name: stored_name,
+            type_name: field.type_name,
+            value: field.value,
+          })
+        }
         None => ()
       }
     } else {
@@ -2389,33 +2394,49 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
 }
 
 ///|
+/// PKL-148j: classify the leading visibility modifier on the next
+/// object-body member. `local` and `hidden` were collapsed into a single
+/// boolean before; splitting them lets external `.X` access keep `hidden`
+/// reachable while rejecting `local`.
+priv enum MemberVisibility {
+  VisibleMember
+  HiddenMember
+  LocalMember
+} derive(Eq)
+
+///|
 /// Consume any leading `hidden` / `local` visibility modifiers on the next
-/// object-body member. Returns `true` when at least one was seen so the
-/// caller knows to mark the produced `ObjectMember` with the hidden-name
-/// prefix.
+/// object-body member. Returns which variant was seen so the caller can
+/// pick the matching storage prefix (`@hidden$` vs `@local$`).
 ///
 /// `hidden` is a modifier-text identifier (the lexer keeps it as a regular
 /// identifier; `is_modifier_text` recognises it later). `local` is a
 /// dedicated keyword (`local_kw`) introduced for top-level local
 /// declarations. Both are stripped here before `skip_member_header` runs
 /// its annotation / modifier loop so other modifiers (`const`, `fixed`,
-/// `abstract`, etc.) can still pass through.
-fn Parser::consume_member_visibility_modifiers(self : Parser) -> Bool {
-  let mut hidden = false
+/// `abstract`, etc.) can still pass through. When both modifiers are
+/// present on the same member the more restrictive `LocalMember` wins —
+/// `hidden local x` should not be reachable through external `.x`.
+fn Parser::consume_member_visibility_modifiers(
+  self : Parser,
+) -> MemberVisibility {
+  let mut visibility : MemberVisibility = VisibleMember
   let mut keep_going = true
   while keep_going {
     self.skip_trivia()
     if self.at(local_kw()) {
-      hidden = true
+      visibility = LocalMember
       ignore(self.bump())
     } else if self.at(identifier()) && self.peek().text() == "hidden" {
-      hidden = true
+      if visibility != LocalMember {
+        visibility = HiddenMember
+      }
       ignore(self.bump())
     } else {
       keep_going = false
     }
   }
-  hidden
+  visibility
 }
 
 ///|
@@ -2441,12 +2462,24 @@ fn Parser::consume_module_visibility_modifiers(self : Parser) -> Bool {
 }
 
 ///|
-/// Reserved prefix used to mark hidden / local object members. The lexer
-/// rejects `@` and `$` in identifiers, so the prefix can never collide with
-/// a user-declared property name. Renderers skip members whose name starts
+/// Reserved prefix used to mark `hidden` object members. The lexer rejects
+/// `@` and `$` in identifiers, so the prefix can never collide with a
+/// user-declared property name. Renderers skip members whose name starts
 /// with this prefix; `lookup_member` resolves either the bare or prefixed
 /// form so reads from the same value see the hidden member transparently.
+/// PKL-148j: `hidden` and `local` were previously conflated under this
+/// prefix; the `local_member_prefix` below separates the two so external
+/// member access can hide `local` while keeping `hidden` accessible (Apple
+/// Pkl's `hidden` keeps property values reachable via `.X`, only excluding
+/// them from the rendered envelope).
 let hidden_member_prefix : String = "@hidden$"
+
+///|
+/// PKL-148j: separate prefix for `local` object members. Same renderer-
+/// invisibility contract as `hidden_member_prefix`, but `lookup_visible_member`
+/// filters this one out so `(target).x` raises "Cannot find property `x`"
+/// when `x` was declared `local`.
+let local_member_prefix : String = "@local$"
 
 ///|
 fn hidden_member_name(name : String) -> String {
@@ -2454,8 +2487,51 @@ fn hidden_member_name(name : String) -> String {
 }
 
 ///|
+fn local_member_name(name : String) -> String {
+  local_member_prefix + name
+}
+
+///|
 fn is_hidden_member_name(name : String) -> Bool {
   name.has_prefix(hidden_member_prefix)
+}
+
+///|
+fn is_local_member_name(name : String) -> Bool {
+  name.has_prefix(local_member_prefix)
+}
+
+///|
+/// PKL-148j: combined predicate for any renderer-invisible member.
+/// Renderers / filter sites that previously called `is_hidden_member_name`
+/// to skip non-rendered members should switch to this so `local` members
+/// stay hidden from the output too.
+fn is_invisible_member_name(name : String) -> Bool {
+  is_hidden_member_name(name) || is_local_member_name(name)
+}
+
+///|
+/// PKL-148j: strip whichever visibility prefix (`@hidden$` / `@local$`)
+/// is present on a member name. Returns the bare name unchanged when the
+/// member carries no prefix. Used by every site that needs to project a
+/// hidden / local member back into a bare-name binding (method-cache
+/// seeding, sibling-resolution env hoisting, etc.).
+fn strip_member_visibility_prefix(name : String) -> String {
+  if is_hidden_member_name(name) {
+    String::unsafe_substring(
+      name,
+      start=hidden_member_prefix.length(),
+      end=name.length(),
+    )
+  } else if is_local_member_name(name) {
+    String::unsafe_substring(
+      name,
+      start=local_member_prefix.length(),
+      end=name.length(),
+    )
+  } else {
+    name
+  }
 }
 
 ///|

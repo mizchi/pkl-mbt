@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklLocalMemberVisibilityScenario = new Scenario {
+  id = "PKL-148j"
+  name = "local and hidden member visibility split with Collection default"
+  description =
+    "External member access on an ObjectValue must hide `local` declarations (Apple Pkl's `foo.x` where `foo` declares `local x = 2` raises `Cannot find property `x` in object of type `Dynamic`.`) while still resolving `hidden`-modifier properties (`new Box { value = 42 }.marker` returns the hidden default). pkl-mbt previously collapsed both modifiers onto the single `@hidden$` storage prefix, so the visibility distinction was lost — `lookup_member` resolved both forms, and any `lookup_visible_member` filter would either expose locals or hide hidden properties. This slice splits the prefix: `local` declarations are stored under a dedicated `@local$` marker, `hidden` keeps `@hidden$`; `lookup_visible_member` filters only `@local$`, so external `.X` access correctly rejects locals while passing hidden through. A combined `is_invisible_member_name` predicate (either prefix) drives every renderer / analysis / typecheck filter so locals still stay out of PCF output. `strip_member_visibility_prefix` projects either prefix back to the bare name for binding-cache seeding and sibling-env hoisting (handles both 8-char `@hidden$` and 7-char `@local$` lengths). Module-level function declarations are still stored under `@hidden$` and remain reachable via `Base.func` — the external access falls back to a `FunctionValue`-only `lookup_member` after `lookup_visible_member` misses, matching Apple Pkl's cross-module function-export semantics. The Apple Pkl diagnostic wording (`in object of type `Dynamic`.`) replaces the bare `Cannot find property `X`.` form for ObjectValue member-access failures. Also fills the auto-default for `Collection<T>` / `List<T>` typed properties (Apple Pkl renders both as `List()`; the helper had Listing / Mapping / Set / Map but missed those two). Lifts gold-match from 96 to 98 PCF (`basic/localProperty2`, `basic/propertyDefaults`)."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148i" }
+  tags { "evaluator"; "parser"; "renderer"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "Two storage prefixes — `@hidden$` for `hidden`, `@local$` for `local`"
+      rationale =
+        "Apple Pkl's `hidden` and `local` modifiers behave differently for external member access: `hidden` keeps the property reachable via `.X` (it just hides from rendering), `local` blocks external access entirely. A single prefix can't encode that distinction without an extra side-table; splitting into two prefixes keeps the existing `lookup_member` / renderer call sites' shape (still string-prefix checks) and lets `lookup_visible_member` filter only `@local$`. The cost is updating every renderer-filter site from `is_hidden_member_name` to `is_invisible_member_name` (combined predicate); the alternative — adding a `local: Bool` field to `ValueMember` — would have touched 70+ struct-construction sites instead."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Module-level function export still resolves via FunctionValue-only fallback"
+      rationale =
+        "`function f(...) = ...` at module scope is stamped as `@hidden$f` so `Base.f(...)` works across import boundaries while `f` stays out of the rendered envelope. After `lookup_visible_member` misses, a follow-up `lookup_member` resolves the hidden slot only when it's a `FunctionValue` — keeps cross-module function access working without exposing arbitrary `hidden`-tagged scalars under a different visibility contract."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Collection / List auto-default routes to ListValue"
+      rationale =
+        "Apple Pkl renders both `coll: Collection<Person>` (no initializer) and `list: List<Person>` as `List()`. The `synthesize_default_for_type` helper covered Listing / Mapping / Set / Map but had no arm for Collection or List, so `basic/propertyDefaults` dropped the `coll` and `list` lines entirely. Adding both arms (route to `ListValue([])`) matches the gold and keeps the dedicated `ListValue` variant introduced in PKL-148h consistent across construction + default paths."
+    }
+  }
+}
+
 local pklAmendTimeLiteralTypeRejectionScenario = new Scenario {
   id = "PKL-148i"
   name = "literal-valued class property assignments enforce declared type"
@@ -4559,5 +4591,6 @@ scenarios {
   pklLambdaIdentityAndVirtualDispatchScenario
   pklListValueSplitScenario
   pklAmendTimeLiteralTypeRejectionScenario
+  pklLocalMemberVisibilityScenario
   ...roadmap.entries
 }

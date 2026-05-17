@@ -324,13 +324,39 @@ fn reflect_is_subclass_of(
 
 ///|
 fn lookup_member(members : Array[ValueMember], name : String) -> Value? {
-  // Hidden / local members carry the `hidden_member_prefix` marker in their
-  // stored name so renderers can skip them. A lookup for the bare name
-  // resolves either form so the caller sees the same data the writer wrote.
-  let prefixed = hidden_member_name(name)
+  // Hidden / local members carry the `hidden_member_prefix` /
+  // `local_member_prefix` marker in their stored name so renderers can
+  // skip them. A lookup for the bare name resolves any of the three
+  // forms so internal callers (binding-cache resolvers, amend merges)
+  // see the same data the writer wrote.
+  let hidden_prefixed = hidden_member_name(name)
+  let local_prefixed = local_member_name(name)
   let mut found : Value? = None
   for field in members {
-    if field.name == name || field.name == prefixed {
+    if field.name == name ||
+      field.name == hidden_prefixed ||
+      field.name == local_prefixed {
+      found = Some(field.value)
+    }
+  }
+  found
+}
+
+///|
+/// PKL-148j: bare-name-only lookup for external member access on an
+/// ObjectValue (`foo.x` where `foo` is bound to an ObjectValue).
+/// Apple Pkl hides `local` members from outside-of-body access — `foo`
+/// declaring `local x = 2` then `foo.x` from sibling code raises
+/// "Cannot find property `x` in object of type `Dynamic`." rather than
+/// returning `2`. `hidden` members stay reachable here (they only
+/// disappear from the rendered envelope), matching Apple Pkl's
+/// distinction between the two visibility modifiers.
+fn lookup_visible_member(members : Array[ValueMember], name : String) -> Value? {
+  let hidden_prefixed = hidden_member_name(name)
+  let mut found : Value? = None
+  for field in members {
+    if (field.name == name || field.name == hidden_prefixed) &&
+      !is_local_member_name(field.name) {
       found = Some(field.value)
     }
   }
@@ -709,6 +735,9 @@ fn synthesize_default_for_type(
       // Structural collections fall back to their empty form. Set/Map
       // carry dedicated variants that round-trip through the PCF
       // constructor renderer; Listing/Mapping render as block bodies.
+      // PKL-148j: `Collection<T>` and `List<T>` default to `ListValue`
+      // (Apple Pkl renders `List()` for both, matching the
+      // `basic/propertyDefaults` gold).
       if name == "Listing" || name.has_prefix("Listing<") {
         return Some(ListingValue([]))
       }
@@ -720,6 +749,12 @@ fn synthesize_default_for_type(
       }
       if name == "Map" || name.has_prefix("Map<") {
         return Some(MapValue([]))
+      }
+      if name == "List" ||
+        name.has_prefix("List<") ||
+        name == "Collection" ||
+        name.has_prefix("Collection<") {
+        return Some(ListValue([]))
       }
       // User-defined class → `new T {}` with class defaults applied.
       let base = match name.find("<") {
@@ -1161,14 +1196,14 @@ fn eval_runtime_constraint_for_property(
     match property_value {
       ObjectValue(receiver_members) =>
         for value_member in receiver_members {
-          if !is_hidden_member_name(value_member.name) {
+          if !is_invisible_member_name(value_member.name) {
             new_env.push({ name: value_member.name, value: value_member.value })
           }
         }
       _ => ()
     }
     for value_member in enclosing_members {
-      if !is_hidden_member_name(value_member.name) &&
+      if !is_invisible_member_name(value_member.name) &&
         value_member.name != property_name {
         new_env.push({ name: value_member.name, value: value_member.value })
       }
@@ -1703,17 +1738,15 @@ fn push_receiver_method_bindings(
 ) -> Unit {
   for value_member in receiver_members {
     method_cache.push({ name: value_member.name, value: value_member.value })
-    // PKL-148e: hidden (`@hidden$X`) members include `local` class
-    // properties. The method body references them by their bare name
-    // (`c`, not `@hidden$c`); push the stripped form alongside the
-    // prefixed one so cache lookup resolves both.
-    if value_member.name.has_prefix(hidden_member_prefix) {
-      let bare = String::unsafe_substring(
-        value_member.name,
-        start=hidden_member_prefix.length(),
-        end=value_member.name.length(),
-      )
-      method_cache.push({ name: bare, value: value_member.value })
+    // PKL-148e: hidden / local class properties are stored under their
+    // visibility prefix. The method body references them by the bare
+    // name (`c`, not `@hidden$c` / `@local$c`); push the stripped form
+    // alongside the prefixed one so cache lookup resolves both.
+    if is_invisible_member_name(value_member.name) {
+      method_cache.push({
+        name: strip_member_visibility_prefix(value_member.name),
+        value: value_member.value,
+      })
     }
   }
   method_cache.push({ name: "this", value: ObjectValue(receiver_members) })
@@ -7519,14 +7552,36 @@ fn eval_expr_with_bindings(
                     }
                 }
               _ =>
-                match lookup_member(members, member_name) {
+                // PKL-148j: external member access on an ObjectValue
+                // hides `local` members from the outside-of-body
+                // namespace (`foo.x` where `foo` declares `local x = 2`
+                // should not resolve to `2`); switch from the
+                // hidden-aware `lookup_member` to `lookup_visible_member`
+                // so the local slot is invisible here. Module-level
+                // function declarations are also stored under the
+                // hidden prefix (to keep them out of rendered output)
+                // but stay reachable to importers via `Base.func`, so
+                // a FunctionValue match through `lookup_member` is
+                // still allowed as a follow-up. The diagnostic matches
+                // Apple Pkl's wording (`in object of type \`Dynamic\``);
+                // class-tagged objects would carry their host class
+                // name instead, but until ObjectValue grows a class
+                // tag the best default is `Dynamic`.
+                match lookup_visible_member(members, member_name) {
                   Some(value) => Some(value)
-                  None => {
-                    diagnostics.push(
-                      diag("Cannot find property `\{member_name}`."),
-                    )
-                    None
-                  }
+                  None =>
+                    match lookup_member(members, member_name) {
+                      Some(FunctionValue(_, _, _, _, _) as exported) =>
+                        Some(exported)
+                      _ => {
+                        diagnostics.push(
+                          diag(
+                            "Cannot find property `\{member_name}` in object of type `Dynamic`.",
+                          ),
+                        )
+                        None
+                      }
+                    }
                 }
             }
           Some(ListingValue(elements)) | Some(ListValue(elements)) =>
@@ -9735,15 +9790,7 @@ fn eval_object_members(
     if field.name == "@when" || field.name == "@for" {
       continue
     }
-    let bare = if is_hidden_member_name(field.name) {
-      String::unsafe_substring(
-        field.name,
-        start=hidden_member_prefix.length(),
-        end=field.name.length(),
-      )
-    } else {
-      field.name
-    }
+    let bare = strip_member_visibility_prefix(field.name)
     local_bindings.push({
       name: bare,
       type_name: field.type_name,
@@ -9765,15 +9812,13 @@ fn eval_object_members(
       local_env.push(binding)
     }
     for prior in values {
-      if is_hidden_member_name(prior.name) {
-        // PKL-148d: a `local l = 2` member surfaces as `@hidden$l`;
-        // strip the prefix when hoisting into env so subsequent
-        // sibling expressions can reference it by its bare name.
-        let bare = String::unsafe_substring(
-          prior.name,
-          start=hidden_member_prefix.length(),
-          end=prior.name.length(),
-        )
+      if is_invisible_member_name(prior.name) {
+        // PKL-148d: a `local l = 2` / `hidden h = 2` member surfaces
+        // under its visibility prefix; strip when hoisting into env
+        // so subsequent sibling expressions can reference the bare
+        // name. PKL-148j: handles both `@hidden$` and `@local$` via
+        // `strip_member_visibility_prefix`.
+        let bare = strip_member_visibility_prefix(prior.name)
         local_env.push({ name: bare, value: prior.value })
       } else {
         local_env.push({ name: prior.name, value: prior.value })
@@ -10615,7 +10660,7 @@ pub fn eval_source(source : String) -> EvalResult {
     EvalOk(ObjectValue(members)) => {
       let visible : Array[ValueMember] = []
       for field in members {
-        if !is_hidden_member_name(field.name) {
+        if !is_invisible_member_name(field.name) {
           visible.push(field)
         }
       }
@@ -11087,7 +11132,7 @@ fn visible_members(members : Array[ValueMember]) -> Array[ValueMember] {
   // prefixed entry, so omitting members here doesn't break runtime access.
   let result : Array[ValueMember] = []
   for field in members {
-    if !is_hidden_member_name(field.name) {
+    if !is_invisible_member_name(field.name) {
       result.push(field)
     }
   }

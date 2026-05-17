@@ -4657,7 +4657,7 @@ pub fn typecheck_source(source : String) -> TypecheckResult {
     TypeOk(ObjectType(members)) => {
       let visible : Array[TypeMember] = []
       for field in members {
-        if !is_hidden_member_name(field.name) {
+        if !is_invisible_member_name(field.name) {
           visible.push(field)
         }
       }

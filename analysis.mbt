@@ -91,7 +91,7 @@ pub fn AnalysisSession::eval_path(
     EvalOk(ObjectValue(members)) => {
       let visible : Array[ValueMember] = []
       for field in members {
-        if !is_hidden_member_name(field.name) {
+        if !is_invisible_member_name(field.name) {
           visible.push(field)
         }
       }
