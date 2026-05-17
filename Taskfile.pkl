@@ -103,7 +103,8 @@ local checkNative: Task = new {
 
 local checkWasm: Task = new {
   name = "check-wasm"
-  description = "Type-check the wasm target with warnings denied — guarantees the @pkl library plus the cmd/mpkl wasm stub stay buildable for library consumers."
+  description =
+    "Type-check the wasm target with warnings denied — guarantees the @pkl library plus the cmd/mpkl wasm stub stay buildable for library consumers."
   cmd = "moon check --deny-warn --target wasm"
   inputs = moonSources
   tools = commonTools
@@ -111,7 +112,8 @@ local checkWasm: Task = new {
 
 local checkWasmGc: Task = new {
   name = "check-wasm-gc"
-  description = "Type-check the wasm-gc target with warnings denied — same surface as check-wasm but for the wasm-gc backend that modern hosts default to."
+  description =
+    "Type-check the wasm-gc target with warnings denied — same surface as check-wasm but for the wasm-gc backend that modern hosts default to."
   cmd = "moon check --deny-warn --target wasm-gc"
   inputs = moonSources
   tools = commonTools
@@ -181,6 +183,18 @@ local specNext: Task = new {
   cache = false
 }
 
+local coverage: Task = new {
+  name = "coverage"
+  description = "Per-category upstream gold-match coverage (NOGOLD excluded from %)"
+  cmd = "./scripts/coverage-by-category.sh"
+  inputs = new {
+    ...moonSources
+    ...supportScripts
+    ...upstreamFixtureSources
+  }
+  tools = commonTools
+}
+
 local ci: Task = new {
   name = "ci"
   description = "Local CI gate for the default target"
@@ -234,6 +248,7 @@ tasks {
   spec
   specCheck
   specNext
+  coverage
   ci
   releaseCheck
   preCommit
