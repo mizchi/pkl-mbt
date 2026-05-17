@@ -2555,12 +2555,14 @@ test "PKL-140: external modifier on property declaration" {
 }
 
 ///|
-test "PKL-140: abstract property slot skipped at evaluation" {
+test "PKL-140: abstract slot of a nullable type defaults to null" {
   guard eval_source("foo: Int?\nbar = 5") is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  inspect(members.length(), content="1")
-  inspect(members[0].name, content="bar")
+  inspect(members.length(), content="2")
+  inspect(members[0].name, content="foo")
+  inspect(members[0].value is NullValue, content="true")
+  inspect(members[1].name, content="bar")
 }
 
 ///|

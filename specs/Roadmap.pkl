@@ -87,6 +87,18 @@
 ///                     trailing-newline strip, Any / List / Collection /
 ///                     Set / user-class loose runtime acceptance;
 ///                     +10 gold-match fixtures, 50 → 60
+///   PKL-148f (6th)    multiset Set equality, unordered Object / Map /
+///                     Mapping equality, IntSeq equality via Int64
+///                     length (no materialise), no-arg property forms
+///                     callable as `.method()` on String / Int / Float
+///                     / Listing, Float property surface
+///                     (eval_float_property), module-level `hidden h =`
+///                     bare-name lookup, typed-property default
+///                     synthesis for user classes / nullable / string
+///                     literal / *union / Listing / Mapping / Set / Map,
+///                     `extends` parent class scope inherited through
+///                     analysis-side import resolver; +7 gold-match
+///                     fixtures, 60 → 67
 @ModuleInfo { minPklVersion = "0.31.0" }
 module specs.Roadmap
 
@@ -104,12 +116,12 @@ import "../pkspec/Spec.pkl"
 // against `scripts/upstream-smoke.sh` after each landing.
 
 local pklSuperLateBindAndAmendLambda: Spec.Scenario = new {
-  id = "PKL-148f"
-  name = "super late binding amend lambda form and runtime user function constraint"
+  id = "PKL-148g"
+  name = "super late binding amend lambda form lambda identity equality"
   description =
-    "PKL-148e landed object-body forward refs, simple-parent super, Function method surface, stdlib class mirror, and the loose runtime acceptance widening. The remaining harder pieces are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this — needed for `objects/super2` / `super3` / `super4` where parent has inter-property dependencies), the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambdaThatReturnsAnotherLambda.pkl` and friends), runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`), constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13), and module-level `this` / `module` self-reference value (for `basic/let`'s `res19`). Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along."
+    "PKL-148f tightened equality (set / object / map / IntSeq) and unblocked the typed-default fixture cluster. The harder remaining pieces are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this — needed for `objects/super2` / `super3` / `super4` where parent has inter-property dependencies); identity-based lambda equality (`(() -> 1) == (() -> 1)` is false but `local f = () -> 1; f == f` is true — needs a fresh id stamp on each LambdaExpr evaluation); the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambdaThatReturnsAnotherLambda.pkl` and friends); runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`); constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13); module-level `this` / `module` self-reference value (for `basic/let`'s `res19`); ListValue split so `List(...)` literals render through the `List(elem, ...)` PCF form rather than the `new { ... }` block form (needed for `basic/list`, `basic/propertyDefaults` `coll = List()` / `list = List()`); class-aware ObjectValue tagging so `new Person {} != new Person2 {}` (needed for `objects/equality`'s c-block); object-body amend chain (`(obj) { ... } { ... }` — needed for objects/equality a11). Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along."
   contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-148e" }
+  dependsOn { "PKL-148f" }
   tags { "evaluator"; "stdlib"; "upstream"; "compat"; "next" }
   reviewStatus = "draft"
   severity = "major"

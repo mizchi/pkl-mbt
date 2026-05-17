@@ -439,10 +439,47 @@ fn eval_module_path(
         fn(uri) {
           let resolved = resolve_import_path(path, uri)
           match get_module_source(sources, rt, resolved) {
-            Some(imported_source) =>
-              Some(
-                class_exports_from_parse_result(parse_source(imported_source)),
-              )
+            Some(imported_source) => {
+              // Walk `extends "parent.pkl"` so an importer of this
+              // module also sees classes inherited from its parent —
+              // Apple Pkl's extends is class inheritance, not a
+              // namespaced import (PKL-148f).
+              let visited : Array[String] = []
+              let exports : Array[ClassExport] = []
+              let mut current_path = resolved
+              let mut current_parsed = parse_source(imported_source)
+              let mut keep_going = true
+              while keep_going {
+                if visited.contains(current_path) {
+                  keep_going = false
+                } else {
+                  visited.push(current_path)
+                  for
+                    class_export in class_exports_from_parse_result(
+                      current_parsed,
+                    ) {
+                    exports.push(class_export)
+                  }
+                  match current_parsed.program.module_relation {
+                    Some(relation) => {
+                      let parent_resolved = resolve_import_path(
+                        current_path,
+                        relation.uri,
+                      )
+                      match get_module_source(sources, rt, parent_resolved) {
+                        Some(parent_source) => {
+                          current_path = parent_resolved
+                          current_parsed = parse_source(parent_source)
+                        }
+                        None => keep_going = false
+                      }
+                    }
+                    None => keep_going = false
+                  }
+                }
+              }
+              Some(exports)
+            }
             None => None
           }
         },

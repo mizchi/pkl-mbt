@@ -1896,6 +1896,44 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklUnorderedEqualityAndTypedDefaultsScenario = new Scenario {
+  id = "PKL-148f"
+  name = "unordered equality plus typed-property default synthesis"
+  description =
+    "Tightens upstream equality and unblocks the typed-default fixture cluster. SetValue equality now compares as a multiset (was order-sensitive via derived `==`), ObjectValue equality compares by visible-member content ignoring property order and hidden members, and MapValue / MappingValue follow the same bag-of-entries pattern — `Set(1, \"two\", 3) == Set(\"two\", 3, 1)` and `{foo=1; bar=2} == {bar=2; foo=1}` now round-trip. IntSeq equality no longer materialises the entire range (`IntSeq(math.minInt, math.maxInt)` was OOM-ing on the materialise path); length is computed in Int64 to survive the full 32-bit span. The no-arg property surface on String / Int / Float / Listing also accepts the method-call form (`str.reverse()`, `n.abs()`, `x.isNaN()`, `list.toSet()`) since Apple Pkl exposes both shapes; Float gains its own `eval_float_property` for `abs` / `isPositive` / `isNonZero` / `isFinite` / `isNaN` / `isInfinite` / `sign`. Module-level `hidden h = ...` is now resolvable by bare name through `find_binding`'s hidden-prefix-aware lookup. Typed properties declared without `=` synthesise a type-directed default — user classes project to `new T {}` with class defaults applied, nullable types and `Null` project to `null`, string-literal types project to the literal, `Listing` / `Mapping` / `Set` / `Map` default to their empty form, and `*A|B` picks the starred branch. `extends \"parent.pkl\"` now exposes the parent module's class declarations to the child by bare name, and the analysis-side import resolver follows the extends chain so a downstream importer sees inherited classes too. Lifts gold-match from 60 to 67 PCF (`basic/intseq`, `basic/set`, `basic/typeResolution1`, `basic/typeResolution2`, `basic/typeResolution3`, `basic/typeResolution4`, `objects/closure`)."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148e" }
+  tags { "evaluator"; "equality"; "scope"; "defaults"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "Set / Object / Map equality dispatch through dedicated comparators"
+      rationale =
+        "MoonBit's derived `derive(Eq)` compares variant payloads positionally — for `SetValue(Array[Value])`, `ObjectValue(Array[ValueMember])`, and `MapValue(Array[ValueEntry])` that means insertion order leaks into equality, which contradicts Apple Pkl's set/object/map semantics. Dispatching `==`/`!=` on those variant pairs through `set_values_equal` / `object_values_equal` / `map_entries_equal` before the generic Equal/NotEqual arm keeps the derived `Eq` available for the other variants while fixing the surface behaviour. Hidden / `local` members are filtered out of the object compare so a body with `local _x = 1` matches the same body without it."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "IntSeq equality computed via Int64 length, not materialisation"
+      rationale =
+        "The old `intseq_value_equal` allocated both element arrays — `IntSeq(math.minInt, math.maxInt)` blew up the array-resize. Two arithmetic progressions are equal iff their lengths match and (when len >= 1) their starts match and (when len >= 2) their steps match. Computing length in Int64 sidesteps the 32-bit `MAX_INT - MIN_INT` overflow that briefly made the asymmetric case (`IntSeq(MIN, MAX) == IntSeq(MAX, MIN)`) come out true."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "No-arg property surface accepts the method-call form on String / Int / Float / Listing"
+      rationale =
+        "Apple Pkl projects `String.length`, `Int.abs`, `Float.isPositive`, `Listing.toSet` as both property reads (`str.reverse`) and zero-arg method calls (`str.reverse()`); the only difference is the trailing `()`. The method dispatchers used to reject the `()` form with `call expects Function`. Adding the same name set to each `is_*_method_name` predicate and routing them back to the property evaluator from the method dispatch keeps both shapes consistent without duplicating the property logic. `Float.isPositive` etc. previously had no `eval_float_property` at all — adding one parallels `eval_int_property` and unifies the Float dispatcher."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Typed-property defaults synthesised on `abstract_slot` bindings; extends imports class scope"
+      rationale =
+        "Apple Pkl materialises a type-directed default when a property has a type but no `=` (`p: Person` becomes `new Person {}` with class defaults applied). The PKL-140 abstract-slot path used to skip these bindings — fine for stdlib `external` props, but it dropped every snippetTest fixture's typed-only declarations. `synthesize_default_for_type` handles nullable / string-literal / structural-collection / starred-union / user-class cases; non-resolvable types still get skipped so genuinely abstract slots stay abstract. For `extends`, the parent's classes need to be in scope by bare name in the child (it's inheritance, not a namespaced import), and a downstream importer of the child also needs to see the inherited classes — the analysis-side resolver follows the extends chain when collecting class exports."
+    }
+  }
+}
+
 local pklForwardRefSuperAndApplyScenario = new Scenario {
   id = "PKL-148e"
   name = "object body forward refs amend super and Function apply surface"
@@ -4409,5 +4447,6 @@ scenarios {
   pklRuntimeConstraintEvalScenario
   pklClassAsValueAndScopeScenario
   pklForwardRefSuperAndApplyScenario
+  pklUnorderedEqualityAndTypedDefaultsScenario
   ...roadmap.entries
 }

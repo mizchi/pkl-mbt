@@ -453,8 +453,9 @@ fn deep_merge_amend_value(base : Value, replacement : Value) -> Value {
 ///|
 fn find_binding(bindings : Array[Binding], name : String) -> Binding? {
   let mut found : Binding? = None
+  let hidden = hidden_member_name(name)
   for binding in bindings {
-    if binding.name == name {
+    if binding.name == name || binding.name == hidden {
       found = Some(binding)
     }
   }
@@ -617,6 +618,99 @@ fn apply_class_defaults_for_type(
         }
       }
     _ => value
+  }
+}
+
+///|
+/// Synthesize a runtime default value for a typed property that has no
+/// `=` initializer. Mirrors Apple Pkl's auto-default rules so a module
+/// like `class P; p: P` renders as `p {}`. Returns `None` when the
+/// type doesn't have a representable default (e.g., an unresolved
+/// generic) so the caller can fall back to the abstract-slot skip.
+fn synthesize_default_for_type(
+  type_name : String?,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match type_name {
+    None => None
+    Some(raw) => {
+      let name = trim_spaces(raw)
+      // Nullable types (`T?`) default to null.
+      if name.has_suffix("?") || name == "Null" || name == "Nothing" {
+        return Some(NullValue)
+      }
+      // String literal type `"foo"` defaults to the literal text.
+      if name.length() >= 2 && name[0] == '"' && name[name.length() - 1] == '"' {
+        let inner = String::unsafe_substring(
+          name,
+          start=1,
+          end=name.length() - 1,
+        )
+        return Some(StringValue(inner))
+      }
+      // `*A|B|...` union with a default branch picks the starred type.
+      if name.has_prefix("*") {
+        let rest = String::unsafe_substring(name, start=1, end=name.length())
+        let pipe = rest.find("|")
+        let head = match pipe {
+          Some(idx) => String::unsafe_substring(rest, start=0, end=idx)
+          None => rest
+        }
+        return synthesize_default_for_type(
+          Some(trim_spaces(head)),
+          bindings,
+          env,
+          class_env,
+          cache,
+          declarations,
+          diagnostics,
+          resolve_import,
+        )
+      }
+      // Structural collections fall back to their empty form. Set/Map
+      // carry dedicated variants that round-trip through the PCF
+      // constructor renderer; Listing/Mapping render as block bodies.
+      if name == "Listing" || name.has_prefix("Listing<") {
+        return Some(ListingValue([]))
+      }
+      if name == "Mapping" || name.has_prefix("Mapping<") {
+        return Some(MappingValue([]))
+      }
+      if name == "Set" || name.has_prefix("Set<") {
+        return Some(SetValue([]))
+      }
+      if name == "Map" || name.has_prefix("Map<") {
+        return Some(MapValue([]))
+      }
+      // User-defined class → `new T {}` with class defaults applied.
+      let base = match name.find("<") {
+        Some(idx) => String::unsafe_substring(name, start=0, end=idx)
+        None => name
+      }
+      match lookup_class_binding(class_env, base) {
+        Some(_) =>
+          Some(
+            apply_class_defaults_for_type(
+              ObjectValue([]),
+              Some(base),
+              bindings,
+              env,
+              class_env,
+              cache,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ),
+          )
+        None => None
+      }
+    }
   }
 }
 
@@ -2316,10 +2410,110 @@ fn intseq_materialize(start : Int, end_v : Int, step : Int) -> Array[Value] {
 }
 
 ///|
+/// Number of elements an IntSeq with the given start/end/step would
+/// produce. Computed in Int64 so that ranges that span the full Int32
+/// width (`IntSeq(math.minInt, math.maxInt)`) don't overflow.
+fn intseq_length(start : Int, end_v : Int, step : Int) -> Int64 {
+  let s = start.to_int64()
+  let e = end_v.to_int64()
+  let st = step.to_int64()
+  if st > 0L {
+    if s > e {
+      return 0L
+    }
+    return (e - s) / st + 1L
+  }
+  if st < 0L {
+    if s < e {
+      return 0L
+    }
+    return (s - e) / -st + 1L
+  }
+  0L
+}
+
+///|
+/// Visible-member equality for ObjectValue operands. Compares only
+/// rendered (non-hidden) properties and ignores order so
+/// `{foo=1; bar=2} == {bar=2; foo=1}` agrees with Apple Pkl.
+fn object_values_equal(
+  xs : Array[ValueMember],
+  ys : Array[ValueMember],
+) -> Bool {
+  let visible_xs = visible_members(xs)
+  let visible_ys = visible_members(ys)
+  if visible_xs.length() != visible_ys.length() {
+    return false
+  }
+  for x in visible_xs {
+    let mut matched = false
+    for y in visible_ys {
+      if y.name == x.name && y.value == x.value {
+        matched = true
+        break
+      }
+    }
+    if !matched {
+      return false
+    }
+  }
+  true
+}
+
+///|
+/// Map / Mapping content equality — key/value order is immaterial; two
+/// entries with the same key/value pair regardless of position match.
+fn map_entries_equal(xs : Array[ValueEntry], ys : Array[ValueEntry]) -> Bool {
+  if xs.length() != ys.length() {
+    return false
+  }
+  let consumed : Array[Bool] = Array::make(ys.length(), false)
+  for x in xs {
+    let mut matched = false
+    for j = 0; j < ys.length(); j = j + 1 {
+      if !consumed[j] && ys[j].key == x.key && ys[j].value == x.value {
+        consumed[j] = true
+        matched = true
+        break
+      }
+    }
+    if !matched {
+      return false
+    }
+  }
+  true
+}
+
+///|
+/// Multiset equality for SetValue operands — Apple Pkl treats two Sets
+/// as equal when they hold the same elements regardless of insertion
+/// order. Quadratic, but Sets in practice are small.
+fn set_values_equal(xs : Array[Value], ys : Array[Value]) -> Bool {
+  if xs.length() != ys.length() {
+    return false
+  }
+  let consumed : Array[Bool] = Array::make(ys.length(), false)
+  for x in xs {
+    let mut matched = false
+    for j = 0; j < ys.length(); j = j + 1 {
+      if !consumed[j] && ys[j] == x {
+        consumed[j] = true
+        matched = true
+        break
+      }
+    }
+    if !matched {
+      return false
+    }
+  }
+  true
+}
+
+///|
 /// PKL-119be (IntSeq equality follow-up): two IntSeqs are equal when
-/// they produce the same Int sequence. Materialize both sides and
-/// compare element-by-element; both-empty trivially returns true via
-/// the zero-iteration loop after the length-mismatch short-circuit.
+/// they produce the same Int sequence. Compute lengths without
+/// materializing — for arithmetic progressions equality reduces to
+/// matching length, start, and step (step doesn't matter when len <= 1).
 fn intseq_value_equal(
   start_a : Int,
   end_a : Int,
@@ -2328,19 +2522,21 @@ fn intseq_value_equal(
   end_b : Int,
   step_b : Int,
 ) -> Bool {
-  let a = intseq_materialize(start_a, end_a, step_a)
-  let b = intseq_materialize(start_b, end_b, step_b)
-  if a.length() != b.length() {
+  let len_a = intseq_length(start_a, end_a, step_a)
+  let len_b = intseq_length(start_b, end_b, step_b)
+  if len_a != len_b {
     return false
   }
-  for i = 0; i < a.length(); i = i + 1 {
-    guard a[i] is IntValue(x) else { return false }
-    guard b[i] is IntValue(y) else { return false }
-    if x != y {
-      return false
-    }
+  if len_a == 0 {
+    return true
   }
-  true
+  if start_a != start_b {
+    return false
+  }
+  if len_a == 1 {
+    return true
+  }
+  step_a == step_b
 }
 
 ///|
@@ -2399,7 +2595,22 @@ fn is_listing_method_name(name : String) -> Bool {
     | "find"
     | "findOrNull"
     | "findLast"
-    | "findLastOrNull" => true
+    | "findLastOrNull"
+    // Apple Pkl exposes the no-arg surface (`toSet`, `toListing`,
+    // `first`, `last`, `firstOrNull`, `lastOrNull`, `distinct`,
+    // `isEmpty`, `isNotEmpty`, `isDistinct`) as both property reads
+    // and method calls; accept the `()` form too so fixtures like
+    // `list.toSet()` route through the method dispatcher.
+    | "toSet"
+    | "toListing"
+    | "first"
+    | "last"
+    | "firstOrNull"
+    | "lastOrNull"
+    | "distinct"
+    | "isEmpty"
+    | "isNotEmpty"
+    | "isDistinct" => true
     _ => false
   }
 }
@@ -2477,7 +2688,19 @@ fn is_string_method_name(name : String) -> Bool {
     | "padStart"
     | "padEnd"
     | "toBytes"
-    | "codePointAt" => true
+    | "codePointAt"
+    // Apple Pkl exposes the no-arg surface (`reverse`, `isEmpty`,
+    // `length`, etc.) as both property reads and method calls.
+    | "length"
+    | "isEmpty"
+    | "isNotEmpty"
+    | "isBlank"
+    | "isNotBlank"
+    | "reverse"
+    | "base64"
+    | "codePointCount"
+    | "codePoints"
+    | "chars" => true
     _ => false
   }
 }
@@ -2504,7 +2727,21 @@ fn is_int_method_name(name : String) -> Bool {
   match name {
     // PKL-148b: pkl:base Int method surface adds `isBetween(a, b)`,
     // `toFloat()`, `shl` / `shr` / `ushr` / `or` / `and` / `xor`.
-    "toString" | "toChar" | "toFloat" | "isBetween" => true
+    "toString"
+    | "toChar"
+    | "toFloat"
+    | "isBetween"
+    // No-arg property surface also accessible as `(N).method()`.
+    | "abs"
+    | "isEven"
+    | "isOdd"
+    | "isPositive"
+    | "isNonZero"
+    | "isFinite"
+    | "isNaN"
+    | "isInfinite"
+    | "sign"
+    | "inv" => true
     _ => false
   }
 }
@@ -2523,7 +2760,18 @@ fn is_bool_method_name(name : String) -> Bool {
 /// but routes through `eval_float_method`.
 fn is_float_method_name(name : String) -> Bool {
   match name {
-    "toString" | "abs" | "round" | "floor" | "ceil" => true
+    "toString"
+    | "abs"
+    | "round"
+    | "floor"
+    | "ceil"
+    // No-arg property surface — callable as `(x).isNaN()` etc.
+    | "isPositive"
+    | "isNonZero"
+    | "isFinite"
+    | "isNaN"
+    | "isInfinite"
+    | "sign" => true
     _ => false
   }
 }
@@ -3707,6 +3955,29 @@ fn eval_listing_method(
         None
       }
     }
+    // Apple Pkl allows zero-arg property reads (e.g. `list.toSet`) to be
+    // written as method calls (`list.toSet()`). Delegate the no-arg
+    // surface back to the property evaluator so both forms agree.
+    "toSet"
+    | "toListing"
+    | "first"
+    | "last"
+    | "firstOrNull"
+    | "lastOrNull"
+    | "distinct"
+    | "isEmpty"
+    | "isNotEmpty"
+    | "isDistinct" =>
+      if arg_values.length() != 0 {
+        diagnostics.push(
+          diag(
+            "Listing.\{method_name} expects 0 arguments, got \{arg_values.length()}",
+          ),
+        )
+        None
+      } else {
+        eval_listing_property(elements, method_name, diagnostics)
+      }
     _ => None
   }
 }
@@ -4744,6 +5015,52 @@ fn eval_int_property(
 }
 
 ///|
+/// Float counterpart of `eval_int_property`. Apple Pkl exposes the
+/// same no-arg surface (`abs`, `isPositive`, `isNaN`, …) on Float.
+fn eval_float_property(
+  d : Double,
+  name : String,
+  diagnostics : Array[Diagnostic],
+) -> Value? {
+  match name {
+    "abs" => Some(FloatValue(if d < 0.0 { -d } else { d }))
+    "isPositive" => Some(BoolValue(d >= 0.0))
+    "isNonZero" => Some(BoolValue(d != 0.0))
+    "isFinite" => Some(BoolValue(!d.is_nan() && !d.is_inf()))
+    "isNaN" => Some(BoolValue(d.is_nan()))
+    "isInfinite" => Some(BoolValue(d.is_inf()))
+    "sign" =>
+      if d > 0.0 {
+        Some(FloatValue(1.0))
+      } else if d < 0.0 {
+        Some(FloatValue(-1.0))
+      } else {
+        Some(FloatValue(0.0))
+      }
+    _ => {
+      diagnostics.push(
+        diag("Cannot find property `\{name}` in object of type `Float`."),
+      )
+      None
+    }
+  }
+}
+
+///|
+fn is_float_property_name(name : String) -> Bool {
+  match name {
+    "abs"
+    | "isPositive"
+    | "isNonZero"
+    | "isFinite"
+    | "isNaN"
+    | "isInfinite"
+    | "sign" => true
+    _ => false
+  }
+}
+
+///|
 fn eval_duration_property(
   magnitude : Double,
   unit : String,
@@ -4933,6 +5250,28 @@ fn eval_int_method(
         diagnostics.push(diag("Int.toFloat takes no arguments"))
         None
       }
+    // No-arg property surface accessible as `(N).abs()` / `.isEven()`
+    // / `.sign()` / etc.
+    "abs"
+    | "isEven"
+    | "isOdd"
+    | "isPositive"
+    | "isNonZero"
+    | "isFinite"
+    | "isNaN"
+    | "isInfinite"
+    | "sign"
+    | "inv" =>
+      if arg_values.length() != 0 {
+        diagnostics.push(
+          diag(
+            "Int.\{method_name} expects 0 arguments, got \{arg_values.length()}",
+          ),
+        )
+        None
+      } else {
+        eval_int_property(n, method_name, diagnostics)
+      }
     _ => None
   }
 }
@@ -5085,6 +5424,17 @@ fn eval_float_method(
       } else {
         diagnostics.push(diag("Float.ceil takes no arguments"))
         None
+      }
+    "isPositive" | "isNonZero" | "isFinite" | "isNaN" | "isInfinite" | "sign" =>
+      if arg_values.length() != 0 {
+        diagnostics.push(
+          diag(
+            "Float.\{method_name} expects 0 arguments, got \{arg_values.length()}",
+          ),
+        )
+        None
+      } else {
+        eval_float_property(d, method_name, diagnostics)
       }
     _ => {
       diagnostics.push(
@@ -5738,6 +6088,27 @@ fn eval_string_method(
         }
       }
     }
+    // No-arg property surface accessible as `string.length()` etc.
+    "length"
+    | "isEmpty"
+    | "isNotEmpty"
+    | "isBlank"
+    | "isNotBlank"
+    | "reverse"
+    | "base64"
+    | "codePointCount"
+    | "codePoints"
+    | "chars" =>
+      if arg_values.length() != 0 {
+        diagnostics.push(
+          diag(
+            "String.\{method_name} expects 0 arguments, got \{arg_values.length()}",
+          ),
+        )
+        None
+      } else {
+        eval_string_property(s, method_name, diagnostics)
+      }
     _ => None
   }
 }
@@ -7221,6 +7592,8 @@ fn eval_expr_with_bindings(
             Some(DurationValue(d, member_name))
           } else if is_datasize_unit_name(member_name) {
             Some(DataSizeValue(d, member_name))
+          } else if is_float_property_name(member_name) {
+            eval_float_property(d, member_name, diagnostics)
           } else {
             diagnostics.push(
               diag(
@@ -8805,6 +9178,31 @@ fn eval_expr_with_bindings(
           k != 0 => Some(DataSizeValue(n / k.to_double(), unit))
         (Some(DataSizeValue(n, unit)), Some(FloatValue(k))) if op == Divide &&
           k != 0.0 => Some(DataSizeValue(n / k, unit))
+        // Sets are unordered; their derived `==` would compare element
+        // arrays positionally. Fall back to a multiset comparison
+        // (same elements, ignoring order) so `Set(1, 2) == Set(2, 1)`.
+        (Some(SetValue(xs)), Some(SetValue(ys))) if op == Equal =>
+          Some(BoolValue(set_values_equal(xs, ys)))
+        (Some(SetValue(xs)), Some(SetValue(ys))) if op == NotEqual =>
+          Some(BoolValue(!set_values_equal(xs, ys)))
+        // Objects compare by visible-member content rather than by the
+        // derived `==`. Apple Pkl treats property order as irrelevant
+        // (`{foo=1; bar=2} == {bar=2; foo=1}`) and ignores hidden /
+        // `local` members in the comparison.
+        (Some(ObjectValue(xs)), Some(ObjectValue(ys))) if op == Equal =>
+          Some(BoolValue(object_values_equal(xs, ys)))
+        (Some(ObjectValue(xs)), Some(ObjectValue(ys))) if op == NotEqual =>
+          Some(BoolValue(!object_values_equal(xs, ys)))
+        // Maps and Mappings carry key/value pairs whose order is also
+        // immaterial. Compare as bag-of-entries.
+        (Some(MapValue(xs)), Some(MapValue(ys))) if op == Equal =>
+          Some(BoolValue(map_entries_equal(xs, ys)))
+        (Some(MapValue(xs)), Some(MapValue(ys))) if op == NotEqual =>
+          Some(BoolValue(!map_entries_equal(xs, ys)))
+        (Some(MappingValue(xs)), Some(MappingValue(ys))) if op == Equal =>
+          Some(BoolValue(map_entries_equal(xs, ys)))
+        (Some(MappingValue(xs)), Some(MappingValue(ys))) if op == NotEqual =>
+          Some(BoolValue(!map_entries_equal(xs, ys)))
         (Some(a), Some(b)) if op == Equal => Some(BoolValue(a == b))
         (Some(a), Some(b)) if op == NotEqual => Some(BoolValue(a != b))
         (Some(_), Some(_)) => {
@@ -9433,12 +9831,51 @@ fn eval_program(
     class_env,
     resolve_import_classes,
   )
+  // PKL-140: `extends "parent.pkl"` exposes the parent module's class
+  // declarations as bare-name lookups in the child (Apple Pkl treats
+  // extends as inheritance, not a namespaced import). Pull the parent
+  // ClassExports in directly so an inherited typed slot like
+  // `pp1: Person1` can resolve `Person1` against the parent.
+  match program.module_relation {
+    Some(relation) =>
+      match resolve_import_classes(relation.uri) {
+        Some(exports) =>
+          for class_export in exports {
+            class_env.push({
+              name: class_export.name,
+              parent_name: class_export.parent_name,
+              properties: class_export.properties,
+              methods: class_export.methods,
+            })
+          }
+        None => ()
+      }
+    None => ()
+  }
   for binding in program.bindings {
     // PKL-140: abstract / external slot bindings (declared without a
-    // `=` default) carry no value to render. Skip them at the module
-    // evaluation level — the typechecker still records the slot's
-    // type for downstream cross-module references.
+    // `=` default) carry no value to render. Apple Pkl synthesises a
+    // type-directed default for typed slots — a user class projects
+    // to `new T {}` with class defaults applied, nullable types and
+    // `Null` project to `null`, a string-literal type projects to the
+    // literal itself, and structural collection types fall back to
+    // their empty form. Slots that don't fit the synthesiser remain
+    // skipped (the typechecker still recorded their type).
     if binding.abstract_slot {
+      match
+        synthesize_default_for_type(
+          binding.type_name,
+          bindings,
+          env,
+          class_env,
+          cache,
+          program.declarations,
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(value) => members.push({ name: binding.name, value })
+        None => ()
+      }
       continue
     }
     if binding.exported {
