@@ -1896,6 +1896,32 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklListingSubscriptAmendScenario = new Scenario {
+  id = "PKL-148w"
+  name = "subscript amend on Listing with out-of-range diagnostic"
+  description =
+    "Apple Pkl accepts `(listing) { [N] = newValue }` as a subscript-amend syntax: when N is in `[0, length)` the element is replaced, when out of range the runtime emits `Element index \\`<n>\\` is out of range \\`0\\`..\\`<upper>\\`.`. pkl-mbt's parser routed every `(target) {...}` body through `parse_object_body_members` which had no `[` arm, so the bracketed entry was silently dropped (`skip_unknown_member`) and the AmendExpr arm bailed with the generic `object amendment expects Object`. The parser now captures each `[key] = value` (and `[key] { body }`) inside an object body as `ObjectMember { name = \"@subscript$<offset>\", value = CallExpr(Identifier(\"@__index_entry\"), [key, value]) }` — a synthetic encoding that round-trips through the existing AST shapes (no new variant needed). The AmendExpr evaluator gains a `ListingValue` / `ListValue` arm that dispatches the `@subscript$*` members through `eval_listing_subscript_amend`: evaluate each key, range-check, replace the element, and surface Apple Pkl's wording on out-of-range. Members without the subscript prefix fall back to the generic diagnostic for now; mixing `[N] = ...` with `name = ...` on a Listing base is deferred until a gold fixture surfaces the need. +1 fixture (`listings/wrongIndex`), 119 → 120; listings category 18.8% → 25.0%."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148v" }
+  tags { "parser"; "evaluator"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Encode subscript-amend entries as `@subscript$<offset>` ObjectMembers with a `CallExpr(Identifier(\"@__index_entry\"), [key, value])` payload instead of adding a new AST variant"
+      rationale =
+        "Adding an `IndexEntry(key, value)` Expr variant would touch every `match expr` site (12+ across the codebase) and the `derive(Eq, Debug)` machinery. The synthetic-CallExpr encoding lives entirely inside existing AST shapes — `@subscript$<offset>` is unique enough to avoid name collisions with user properties (`@` is the same prefix family as `@hidden$` / `@local$` / `@error$` / `@spread`), and the evaluator's pattern-match on `CallExpr(Identifier(\"@__index_entry\"), args)` reads as a one-line decode. The offset suffix disambiguates multiple subscript entries inside the same body."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Drop the `Collection: <pcf>` suffix from the listing-out-of-range diagnostic so the wording matches `listings/wrongIndex` gold"
+      rationale =
+        "The existing `Element index N is out of range 0..M. Collection: <pcf>` form was introduced by PKL-148h's gold-match alignment for `SubscriptAccess` (`x[3]`). The amend-side path (`(x) { [3] = ... }`) uses the SAME `errorMessages.properties#elementIndexOutOfRange` template in upstream but renders WITHOUT the `Collection:` suffix — `listings/wrongIndex` gold cuts the diagnostic at the period after `\\`<upper>\\``. The subscript-amend helper emits the cut form to match gold byte-for-byte; the subscript-access path keeps the suffix it already aligned to (different gold fixture)."
+    }
+  }
+}
+
 local pklClassParentTypealiasResolutionScenario = new Scenario {
   id = "PKL-148v"
   name = "class parent typealias resolved through alias chain"
@@ -4928,5 +4954,6 @@ scenarios {
   pklTypeAliasNormalisationScenario
   pklLazyClassDefaultTypeRejectionScenario
   pklClassParentTypealiasResolutionScenario
+  pklListingSubscriptAmendScenario
   ...roadmap.entries
 }

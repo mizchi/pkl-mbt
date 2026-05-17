@@ -131,6 +131,7 @@ GOLD_FIXTURES=(
   "types/typeAlias1"
   "modules/typedModuleMethods1"
   "types/typeAlias2"
+  "listings/wrongIndex"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output

@@ -2618,6 +2618,46 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
       // follow-up).
       let payload = self.parse_spread_payload()
       members.push({ name: "@spread", type_name: None, value: payload })
+    } else if self.at(lbracket()) {
+      // PKL-148w: `(x) { [3] = "barn owl" }` style subscript-amend
+      // entry inside an object body. Apple Pkl interprets this as an
+      // amend-time index/key override (`x` is a Listing → replace
+      // element 3; `x` is a Mapping → upsert entry at key 3). The
+      // parser doesn't know the base shape, so capture the entry as
+      // `ObjectMember { name = "@subscript$<offset>", value =
+      // CallExpr(Identifier("@__index_entry"), [key, value]) }` —
+      // the `AmendExpr` evaluator decodes it and dispatches to
+      // `replace_listing_element` / `mapping_amend` based on the
+      // resolved base. Offset disambiguates multiple subscript
+      // entries inside the same body.
+      let offset = self.current_offset()
+      ignore(self.bump())
+      self.skip_whitespace()
+      let key_expr = self.parse_expr()
+      ignore(self.expect(rbracket(), "]"))
+      self.skip_whitespace()
+      if self.at(eq()) {
+        ignore(self.bump())
+        self.skip_whitespace()
+        let value_expr = self.parse_expr()
+        members.push({
+          name: "@subscript$" + offset.to_string(),
+          type_name: None,
+          value: CallExpr(Identifier("@__index_entry"), [key_expr, value_expr]),
+        })
+      } else if self.at(lbrace()) {
+        // `[key] { ... }` — amend the entry at `key` with the given
+        // body. Encoded the same way; the second argument carries
+        // the amend body.
+        let body = self.parse_object_body()
+        members.push({
+          name: "@subscript$" + offset.to_string(),
+          type_name: None,
+          value: CallExpr(Identifier("@__index_entry"), [key_expr, body]),
+        })
+      } else {
+        self.skip_unknown_member()
+      }
     } else if self.at_property_decl() {
       match self.parse_object_member() {
         Some(field) => {

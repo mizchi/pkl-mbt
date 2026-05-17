@@ -8311,6 +8311,17 @@ fn eval_expr_with_bindings(
             ),
           )
         }
+        Some(ListingValue(elements)) | Some(ListValue(elements)) =>
+          // PKL-148w: `(listing) { [N] = newValue }` replaces element
+          // N. Out-of-range indices surface Apple Pkl's wording
+          // (`Element index \`<n>\` is out of range \`0\`..\`<upper>\`.`).
+          // Members that aren't `@subscript$...` are deferred to a
+          // follow-up (`(listing) { name = "..." }` mixing element
+          // overrides with property-style amends).
+          eval_listing_subscript_amend(
+            elements, members, bindings, env, class_env, cache, stack, declarations,
+            diagnostics, resolve_import,
+          )
         Some(_) => {
           diagnostics.push(diag("object amendment expects Object"))
           None
@@ -10619,6 +10630,96 @@ fn eval_resolved_collection_element_structural_rejection_message(
     }
   }
   None
+}
+
+///|
+/// PKL-148w: dispatch the `@subscript$<offset>` synthetic ObjectMembers
+/// produced by the parser for `(listing) { [N] = value }` amend bodies.
+/// Each member's value is `CallExpr(Identifier("@__index_entry"),
+/// [key, value])`; evaluate the key, validate the bounds, and replace
+/// the element. Mirrors Apple Pkl's wording for out-of-range
+/// (`Element index \`<n>\` is out of range \`0\`..\`<upper>\`.`).
+/// Other member shapes (`name = value` mixed with subscript amends)
+/// are skipped with a generic diagnostic for now.
+fn eval_listing_subscript_amend(
+  elements : Array[Value],
+  members : Array[ObjectMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let result : Array[Value] = []
+  for v in elements {
+    result.push(v)
+  }
+  for field in members {
+    if !field.name.has_prefix("@subscript$") {
+      diagnostics.push(diag("object amendment expects Object"))
+      return None
+    }
+    match field.value {
+      CallExpr(Identifier("@__index_entry"), args) =>
+        if args.length() != 2 {
+          diagnostics.push(diag("object amendment expects Object"))
+          return None
+        } else {
+          let key_value = eval_expr_with_bindings(
+            args[0],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          )
+          match key_value {
+            Some(IntValue(idx)) =>
+              if idx < 0 || idx >= result.length() {
+                let upper = result.length() - 1
+                diagnostics.push(
+                  diag(
+                    "Element index `\{idx}` is out of range `0`..`\{upper}`.",
+                  ),
+                )
+                return None
+              } else {
+                match
+                  eval_expr_with_bindings(
+                    args[1],
+                    bindings,
+                    env,
+                    class_env,
+                    cache,
+                    stack,
+                    declarations,
+                    diagnostics,
+                    resolve_import,
+                  ) {
+                  Some(new_value) => result[idx] = new_value
+                  None => return None
+                }
+              }
+            Some(_) => {
+              diagnostics.push(diag("listing index expects Int"))
+              return None
+            }
+            None => return None
+          }
+        }
+      _ => {
+        diagnostics.push(diag("object amendment expects Object"))
+        return None
+      }
+    }
+  }
+  Some(ListingValue(result))
 }
 
 ///|
