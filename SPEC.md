@@ -1,6 +1,6 @@
 # Test SPEC
 
-229 tests across 2 module(s) — 164 pending, 65 active
+230 tests across 2 module(s) — 165 pending, 65 active
 
 ## `specs/`
 
@@ -546,6 +546,13 @@
   - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **literal-valued class property assignments enforce declared type** — verifies: PKL-148i — tags: evaluator, typechecker, upstream, compat
+  > Apple Pkl rejects `new Person { name = 42 }` with `Expected value of type `String`, but got type `Int`. Value: 42` when `Person.name: String`. pkl-mbt's TypedObjectLiteral loop only ran predicate-style constraint checks (`Int(x > 0)` and friends) — bare type annotations silently kept the wrong-shape value. This slice adds `eval_class_property_type_rejection_message` which resolves the declared annotation through type aliases, normalises generic heads (`Listing<X>` → `Listing`, `Mapping<K,V>` → `Mapping`, etc.), and emits Apple Pkl's exact diagnostic text when neither `eval_value_accepts_type_annotation` nor `value_satisfies_user_class_annotation` matches. The check fires only for literal-valued AST nodes (`IntLiteral`, `FloatLiteral`, `StringLiteral`, `BoolLiteral`, `NullLiteral`); free-form expression bodies are deferred until the upstream forward-binding leak (locals from a sibling object literal can resolve into a later body's identifier lookups, e.g. `a8`'s `local x = 1` reaching `c7`'s `age = x`) is fixed separately. `eval_class_property_annotation_with_depth` now walks the parent chain when a subclass declares the property without its own annotation (Person3 → Person.name), so `class Person3 extends Person { name = "Pigeon" }` still inherits the parent's `String` annotation for the rejection. Lifts gold-match from 82 to 96 PCF: 1 fixture (`classes/wrongType5`) is unblocked by the new check; 13 (`errors/baseModule`, `listings2/listing1`, `mappings2/mapping1`, `parser/constraintsTrailingComma`, `parser/trailingCommas`, the `projects/` cluster — `badLocalProject/dog`, `notAProject/@child/theChild`, `notAProject/goodImport`, `packageWithSpaces/module with spaces`, `project6/children/{a,b,c}` — and `types/helpers/someModule`) ride along as free promotions surfaced by the same exhaustive probe pass.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-148h
+  - decisions: 3 entry(ies)
+  - body: _not yet implemented_
+
 - [ ] **minimal pkl:reflect support** (minor) — verifies: PKL-080 — tags: stdlib, pkl-reflect
   > `builtin_stdlib_source` resolves `pkl:reflect` to a thin Pkl-source stub that exposes the most-cited type mirror constants as string-tagged placeholders (`anyType`, `booleanType`, `intType`, `floatType`, `numberType`, `stringType`, `durationType`, `dataSizeType`, `bytesType`, `pairType`, `listType`, `setType`, `mapType`, `listingType`, `mappingType`, `objectType`, `dynamicType`, `typedType`, `moduleType`, `unknownType`, `nothingType`), all tagged with the `pkl.base#<name>` prefix that is internal to this stub. The factory bindings `Class`, `Module`, `TypeAlias`, `Property`, and `DeclaredType` are lambdas: each accepts a string identifier (rather than a class value, which the value model cannot yet round-trip) and returns an Object container exposing `reflectee` (for the first four) or `referent` (for `DeclaredType`). Fixtures that only read mirror constants or assert `reflect.Class(name).reflectee == name` now parse, typecheck, and evaluate; upstream `reflect.pkl` fixtures that need a real `ClassValue`, runtime member introspection, or `isSubclassOf` remain out of scope and are picked up by follow-up slices once the value model grows.
   - contributes to: GOAL-PKL-PURE
@@ -884,10 +891,10 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **super late binding amend lambda form class-aware object equality** [draft] — verifies: PKL-148i — tags: evaluator, stdlib, upstream, compat, next
-  > PKL-148h split ListValue out of ListingValue and rerouted `List(...)` rendering through Apple Pkl's `List(elem, ...)` form (+10 gold-match fixtures). The harder remaining pieces — all of which require non-local evaluator work — are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this, needed for `objects/super2` / `super3` / `super4`, `classes/supercallsInLet`); the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambda*` fixtures); runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`); constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13); class-aware ObjectValue tagging so `new Person {} != new Person2 {}` (needed for `objects/equality`'s c-block); object-body amend chain (`(obj) { ... } { ... }` — needed for `objects/equality` a11); type-constraint enforcement on amend-time property overrides (`new Person { name = 42 }` should reject when `name: String` — `classes/wrongType5`, `classes/constraints9` / `13`); listing/mapping body re-eval on amend so listing `(x) {}` / `default = N` work (needed for `listings/equality`, `listings/inequality`, `mappings/equality`, `mappings/inequality`). Listing/List-method receiver-tag preservation (`list.map(...)` returns a List, `listing.map(...)` returns a Listing) is a sub-task too; today the dispatcher always re-wraps as ListingValue. Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along.
+- [ ] **super late binding amend lambda form class-aware object equality** [draft] — verifies: PKL-148j — tags: evaluator, stdlib, upstream, compat, next
+  > PKL-148i shipped the literal-valued slice of amend-time type enforcement (`new Person { name = 42 }` now rejects; +14 gold-match fixtures, 82 → 96). The harder remaining pieces — all of which require non-local evaluator work — are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this, needed for `objects/super2` / `super3` / `super4`, `classes/supercallsInLet`); the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambda*` fixtures); runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`); constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13); class-aware ObjectValue tagging so `new Person {} != new Person2 {}` (needed for `objects/equality`'s c-block — a prototype hidden `__class` marker landed in PKL-148i but was reverted after it broke 14 structural-equality unit tests; the right shape is a dedicated `ObjectValue(class_name: String?, members)` enum-shape refactor); object-body amend chain (`(obj) { ... } { ... }` — needed for `objects/equality` a11); free-form (non-literal) amend-override rejections (`(res3) { y = expr }` against `Int(this > x)` constraints — gated today on the upstream forward-binding leak where a sibling object's `local x = 1` resolves into a later object body's identifier lookup); listing/mapping body re-eval on amend so listing `(x) {}` / `default = N` work (needed for `listings/equality`, `listings/inequality`, `mappings/equality`, `mappings/inequality`). Listing/List-method receiver-tag preservation (`list.map(...)` returns a List, `listing.map(...)` returns a Listing) is a sub-task too; today the dispatcher always re-wraps as ListingValue. Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along.
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-148h
+  - depends on: PKL-148i
   - body: _not yet implemented_
 
 - [ ] **super method call** — verifies: PKL-117a — tags: evaluator, inheritance
@@ -1385,7 +1392,7 @@
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
-- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d, PKL-148e, PKL-148f, PKL-148g, PKL-148h — tags: moonbit, upstream, compatibility, contract
+- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d, PKL-148e, PKL-148f, PKL-148g, PKL-148h, PKL-148i — tags: moonbit, upstream, compatibility, contract
   > Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF and JSON).
   - body: `cmd` (exit 0 expected)
 

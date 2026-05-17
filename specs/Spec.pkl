@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklAmendTimeLiteralTypeRejectionScenario = new Scenario {
+  id = "PKL-148i"
+  name = "literal-valued class property assignments enforce declared type"
+  description =
+    "Apple Pkl rejects `new Person { name = 42 }` with `Expected value of type `String`, but got type `Int`. Value: 42` when `Person.name: String`. pkl-mbt's TypedObjectLiteral loop only ran predicate-style constraint checks (`Int(x > 0)` and friends) — bare type annotations silently kept the wrong-shape value. This slice adds `eval_class_property_type_rejection_message` which resolves the declared annotation through type aliases, normalises generic heads (`Listing<X>` → `Listing`, `Mapping<K,V>` → `Mapping`, etc.), and emits Apple Pkl's exact diagnostic text when neither `eval_value_accepts_type_annotation` nor `value_satisfies_user_class_annotation` matches. The check fires only for literal-valued AST nodes (`IntLiteral`, `FloatLiteral`, `StringLiteral`, `BoolLiteral`, `NullLiteral`); free-form expression bodies are deferred until the upstream forward-binding leak (locals from a sibling object literal can resolve into a later body's identifier lookups, e.g. `a8`'s `local x = 1` reaching `c7`'s `age = x`) is fixed separately. `eval_class_property_annotation_with_depth` now walks the parent chain when a subclass declares the property without its own annotation (Person3 → Person.name), so `class Person3 extends Person { name = \"Pigeon\" }` still inherits the parent's `String` annotation for the rejection. Lifts gold-match from 82 to 96 PCF: 1 fixture (`classes/wrongType5`) is unblocked by the new check; 13 (`errors/baseModule`, `listings2/listing1`, `mappings2/mapping1`, `parser/constraintsTrailingComma`, `parser/trailingCommas`, the `projects/` cluster — `badLocalProject/dog`, `notAProject/@child/theChild`, `notAProject/goodImport`, `packageWithSpaces/module with spaces`, `project6/children/{a,b,c}` — and `types/helpers/someModule`) ride along as free promotions surfaced by the same exhaustive probe pass."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148h" }
+  tags { "evaluator"; "typechecker"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-17"
+      summary = "Type check restricted to literal value expressions, not free-form bodies"
+      rationale =
+        "Running the bare-type check across every property-assignment exposed a pre-existing forward-binding leak: `a8 = new Dynamic { foo = x; local x = 1 }` populates `x = 1` in a way that re-resolves inside a later sibling like `c7 = new Person { age = x; local x = 40; street = y; local y = \"X\" }`. The rendered output already silently records `age = 1` (wrong), but the gold-match for `objects/equality` does not pivot on that property so the regression was invisible. Adding the type-check then surfaced the leak as `Expected value of type \\`String\\`, but got type \\`Int\\`. Value: 1` on `street`, breaking 32 lines of `objects/equality` output. Gating the check on `IntLiteral` / `FloatLiteral` / `StringLiteral` / `BoolLiteral` / `NullLiteral` keeps the wrongType5-style assignments rejecting while leaving the leak's behavioural surface unchanged. The free-form expression case lands once the leak itself is fixed."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Subclass without explicit annotation inherits the parent's annotation"
+      rationale =
+        "`eval_class_property_annotation_with_depth` previously stopped at the first matching property declaration even when its `type_name` was `None` (e.g. `class Person3 extends Person { name = \"Pigeon\" }` where Person declares `name: String`). That short-circuit dropped the inherited annotation, so amend overrides like `new Person3 { name = 42 }` skipped the rejection. Walking the parent chain when the local declaration's annotation is `None` matches Apple Pkl's semantics for `wrongType5` res3 without changing any other path's behaviour."
+    }
+    new Decision {
+      date = "2026-05-17"
+      summary = "Class-aware ObjectValue tagging via hidden marker is the wrong shape — defer to ObjectValue enum refactor"
+      rationale =
+        "A prototype of this slice stamped a hidden `__class = StringValue(class_name)` member onto each TypedObjectLiteral so AmendExpr could re-fire the host class's constraints downstream (covering `constraints11/12` res4-6's `(res3) { y = 0 }` against `Int(this > x)`). The marker broke 14 structural-equality unit tests that asserted exact `ObjectValue([...])` shape — the additional member changes the array. The right fix is a dedicated `ObjectValue(class_name: String?, members: Array[ValueMember])` variant change (~418 call sites), tracked in PKL-148j."
+    }
+  }
+}
+
 local pklListValueSplitScenario = new Scenario {
   id = "PKL-148h"
   name = "ListValue split from ListingValue for List constructor PCF round-trip"
@@ -4526,5 +4558,6 @@ scenarios {
   pklUnorderedEqualityAndTypedDefaultsScenario
   pklLambdaIdentityAndVirtualDispatchScenario
   pklListValueSplitScenario
+  pklAmendTimeLiteralTypeRejectionScenario
   ...roadmap.entries
 }
