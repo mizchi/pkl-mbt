@@ -329,8 +329,14 @@ fn eval_class_property_annotation_with_depth(
     Some(class_decl) => {
       let mut found = false
       let mut annotation : String? = None
+      // PKL-148bb: a class's `hidden` properties are stored under
+      // `@hidden$<name>` (parser-side prefixing). The caller passes the
+      // bare member name (`f`, not `@hidden$f`), so accept either form
+      // when matching.
+      let hidden_prefixed = hidden_member_name(property_name)
       for property in class_decl.properties {
-        if property.name == property_name {
+        if property.name == property_name ||
+          property.name == hidden_prefixed {
           found = true
           annotation = property.type_name
         }
@@ -883,6 +889,21 @@ fn eval_class_property_type_rejection_message(
     Some(source_name) => {
       if eval_type_name_is_type_parameter(source_name, declarations) {
         return None
+      }
+      // PKL-148bb: arity mismatch on a function-typed property (`f:
+      // () -> Int` amended with `(str) -> str.length`) projects to
+      // `Expected value of type \`FunctionN\`, but got type
+      // \`FunctionM\`. Value: new FunctionM {}` (`classes/lambdaConstraints1`).
+      match (function_type_arity(source_name), value) {
+        (Some(expected), FunctionValue(params, _, _, _, _)) => {
+          let actual = params.length()
+          if expected != actual {
+            return Some(
+              "Expected value of type `Function\{expected}`, but got type `Function\{actual}`. Value: new Function\{actual} {}",
+            )
+          }
+        }
+        _ => ()
       }
       let aliases = eval_type_alias_bindings(declarations)
       let resolved_type_name = eval_resolved_type_alias(source_name, aliases)

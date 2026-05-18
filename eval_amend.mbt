@@ -18,6 +18,64 @@ fn is_stdlib_collection_head(name : String) -> Bool {
 /// `?` and drops generic parameters for stdlib collection types but
 /// keeps them for user-defined generics — the only place those
 /// parameter names surface to the user.
+/// PKL-148bb: when `type_name` looks like a function type
+/// (`(A, B) -> C`), return the parameter count; otherwise None. Used
+/// by the class-property type-rejection cascade to surface
+/// `Function<arity>` mismatch diagnostics.
+fn function_type_arity(type_name : String) -> Int? {
+  let trimmed = pkl_constraint_trim(type_name)
+  if trimmed.length() < 2 || !trimmed.has_prefix("(") {
+    return None
+  }
+  let mut depth = 0
+  let mut close = -1
+  for i = 0; i < trimmed.length(); i = i + 1 {
+    let c = trimmed[i].to_int().unsafe_to_char()
+    if c == '(' {
+      depth = depth + 1
+    } else if c == ')' {
+      depth = depth - 1
+      if depth == 0 {
+        close = i
+        break
+      }
+    }
+  }
+  if close < 0 {
+    return None
+  }
+  // Skip whitespace after `)` and require `->`.
+  let mut k = close + 1
+  while k < trimmed.length() &&
+        trimmed[k].to_int().unsafe_to_char() == ' ' {
+    k = k + 1
+  }
+  if k + 1 >= trimmed.length() ||
+     trimmed[k].to_int().unsafe_to_char() != '-' ||
+     trimmed[k + 1].to_int().unsafe_to_char() != '>' {
+    return None
+  }
+  let inner = String::unsafe_substring(trimmed, start=1, end=close)
+  let inner_trim = pkl_constraint_trim(inner)
+  if inner_trim == "" {
+    return Some(0)
+  }
+  let mut commas = 0
+  let mut d = 0
+  for i = 0; i < inner_trim.length(); i = i + 1 {
+    let c = inner_trim[i].to_int().unsafe_to_char()
+    if c == '(' || c == '<' || c == '[' {
+      d = d + 1
+    } else if c == ')' || c == '>' || c == ']' {
+      d = d - 1
+    } else if c == ',' && d == 0 {
+      commas = commas + 1
+    }
+  }
+  Some(commas + 1)
+}
+
+///|
 fn rejection_type_label(type_name : String) -> String {
   let trimmed = pkl_constraint_trim(type_name)
   let without_constraint = match pkl_constrained_type_base_name(trimmed) {
