@@ -2986,18 +2986,39 @@ fn yaml_to_value(y : @yaml.Yaml, use_mapping : Bool) -> Value {
 /// caller before reaching here (and is treated as empty here too as
 /// a defensive guard).
 fn intseq_materialize(start : Int, end_v : Int, step : Int) -> Array[Value] {
+  // PKL-148am: iterate in Int64 so `start + step` cannot wrap.
+  // Previously the loop var was Int (i32); with a fixture like
+  // `IntSeq(math.maxInt, math.minInt).step(math.minInt)` the i32
+  // `i + step` wrapped from -1 back to maxInt on the third step
+  // and the while-condition (i >= end_v) stayed true forever, so
+  // `result.push` grew the array past memory and the runtime
+  // crashed with `invalid memory access`. Int64 has enough head /
+  // tailroom (~64 bits vs. the i32 range each operand sits in) that
+  // a single add never overflows, and the directional check (next
+  // moved the wrong way) catches the boundary case where step is
+  // 0 (caller already rejects) or somehow non-monotone.
   let result : Array[Value] = []
+  let end64 = end_v.to_int64()
+  let step64 = step.to_int64()
   if step > 0 {
-    let mut i = start
-    while i <= end_v {
-      result.push(IntValue(i))
-      i = i + step
+    let mut i = start.to_int64()
+    while i <= end64 {
+      result.push(IntValue(i.to_int()))
+      let next = i + step64
+      if next <= i {
+        break
+      }
+      i = next
     }
   } else if step < 0 {
-    let mut i = start
-    while i >= end_v {
-      result.push(IntValue(i))
-      i = i + step
+    let mut i = start.to_int64()
+    while i >= end64 {
+      result.push(IntValue(i.to_int()))
+      let next = i + step64
+      if next >= i {
+        break
+      }
+      i = next
     }
   }
   result
