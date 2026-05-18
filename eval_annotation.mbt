@@ -804,7 +804,12 @@ fn eval_class_property_type_rejection_message(
         head
       }
       if eval_value_accepts_type_annotation(head_with_optional, coerced) {
-        return None
+        // Structural element check for generic collections — Apple Pkl
+        // surfaces `Expected value of type \`Int\`...` for
+        // `xs: List<Int>` amended with `List("one")`.
+        return eval_resolved_collection_element_structural_rejection_message(
+          stripped_q, coerced, declarations,
+        )
       }
       if value_satisfies_user_class_annotation(head, coerced, declarations) {
         return None
@@ -816,8 +821,12 @@ fn eval_class_property_type_rejection_message(
         !(eval_lookup_class_decl(declarations, head) is Some(_)) {
         return None
       }
+      let diag_name = rejection_type_label(base)
+      if coerced is NullValue {
+        return Some("Expected value of type `\{diag_name}`, but got `null`.")
+      }
       Some(
-        "Expected value of type `\{base}`, but got type `\{eval_value_type_name(coerced)}`. Value: \{render_pcf_value_inline(coerced)}",
+        "Expected value of type `\{diag_name}`, but got type `\{eval_value_type_name(coerced)}`. Value: \{render_pcf_value_inline(coerced)}",
       )
     }
     None => None

@@ -920,9 +920,11 @@ fn eval_bool_method(
               "or" => Some(BoolValue(b || other))
               _ => None
             }
-          _ => {
+          other => {
             diagnostics.push(
-              diag("Bool.\{method_name} expects a Boolean argument"),
+              diag(
+                "Expected value of type `Boolean`, but got type `\{eval_value_type_name(other)}`. Value: \{render_pcf_value_inline(other)}",
+              ),
             )
             None
           }

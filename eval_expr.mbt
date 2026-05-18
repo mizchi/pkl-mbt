@@ -45,9 +45,13 @@ fn eval_expr_with_bindings(
           type_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
           resolve_import,
         ),
-        eval_object_members(
-          members, bindings, env, class_env, cache, stack, declarations, diagnostics,
-          resolve_import,
+        rename_overrides_for_hidden_class_properties(
+          eval_object_members(
+            members, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
+          ),
+          type_name,
+          class_env,
         ),
       )
       // PKL-148b: fire class-property constraints at construction time
@@ -63,23 +67,21 @@ fn eval_expr_with_bindings(
             // PKL-148i: enforce the declared type annotation first so
             // `new Person { name = 42 }` rejects with "Expected value
             // of type `String`, but got type `Int`. Value: 42" instead
-            // of silently keeping the integer. Restricted to literal
-            // value expressions: free-form expression bodies are
-            // still subject to a pre-existing forward-binding leak
-            // (locals from other module-level objects can resolve
-            // into a sibling body's identifier lookups), and firing
-            // the type check on the leaked value would mask the gold
-            // output of fixtures the leak does not otherwise break.
-            // Fixing the leak itself is tracked separately.
-            let value_is_literal = match field.value {
-              IntLiteral(_)
-              | FloatLiteral(_)
-              | StringLiteral(_)
-              | BoolLiteral(_)
-              | NullLiteral => true
+            // of silently keeping the integer. A pre-existing
+            // forward-binding leak lets `Identifier(...)` bodies
+            // resolve through sibling module-level locals; firing the
+            // type check on those leaked values would mask gold output
+            // for fixtures the leak does not otherwise break, so the
+            // bare-Identifier shape is skipped. All other expression
+            // shapes (literals, CallExpr-built collections, …) run
+            // the check so `xs = List("one")` against `xs: List<Int>`
+            // surfaces the element-type mismatch through
+            // `test.catch(...)`.
+            let value_skips_type_check = match field.value {
+              Identifier(_) => true
               _ => false
             }
-            let type_message = if value_is_literal {
+            let type_message = if !value_skips_type_check {
               eval_class_property_type_rejection_message(
                 type_name,
                 field.name,
@@ -143,7 +145,7 @@ fn eval_expr_with_bindings(
       if violation_emitted {
         None
       } else {
-        Some(ObjectValue(merged))
+        Some(ObjectValue(tag_object_with_class(merged, type_name)))
       }
     }
     ListingLiteral(elements) => {
@@ -1639,10 +1641,30 @@ fn eval_expr_with_bindings(
                       }
                     }
                   } else {
-                    eval_callable_call(
-                      callee, arguments, bindings, env, class_env, cache, stack,
-                      declarations, diagnostics, resolve_import,
-                    )
+                    // Method call against an ObjectValue receiver that
+                    // didn't match the JSON/YAML/isSubclassOf intercepts.
+                    // When the receiver carries a class tag (today only
+                    // `Dynamic`) surface Apple Pkl's class-context
+                    // wording instead of falling through to
+                    // `eval_callable_call`, which would re-evaluate the
+                    // MemberAccess callee and emit the property-context
+                    // `Cannot find property \`X\` in object of type
+                    // \`Dynamic\`.` form.
+                    match find_object_class_tag(receiver_members) {
+                      Some(class_tag) => {
+                        diagnostics.push(
+                          diag(
+                            "Cannot find method `\{method_name}` in class `\{class_tag}`.",
+                          ),
+                        )
+                        None
+                      }
+                      None =>
+                        eval_callable_call(
+                          callee, arguments, bindings, env, class_env, cache, stack,
+                          declarations, diagnostics, resolve_import,
+                        )
+                    }
                   }
                 Some(ListingValue(elements)) | Some(ListValue(elements)) =>
                   if is_listing_method_name(method_name) {
@@ -1987,8 +2009,12 @@ fn eval_expr_with_bindings(
           match left {
             Some(BoolValue(false)) => return Some(BoolValue(false))
             Some(BoolValue(true)) => ()
-            Some(_) => {
-              diagnostics.push(diag("operator && expects Boolean operands"))
+            Some(other) => {
+              diagnostics.push(
+                diag(
+                  "Operator `&&` is not defined for left operand type `\{eval_value_type_name(other)}`. Left operand: \{render_pcf_value_inline(other)}",
+                ),
+              )
               return None
             }
             None => return None
@@ -1999,8 +2025,12 @@ fn eval_expr_with_bindings(
               resolve_import,
             ) {
             Some(BoolValue(value)) => return Some(BoolValue(value))
-            Some(_) => {
-              diagnostics.push(diag("operator && expects Boolean operands"))
+            Some(other) => {
+              diagnostics.push(
+                diag(
+                  "Operator `&&` is not defined for right operand type `\{eval_value_type_name(other)}`. Right operand: \{render_pcf_value_inline(other)}",
+                ),
+              )
               return None
             }
             None => return None
@@ -2014,8 +2044,12 @@ fn eval_expr_with_bindings(
           match left {
             Some(BoolValue(true)) => return Some(BoolValue(true))
             Some(BoolValue(false)) => ()
-            Some(_) => {
-              diagnostics.push(diag("operator || expects Boolean operands"))
+            Some(other) => {
+              diagnostics.push(
+                diag(
+                  "Operator `||` is not defined for left operand type `\{eval_value_type_name(other)}`. Left operand: \{render_pcf_value_inline(other)}",
+                ),
+              )
               return None
             }
             None => return None
@@ -2026,8 +2060,12 @@ fn eval_expr_with_bindings(
               resolve_import,
             ) {
             Some(BoolValue(value)) => return Some(BoolValue(value))
-            Some(_) => {
-              diagnostics.push(diag("operator || expects Boolean operands"))
+            Some(other) => {
+              diagnostics.push(
+                diag(
+                  "Operator `||` is not defined for right operand type `\{eval_value_type_name(other)}`. Right operand: \{render_pcf_value_inline(other)}",
+                ),
+              )
               return None
             }
             None => return None
@@ -2115,11 +2153,13 @@ fn eval_expr_with_bindings(
                 ) {
                 return Some(value)
               } else {
-                diagnostics.push(
-                  diag(
-                    "Expected value of type `\{type_name}`, but got type `\{eval_value_type_name(value)}`. Value: \{render_pcf_value_inline(value)}",
-                  ),
-                )
+                let diag_name = rejection_type_label(type_name)
+                let message = if value is NullValue {
+                  "Expected value of type `\{diag_name}`, but got `null`."
+                } else {
+                  "Expected value of type `\{diag_name}`, but got type `\{eval_value_type_name(value)}`. Value: \{render_pcf_value_inline(value)}"
+                }
+                diagnostics.push(diag(message))
                 return None
               }
             }

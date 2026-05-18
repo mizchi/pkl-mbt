@@ -351,6 +351,57 @@ fn lookup_entry(entries : Array[ValueEntry], key : Value) -> Value? {
 }
 
 ///|
+/// Rename amend-body overrides whose bare name matches a `hidden`
+/// property on the target class. Apple Pkl inherits the `hidden`
+/// modifier across amend chains — `class X { hidden f: ... }` plus
+/// `new X { f = ... }` stores the override under `@hidden$f`, not the
+/// bare `f`, so renderers project an empty body instead of leaking
+/// the function value.
+fn rename_overrides_for_hidden_class_properties(
+  overrides : Array[ValueMember],
+  type_name : String,
+  class_env : Array[ClassBinding],
+) -> Array[ValueMember] {
+  let class_binding = match lookup_class_binding(class_env, type_name) {
+    Some(b) => b
+    None => return overrides
+  }
+  let hidden_names : Array[String] = []
+  for property in class_binding.properties {
+    if is_hidden_member_name(property.name) {
+      let bare = String::unsafe_substring(
+        property.name,
+        start=hidden_member_prefix.length(),
+        end=property.name.length(),
+      )
+      hidden_names.push(bare)
+    }
+  }
+  if hidden_names.length() == 0 {
+    return overrides
+  }
+  let renamed : Array[ValueMember] = []
+  for value_member in overrides {
+    let mut hidden_hit = false
+    for h in hidden_names {
+      if value_member.name == h {
+        hidden_hit = true
+        break
+      }
+    }
+    if hidden_hit {
+      renamed.push({
+        name: hidden_member_name(value_member.name),
+        value: value_member.value,
+      })
+    } else {
+      renamed.push(value_member)
+    }
+  }
+  renamed
+}
+
+///|
 fn merge_value_members(
   base : Array[ValueMember],
   overrides : Array[ValueMember],
@@ -364,7 +415,27 @@ fn merge_value_members(
     // a fresh visible `l` slot rather than overwriting the local.
     // `lookup_member` would conflate the two because it accepts either
     // form; `find_member_exact` matches only the stored name.
-    match find_member_exact(overrides, value_member.name) {
+    //
+    // When the base entry is hidden (`@hidden$x`), additionally accept a
+    // bare-name override (`x = ...`). Apple Pkl's `hidden` modifier on a
+    // class property is inherited by amend bodies that re-bind the same
+    // name; without this fallback the renderer would emit both the base
+    // `@hidden$x` (filtered out) and the override `x` (visible) for
+    // `hidden f: () -> Int` properties on classes like `lambdaConstraints1`.
+    let exact = find_member_exact(overrides, value_member.name)
+    let resolved = if exact is Some(_) {
+      exact
+    } else if is_hidden_member_name(value_member.name) {
+      let bare = String::unsafe_substring(
+        value_member.name,
+        start=hidden_member_prefix.length(),
+        end=value_member.name.length(),
+      )
+      find_member_exact(overrides, bare)
+    } else {
+      None
+    }
+    match resolved {
       Some(value) =>
         merged.push({
           name: value_member.name,
@@ -374,9 +445,17 @@ fn merge_value_members(
     }
   }
   for value_member in overrides {
-    if find_member_exact(base, value_member.name) is None {
-      merged.push(value_member)
+    if find_member_exact(base, value_member.name) is Some(_) {
+      continue
     }
+    // Skip overrides whose bare name was already absorbed by a hidden
+    // base member above. Otherwise the bare-name copy would render as
+    // a visible duplicate.
+    let hidden_alias = hidden_member_name(value_member.name)
+    if find_member_exact(base, hidden_alias) is Some(_) {
+      continue
+    }
+    merged.push(value_member)
   }
   merged
 }

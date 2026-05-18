@@ -366,21 +366,9 @@ fn eval_callable_argument_type_rejection_message(
       // PKL-148u: Apple Pkl quotes the RESOLVED type name in the
       // rejection diagnostic (not the source alias name). Strip a
       // trailing `?` so `Nullable = Duration?` shows as `Duration`.
-      let diag_name = {
-        let trimmed = pkl_constraint_trim(resolved)
-        let without_constraint = match pkl_constrained_type_base_name(trimmed) {
-          Some(base) => base
-          None => trimmed
-        }
-        if without_constraint.has_suffix("?") {
-          String::unsafe_substring(
-            without_constraint,
-            start=0,
-            end=without_constraint.length() - 1,
-          )
-        } else {
-          without_constraint
-        }
+      let diag_name = rejection_type_label(resolved)
+      if value is NullValue {
+        return Some("Expected value of type `\{diag_name}`, but got `null`.")
       }
       Some(
         "Expected value of type `\{diag_name}`, but got type `\{eval_value_type_name(value)}`. Value: \{render_pcf_value_inline(value)}",
@@ -432,8 +420,44 @@ fn eval_callable_argument_rejection_message(
 /// in Apple Pkl's constraint / type-mismatch wording.
 fn render_pcf_value_inline(value : Value) -> String {
   let buf = StringBuilder::new()
-  render_pcf_inline(value, 0, buf)
+  match value {
+    ObjectValue(members) =>
+      match find_object_class_tag(members) {
+        Some(name) => render_pcf_class_inline(name, members, buf)
+        None => render_pcf_inline(value, 0, buf)
+      }
+    _ => render_pcf_inline(value, 0, buf)
+  }
   buf.to_string()
+}
+
+///|
+/// Render an ObjectValue with an attached class tag in the inline-quote
+/// form Apple Pkl uses inside diagnostic strings — `new Dynamic {}` /
+/// `new Dynamic { x = 1 }`. Visible members only; the class tag itself
+/// stays hidden.
+fn render_pcf_class_inline(
+  class_name : String,
+  members : Array[ValueMember],
+  buf : StringBuilder,
+) -> Unit {
+  buf.write_string("new ")
+  buf.write_string(class_name)
+  let visible = visible_members(members)
+  if visible.length() == 0 {
+    buf.write_string(" {}")
+    return
+  }
+  buf.write_string(" { ")
+  for i = 0; i < visible.length(); i = i + 1 {
+    if i > 0 {
+      buf.write_string("; ")
+    }
+    buf.write_string(visible[i].name)
+    buf.write_string(" = ")
+    render_pcf_scalar(visible[i].value, buf)
+  }
+  buf.write_string(" }")
 }
 
 ///|
@@ -570,8 +594,12 @@ fn eval_callable_return_rejection_message(
         // `Value: <pcf>` segment mirrors upstream — it renders the
         // failing value with the standard PCF inline form so the
         // user sees what was rejected.
+        let diag_name = rejection_type_label(type_name)
+        if value is NullValue {
+          return Some("Expected value of type `\{diag_name}`, but got `null`.")
+        }
         Some(
-          "Expected value of type `\{type_name}`, but got type `\{eval_value_type_name(value)}`. Value: \{render_pcf_value_inline(value)}",
+          "Expected value of type `\{diag_name}`, but got type `\{eval_value_type_name(value)}`. Value: \{render_pcf_value_inline(value)}",
         )
       } else {
         // PKL-148ae: Apple Pkl's return-side constraint diagnostic

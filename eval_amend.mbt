@@ -1,4 +1,52 @@
 ///|
+/// Stdlib collection-type heads whose generic parameters Apple Pkl
+/// strips from rejection diagnostics (`List<Int>` → `List`,
+/// `Map<String,Int>` → `Map`). User-defined generic classes keep
+/// their parameters since the diagnostic is the only place that
+/// parameter text appears.
+fn is_stdlib_collection_head(name : String) -> Bool {
+  match name {
+    "List" | "Listing" | "Set" | "Map" | "Mapping" | "Collection" | "Pair" =>
+      true
+    _ => false
+  }
+}
+
+///|
+/// Normalise a type annotation for use inside a rejection diagnostic
+/// (`Expected value of type \`<label>\``). Apple Pkl strips trailing
+/// `?` and drops generic parameters for stdlib collection types but
+/// keeps them for user-defined generics — the only place those
+/// parameter names surface to the user.
+fn rejection_type_label(type_name : String) -> String {
+  let trimmed = pkl_constraint_trim(type_name)
+  let without_constraint = match pkl_constrained_type_base_name(trimmed) {
+    Some(base) => base
+    None => trimmed
+  }
+  let without_q = if without_constraint.has_suffix("?") {
+    String::unsafe_substring(
+      without_constraint,
+      start=0,
+      end=without_constraint.length() - 1,
+    )
+  } else {
+    without_constraint
+  }
+  match without_q.find("<") {
+    Some(idx) => {
+      let head = String::unsafe_substring(without_q, start=0, end=idx)
+      if is_stdlib_collection_head(head) {
+        head
+      } else {
+        without_q
+      }
+    }
+    None => without_q
+  }
+}
+
+///|
 /// PKL-148u: detect whether `base` is the name of a generic
 /// typealias declaration (`typealias Box<T> = Listing<T>`). Used to
 /// suppress structural rejection of `Box<Int>` etc., since the
@@ -67,22 +115,7 @@ fn eval_resolved_annotation_structural_rejection_message(
   // for `Simple = String`; `Expected value of type \`Int|Boolean\``
   // for `Union = Int|Boolean`). Strip a trailing `?` since the
   // gold format is `\`Duration\`` not `\`Duration?\``.
-  let diag_name = {
-    let trimmed = pkl_constraint_trim(resolved)
-    let without_constraint = match pkl_constrained_type_base_name(trimmed) {
-      Some(base) => base
-      None => trimmed
-    }
-    if without_constraint.has_suffix("?") {
-      String::unsafe_substring(
-        without_constraint,
-        start=0,
-        end=without_constraint.length() - 1,
-      )
-    } else {
-      without_constraint
-    }
-  }
+  let diag_name = rejection_type_label(resolved)
   for choice in choices {
     let trimmed = pkl_constraint_trim(choice)
     let without_constraint = match pkl_constrained_type_base_name(trimmed) {
@@ -124,6 +157,12 @@ fn eval_resolved_annotation_structural_rejection_message(
   }
   if !any_known_head {
     return None
+  }
+  // Apple Pkl shortens the diagnostic when the offending value is
+  // `null` — `Expected value of type \`List\`, but got \`null\`.` —
+  // dropping the `got type ...` clause and the trailing `Value:`.
+  if value is NullValue {
+    return Some("Expected value of type `\{diag_name}`, but got `null`.")
   }
   Some(
     "Expected value of type `\{diag_name}`, but got type `\{eval_value_type_name(value)}`. Value: \{render_pcf_value_inline(value)}",

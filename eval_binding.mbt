@@ -286,6 +286,54 @@ fn push_sibling_class_methods(
 }
 
 ///|
+/// Stable hidden-member key used to attach a class name to an
+/// ObjectValue. Today this is only set for `new Dynamic { ... }`
+/// expressions so diagnostic output can render `new Dynamic {}` and
+/// `got type \`Dynamic\`` instead of the generic `Object` / `new {}`
+/// form. The user-class tagging is deferred — broader adoption would
+/// shift many downstream diagnostic surfaces in one go.
+fn class_tag_member_name() -> String {
+  hidden_member_name("__class")
+}
+
+///|
+fn tag_object_with_class(
+  members : Array[ValueMember],
+  class_name : String,
+) -> Array[ValueMember] {
+  if class_name != "Dynamic" {
+    return members
+  }
+  let tag_name = class_tag_member_name()
+  for m in members {
+    if m.name == tag_name {
+      return members
+    }
+  }
+  let tagged : Array[ValueMember] = [
+    { name: tag_name, value: StringValue(class_name) },
+  ]
+  for m in members {
+    tagged.push(m)
+  }
+  tagged
+}
+
+///|
+fn find_object_class_tag(members : Array[ValueMember]) -> String? {
+  let tag_name = class_tag_member_name()
+  for m in members {
+    if m.name == tag_name {
+      return match m.value {
+        StringValue(s) => Some(s)
+        _ => None
+      }
+    }
+  }
+  None
+}
+
+///|
 fn eval_value_type_name(value : Value) -> String {
   match value {
     IntValue(_) => "Int"
@@ -293,7 +341,11 @@ fn eval_value_type_name(value : Value) -> String {
     BoolValue(_) => "Boolean"
     StringValue(_) => "String"
     NullValue => "Null"
-    ObjectValue(_) => "Object"
+    ObjectValue(members) =>
+      match find_object_class_tag(members) {
+        Some(name) => name
+        None => "Object"
+      }
     ListingValue(_) => "Listing"
     ListValue(_) => "List"
     MappingValue(_) => "Mapping"
