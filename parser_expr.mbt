@@ -548,7 +548,28 @@ fn Parser::parse_lambda_expr(self : Parser) -> Expr {
     }
   }
   ignore(self.expect(rparen(), ")"))
-  let return_type_name = self.parse_type_annotation()
+  // PKL-148bb: lambda return type stops at the body-marker `->`.
+  // `parse_type_annotation`'s default (`stop_at_arrow=false`) is the
+  // right call for class-method parameter / return slots where a
+  // function-typed annotation (`(String) -> Int`) should land whole,
+  // but a lambda's own return slot is immediately followed by the
+  // body's `->` and must stop before it.
+  self.skip_whitespace()
+  let return_type_name = if self.at(colon()) {
+    ignore(self.bump())
+    self.skip_whitespace()
+    let t = self.parse_type_text(
+      stop_at_arrow=true,
+      stop_at_expression_operator=false,
+    )
+    if t == "" {
+      None
+    } else {
+      Some(t)
+    }
+  } else {
+    None
+  }
   ignore(self.expect(arrow(), "->"))
   let body = self.parse_expr()
   self.builder.finish_node()

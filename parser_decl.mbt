@@ -155,8 +155,13 @@ fn Parser::parse_type_annotation(self : Parser) -> String? {
   }
   ignore(self.bump())
   self.skip_whitespace()
+  // PKL-148bb: `stop_at_arrow=false` so a function-typed parameter
+  // (`function lambda(lambda: (String) -> Int) = lambda`) captures the
+  // full function type as the parameter annotation. Lambda parameter
+  // lists (`(a: Int) -> body`) still parse correctly because the outer
+  // `)` ends the type text before the body's `->` is seen.
   let type_name = self.parse_type_text(
-    stop_at_arrow=true,
+    stop_at_arrow=false,
     stop_at_expression_operator=false,
   )
   if type_name == "" {
