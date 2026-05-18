@@ -2190,6 +2190,88 @@ fn eval_callable_argument_type_rejection_message(
         matched
       }
       if union_accepted {
+        // PKL-148af: head-level acceptance still needs to walk a
+        // `List<X>` / `Listing<X>` / `Set<X>` / `Map<K, V>` /
+        // `Mapping<K, V>` value's elements against the inner type so
+        // `f3(List("foo", 42))` against `x: List<String>` rejects the
+        // `42` element with the same `"Expected value of type \`X\`,
+        // but got type \`Y\`. Value: <v>"` wording. Strip the outer
+        // constraint and recurse into the cascade per element / entry;
+        // the first violation surfaces and the rest are silenced
+        // (matches Apple Pkl's fail-fast diag ordering).
+        let resolved_base = match pkl_constrained_type_base_name(resolved) {
+          Some(b) => b
+          None => resolved
+        }
+        let listing_or_list_or_set = match
+          generic_argument_text(resolved_base, "Listing") {
+          Some(t) => Some(t)
+          None =>
+            match generic_argument_text(resolved_base, "List") {
+              Some(t) => Some(t)
+              None => generic_argument_text(resolved_base, "Set")
+            }
+        }
+        match listing_or_list_or_set {
+          Some(element_type) =>
+            match value {
+              ListingValue(elements)
+              | ListValue(elements)
+              | SetValue(elements) =>
+                for element in elements {
+                  match
+                    eval_callable_argument_type_rejection_message(
+                      Some(element_type),
+                      element,
+                      declarations,
+                    ) {
+                    Some(message) => return Some(message)
+                    None => ()
+                  }
+                }
+              _ => ()
+            }
+          None => ()
+        }
+        let mapping_or_map = match
+          generic_argument_text(resolved_base, "Mapping") {
+          Some(t) => Some(t)
+          None => generic_argument_text(resolved_base, "Map")
+        }
+        match mapping_or_map {
+          Some(inner_text) => {
+            let parts = split_top_level_generic_arguments(inner_text)
+            if parts.length() == 2 {
+              let key_type = parts[0]
+              let value_type = parts[1]
+              match value {
+                MappingValue(entries) | MapValue(entries) =>
+                  for entry in entries {
+                    match
+                      eval_callable_argument_type_rejection_message(
+                        Some(key_type),
+                        entry.key,
+                        declarations,
+                      ) {
+                      Some(message) => return Some(message)
+                      None => ()
+                    }
+                    match
+                      eval_callable_argument_type_rejection_message(
+                        Some(value_type),
+                        entry.value,
+                        declarations,
+                      ) {
+                      Some(message) => return Some(message)
+                      None => ()
+                    }
+                  }
+                _ => ()
+              }
+            }
+          }
+          None => ()
+        }
         return None
       }
       // PKL-148u: Apple Pkl quotes the RESOLVED type name in the

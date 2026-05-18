@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklTypeRejectionWalksCollectionElementsScenario = new Scenario {
+  id = "PKL-148af"
+  name = "callable arg type rejection walks collection elements"
+  description =
+    "Apple Pkl's callable parameter type check walks the element type for `List<X>` / `Listing<X>` / `Set<X>` / `Map<K, V>` / `Mapping<K, V>` arguments even when the head accepts: `f3(List(\"foo\", 42))` against `x: List<String>` rejects element `42` with `\"Expected value of type \\\\`String\\\\`, but got type \\\\`Int\\\\`. Value: 42\"`. pkl-mbt's `eval_callable_argument_type_rejection_message` accepted the head (`List` matched `eval_value_accepts_type_annotation` for ListValue) and returned None — so the element-type mismatch never surfaced; only constraint-side element walks (PKL-148ae) actually fired the per-element cascade. The fix folds the element / entry walk into the type-rejection arm right after `union_accepted`: strip the resolved type's outer constraint via `pkl_constrained_type_base_name`, then try `Listing` / `List` / `Set` and `Mapping` / `Map` prefixes via `generic_argument_text`. For matching collection values, recurse into `eval_callable_argument_type_rejection_message` per element / per (key, value) entry; the first violation surfaces and the rest are silenced (Apple Pkl's fail-fast diag order). +1 fixture (`basic/localTypedModuleMember`), 132 → 133; basic category 43.0% → 44.2%."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148ae" }
+  tags { "evaluator"; "constraints"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Recurse through `eval_callable_argument_type_rejection_message` per element"
+      rationale =
+        "A separate `walk_collection_elements` helper would have duplicated the type-name normalisation cascade (typealias → union → constraint strip → generic head). Folding the walk into the existing function lets nested containers (`List<List<String>>`) flow through the same code path without ad-hoc plumbing — the recursive call lands on the inner type and the cascade re-runs from the top."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Fail-fast on first violation rather than collecting every offending element"
+      rationale =
+        "Apple Pkl's snippet tests capture a single diagnostic string per `test.catch(...)`; collecting all per-element diagnostics would either change the wording (multi-line) or pick an arbitrary one. First-violation matches upstream's diag ordering and keeps the cascade O(n) in the common case where a single bad element fails the check."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Walk Set elements through the List branch (no dedicated SetValue case)"
+      rationale =
+        "`SetValue(elements)` already shares the `Array[Value]` shape with `ListValue` / `ListingValue`; matching it in the same arm and recursing through the element type keeps the dispatch flat. A dedicated `Set<X>` arm would re-do the same per-element walk against the same inner type — no benefit, and adds another match leg to keep in sync when the inner cascade evolves."
+    }
+  }
+}
+
 local pklConstraintCascadeListMapOptionalScenario = new Scenario {
   id = "PKL-148ae"
   name = "constraint cascade extends to List Map Optional element walks"
@@ -5162,5 +5194,6 @@ scenarios {
   pklModuleLevelSuperDispatchScenario
   pklAtPrefixLocalDepImportScenario
   pklConstraintCascadeListMapOptionalScenario
+  pklTypeRejectionWalksCollectionElementsScenario
   ...roadmap.entries
 }

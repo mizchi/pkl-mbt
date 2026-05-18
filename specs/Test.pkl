@@ -1293,6 +1293,7 @@ local upstreamSmoke = new Test {
     "PKL-148ac"
     "PKL-148ad"
     "PKL-148ae"
+    "PKL-148af"
   }
   cmd = "./scripts/upstream-smoke.sh"
   workdir = ".."
@@ -1408,9 +1409,10 @@ local upstreamSmoke = new Test {
     "upstream eval ok: modules/extendModule1 (gold match)"
     "upstream eval ok: projects/project7/spacesInImport (gold match)"
     "upstream eval ok: methods/methodParameterConstraints2 (gold match)"
+    "upstream eval ok: basic/localTypedModuleMember (gold match)"
     "upstream json eval ok: api/jsonRenderer1.json (gold match)"
     "upstream eval ok: api/pListRenderer1.plist (gold match)"
-    "upstream-smoke: 132 gold-match fixtures passed"
+    "upstream-smoke: 133 gold-match fixtures passed"
     "upstream-smoke: 1 json gold-match fixtures passed"
     "upstream-smoke: 1 plist gold-match fixtures passed"
   }
