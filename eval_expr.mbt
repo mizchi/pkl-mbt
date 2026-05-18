@@ -40,19 +40,38 @@ fn eval_expr_with_bindings(
         ),
       )
     TypedObjectLiteral(type_name, members) => {
-      let merged = merge_value_members(
-        eval_class_default_members(
-          type_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
-          resolve_import,
-        ),
-        rename_overrides_for_hidden_class_properties(
-          eval_object_members(
-            members, bindings, env, class_env, cache, stack, declarations, diagnostics,
-            resolve_import,
+      let class_defaults = eval_class_default_members(
+        type_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      )
+      // PKL-148bb: expose class defaults as fallback bindings inside
+      // the body's lookup chain so a body member that references a
+      // bare name not declared in the body still resolves
+      // (`new Foo { x = y }` where Foo has `y = 1` and the surrounding
+      // scope has no `y` — Apple Pkl picks up the class-default `y`).
+      // Prepended to `bindings`: `find_binding` returns the *last*
+      // match, so outer siblings still shadow the class default when
+      // both are present (`objects/lateBinding3` expects `x = 3`
+      // because outer `y = 3` beats the class-default `y = 1`).
+      let body_bindings : Array[Binding] = []
+      collect_class_default_bindings(body_bindings, type_name, class_env)
+      for b in bindings {
+        body_bindings.push(b)
+      }
+      let merged = reorder_typed_object_members_by_class_declaration(
+        merge_value_members(
+          class_defaults,
+          rename_overrides_for_hidden_class_properties(
+            eval_object_members(
+              members, body_bindings, env, class_env, cache, stack, declarations,
+              diagnostics, resolve_import,
+            ),
+            type_name,
+            class_env,
           ),
-          type_name,
-          class_env,
         ),
+        type_name,
+        class_env,
       )
       // PKL-148b: fire class-property constraints at construction time
       // so `new P { l {} }` where `l: Listing<String>(!isEmpty)` raises
@@ -3114,6 +3133,20 @@ fn merge_objects_with_late_binding(
       // visible `l = "override"` must not re-trigger `x = l` whose
       // original `l` resolved against the base body's `local l`.)
       if is_local_member_name(bm.name) {
+        continue
+      }
+      // A base slot with `source: None` came from a class default or a
+      // synthetic build path that didn't participate in body-level
+      // sibling resolution. The body's references may have resolved to
+      // an outer scope instead, and without per-reference binding-
+      // target tracking we can't tell — so skip these to keep the safe
+      // case (`lateBinding3.v3`: amending `foo.y = 5` overrides the
+      // class-default `y`, but the body's `x = y` originally went to
+      // the outer `y = 3` and must not pick up the new inner one). The
+      // unavoidable cost is `lateBinding4.v3` foo, where the class
+      // default *was* the target and the re-trigger would propagate
+      // `y = 5` into `x`; deferred until per-reference targets land.
+      if bm.source is None {
         continue
       }
       let bm_bare = strip_member_visibility_prefix(bm.name)

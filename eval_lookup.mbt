@@ -273,6 +273,114 @@ fn lookup_class_binding(
 }
 
 ///|
+/// PKL-148bb: rebuild a TypedObjectLiteral's merged member array in
+/// class-declaration order. Apple Pkl renders typed instances in the
+/// order the class declares its properties — defaults that the body
+/// supplies (`class Foo { x: Int; y = 1 }` → `new Foo { x = y }`)
+/// should still emit `x` before `y` even though `x` lacks a class-level
+/// default value and joins the merged list only via the body. Walks
+/// the class chain (parent first, then own properties) and rebuilds the
+/// array in that order; members not matching any declared property are
+/// appended at the end to keep visibility-prefixed slots / synthetic
+/// sentinels in place.
+fn reorder_typed_object_members_by_class_declaration(
+  merged : Array[ValueMember],
+  type_name : String,
+  class_env : Array[ClassBinding],
+) -> Array[ValueMember] {
+  let declared_order : Array[String] = []
+  collect_class_property_names(declared_order, type_name, class_env)
+  if declared_order.length() == 0 {
+    return merged
+  }
+  let consumed : Array[Bool] = Array::make(merged.length(), false)
+  let ordered : Array[ValueMember] = []
+  for declared_name in declared_order {
+    for i = 0; i < merged.length(); i = i + 1 {
+      if consumed[i] {
+        continue
+      }
+      let bare = strip_member_visibility_prefix(merged[i].name)
+      if bare == declared_name {
+        ordered.push(merged[i])
+        consumed[i] = true
+      }
+    }
+  }
+  for i = 0; i < merged.length(); i = i + 1 {
+    if !consumed[i] {
+      ordered.push(merged[i])
+    }
+  }
+  ordered
+}
+
+///|
+/// PKL-148bb: build fallback `Binding` entries from a class's declared
+/// property defaults (including inherited properties via the parent
+/// chain). Used by the TypedObjectLiteral handler so a body member
+/// can fall through to a class-default expression when neither the
+/// body nor the enclosing scope supplies the name.
+fn collect_class_default_bindings(
+  out : Array[Binding],
+  type_name : String,
+  class_env : Array[ClassBinding],
+) -> Unit {
+  match lookup_class_binding(class_env, type_name) {
+    Some(class_binding) => {
+      match class_binding.parent_name {
+        Some(parent) =>
+          collect_class_default_bindings(out, parent, class_env)
+        None => ()
+      }
+      for property in class_binding.properties {
+        match property.value {
+          Some(value) =>
+            out.push({
+              name: property.name,
+              type_name: property.type_name,
+              value,
+              exported: true,
+              abstract_slot: false,
+            })
+          None => ()
+        }
+      }
+    }
+    None => ()
+  }
+}
+
+///|
+fn collect_class_property_names(
+  out : Array[String],
+  type_name : String,
+  class_env : Array[ClassBinding],
+) -> Unit {
+  match lookup_class_binding(class_env, type_name) {
+    Some(class_binding) => {
+      match class_binding.parent_name {
+        Some(parent) => collect_class_property_names(out, parent, class_env)
+        None => ()
+      }
+      for property in class_binding.properties {
+        let mut already = false
+        for existing in out {
+          if existing == property.name {
+            already = true
+            break
+          }
+        }
+        if !already {
+          out.push(property.name)
+        }
+      }
+    }
+    None => ()
+  }
+}
+
+///|
 fn lookup_eval_type_alias(
   env : Array[EvalTypeAliasBinding],
   name : String,

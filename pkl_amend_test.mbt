@@ -741,8 +741,12 @@ test "support Pkl qualified class inheritance types" {
           name: "teacher",
           value: ObjectValue([
             ValueMember::{ name: "name", value: StringValue("anon"), source: None },
-            ValueMember::{ name: "subject", value: StringValue("math"), source: None },
             ValueMember::{ name: "age", value: IntValue(3), source: None },
+            ValueMember::{
+              name: "subject",
+              value: StringValue("math"),
+              source: None,
+            },
           ]), source: None
         },
         ValueMember::{ name: "name", value: StringValue("anon"), source: None },

@@ -954,7 +954,7 @@ fn eval_class_default_members(
       None => ()
     }
   }
-  merge_value_members(
+  let combined = merge_value_members(
     base_values,
     eval_object_members_with_options(
       defaults,
@@ -969,4 +969,18 @@ fn eval_class_default_members(
       defer_property_errors=true,
     ),
   )
+  // Strip the captured `source` from each class-default slot. The body
+  // that amends a `new Foo { ... }` instance never reads class defaults
+  // as siblings — Apple Pkl resolves bare references against the body
+  // and outer scope first — so the late-binding pass must treat these
+  // slots as "not body-declared" and skip them from in-base shadowing.
+  let stripped : Array[ValueMember] = []
+  for value_member in combined {
+    stripped.push({
+      name: value_member.name,
+      value: value_member.value,
+      source: None,
+    })
+  }
+  stripped
 }
