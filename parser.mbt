@@ -1041,8 +1041,27 @@ fn Parser::parse_type_text(
         self.at(rbrace()) ||
         self.at(comma()) ||
         (stop_at_arrow && self.at(arrow())) ||
-        (stop_at_expression_operator && self.at_type_expression_boundary()) ||
-        is_separator(self.peek_kind()) {
+        (stop_at_expression_operator && self.at_type_expression_boundary()) {
+        break
+      }
+      if is_separator(self.peek_kind()) {
+        // PKL-148ap: a separator at top level normally ends the type
+        // text, but Apple Pkl lets a union typealias body wrap onto
+        // a continuation line whose first significant token is `|`:
+        //   typealias A =
+        //     "a"
+        //     | "b"
+        //     | "c"
+        // Peek past the trivia run; if the next significant token is
+        // `|`, swallow the separators and continue collecting the
+        // type text. Otherwise the separator is a real boundary
+        // (`typealias A = Int\n typealias B = Float` etc.) and we
+        // stop here.
+        let next_kind = self.peek_non_trivia_kind(self.pos + 1)
+        if next_kind == pipe() {
+          self.skip_trivia()
+          continue
+        }
         break
       }
     }
@@ -1537,7 +1556,20 @@ fn Parser::parse_property_decl(self : Parser) -> Binding? {
     // type at this point, so dispatch by peeking the first significant
     // token inside the brace, the same way PKL-138 does for
     // `new { ... }`.
-    self.parse_inferred_new_body()
+    let mut body = self.parse_inferred_new_body()
+    // PKL-148ap: `name { body1 } { body2 }` chains additional amend
+    // bodies onto the same property. Apple Pkl's `foo { bar { "Hello"
+    // } } { bar { "World" } }` produces the merged value where the
+    // second body amends the first. Each trailing `{` wraps the
+    // running expression in an `AmendExpr`.
+    while ({
+            self.skip_trivia()
+            self.at(lbrace())
+          }) {
+      let members = self.parse_object_body_members()
+      body = AmendExpr(body, members)
+    }
+    body
   } else if ({
       self.skip_whitespace()
       self.at(eq())
@@ -3180,7 +3212,19 @@ fn Parser::parse_object_member(self : Parser) -> ObjectMember? {
     // dispatcher so a `converters { ["k"] = v }` mapping inside a
     // renderer object isn't silently dropped (object-body parsing
     // would skip the bracket-keyed entries as unknown members).
-    self.parse_inferred_new_body()
+    let mut body = self.parse_inferred_new_body()
+    // PKL-148ap: chain trailing `{ ... }` bodies as additional amend
+    // layers, mirroring the module-level property amend chain.
+    // `baz { "first" } { "second" "third" } { "forth" }` inside an
+    // object body wraps the running value in successive AmendExprs.
+    while ({
+            self.skip_trivia()
+            self.at(lbrace())
+          }) {
+      let members = self.parse_object_body_members()
+      body = AmendExpr(body, members)
+    }
+    body
   } else if ({
       self.skip_whitespace()
       self.at(eq())

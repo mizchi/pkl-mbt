@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklAmendChainAndUnionContinuationScenario = new Scenario {
+  id = "PKL-148ap"
+  name = "amend chain plus multi-line union typealias plus listing element append"
+  description =
+    "Three small parser / eval fixes that share the goal of shrinking the `unsupported expression` class without yet picking up a flippable fixture. (1) Multi-line typealias union: Apple Pkl allows the body of a `typealias A = ...` to wrap onto a continuation line whose first significant token is `|` (`typealias A =\\n  \"a\"\\n  | \"b\"\\n  | \"c\"`). `parse_type_text` previously broke at any top-level separator, so the newline after `\"a\"` ended the type and the leading `|` on the next line became a syntactic dangling token. The fix peeks past the separator run: if the next significant token is `|`, the type-text walker swallows the separators and keeps collecting. (2) Amend chain at module-level property AND object-member positions: `foo { body1 } { body2 }` chains additional brace bodies onto the same property as successive `AmendExpr` layers. Apple Pkl's `foo { bar { \"Hello\" } } { bar { \"World\" } }` is parsed identically to `foo = AmendExpr(AmendExpr(<body1>, <body2>))`. The `parse_inferred_new_body` call inside `parse_property_decl` / `parse_object_member` is followed by a `while at(lbrace())` loop that wraps the running value in another `AmendExpr` per trailing brace. (3) Bare scalar element in a listing-amend body: `(listing) { \"x\"; \"y\" }` now appends one element per scalar. `eval_listing_subscript_amend` previously expected the `@element$` payload to evaluate to a Listing / List / Set (for spread-style splice) and the `Some(_) => ()` catch-all silently dropped scalars; the new arm checks the name prefix and pushes the scalar verbatim. No PCF count change — basic/amendsChains still stalls on predicate-member `[[ pred ]] { ... }` and on the implicit-amend-on-same-name semantic where `bar { ... }` (no `=`) inside an object body should amend the prior `bar` rather than override; that piece is a separate slice because it requires either an `AmendExpr(Identifier(name), body)` wrap at parse time (with a graceful fallback when no prior binding exists) or a metadata flag on ObjectMember that `merge_value_members` can read. `unsupported expression` class shrinks 24 → 23 (classes/unionTypesErrorAlias drops out)."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148ao" }
+  tags { "parser"; "evaluator"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Peek past separators only when the next significant token is `|`"
+      rationale =
+        "A blanket \"never stop at a separator\" rule would change the boundary semantics for every other declaration shape (module-level `foo: Int` followed by another binding, function parameter lists, etc.) and risk pulling the next member into the running typealias's type text. Restricting the peek to the `|` case keeps the type-text walker's primary stop semantics intact and matches the only fixture motivation — multi-line union typealias bodies."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Mirror the amend chain loop at both parse_property_decl and parse_object_member"
+      rationale =
+        "The amend-chain shape is syntactically identical at module-level (`foo { } { }`) and at object-member position (`baz { } { } { }` inside `bar { ... }`). Doing the loop in both places — rather than refactoring to a shared helper — costs ~6 lines of duplication and keeps the two parse paths' bodies independent. A shared helper would have to thread the `parse_inferred_new_body` return and the loop into both call sites; the cost is symmetric and the bodies stay legible."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Listing element-append for scalars is a separate arm from the generator-splice arm"
+      rationale =
+        "The `@element$` sentinel can carry either a single value (a bare element like `\"x\"`) or a collection payload from a generator (`@for`-produced ListingValue). The previous code lumped them under one arm that expected a collection; the splice was correct for the generator case and the scalar case was the silent miss. Splitting into two arms — one for collection types that splice, one for scalars that append — keeps the semantics local to the value shape and the existing generator behaviour untouched."
+    }
+  }
+}
+
 local pklRawStringInterpolationScenario = new Scenario {
   id = "PKL-148ao"
   name = "raw string interpolation plus raw escape decoding plus unicode escape plus heredoc backslash"
@@ -5465,5 +5497,6 @@ scenarios {
   pklPcfHeredocAndDynamicOrderingScenario
   pklRawStringLiteralScenario
   pklRawStringInterpolationScenario
+  pklAmendChainAndUnionContinuationScenario
   ...roadmap.entries
 }

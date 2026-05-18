@@ -1,6 +1,6 @@
 # Test SPEC
 
-259 tests across 2 module(s) — 194 pending, 65 active
+260 tests across 2 module(s) — 195 pending, 65 active
 
 ## `specs/`
 
@@ -219,6 +219,13 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-034
   - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **amend chain plus multi-line union typealias plus listing element append** (minor) — verifies: PKL-148ap — tags: parser, evaluator, upstream, compat
+  > Three small parser / eval fixes that share the goal of shrinking the `unsupported expression` class without yet picking up a flippable fixture. (1) Multi-line typealias union: Apple Pkl allows the body of a `typealias A = ...` to wrap onto a continuation line whose first significant token is `|` (`typealias A =\n  "a"\n  | "b"\n  | "c"`). `parse_type_text` previously broke at any top-level separator, so the newline after `"a"` ended the type and the leading `|` on the next line became a syntactic dangling token. The fix peeks past the separator run: if the next significant token is `|`, the type-text walker swallows the separators and keeps collecting. (2) Amend chain at module-level property AND object-member positions: `foo { body1 } { body2 }` chains additional brace bodies onto the same property as successive `AmendExpr` layers. Apple Pkl's `foo { bar { "Hello" } } { bar { "World" } }` is parsed identically to `foo = AmendExpr(AmendExpr(<body1>, <body2>))`. The `parse_inferred_new_body` call inside `parse_property_decl` / `parse_object_member` is followed by a `while at(lbrace())` loop that wraps the running value in another `AmendExpr` per trailing brace. (3) Bare scalar element in a listing-amend body: `(listing) { "x"; "y" }` now appends one element per scalar. `eval_listing_subscript_amend` previously expected the `@element$` payload to evaluate to a Listing / List / Set (for spread-style splice) and the `Some(_) => ()` catch-all silently dropped scalars; the new arm checks the name prefix and pushes the scalar verbatim. No PCF count change — basic/amendsChains still stalls on predicate-member `[[ pred ]] { ... }` and on the implicit-amend-on-same-name semantic where `bar { ... }` (no `=`) inside an object body should amend the prior `bar` rather than override; that piece is a separate slice because it requires either an `AmendExpr(Identifier(name), body)` wrap at parse time (with a graceful fallback when no prior binding exists) or a metadata flag on ObjectMember that `merge_value_members` can read. `unsupported expression` class shrinks 24 → 23 (classes/unionTypesErrorAlias drops out).
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-148ao
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **amends base module property and type merge** — verifies: PKL-137 — tags: evaluator, typechecker, amends, pkf-pkspec
@@ -1081,10 +1088,10 @@
   - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **super late binding amend lambda form class-aware object equality** [draft] — verifies: PKL-148ap — tags: evaluator, stdlib, upstream, compat, next
+- [ ] **super late binding amend lambda form class-aware object equality** [draft] — verifies: PKL-148aq — tags: evaluator, stdlib, upstream, compat, next
   > PKL-148ak folded the `@error$` deferred-rejection prefix into the invisible-member set, hoisted the sentinel into per-field env, and added an Identifier intercept so `test.catch(() -> bad_local)` captures the deferred diagnostic against typed locals (+1 fixture, 143 → 144; basic 55.8% → 57.0%); PKL-148al added the PCF triple-quoted heredoc form for multi-line strings at block positions and reordered Dynamic-shape projection so named properties land before bare elements / subscript entries (+1 fixture, 144 → 145; api 7.4% → 8.4%). The harder remaining pieces — all of which require non-local evaluator work — are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this, needed for `objects/super2` / `super3` / `super4`, `classes/supercallsInLet`, and `basic/moduleRef3`'s `const a = 44` override of the parent's `aa = module.a`); the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambda*` fixtures); runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`); constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13); class-aware ObjectValue tagging so `new Person {} != new Person2 {}` (needed for `objects/equality`'s c-block + composite Mapping keys in `mappings/mapping1` that PKL-148k currently sidesteps via a scalar-only duplicate-check gate — a prototype hidden `__class` marker landed in PKL-148i but was reverted after it broke 14 structural-equality unit tests; the right shape is a dedicated `ObjectValue(class_name: String?, members)` enum-shape refactor); the `pipeOperator` res11 diagnostic also needs the class-aware tag to project `pipeOperator#Person` / `new Person {}`; object-body amend chain (`(obj) { ... } { ... }` — needed for `objects/equality` a11); free-form (non-literal) amend-override rejections (`(res3) { y = expr }` against `Int(this > x)` constraints — gated today on the upstream forward-binding leak where a sibling object's `local x = 1` resolves into a later object body's identifier lookup); listing/mapping body re-eval on amend so listing `(x) {}` / `default = N` work (needed for `listings/equality`, `listings/inequality`, `mappings/equality`, `mappings/inequality`). Listing/List-method receiver-tag preservation (`list.map(...)` returns a List, `listing.map(...)` returns a Listing) is a sub-task too; today the dispatcher always re-wraps as ListingValue. Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along; PcfRenderer / JsonRenderer instance-method bodies (renderDocument / renderValue) plus converter dispatch (`converters { [Any] = ...; [Dog] = ... }` + regex path matching) are the next api/-shaped slice once the leverage analysis surfaces a 1-flip-per-feature angle.
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-148ao
+  - depends on: PKL-148ap
   - body: _not yet implemented_
 
 - [ ] **super method call** — verifies: PKL-117a — tags: evaluator, inheritance
@@ -1596,7 +1603,7 @@
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
-- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d, PKL-148e, PKL-148f, PKL-148g, PKL-148h, PKL-148i, PKL-148j, PKL-148k, PKL-148l, PKL-148m, PKL-148n, PKL-148o, PKL-148p, PKL-148q, PKL-148r, PKL-148s, PKL-148t, PKL-148u, PKL-148v, PKL-148w, PKL-148x, PKL-148y, PKL-148aa, PKL-148ab, PKL-148ac, PKL-148ad, PKL-148ae, PKL-148af, PKL-148ag, PKL-148ah, PKL-148ai, PKL-148aj, PKL-148ak, PKL-148al, PKL-148an, PKL-148ao — tags: moonbit, upstream, compatibility, contract
+- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d, PKL-148e, PKL-148f, PKL-148g, PKL-148h, PKL-148i, PKL-148j, PKL-148k, PKL-148l, PKL-148m, PKL-148n, PKL-148o, PKL-148p, PKL-148q, PKL-148r, PKL-148s, PKL-148t, PKL-148u, PKL-148v, PKL-148w, PKL-148x, PKL-148y, PKL-148aa, PKL-148ab, PKL-148ac, PKL-148ad, PKL-148ae, PKL-148af, PKL-148ag, PKL-148ah, PKL-148ai, PKL-148aj, PKL-148ak, PKL-148al, PKL-148an, PKL-148ao, PKL-148ap — tags: moonbit, upstream, compatibility, contract
   > Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF and JSON).
   - body: `cmd` (exit 0 expected)
 
@@ -1963,7 +1970,9 @@
   - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
 - **PKL-148ao** — raw string interpolation plus raw escape decoding plus unicode escape plus heredoc backslash
   - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
-- **PKL-148ap** — super late binding amend lambda form class-aware object equality
+- **PKL-148ap** — amend chain plus multi-line union typealias plus listing element append
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-148aq** — super late binding amend lambda form class-aware object equality
   - _No active implementation._
 - **PKL-148b** — pkl:base method surface second wave
   - test: `specs/Test.pkl` — moon unit tests

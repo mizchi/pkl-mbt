@@ -669,6 +669,27 @@
 ///                     `decode_string_escapes`. +2 fixtures
 ///                     (basic/rawString, basic/stringMultiline),
 ///                     145 → 147; basic 57.0% → 59.3%.
+///   PKL-148ap (40th)  Three small parse-error fixes that
+///                     reduce the `unsupported expression` class
+///                     by 1 (24 → 23): (a) multi-line typealias
+///                     union continuation — `typealias A = "a"
+///                     \n | "b"`'s newline before `|` no longer
+///                     terminates the type-text walker; (b)
+///                     amend chain `name { body1 } { body2 }`
+///                     at module-level property AND object-member
+///                     positions wraps each trailing brace in a
+///                     successive `AmendExpr`; (c) bare scalar
+///                     element in a listing-amend body
+///                     (`(listing) { "x"; "y" }`) appends one
+///                     element each — the previous code expected
+///                     a Listing payload and silently dropped
+///                     scalars. No PCF flip — the deeper
+///                     "implicit-amend on same-name member"
+///                     semantic (`bar { ... }` inside an object
+///                     body amends the prior `bar` instead of
+///                     overriding) is a separate slice; today
+///                     basic/amendsChains still stalls on
+///                     predicate-member `[[ pred ]] { ... }`.
 @ModuleInfo { minPklVersion = "0.31.0" }
 module specs.Roadmap
 
@@ -686,12 +707,12 @@ import "../pkspec/Spec.pkl"
 // against `scripts/upstream-smoke.sh` after each landing.
 
 local pklSuperLateBindAndAmendLambda: Spec.Scenario = new {
-  id = "PKL-148ap"
+  id = "PKL-148aq"
   name = "super late binding amend lambda form class-aware object equality"
   description =
     "PKL-148ak folded the `@error$` deferred-rejection prefix into the invisible-member set, hoisted the sentinel into per-field env, and added an Identifier intercept so `test.catch(() -> bad_local)` captures the deferred diagnostic against typed locals (+1 fixture, 143 → 144; basic 55.8% → 57.0%); PKL-148al added the PCF triple-quoted heredoc form for multi-line strings at block positions and reordered Dynamic-shape projection so named properties land before bare elements / subscript entries (+1 fixture, 144 → 145; api 7.4% → 8.4%). The harder remaining pieces — all of which require non-local evaluator work — are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this, needed for `objects/super2` / `super3` / `super4`, `classes/supercallsInLet`, and `basic/moduleRef3`'s `const a = 44` override of the parent's `aa = module.a`); the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambda*` fixtures); runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`); constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13); class-aware ObjectValue tagging so `new Person {} != new Person2 {}` (needed for `objects/equality`'s c-block + composite Mapping keys in `mappings/mapping1` that PKL-148k currently sidesteps via a scalar-only duplicate-check gate — a prototype hidden `__class` marker landed in PKL-148i but was reverted after it broke 14 structural-equality unit tests; the right shape is a dedicated `ObjectValue(class_name: String?, members)` enum-shape refactor); the `pipeOperator` res11 diagnostic also needs the class-aware tag to project `pipeOperator#Person` / `new Person {}`; object-body amend chain (`(obj) { ... } { ... }` — needed for `objects/equality` a11); free-form (non-literal) amend-override rejections (`(res3) { y = expr }` against `Int(this > x)` constraints — gated today on the upstream forward-binding leak where a sibling object's `local x = 1` resolves into a later object body's identifier lookup); listing/mapping body re-eval on amend so listing `(x) {}` / `default = N` work (needed for `listings/equality`, `listings/inequality`, `mappings/equality`, `mappings/inequality`). Listing/List-method receiver-tag preservation (`list.map(...)` returns a List, `listing.map(...)` returns a Listing) is a sub-task too; today the dispatcher always re-wraps as ListingValue. Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along; PcfRenderer / JsonRenderer instance-method bodies (renderDocument / renderValue) plus converter dispatch (`converters { [Any] = ...; [Dog] = ... }` + regex path matching) are the next api/-shaped slice once the leverage analysis surfaces a 1-flip-per-feature angle."
   contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-148ao" }
+  dependsOn { "PKL-148ap" }
   tags { "evaluator"; "stdlib"; "upstream"; "compat"; "next" }
   reviewStatus = "draft"
   severity = "major"

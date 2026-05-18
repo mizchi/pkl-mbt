@@ -11096,7 +11096,18 @@ fn eval_listing_subscript_amend(
             result.push(v)
           }
         Some(NullValue) => ()
-        Some(_) => ()
+        // PKL-148ap: a bare element value at amend position appends
+        // one element. Apple Pkl's `(listing) { "a"; "b" }` extends
+        // the listing by two elements; only the @when / @for / @spread
+        // generator branches expect a container payload to splice.
+        // Without this arm `bar { "first" } { "second"; "third" }`
+        // dropped "second" and "third" silently (the previous arm
+        // expected a Listing payload and the `Some(_) => ()` catch-all
+        // ate the scalar).
+        Some(scalar) =>
+          if field.name.has_prefix("@element$") {
+            result.push(scalar)
+          }
         None => return None
       }
       continue
