@@ -2047,6 +2047,21 @@ fn eval_value_accepts_type_annotation(
       return eval_value_accepts_type_annotation(base_name, value)
     None => ()
   }
+  // PKL-148at: top-level union — `Int|String` accepts a value when
+  // ANY choice does. The split walker honours angle / paren / bracket
+  // nesting so `Map<String, Int>` inside a union doesn't trip on
+  // its inner `,`. Single-choice strings fall through to the regular
+  // match below.
+  let choices = split_top_level_union_choices(type_name)
+  if choices.length() > 1 {
+    for choice in choices {
+      let trimmed = pkl_constraint_trim(choice)
+      if eval_value_accepts_type_annotation(trimmed, value) {
+        return true
+      }
+    }
+    return false
+  }
   if type_name.has_suffix("?") {
     if value is NullValue {
       return true
@@ -2057,6 +2072,60 @@ fn eval_value_accepts_type_annotation(
       end=type_name.length() - 1,
     )
     return eval_value_accepts_type_annotation(inner_name, value)
+  }
+  // PKL-148at: `Listing<Int>` / `Map<String, Int>` / `Set<UInt32>` etc.
+  // are shape-preserving cast targets — the outer head determines
+  // runtime acceptance; the type parameters are validated lazily
+  // when individual elements are read. Strip the `<...>` tail here
+  // and recurse on the bare head so `Set(...) as Set<Listing<Int>>`
+  // routes through the generic-free arm match.
+  match type_name.find("<") {
+    Some(idx) =>
+      if type_name.has_suffix(">") {
+        let head = String::unsafe_substring(type_name, start=0, end=idx)
+        return eval_value_accepts_type_annotation(head, value)
+      }
+    None => ()
+  }
+  // PKL-148at: function-type literal (`(Int) -> Int`, `(A, B) -> C`).
+  // Apple Pkl's `as` accepts any FunctionValue whose arity matches
+  // the parameter count; the parameter / return types are validated
+  // lazily at call time. Detect `(...) -> ...` shape and check arity
+  // by counting top-level commas in the parameter group.
+  if type_name.has_prefix("(") {
+    let close_opt = type_name.find(")")
+    if close_opt is Some(close) {
+      let arrow_ok = close + 2 < type_name.length() &&
+        String::unsafe_substring(type_name, start=close + 1, end=close + 3) ==
+        "->"
+      if arrow_ok {
+        let params_text = String::unsafe_substring(
+          type_name,
+          start=1,
+          end=close,
+        )
+        let trimmed = pkl_constraint_trim(params_text)
+        let arity = if trimmed == "" {
+          0
+        } else {
+          let mut commas = 0
+          let mut depth = 0
+          for i = 0; i < params_text.length(); i = i + 1 {
+            let c = params_text[i].to_int().unsafe_to_char()
+            if c == '(' || c == '<' || c == '[' {
+              depth = depth + 1
+            } else if c == ')' || c == '>' || c == ']' {
+              depth = depth - 1
+            } else if c == ',' && depth == 0 {
+              commas = commas + 1
+            }
+          }
+          commas + 1
+        }
+        return value is FunctionValue(parameters, _, _, _, _) &&
+          parameters.length() == arity
+      }
+    }
   }
   // PKL-148ai: string-literal type annotation (`x: "Pigeon"`,
   // `List<Null|Boolean|"Pigeon">`). The Pkl surface lets a quoted
@@ -9822,28 +9891,31 @@ fn eval_expr_with_bindings(
             (Some(value), Identifier(type_name)) => {
               let aliases = eval_type_alias_bindings(declarations)
               let resolved = eval_resolved_type_alias(type_name, aliases)
-              // PKL-150: Apple Pkl's `as` is a shape-preserving cast at
-              // the outermost head — `Set(...) as Set<Listing<Int>>`
-              // accepts the SetValue without iterating the elements;
-              // per-element constraint mismatches surface only when
-              // the inner values are actually read. Mirror PKL-148l's
-              // generic-head strip so the cast acceptance lines up
-              // with that runtime semantics. The diagnostic still
-              // quotes the surface name so user-facing messages
-              // preserve the full annotation.
-              let without_constraint = match
+              // PKL-150 / PKL-148at: shape-preserving cast — the
+              // `eval_value_accepts_type_annotation` cascade now
+              // handles unions (`Int|String`), nullables (`T?`),
+              // generic heads (`Listing<Int>` → strip to `Listing`),
+              // string-literal singletons (`"Pigeon"`), and the
+              // constrained shape (`Foo(...)`) uniformly, so the
+              // As eval no longer needs to do the head strip itself.
+              // user_class_annotation is a separate fallback for
+              // user-declared class names that the cascade doesn't
+              // recognise. The diagnostic still quotes the surface
+              // name so user-facing messages preserve the original
+              // annotation text.
+              let user_class_head = match
                 pkl_constrained_type_base_name(resolved) {
                 Some(base) => base
                 None => resolved
               }
-              let head_for_check = match without_constraint.find("<") {
+              let user_class_head = match user_class_head.find("<") {
                 Some(idx) =>
-                  String::unsafe_substring(without_constraint, start=0, end=idx)
-                None => without_constraint
+                  String::unsafe_substring(user_class_head, start=0, end=idx)
+                None => user_class_head
               }
-              if eval_value_accepts_type_annotation(head_for_check, value) ||
+              if eval_value_accepts_type_annotation(resolved, value) ||
                 value_satisfies_user_class_annotation(
-                  head_for_check, value, declarations,
+                  user_class_head, value, declarations,
                 ) {
                 return Some(value)
               } else {

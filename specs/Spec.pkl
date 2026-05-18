@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklAsIsCompoundTypeOperandsScenario = new Scenario {
+  id = "PKL-148at"
+  name = "as and is accept union nullable generic head function type and string literal right operands"
+  description =
+    "Apple Pkl's `as` / `is` operators accept compound type-name right operands beyond the bare identifier form pkl-mbt previously supported. Five coupled changes lift the surface. (1) Union `Int|String` — `eval_value_accepts_type_annotation` splits the type name at top-level `|` (honouring `<...>` / `(...)` / `[...]` nesting via `split_top_level_union_choices`) and accepts when ANY choice does. (2) Generic head strip — `Listing<Int>` / `Set<UInt32>` / `Map<String, Int>` recurse on the bare head; shape-preserving runtime acceptance matches Apple Pkl's semantics where per-element constraints fire lazily. (3) Function type `(Int) -> Int` / `(A, B, C) -> D` — detect the `(...) ->` shape and accept any FunctionValue whose parameter count matches the comma-separated arity in the leading parens (parameter / return types are validated lazily at call time). (4) String-literal singleton `\"Pigeon\"` already had cascade support from PKL-148ai; this slice adds `string_token()` recognition to `parse_type_operand_expr` so the parser routes the literal through `parse_type_text` instead of falling back to `parse_add_expr`. (5) `parse_type_operand_expr` also accepts `(` openings so the parser sees the full type text for paren-wrapped types (`(Int|String)`) and function types. The As eval site simplifies: the cascade now handles unions / nullables / generic heads uniformly, so it no longer needs to do its own head-strip (the strip was lossy for nullable — `Map<String, Int>?` became `Map`, losing the `?` and rejecting `null`). +1 fixture (`parser/newline`), 149 → 150. basic/as2 still does not flip — Apple Pkl's `as` is element-validating (not shape-preserving) for `List(...) as List<String>` (rejects when elements aren't strings); a separate slice has to wire the per-element validation."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148as" }
+  tags { "evaluator"; "parser"; "as-cast"; "is-operator"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Cascade does the compound-type dispatch; the As eval simplifies to a single call"
+      rationale =
+        "The previous As eval did its own constraint / generic head-strip before calling the cascade. That duplicated logic — the cascade already strips constraints (`pkl_constrained_type_base_name`) on entry — and was lossy for nullable types because the head-strip removed the trailing `?` before the cascade could see it. Routing through `eval_value_accepts_type_annotation(resolved, value)` directly lets the cascade do all the dispatch in one place; the As eval only retains a fallback to `value_satisfies_user_class_annotation` (which the cascade doesn't know about because user-class names depend on the declaration list)."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Function-type acceptance checks arity only, not parameter / return types"
+      rationale =
+        "Apple Pkl's `as (Int) -> Int` cast is shape-preserving at the function signature: it verifies the lambda has the right arity but defers parameter / return validation to call time. Pkl-mbt mirrors that — `parameters.length() == arity` is enough to accept. Per-call validation would have to read the inner type names (`Int`, `Boolean`) and check them against the FunctionValue's annotation, but FunctionValue doesn't carry per-parameter types in a form the cascade can consult yet. The arity check matches the upstream `cast Lambda<UInt32> to other integer types` style of fixture coverage."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Parser accepts `(` and string-token as type operand starts"
+      rationale =
+        "Falling back to `parse_add_expr` was the previous strategy for non-identifier type operands. That fell apart for function types — `parse_add_expr` parses `(Int)` as a paren expression, then can't make sense of the trailing `->`. Extending `parse_type_operand_expr` to also accept `(` and string-token openings routes those forms through `parse_type_text` (which understands type-position grammar), so the right-side stays a type-name string consumable by the cascade. The Identifier wrapping stays the same to keep the As / Is eval path unchanged."
+    }
+  }
+}
+
 local pklFunctionReturnTypeFunctionFormScenario = new Scenario {
   id = "PKL-148as"
   name = "function return type accepts function-type form arrow"
@@ -5585,5 +5617,6 @@ scenarios {
   pklPostfixTripleDotBailScenario
   pklPredicateMemberScenario
   pklFunctionReturnTypeFunctionFormScenario
+  pklAsIsCompoundTypeOperandsScenario
   ...roadmap.entries
 }

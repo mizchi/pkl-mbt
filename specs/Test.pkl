@@ -1309,6 +1309,7 @@ local upstreamSmoke = new Test {
     "PKL-148aq"
     "PKL-148ar"
     "PKL-148as"
+    "PKL-148at"
   }
   cmd = "./scripts/upstream-smoke.sh"
   workdir = ".."
@@ -1436,7 +1437,7 @@ local upstreamSmoke = new Test {
     "upstream eval ok: basic/letTyped (gold match)"
     "upstream json eval ok: api/jsonRenderer1.json (gold match)"
     "upstream eval ok: api/pListRenderer1.plist (gold match)"
-    "upstream-smoke: 149 gold-match fixtures passed"
+    "upstream-smoke: 150 gold-match fixtures passed"
     "upstream-smoke: 1 json gold-match fixtures passed"
     "upstream-smoke: 1 plist gold-match fixtures passed"
   }

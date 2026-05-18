@@ -1745,7 +1745,13 @@ fn Parser::parse_comparison_expr(self : Parser) -> Expr {
 ///|
 fn Parser::parse_type_operand_expr(self : Parser) -> Expr {
   self.skip_trivia()
-  if self.at(identifier()) {
+  // PKL-148at: `as` / `is` right-operand also accepts string-literal
+  // singletons (`"Pigeon"` as a type) and parenthesized / function-type
+  // shapes (`(Int) -> Int`). For string literals and `(` openings, the
+  // type text walker handles the consumption just like the identifier
+  // path — collect every type-position token until a real expression
+  // operator boundary.
+  if self.at(identifier()) || self.at(lparen()) || self.at(string_token()) {
     self.builder.start_node(name_ref())
     let type_name = self.parse_type_text(
       stop_at_arrow=false,
