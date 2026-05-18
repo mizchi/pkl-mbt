@@ -2397,17 +2397,24 @@ fn eval_callable_return_rejection_message(
           "Expected value of type `\{type_name}`, but got type `\{eval_value_type_name(value)}`. Value: \{render_pcf_value_inline(value)}",
         )
       } else {
+        // PKL-148ae: Apple Pkl's return-side constraint diagnostic
+        // omits the call-site label (`method <name> return ...`) —
+        // it matches the parameter side already dropped by PKL-148o.
+        // `label` is preserved at the signature so callers can still
+        // carry the call-site identity for non-constraint diagnostics
+        // (`<label> expects <n> arguments, got <m>`).
+        let _ = label
         match
           pkl_constrained_type_annotation_value_rejection_message_from_source(
             type_name, resolved_type_name, value,
           ) {
-          Some(message) => Some("\{label} return \{message}")
+          Some(message) => Some(message)
           None =>
             match
               pkl_user_defined_constrained_type_annotation_value_rejection_message_from_source(
                 type_name, resolved_type_name, value, declarations,
               ) {
-              Some(message) => Some("\{label} return \{message}")
+              Some(message) => Some(message)
               None => None
             }
         }

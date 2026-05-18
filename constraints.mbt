@@ -1196,6 +1196,37 @@ fn pkl_constrained_type_annotation_value_rejection_message_from_source(
   source_name : String,
   value : Value,
 ) -> String? {
+  // PKL-148ae: `String(!isEmpty)?` / `Int(isPositive)?` etc. are
+  // nullable-wrapped constrained types. NullValue trivially satisfies
+  // the `?`; for non-null values, strip the trailing `?` and recurse
+  // through the same cascade so the inner constraint cascade actually
+  // runs. Without the unwrap, `pkl_constrained_type_base_name` returns
+  // None (because the trailing `?` breaks the `has_suffix(")")` check
+  // it needs) and the predicate dispatch silently returns None.
+  if source_name.has_suffix("?") {
+    match value {
+      NullValue => return None
+      _ => {
+        let inner = String::unsafe_substring(
+          source_name,
+          start=0,
+          end=source_name.length() - 1,
+        )
+        let inner_display = if display_name.has_suffix("?") {
+          String::unsafe_substring(
+            display_name,
+            start=0,
+            end=display_name.length() - 1,
+          )
+        } else {
+          display_name
+        }
+        return pkl_constrained_type_annotation_value_rejection_message_from_source(
+          inner_display, inner, value,
+        )
+      }
+    }
+  }
   match pkl_value_int(value) {
     Some(inner) =>
       return pkl_constrained_int_rejection_message_from_source(
@@ -1311,10 +1342,27 @@ fn pkl_collection_element_rejection_message_from_source(
   source_name : String,
   value : Value,
 ) -> String? {
-  match generic_argument_text(source_name, "Listing") {
+  // PKL-148ae: strip the outer `(<constraint>)` from the source name
+  // before extracting the generic argument. `List<String(!isEmpty)>(!isEmpty)`
+  // has a top-level constraint that hides the `<...>` from `generic_argument_text`'s
+  // `has_suffix(">")` check — `pkl_constrained_type_base_name` returns
+  // `List<String(!isEmpty)>` which is then directly walkable.
+  let base_source = match pkl_constrained_type_base_name(source_name) {
+    Some(b) => b
+    None => source_name
+  }
+  // PKL-148ae: `List<T>` joins `Listing<T>` for element-side cascade,
+  // matching Apple Pkl's symmetric treatment — `(List<String(!isEmpty)>)`
+  // arg / return constraints walk each element through the same
+  // predicate set.
+  let listing_or_list = match generic_argument_text(base_source, "Listing") {
+    Some(t) => Some(t)
+    None => generic_argument_text(base_source, "List")
+  }
+  match listing_or_list {
     Some(element_type) =>
       match value {
-        ListingValue(elements) | ListValue(elements) =>
+        ListingValue(elements) | ListValue(elements) | SetValue(elements) =>
           for element in elements {
             match
               pkl_constrained_type_annotation_value_rejection_message_from_source(
@@ -1330,7 +1378,12 @@ fn pkl_collection_element_rejection_message_from_source(
       }
     None => ()
   }
-  match generic_argument_text(source_name, "Mapping") {
+  // PKL-148ae: `Map<K, V>` joins `Mapping<K, V>` for entry-side cascade.
+  let mapping_or_map = match generic_argument_text(base_source, "Mapping") {
+    Some(t) => Some(t)
+    None => generic_argument_text(base_source, "Map")
+  }
+  match mapping_or_map {
     Some(inner_text) => {
       let parts = split_top_level_generic_arguments(inner_text)
       if parts.length() != 2 {
@@ -1338,29 +1391,35 @@ fn pkl_collection_element_rejection_message_from_source(
       }
       let key_type = parts[0]
       let value_type = parts[1]
+      let walk_entries = fn(entries : Array[ValueEntry]) -> String? {
+        for entry in entries {
+          match
+            pkl_constrained_type_annotation_value_rejection_message_from_source(
+              key_type,
+              key_type,
+              entry.key,
+            ) {
+            Some(message) => return Some(message)
+            None => ()
+          }
+          match
+            pkl_constrained_type_annotation_value_rejection_message_from_source(
+              value_type,
+              value_type,
+              entry.value,
+            ) {
+            Some(message) => return Some(message)
+            None => ()
+          }
+        } nobreak {
+          None
+        }
+      }
       match value {
-        MappingValue(entries) =>
-          for entry in entries {
-            match
-              pkl_constrained_type_annotation_value_rejection_message_from_source(
-                key_type,
-                key_type,
-                entry.key,
-              ) {
-              Some(message) => return Some(message)
-              None => ()
-            }
-            match
-              pkl_constrained_type_annotation_value_rejection_message_from_source(
-                value_type,
-                value_type,
-                entry.value,
-              ) {
-              Some(message) => return Some(message)
-              None => ()
-            }
-          } nobreak {
-            return None
+        MappingValue(entries) | MapValue(entries) =>
+          match walk_entries(entries) {
+            Some(message) => return Some(message)
+            None => return None
           }
         _ => return None
       }
@@ -1389,12 +1448,14 @@ priv enum ConstraintStringPredicate {
   StringLengthIsLessThan(Int)
   StringLengthCompare(ConstraintStringLengthOp, Int)
   StringMatchesRegex(String)
+  StringIsEmpty
   NotStringLengthIsBetween(Int, Int)
   NotStringLengthIsPositive
   NotStringLengthIsGreaterThan(Int)
   NotStringLengthIsLessThan(Int)
   NotStringLengthCompare(ConstraintStringLengthOp, Int)
   NotStringMatchesRegex(String)
+  NotStringIsEmpty
 }
 
 ///|
@@ -1562,8 +1623,15 @@ fn pkl_string_constraint_predicate(text : String) -> ConstraintStringPredicate? 
         return Some(NotStringLengthCompare(op, n))
       Some(StringMatchesRegex(pattern)) =>
         return Some(NotStringMatchesRegex(pattern))
+      Some(StringIsEmpty) => return Some(NotStringIsEmpty)
       _ => return None
     }
+  }
+  // PKL-148ae: bare `isEmpty` / `this.isEmpty` on a String constraint
+  // (Apple Pkl exposes `String.isEmpty` directly; the predicate form
+  // shows up without a `length.` prefix unlike `length.isPositive`).
+  if trimmed == "isEmpty" || trimmed == "this.isEmpty" {
+    return Some(StringIsEmpty)
   }
   match pkl_string_length_dot_method_predicate(trimmed) {
     Some(predicate) => return Some(predicate)
@@ -1628,6 +1696,7 @@ fn pkl_string_constraint_name(predicate : ConstraintStringPredicate) -> String {
     StringLengthIsLessThan(t) => "length.isLessThan(\{t})"
     StringLengthCompare(op, t) => "length \{pkl_string_length_op_text(op)} \{t}"
     StringMatchesRegex(pattern) => "matches(Regex(\"\{pattern}\"))"
+    StringIsEmpty => "isEmpty"
     NotStringLengthIsBetween(lo, hi) => "!length.isBetween(\{lo}, \{hi})"
     NotStringLengthIsPositive => "!length.isPositive"
     NotStringLengthIsGreaterThan(t) => "!length.isGreaterThan(\{t})"
@@ -1635,6 +1704,7 @@ fn pkl_string_constraint_name(predicate : ConstraintStringPredicate) -> String {
     NotStringLengthCompare(op, t) =>
       "!(length \{pkl_string_length_op_text(op)} \{t})"
     NotStringMatchesRegex(pattern) => "!matches(Regex(\"\{pattern}\"))"
+    NotStringIsEmpty => "!isEmpty"
   }
 }
 
@@ -1692,6 +1762,8 @@ fn pkl_string_predicate_accepts(
       } catch {
         _ => true
       }
+    StringIsEmpty => len == 0
+    NotStringIsEmpty => len > 0
   }
 }
 

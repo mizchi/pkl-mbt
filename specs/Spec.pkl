@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklConstraintCascadeListMapOptionalScenario = new Scenario {
+  id = "PKL-148ae"
+  name = "constraint cascade extends to List Map Optional element walks"
+  description =
+    "Apple Pkl's class-method parameter / return constraint cascade walks element-level predicates for `List<X(...)>`, `Map<K(...), V(...)>`, and the inner type of `T(...)?` nullable wrappers — and the return-side diagnostic shape mirrors the parameter side without the `<call-site label> return` prefix. pkl-mbt missed four pieces that together blocked `methods/methodParameterConstraints2` (7 lines of DIFF). (1) `eval_callable_return_rejection_message` was prepending `\\\\{label} return ` to the constraint message; Apple Pkl emits the bare message (matches the parameter-side already aligned by PKL-148o). (2) `pkl_collection_element_rejection_message_from_source` only matched `Listing<X>` / `Mapping<K, V>` source names — `List<X>` and `Map<K, V>` arguments / returns fell through with no element check. The helper now strips the top-level `(<...>)` constraint via `pkl_constrained_type_base_name` and then tries `Listing`, `List`, `Mapping`, and `Map` prefixes in turn; the List branch also walks `SetValue` so the same cascade catches `Set<X(...)>`. (3) Nullable-wrapped constrained types (`String(!isEmpty)?` / `Int(isPositive)?`) had their constraint cascade silently bypassed because `pkl_constrained_type_base_name` returns None when the source ends with `?`. The cascade now strips a trailing `?` recursively (NullValue passes; non-null values dispatch through the inner type). (4) `isEmpty` / `!isEmpty` on `String` weren't in the predicate set — only `length.isEmpty` / `length.isPositive` forms were recognised. Two new variants `StringIsEmpty` / `NotStringIsEmpty` join the set with bare `isEmpty` / `!isEmpty` (also matches `this.isEmpty`) so the constraint name renders verbatim. +1 fixture (`methods/methodParameterConstraints2`), 131 → 132; methods category 60.0% → 80.0%."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148ad" }
+  tags { "evaluator"; "constraints"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Strip trailing `?` recursively in the constraint cascade entry"
+      rationale =
+        "An alternative would have been to update every callsite that builds a type name to drop the `?` before calling the cascade. That would scatter the unwrap logic across 6+ callers (callable arg / return, class property, runtime constraint, etc.) and miss future ones. Centralising the strip in `pkl_constrained_type_annotation_value_rejection_message_from_source` keeps it one rule with one NullValue short-circuit — the recursive call then dispatches through Int / Float / String / Listing / Mapping naturally."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Use `pkl_constrained_type_base_name` to strip the outer constraint before generic argument extraction"
+      rationale =
+        "`generic_argument_text(name, prefix)` requires `name.has_suffix(\">\")`. A source like `List<String(!isEmpty)>(!isEmpty)` ends with `)` so the function silently returned None and the element walk never fired. Stripping via the existing `pkl_constrained_type_base_name` helper produces `List<String(!isEmpty)>` which then passes the generic-argument check. The same helper is already used for the outer host predicate (`pkl_constrained_listing_rejection_message_from_source`), so the strip behaviour is consistent across the file."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Add `StringIsEmpty` / `NotStringIsEmpty` instead of folding into `StringLengthCompare(Equal, 0)`"
+      rationale =
+        "Apple Pkl's diagnostic wording uses `isEmpty` / `!isEmpty` verbatim — not `length == 0` / `!(length == 0)`. Reusing `StringLengthCompare` would force the diag-name renderer to special-case the threshold-zero shape, which is fragile when other length-with-0 cases (`length > 0` / `length >= 0`) shouldn't render as `isEmpty`. A dedicated predicate keeps the rendering one-to-one with the surface form."
+    }
+  }
+}
+
 local pklAtPrefixLocalDepImportScenario = new Scenario {
   id = "PKL-148ad"
   name = "at-prefix local dep import resolution"
@@ -5129,5 +5161,6 @@ scenarios {
   pklClassMethodsLexicalScopeScenario
   pklModuleLevelSuperDispatchScenario
   pklAtPrefixLocalDepImportScenario
+  pklConstraintCascadeListMapOptionalScenario
   ...roadmap.entries
 }

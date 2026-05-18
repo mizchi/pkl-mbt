@@ -6913,7 +6913,7 @@ test "evaluate constrained Pkl callable return annotations" {
   inspect(
     diagnostics[0].message,
     content=(
-      #|function bad return Type constraint `isBetween(0, 10)` violated. Value: 11
+      #|Type constraint `isBetween(0, 10)` violated. Value: 11
     ),
   )
 }
@@ -6935,7 +6935,7 @@ test "evaluate user-defined constrained Pkl callable return annotations" {
   inspect(
     diagnostics[0].message,
     content=(
-      #|function bad return Type constraint `above(5)` violated. Value: 1
+      #|Type constraint `above(5)` violated. Value: 1
     ),
   )
 }
@@ -6962,7 +6962,7 @@ test "evaluate user-defined constrained Pkl class method return annotations" {
   inspect(
     diagnostics[0].message,
     content=(
-      #|method bad return Type constraint `above(5)` violated. Value: 1
+      #|Type constraint `above(5)` violated. Value: 1
     ),
   )
 }
@@ -7051,7 +7051,7 @@ test "evaluate typealiased Pkl callable return annotations" {
   inspect(
     constraint_diagnostics[0].message,
     content=(
-      #|function bad return Type constraint `isBetween(0, 10)` violated. Value: 11
+      #|Type constraint `isBetween(0, 10)` violated. Value: 11
     ),
   )
 }
