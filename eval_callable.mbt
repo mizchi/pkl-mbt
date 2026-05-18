@@ -422,9 +422,13 @@ fn render_pcf_value_inline(value : Value) -> String {
   let buf = StringBuilder::new()
   match value {
     ObjectValue(members) =>
+      // Only the `Dynamic` tag promotes to the `new Dynamic { ... }`
+      // inline form today — user-class tags would change a handful of
+      // existing PCF gold matches at the same time, so they stay on
+      // the generic `new { ... }` rendering for now.
       match find_object_class_tag(members) {
-        Some(name) => render_pcf_class_inline(name, members, buf)
-        None => render_pcf_inline(value, 0, buf)
+        Some("Dynamic") => render_pcf_class_inline("Dynamic", members, buf)
+        _ => render_pcf_inline(value, 0, buf)
       }
     _ => render_pcf_inline(value, 0, buf)
   }

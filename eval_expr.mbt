@@ -838,17 +838,93 @@ fn eval_expr_with_bindings(
               stack, declarations, diagnostics, resolve_import,
             )
           }
-          Some(
-            ObjectValue(
-              merge_value_members(
-                modified_base,
-                eval_object_members(
-                  regular_members, bindings, env, class_env, amend_cache, stack,
-                  declarations, diagnostics, resolve_import,
-                ),
-              ),
-            ),
+          let evaluated_regular = eval_object_members(
+            regular_members, bindings, env, class_env, amend_cache, stack, declarations,
+            diagnostics, resolve_import,
           )
+          let merged = merge_value_members(modified_base, evaluated_regular)
+          // Fire class-property constraints against amend bodies that
+          // target a typed receiver (`(counter) { y = 0 }` where
+          // `counter: Counter`). TypedObjectLiteral runs the same
+          // cascade at construction; AmendExpr needs to repeat it so
+          // `test.catch` can capture predicate / type-annotation
+          // violations on amend chains (constraints11, constraints12).
+          let amend_class_name = typed_object_class_name_for_expr(
+            base_expr,
+            bindings,
+            [],
+          )
+          let mut violation_emitted = false
+          match amend_class_name {
+            Some(type_name) =>
+              for field in regular_members {
+                match lookup_member(merged, field.name) {
+                  Some(member_value) => {
+                    let value_skips_type_check = match field.value {
+                      Identifier(_) => true
+                      _ => false
+                    }
+                    let type_message = if !value_skips_type_check {
+                      eval_class_property_type_rejection_message(
+                        type_name,
+                        field.name,
+                        member_value,
+                        declarations,
+                      )
+                    } else {
+                      None
+                    }
+                    match type_message {
+                      Some(message) => {
+                        diagnostics.push(diag(message))
+                        violation_emitted = true
+                      }
+                      None =>
+                        match
+                          eval_class_property_constraint_value_rejection_message(
+                            type_name,
+                            field.name,
+                            member_value,
+                            declarations,
+                          ) {
+                          Some(message) => {
+                            diagnostics.push(diag(message))
+                            violation_emitted = true
+                          }
+                          None =>
+                            match
+                              eval_runtime_constraint_for_property(
+                                type_name,
+                                field.name,
+                                member_value,
+                                merged,
+                                bindings,
+                                env,
+                                class_env,
+                                cache,
+                                stack,
+                                declarations,
+                                resolve_import,
+                              ) {
+                              Some(message) => {
+                                diagnostics.push(diag(message))
+                                violation_emitted = true
+                              }
+                              None => ()
+                            }
+                        }
+                    }
+                  }
+                  None => ()
+                }
+              }
+            None => ()
+          }
+          if violation_emitted {
+            None
+          } else {
+            Some(ObjectValue(merged))
+          }
         }
         Some(ListingValue(elements)) | Some(ListValue(elements)) =>
           // PKL-148w: `(listing) { [N] = newValue }` replaces element

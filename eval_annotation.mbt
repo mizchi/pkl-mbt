@@ -640,6 +640,28 @@ fn eval_runtime_constraint_for_property(
       new_env.push(binding)
     }
     new_env.push({ name: "this", value: property_value })
+    // PKL-148b: bind `super` to the parent class's resolved defaults so
+    // a constraint like `Int(this > super.x)` can read inherited values
+    // from inside an amend chain. The parent chain is resolved through
+    // `eval_class_default_members`, mirroring the same `super` shape
+    // that `eval_class_default_members` plumbs into the defaults cache.
+    let super_diags : Array[Diagnostic] = []
+    match lookup_class_binding(class_env, class_name) {
+      Some(class_binding) =>
+        match class_binding.parent_name {
+          Some(parent_name) => {
+            let aliases = eval_type_alias_bindings(declarations)
+            let resolved_parent = eval_resolved_type_alias(parent_name, aliases)
+            let super_members = eval_class_default_members(
+              resolved_parent, bindings, env, class_env, cache, stack, declarations,
+              super_diags, resolve_import,
+            )
+            new_env.push({ name: "super", value: ObjectValue(super_members) })
+          }
+          None => ()
+        }
+      None => ()
+    }
     match property_value {
       ObjectValue(receiver_members) =>
         for value_member in receiver_members {
@@ -650,9 +672,32 @@ fn eval_runtime_constraint_for_property(
       _ => ()
     }
     for value_member in enclosing_members {
-      if !is_invisible_member_name(value_member.name) &&
-        value_member.name != property_name {
+      if value_member.name == property_name {
+        continue
+      }
+      if !is_invisible_member_name(value_member.name) {
         new_env.push({ name: value_member.name, value: value_member.value })
+      } else if value_member.name.has_prefix(local_member_prefix) ||
+        value_member.name.has_prefix(hidden_member_prefix) {
+        // PKL-148b: a class body's `local` / `hidden` declarations are
+        // visible inside that class's constraint expressions, e.g.
+        // `local isValid = (n) -> n > x; y: Int(isValid)`. The members
+        // sit in `enclosing_members` under their storage-prefixed name
+        // (`@local$isValid` / `@hidden$isValid`); strip the prefix so
+        // bare-name resolution inside the constraint succeeds.
+        let prefix_len = if value_member.name.has_prefix(local_member_prefix) {
+          local_member_prefix.length()
+        } else {
+          hidden_member_prefix.length()
+        }
+        let bare = String::unsafe_substring(
+          value_member.name,
+          start=prefix_len,
+          end=value_member.name.length(),
+        )
+        if bare != property_name {
+          new_env.push({ name: bare, value: value_member.value })
+        }
       }
     }
     // PKL-148c: rewrite bare `Identifier(name)` nodes inside the
@@ -666,11 +711,34 @@ fn eval_runtime_constraint_for_property(
       expr, bindings, new_env, cache,
     )
     let probe_diags : Array[Diagnostic] = []
-    match
-      eval_expr_with_bindings(
-        rewritten, bindings, new_env, class_env, cache, stack, declarations, probe_diags,
+    let mut probe_result = eval_expr_with_bindings(
+      rewritten, bindings, new_env, class_env, cache, stack, declarations, probe_diags,
+      resolve_import,
+    )
+    // Apple Pkl treats a constraint-position function reference as a
+    // unary call applied to the candidate (`Int(isValid)` ≡
+    // `Int(it -> isValid(it))`). When the rewritten predicate
+    // evaluates to a FunctionValue rather than a Boolean, replay the
+    // probe as `function.apply(this)` so the predicate's result drives
+    // the rejection.
+    if probe_result is Some(FunctionValue(_, _, _, _, _)) {
+      let apply_diags : Array[Diagnostic] = []
+      let apply_result = eval_expr_with_bindings(
+        CallExpr(MemberAccess(rewritten, "apply"), [Identifier("this")]),
+        bindings,
+        new_env,
+        class_env,
+        cache,
+        stack,
+        declarations,
+        apply_diags,
         resolve_import,
-      ) {
+      )
+      if apply_diags.length() == 0 {
+        probe_result = apply_result
+      }
+    }
+    match probe_result {
       Some(BoolValue(true)) => ()
       Some(BoolValue(false)) => {
         // PKL-148d: the diagnostic's `Value:` segment renders

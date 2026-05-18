@@ -921,6 +921,23 @@ fn eval_class_default_members(
   }
   if base_values.length() > 0 {
     defaults_cache.push({ name: "super", value: ObjectValue(base_values) })
+    // Hoist parent-class properties into the defaults cache under their
+    // bare names so a class body's local lambda can close over inherited
+    // properties: `class Derived extends Base { local f = (n) -> n > x }`
+    // resolves `x` against `Base`'s default through this seeding.
+    // Hidden / local storage prefixes are stripped so the bare-name
+    // resolution matches Apple Pkl's lexical-scope behaviour.
+    for value_member in base_values {
+      if is_invisible_member_name(value_member.name) {
+        let bare = strip_member_visibility_prefix(value_member.name)
+        defaults_cache.push({ name: bare, value: value_member.value })
+      } else {
+        defaults_cache.push({
+          name: value_member.name,
+          value: value_member.value,
+        })
+      }
+    }
   }
   for method_decl in own_methods {
     match method_decl.body {

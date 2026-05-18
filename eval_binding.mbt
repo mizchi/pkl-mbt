@@ -342,9 +342,13 @@ fn eval_value_type_name(value : Value) -> String {
     StringValue(_) => "String"
     NullValue => "Null"
     ObjectValue(members) =>
+      // Today only the `Dynamic` tag promotes through to the
+      // type-name surface — broader user-class tagging would shift
+      // many downstream diagnostics in one go and breaks existing
+      // unit tests that expect the generic `Object` form.
       match find_object_class_tag(members) {
-        Some(name) => name
-        None => "Object"
+        Some("Dynamic") => "Dynamic"
+        _ => "Object"
       }
     ListingValue(_) => "Listing"
     ListValue(_) => "List"
