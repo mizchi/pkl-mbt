@@ -8554,13 +8554,39 @@ fn eval_expr_with_bindings(
           // friends.
           let amend_cache = copy_value_bindings(cache)
           amend_cache.push({ name: "super", value: ObjectValue(base_members) })
+          // PKL-148ar: `[[ pred ]] { body }` predicate-member fires
+          // against the base's Dynamic-shape entries (`@element$` for
+          // bare elements, `@subscript$` for `[key]` entries). Split
+          // the amend body into predicate members and regular members;
+          // process predicates first by filtering / amending the base
+          // entries, then merge the regular members on the modified
+          // base. Without this preprocessing, `eval_object_members`
+          // would eval the `@predicate$<offset>` member's CallExpr
+          // body and surface `Cannot find property @__predicate_entry`.
+          let predicate_members : Array[ObjectMember] = []
+          let regular_members : Array[ObjectMember] = []
+          for m in members {
+            if m.name.has_prefix("@predicate$") {
+              predicate_members.push(m)
+            } else {
+              regular_members.push(m)
+            }
+          }
+          let modified_base = if predicate_members.length() == 0 {
+            base_members
+          } else {
+            apply_predicate_members_to_object(
+              base_members, predicate_members, bindings, env, class_env, amend_cache,
+              stack, declarations, diagnostics, resolve_import,
+            )
+          }
           Some(
             ObjectValue(
               merge_value_members(
-                base_members,
+                modified_base,
                 eval_object_members(
-                  members, bindings, env, class_env, amend_cache, stack, declarations,
-                  diagnostics, resolve_import,
+                  regular_members, bindings, env, class_env, amend_cache, stack,
+                  declarations, diagnostics, resolve_import,
                 ),
               ),
             ),
@@ -11049,6 +11075,140 @@ fn eval_resolved_collection_element_structural_rejection_message(
 /// (`Element index \`<n>\` is out of range \`0\`..\`<upper>\`.`).
 /// Other member shapes (`name = value` mixed with subscript amends)
 /// are skipped with a generic diagnostic for now.
+
+///|
+/// PKL-148ar: apply each `@predicate$<offset>` member to a Dynamic-
+/// shape base. For every base entry that's a bare `@element$X` value
+/// (the element itself) or a `@subscript$X` value (an `@__index_entry`
+/// pair where the second arg is the entry value), evaluate the
+/// predicate with `this` bound to the element / value and the
+/// element's members bound at env top so bare-name predicate
+/// references (`name == "Barn Owl"`) resolve. When the predicate is
+/// true, amend the element / value with the body (object body →
+/// merge; bare expr → replace). Returns the modified base.
+fn apply_predicate_members_to_object(
+  base_members : Array[ValueMember],
+  predicate_members : Array[ObjectMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Array[ValueMember] {
+  let result : Array[ValueMember] = []
+  for m in base_members {
+    result.push(m)
+  }
+  for pred_field in predicate_members {
+    let (pred_expr, body_expr) = match pred_field.value {
+      CallExpr(Identifier("@__predicate_entry"), args) =>
+        if args.length() == 2 {
+          (args[0], args[1])
+        } else {
+          (UnsupportedExpr, UnsupportedExpr)
+        }
+      _ => (UnsupportedExpr, UnsupportedExpr)
+    }
+    for i = 0; i < result.length(); i = i + 1 {
+      let target_member = result[i]
+      let (test_value, is_subscript) = if target_member.name.has_prefix(
+          "@subscript$",
+        ) {
+        match target_member.value {
+          ObjectValue(pair_members) =>
+            match lookup_member(pair_members, "@value") {
+              Some(v) => (v, true)
+              None => (NullValue, false)
+            }
+          _ => (NullValue, false)
+        }
+      } else if target_member.name.has_prefix("@element$") {
+        (target_member.value, false)
+      } else {
+        (NullValue, false)
+      }
+      if test_value is NullValue && !is_subscript {
+        continue
+      }
+      let pred_env = copy_value_bindings(env)
+      pred_env.push({ name: "this", value: test_value })
+      match test_value {
+        ObjectValue(elem_members) =>
+          for em in elem_members {
+            if !is_invisible_member_name(em.name) {
+              pred_env.push({ name: em.name, value: em.value })
+            }
+          }
+        _ => ()
+      }
+      match
+        eval_expr_with_bindings(
+          pred_expr, bindings, pred_env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
+        ) {
+        Some(BoolValue(true)) => {
+          let new_value = match body_expr {
+            ObjectLiteral(body_members) =>
+              match test_value {
+                ObjectValue(elem_members) => {
+                  let body_values = eval_object_members(
+                    body_members, bindings, pred_env, class_env, cache, stack, declarations,
+                    diagnostics, resolve_import,
+                  )
+                  Some(
+                    ObjectValue(merge_value_members(elem_members, body_values)),
+                  )
+                }
+                _ => Some(test_value)
+              }
+            _ =>
+              eval_expr_with_bindings(
+                body_expr, bindings, pred_env, class_env, cache, stack, declarations,
+                diagnostics, resolve_import,
+              )
+          }
+          match new_value {
+            Some(v) =>
+              if is_subscript {
+                match target_member.value {
+                  ObjectValue(pair_members) => {
+                    let updated : Array[ValueMember] = []
+                    for p in pair_members {
+                      if p.name == "@value" {
+                        updated.push({ name: "@value", value: v })
+                      } else {
+                        updated.push(p)
+                      }
+                    }
+                    result[i] = {
+                      name: target_member.name,
+                      value: ObjectValue(updated),
+                    }
+                  }
+                  _ => ()
+                }
+              } else {
+                result[i] = { name: target_member.name, value: v }
+              }
+            None => ()
+          }
+        }
+        Some(BoolValue(false)) => ()
+        Some(_) =>
+          diagnostics.push(
+            diag("predicate member expression must produce a Boolean"),
+          )
+        None => ()
+      }
+    }
+  }
+  result
+}
+
+///|
 fn eval_listing_subscript_amend(
   elements : Array[Value],
   members : Array[ObjectMember],
@@ -11109,6 +11269,90 @@ fn eval_listing_subscript_amend(
             result.push(scalar)
           }
         None => return None
+      }
+      continue
+    }
+    // PKL-148ar: `[[ pred ]] { body }` / `[[ pred ]] = value` predicate
+    // member. For each element in the running `result`, evaluate the
+    // predicate with `this` bound to the element; if true, amend the
+    // element with the body (object body → merge member-by-member;
+    // bare value → replace outright).
+    if field.name.has_prefix("@predicate$") {
+      match field.value {
+        CallExpr(Identifier("@__predicate_entry"), args) =>
+          if args.length() != 2 {
+            diagnostics.push(diag("object amendment expects Object"))
+            return None
+          } else {
+            let pred_expr = args[0]
+            let body_expr = args[1]
+            for i = 0; i < result.length(); i = i + 1 {
+              let element = result[i]
+              let pred_env = copy_value_bindings(env)
+              pred_env.push({ name: "this", value: element })
+              // Implicit-receiver fields (`name == "Barn Owl"`) need
+              // the element's members exposed at the env's top so
+              // bare-name lookups resolve through them; push each
+              // member as a separate env binding when the element is
+              // an ObjectValue. Non-object elements only support the
+              // `this` form (`[[ this == pigeon ]]`).
+              match element {
+                ObjectValue(elem_members) =>
+                  for m in elem_members {
+                    if !is_invisible_member_name(m.name) {
+                      pred_env.push({ name: m.name, value: m.value })
+                    }
+                  }
+                _ => ()
+              }
+              match
+                eval_expr_with_bindings(
+                  pred_expr, bindings, pred_env, class_env, cache, stack, declarations,
+                  diagnostics, resolve_import,
+                ) {
+                Some(BoolValue(true)) =>
+                  match body_expr {
+                    ObjectLiteral(body_members) => {
+                      let amended_cache = copy_value_bindings(cache)
+                      amended_cache.push({ name: "this", value: element })
+                      match element {
+                        ObjectValue(elem_members) => {
+                          let body_values = eval_object_members(
+                            body_members, bindings, pred_env, class_env, amended_cache,
+                            stack, declarations, diagnostics, resolve_import,
+                          )
+                          result[i] = ObjectValue(
+                            merge_value_members(elem_members, body_values),
+                          )
+                        }
+                        _ => ()
+                      }
+                    }
+                    _ =>
+                      match
+                        eval_expr_with_bindings(
+                          body_expr, bindings, pred_env, class_env, cache, stack,
+                          declarations, diagnostics, resolve_import,
+                        ) {
+                        Some(new_value) => result[i] = new_value
+                        None => return None
+                      }
+                  }
+                Some(BoolValue(false)) => ()
+                Some(_) => {
+                  diagnostics.push(
+                    diag("predicate member expression must produce a Boolean"),
+                  )
+                  return None
+                }
+                None => return None
+              }
+            }
+          }
+        _ => {
+          diagnostics.push(diag("object amendment expects Object"))
+          return None
+        }
       }
       continue
     }

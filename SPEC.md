@@ -1,6 +1,6 @@
 # Test SPEC
 
-261 tests across 2 module(s) — 196 pending, 65 active
+262 tests across 2 module(s) — 197 pending, 65 active
 
 ## `specs/`
 
@@ -930,6 +930,13 @@
   - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **predicate member double bracket selects and amends target entries** (minor) — verifies: PKL-148ar — tags: parser, evaluator, amend, upstream, compat
+  > Apple Pkl's predicate-member syntax `[[ pred ]] { body }` (or `[[ pred ]] = value`) inside an amend body filters the target's entries by evaluating `pred` against each one with `this` bound to the entry and the entry's members exposed at env top so bare-name references (`name == "Barn Owl"`) resolve through the implicit receiver. Matching entries get amended (object body merges member-by-member; bare expr replaces outright). pkl-mbt's parser previously dispatched the leading `[` as the start of a `[key] = value` subscript-amend (PKL-148w); a second `[` immediately after surfaced `unsupported expression` because `parse_expr` couldn't make sense of a bracket-prefixed key. Three coordinated changes. (1) Parser detects two consecutive `[` (peeking past whitespace) and routes to a new predicate arm: parse `[[ pred ]]` then either `{ body }` or `= value`. Stored as `@predicate$<offset>` with `CallExpr(Identifier("@__predicate_entry"), [pred, body])`. (2) `eval_listing_subscript_amend` learns a `@predicate$` arm: walks the running `result`, evaluates the predicate per element with `this` bound + (when element is an ObjectValue) the element's members exposed at env top, merges the body when true. (3) A new `apply_predicate_members_to_object` helper handles the Dynamic-shape case (target is `ObjectValue` containing `@element$` / `@subscript$` entries): the AmendExpr ObjectValue branch splits the body into predicate + regular members, runs predicates over the base entries first (filtering and amending), then merges the regular members onto the modified base. +1 fixture (`generators/predicateMembersThis`), 147 → 148. 5 fixtures drop from the unsupp class (20 → 15): basic/amendsChains, generators/predicateMembersListing, predicateMembersDynamicListing, predicateMembersDynamicMapping, predicateMembersThis — the four non-flipping siblings still need the nested for+predicate combo (`for (_ in xs) { [[...]] {...} }`) and the implicit-amend-on-same-name semantic for listing-merge round-trips.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-148aq
+  - decisions: 3 entry(ies)
+  - body: _not yet implemented_
+
 - [ ] **preserve Pkl constrained callable signature metadata** — verifies: PKL-048 — tags: typechecker
   > Callable values retain constrained parameter annotations through aliases and stored callable values so the typechecker can reject invalid calls after functions are assigned to other names.
   - contributes to: GOAL-PKL-PURE
@@ -1095,10 +1102,10 @@
   - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **super late binding amend lambda form class-aware object equality** [draft] — verifies: PKL-148ar — tags: evaluator, stdlib, upstream, compat, next
+- [ ] **super late binding amend lambda form class-aware object equality** [draft] — verifies: PKL-148as — tags: evaluator, stdlib, upstream, compat, next
   > PKL-148ak folded the `@error$` deferred-rejection prefix into the invisible-member set, hoisted the sentinel into per-field env, and added an Identifier intercept so `test.catch(() -> bad_local)` captures the deferred diagnostic against typed locals (+1 fixture, 143 → 144; basic 55.8% → 57.0%); PKL-148al added the PCF triple-quoted heredoc form for multi-line strings at block positions and reordered Dynamic-shape projection so named properties land before bare elements / subscript entries (+1 fixture, 144 → 145; api 7.4% → 8.4%). The harder remaining pieces — all of which require non-local evaluator work — are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this, needed for `objects/super2` / `super3` / `super4`, `classes/supercallsInLet`, and `basic/moduleRef3`'s `const a = 44` override of the parent's `aa = module.a`); the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambda*` fixtures); runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`); constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13); class-aware ObjectValue tagging so `new Person {} != new Person2 {}` (needed for `objects/equality`'s c-block + composite Mapping keys in `mappings/mapping1` that PKL-148k currently sidesteps via a scalar-only duplicate-check gate — a prototype hidden `__class` marker landed in PKL-148i but was reverted after it broke 14 structural-equality unit tests; the right shape is a dedicated `ObjectValue(class_name: String?, members)` enum-shape refactor); the `pipeOperator` res11 diagnostic also needs the class-aware tag to project `pipeOperator#Person` / `new Person {}`; object-body amend chain (`(obj) { ... } { ... }` — needed for `objects/equality` a11); free-form (non-literal) amend-override rejections (`(res3) { y = expr }` against `Int(this > x)` constraints — gated today on the upstream forward-binding leak where a sibling object's `local x = 1` resolves into a later object body's identifier lookup); listing/mapping body re-eval on amend so listing `(x) {}` / `default = N` work (needed for `listings/equality`, `listings/inequality`, `mappings/equality`, `mappings/inequality`). Listing/List-method receiver-tag preservation (`list.map(...)` returns a List, `listing.map(...)` returns a Listing) is a sub-task too; today the dispatcher always re-wraps as ListingValue. Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along; PcfRenderer / JsonRenderer instance-method bodies (renderDocument / renderValue) plus converter dispatch (`converters { [Any] = ...; [Dog] = ... }` + regex path matching) are the next api/-shaped slice once the leverage analysis surfaces a 1-flip-per-feature angle.
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-148aq
+  - depends on: PKL-148ar
   - body: _not yet implemented_
 
 - [ ] **super method call** — verifies: PKL-117a — tags: evaluator, inheritance
@@ -1610,7 +1617,7 @@
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
-- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d, PKL-148e, PKL-148f, PKL-148g, PKL-148h, PKL-148i, PKL-148j, PKL-148k, PKL-148l, PKL-148m, PKL-148n, PKL-148o, PKL-148p, PKL-148q, PKL-148r, PKL-148s, PKL-148t, PKL-148u, PKL-148v, PKL-148w, PKL-148x, PKL-148y, PKL-148aa, PKL-148ab, PKL-148ac, PKL-148ad, PKL-148ae, PKL-148af, PKL-148ag, PKL-148ah, PKL-148ai, PKL-148aj, PKL-148ak, PKL-148al, PKL-148an, PKL-148ao, PKL-148ap, PKL-148aq — tags: moonbit, upstream, compatibility, contract
+- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d, PKL-148e, PKL-148f, PKL-148g, PKL-148h, PKL-148i, PKL-148j, PKL-148k, PKL-148l, PKL-148m, PKL-148n, PKL-148o, PKL-148p, PKL-148q, PKL-148r, PKL-148s, PKL-148t, PKL-148u, PKL-148v, PKL-148w, PKL-148x, PKL-148y, PKL-148aa, PKL-148ab, PKL-148ac, PKL-148ad, PKL-148ae, PKL-148af, PKL-148ag, PKL-148ah, PKL-148ai, PKL-148aj, PKL-148ak, PKL-148al, PKL-148an, PKL-148ao, PKL-148ap, PKL-148aq, PKL-148ar — tags: moonbit, upstream, compatibility, contract
   > Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF and JSON).
   - body: `cmd` (exit 0 expected)
 
@@ -1981,7 +1988,9 @@
   - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
 - **PKL-148aq** — postfix expression bails on triple-dot spread after bare element
   - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
-- **PKL-148ar** — super late binding amend lambda form class-aware object equality
+- **PKL-148ar** — predicate member double bracket selects and amends target entries
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-148as** — super late binding amend lambda form class-aware object equality
   - _No active implementation._
 - **PKL-148b** — pkl:base method surface second wave
   - test: `specs/Test.pkl` — moon unit tests

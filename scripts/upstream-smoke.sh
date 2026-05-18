@@ -159,6 +159,7 @@ GOLD_FIXTURES=(
   "api/pcfRenderer1"
   "basic/rawString"
   "basic/stringMultiline"
+  "generators/predicateMembersThis"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output

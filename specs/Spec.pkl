@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklPredicateMemberScenario = new Scenario {
+  id = "PKL-148ar"
+  name = "predicate member double bracket selects and amends target entries"
+  description =
+    "Apple Pkl's predicate-member syntax `[[ pred ]] { body }` (or `[[ pred ]] = value`) inside an amend body filters the target's entries by evaluating `pred` against each one with `this` bound to the entry and the entry's members exposed at env top so bare-name references (`name == \"Barn Owl\"`) resolve through the implicit receiver. Matching entries get amended (object body merges member-by-member; bare expr replaces outright). pkl-mbt's parser previously dispatched the leading `[` as the start of a `[key] = value` subscript-amend (PKL-148w); a second `[` immediately after surfaced `unsupported expression` because `parse_expr` couldn't make sense of a bracket-prefixed key. Three coordinated changes. (1) Parser detects two consecutive `[` (peeking past whitespace) and routes to a new predicate arm: parse `[[ pred ]]` then either `{ body }` or `= value`. Stored as `@predicate$<offset>` with `CallExpr(Identifier(\"@__predicate_entry\"), [pred, body])`. (2) `eval_listing_subscript_amend` learns a `@predicate$` arm: walks the running `result`, evaluates the predicate per element with `this` bound + (when element is an ObjectValue) the element's members exposed at env top, merges the body when true. (3) A new `apply_predicate_members_to_object` helper handles the Dynamic-shape case (target is `ObjectValue` containing `@element$` / `@subscript$` entries): the AmendExpr ObjectValue branch splits the body into predicate + regular members, runs predicates over the base entries first (filtering and amending), then merges the regular members onto the modified base. +1 fixture (`generators/predicateMembersThis`), 147 → 148. 5 fixtures drop from the unsupp class (20 → 15): basic/amendsChains, generators/predicateMembersListing, predicateMembersDynamicListing, predicateMembersDynamicMapping, predicateMembersThis — the four non-flipping siblings still need the nested for+predicate combo (`for (_ in xs) { [[...]] {...} }`) and the implicit-amend-on-same-name semantic for listing-merge round-trips."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148aq" }
+  tags { "parser"; "evaluator"; "amend"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Encode predicate-member as `@predicate$<offset>` sentinel with `CallExpr(@__predicate_entry, ...)` payload"
+      rationale =
+        "Mirrors the established `@subscript$<offset>` + `CallExpr(@__index_entry, ...)` encoding from PKL-148w. The sentinel name keeps the parse-time member distinguishable from real properties (so renderers / equality skip it via `is_invisible_member_name` once that predicate is extended), and the synthetic CallExpr lets the AmendExpr evaluator decode the pred / body pair without growing a new ObjectMember field. A new ObjectMember discriminator would have required touching every parser path that constructs members; sticking with the existing sentinel + synthetic CallExpr pattern keeps the AST shape stable."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Two sites (listing path + Dynamic path) share the predicate semantic but not the implementation"
+      rationale =
+        "The Listing branch operates on `Array[Value]` (`result`) and can splice predicate side-effects inline. The Dynamic branch operates on `Array[ValueMember]` (`base_members`) where elements live under `@element$<offset>` and entries under `@subscript$<offset>` — the indirection (member name carries the sentinel, member value carries the actual entry or an `@__index_entry` pair) means the loop needs different unpacking. Refactoring to one polymorphic helper would have required either an enum over base shapes or thread-through callbacks; two focused helpers (`eval_listing_subscript_amend`'s arm + `apply_predicate_members_to_object`) keep each call site readable and the unpacking local."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Implicit-receiver bindings for predicate evaluation push each member as a top-level env entry rather than wrapping `this` in a single ObjectValue"
+      rationale =
+        "Apple Pkl's predicate `name == \"Barn Owl\"` reads `name` as a bare identifier (resolved through the implicit-receiver chain). Pushing `{ name: \"name\", value: ... }` directly into `pred_env` makes the bare-name lookup hit before the outer scope's bindings — matches the existing constraint-eval convention where members are exposed top-level. An alternative would have rewritten `name` as `this.name` (similar to PKL-148c's implicit-receiver lowering) but that requires touching the predicate AST, which would have complicated the parse-time encoding. The env-push approach reuses the existing identifier resolution path with no AST rewrite."
+    }
+  }
+}
+
 local pklPostfixTripleDotBailScenario = new Scenario {
   id = "PKL-148aq"
   name = "postfix expression bails on triple-dot spread after bare element"
@@ -5525,5 +5557,6 @@ scenarios {
   pklRawStringInterpolationScenario
   pklAmendChainAndUnionContinuationScenario
   pklPostfixTripleDotBailScenario
+  pklPredicateMemberScenario
   ...roadmap.entries
 }

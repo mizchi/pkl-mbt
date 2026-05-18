@@ -2739,44 +2739,83 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
       let payload = self.parse_spread_payload()
       members.push({ name: "@spread", type_name: None, value: payload })
     } else if self.at(lbracket()) {
-      // PKL-148w: `(x) { [3] = "barn owl" }` style subscript-amend
-      // entry inside an object body. Apple Pkl interprets this as an
-      // amend-time index/key override (`x` is a Listing → replace
-      // element 3; `x` is a Mapping → upsert entry at key 3). The
-      // parser doesn't know the base shape, so capture the entry as
-      // `ObjectMember { name = "@subscript$<offset>", value =
-      // CallExpr(Identifier("@__index_entry"), [key, value]) }` —
-      // the `AmendExpr` evaluator decodes it and dispatches to
-      // `replace_listing_element` / `mapping_amend` based on the
-      // resolved base. Offset disambiguates multiple subscript
-      // entries inside the same body.
-      let offset = self.current_offset()
-      ignore(self.bump())
-      self.skip_whitespace()
-      let key_expr = self.parse_expr()
-      ignore(self.expect(rbracket(), "]"))
-      self.skip_whitespace()
-      if self.at(eq()) {
+      // PKL-148ar: detect the predicate-member shape `[[ pred ]] { body }`
+      // or `[[ pred ]] = value` first. Two consecutive `[` open a
+      // predicate filter that selects elements / entries of the
+      // amend target (Listing / Dynamic-listing / Mapping) whose
+      // predicate (with `this` = the element under test) evaluates
+      // true; the body amends every matched entry. Encoded as
+      // `@predicate$<offset>` with value
+      // `CallExpr(Identifier("@__predicate_entry"), [pred, body])`
+      // so the AmendExpr evaluator can dispatch on it.
+      let next_kind = self.peek_non_trivia_kind(self.pos + 1)
+      if next_kind == lbracket() {
+        let offset = self.current_offset()
         ignore(self.bump())
         self.skip_whitespace()
-        let value_expr = self.parse_expr()
+        ignore(self.expect(lbracket(), "[["))
+        self.skip_whitespace()
+        let pred_expr = self.parse_expr()
+        self.skip_whitespace()
+        ignore(self.expect(rbracket(), "]"))
+        ignore(self.expect(rbracket(), "]]"))
+        self.skip_whitespace()
+        let body_expr = if self.at(eq()) {
+          ignore(self.bump())
+          self.skip_whitespace()
+          self.parse_expr()
+        } else if self.at(lbrace()) {
+          self.parse_object_body()
+        } else {
+          UnsupportedExpr
+        }
         members.push({
-          name: "@subscript$" + offset.to_string(),
+          name: "@predicate$" + offset.to_string(),
           type_name: None,
-          value: CallExpr(Identifier("@__index_entry"), [key_expr, value_expr]),
-        })
-      } else if self.at(lbrace()) {
-        // `[key] { ... }` — amend the entry at `key` with the given
-        // body. Encoded the same way; the second argument carries
-        // the amend body.
-        let body = self.parse_object_body()
-        members.push({
-          name: "@subscript$" + offset.to_string(),
-          type_name: None,
-          value: CallExpr(Identifier("@__index_entry"), [key_expr, body]),
+          value: CallExpr(Identifier("@__predicate_entry"), [
+            pred_expr, body_expr,
+          ]),
         })
       } else {
-        self.skip_unknown_member()
+        // PKL-148w: `(x) { [3] = "barn owl" }` style subscript-amend
+        // entry inside an object body. Apple Pkl interprets this as an
+        // amend-time index/key override (`x` is a Listing → replace
+        // element 3; `x` is a Mapping → upsert entry at key 3). The
+        // parser doesn't know the base shape, so capture the entry as
+        // `ObjectMember { name = "@subscript$<offset>", value =
+        // CallExpr(Identifier("@__index_entry"), [key, value]) }` —
+        // the `AmendExpr` evaluator decodes it and dispatches to
+        // `replace_listing_element` / `mapping_amend` based on the
+        // resolved base. Offset disambiguates multiple subscript
+        // entries inside the same body.
+        let offset = self.current_offset()
+        ignore(self.bump())
+        self.skip_whitespace()
+        let key_expr = self.parse_expr()
+        ignore(self.expect(rbracket(), "]"))
+        self.skip_whitespace()
+        if self.at(eq()) {
+          ignore(self.bump())
+          self.skip_whitespace()
+          let value_expr = self.parse_expr()
+          members.push({
+            name: "@subscript$" + offset.to_string(),
+            type_name: None,
+            value: CallExpr(Identifier("@__index_entry"), [key_expr, value_expr]),
+          })
+        } else if self.at(lbrace()) {
+          // `[key] { ... }` — amend the entry at `key` with the given
+          // body. Encoded the same way; the second argument carries
+          // the amend body.
+          let body = self.parse_object_body()
+          members.push({
+            name: "@subscript$" + offset.to_string(),
+            type_name: None,
+            value: CallExpr(Identifier("@__index_entry"), [key_expr, body]),
+          })
+        } else {
+          self.skip_unknown_member()
+        }
       }
     } else if self.at(identifier()) && self.peek().text() == "function" {
       // PKL-148ag: `local function f(...) = body` inside an object body.
