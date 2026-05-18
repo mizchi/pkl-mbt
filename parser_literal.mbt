@@ -616,6 +616,20 @@ fn decode_string_escapes(text : String) -> String {
           continue
         }
       }
+      // PKL-148bb: `\<newline>` is a heredoc line continuation — Apple
+      // Pkl drops both the backslash and the following newline so the
+      // surrounding lines join (`basic/stringMultilineContinuation`).
+      // Skip the `\r\n` variant too.
+      if next == '\n' {
+        i += 2
+        continue
+      }
+      if next == '\r' &&
+        i + 2 < text.length() &&
+        text[i + 2].to_int().unsafe_to_char() == '\n' {
+        i += 3
+        continue
+      }
       match next {
         'n' => buf.write_char('\n')
         't' => buf.write_char('\t')
