@@ -412,6 +412,17 @@ fn pretty_constraint_text(text : String) -> String {
       depth = depth - 1
     }
     if depth >= 0 {
+      // PKL-148bb: arrow `->` needs symmetric spacing (`(it) -> body`),
+      // not just trailing. Handle it ahead of the single-char `>` rule
+      // so the `>` branch can't see the `-` first and leave the leading
+      // gap unfilled.
+      if c == '-' && i + 1 < n && trimmed[i + 1].to_int().unsafe_to_char() == '>' {
+        ensure_trailing_space(buf)
+        buf.write_string("->")
+        buf.write_char(' ')
+        i = i + 2
+        continue
+      }
       // Check multi-char ops first.
       let mut matched = false
       for op in multi {
@@ -440,6 +451,20 @@ fn pretty_constraint_text(text : String) -> String {
       let mut single_matched = false
       for op in single {
         if c == op {
+          // Don't space a `>` that closes a `->` arrow (lambda
+          // parameter list — `(it) -> body`), which would split the
+          // arrow into `- >`.
+          let current = buf.to_string()
+          if op == '>' && current.length() > 0 {
+            let last = current[current.length() - 1].to_int().unsafe_to_char()
+            if last == '-' {
+              buf.write_char(op)
+              buf.write_char(' ')
+              i = i + 1
+              single_matched = true
+              break
+            }
+          }
           // Don't space a `<` / `>` that's part of a generic type
           // argument list (rare in constraint texts, but defensive).
           ensure_trailing_space(buf)

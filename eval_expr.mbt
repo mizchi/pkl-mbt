@@ -2228,8 +2228,52 @@ fn eval_expr_with_bindings(
                   left_expr, bindings, env, class_env, cache, stack, declarations,
                   diagnostics, resolve_import,
                 ) {
-                Some(value) =>
-                  return Some(BoolValue(value_is_type(value, type_name)))
+                Some(value) => {
+                  // Structural check first against the base type.
+                  if !value_is_type(value, type_name) {
+                    return Some(BoolValue(false))
+                  }
+                  // PKL-148bb: if the type carries a predicate
+                  // (`Int(this < 0)` / `String(length > 0)`), evaluate
+                  // it with `this` bound to the value. Apple Pkl's
+                  // `is` operator returns `false` when the predicate
+                  // fails even though the structural check passes —
+                  // `1 is Int(this < 0)` is `false`, not `true`. The
+                  // predicate is parsed via the same path the
+                  // class-property constraint cascade uses.
+                  match pkl_constrained_type_constraint_text(type_name) {
+                    Some(constraint_text) => {
+                      let parts = pkl_split_constraint_arguments(constraint_text)
+                      for part in parts {
+                        let pred_expr = match parse_constraint_expression(part) {
+                          Some(e) => e
+                          None => continue
+                        }
+                        let pred_env : Array[ValueBinding] = []
+                        for b in env {
+                          pred_env.push(b)
+                        }
+                        pred_env.push({ name: "this", value })
+                        let rewritten = rewrite_implicit_this_in_expr(
+                          pred_expr, bindings, pred_env, cache,
+                        )
+                        let probe_diags : Array[Diagnostic] = []
+                        let probe = eval_expr_with_bindings(
+                          rewritten, bindings, pred_env, class_env, cache, stack,
+                          declarations, probe_diags, resolve_import,
+                        )
+                        match probe {
+                          Some(BoolValue(true)) => continue
+                          Some(BoolValue(false)) =>
+                            return Some(BoolValue(false))
+                          _ => continue
+                        }
+                      }
+                      return Some(BoolValue(true))
+                    }
+                    None => return Some(BoolValue(true))
+                  }
+                }
                 None => return None
               }
             _ => {

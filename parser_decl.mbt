@@ -250,10 +250,32 @@ fn Parser::parse_type_text(
     }
     let tok = self.bump()
     if !is_trivia(tok.kind()) {
-      buf.write_string(tok.text())
+      // PKL-148bb: preserve a single space when the previous non-trivia
+      // ended with an identifier character and this token begins with
+      // one — otherwise tokens like `it is Int` collapse into `itisInt`,
+      // making it impossible to re-parse the captured text as the
+      // original `is` operator expression.
+      let s = buf.to_string()
+      let text = tok.text()
+      if s.length() > 0 && text.length() > 0 {
+        let last = s[s.length() - 1].to_int().unsafe_to_char()
+        let first = text[0].to_int().unsafe_to_char()
+        if is_ident_char(last) && is_ident_char(first) {
+          buf.write_char(' ')
+        }
+      }
+      buf.write_string(text)
     }
   }
   buf.to_string()
+}
+
+///|
+fn is_ident_char(c : Char) -> Bool {
+  (c >= 'a' && c <= 'z') ||
+  (c >= 'A' && c <= 'Z') ||
+  (c >= '0' && c <= '9') ||
+  c == '_'
 }
 
 ///|
