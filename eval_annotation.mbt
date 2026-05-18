@@ -746,7 +746,9 @@ fn eval_runtime_constraint_for_property(
     // evaluates to a FunctionValue rather than a Boolean, replay the
     // probe as `function.apply(this)` so the predicate's result drives
     // the rejection.
+    let mut had_function_apply = false
     if probe_result is Some(FunctionValue(_, _, _, _, _)) {
+      had_function_apply = true
       let apply_diags : Array[Diagnostic] = []
       let apply_result = eval_expr_with_bindings(
         CallExpr(MemberAccess(rewritten, "apply"), [Identifier("this")]),
@@ -795,11 +797,33 @@ fn eval_runtime_constraint_for_property(
           "Type constraint `\{pretty_constraint_text(part)}` violated. Value: \{render_pcf_value_inline_compact(property_value, hint)}",
         )
       }
-      // A non-Bool result or a diagnostic from inside the expression
-      // means the predicate is shape-incompatible with this slice's
-      // runtime — fall through silently rather than masking the
-      // original static-predicate path.
-      _ => ()
+      // PKL-148bb: Apple Pkl rejects a constraint predicate that
+      // evaluates to anything other than Boolean / Function with
+      // `Expected value of type \`Boolean\` or \`Function\`, but got
+      // type \`<T>\`. Value: <v>`. After the `function.apply(this)`
+      // replay above, the wording narrows to just `\`Boolean\``
+      // because the function reference was already resolved
+      // (`classes/constraints9`: `Int("not a boolean")` vs
+      // `Int((x) -> "not a boolean")`).
+      //
+      // A trailing `FunctionValue` here means the apply replay landed
+      // diagnostics and we kept the raw probe; fall through silently
+      // so the static-cascade fallback for predicates whose function
+      // reference does resolve at runtime stays intact
+      // (`classes/constraints10`).
+      Some(FunctionValue(_, _, _, _, _)) => ()
+      Some(non_bool_value) => {
+        let actual = eval_value_type_name(non_bool_value)
+        let expected = if had_function_apply {
+          "`Boolean`"
+        } else {
+          "`Boolean` or `Function`"
+        }
+        return Some(
+          "Expected value of type \{expected}, but got type `\{actual}`. Value: \{render_pcf_value_inline(non_bool_value)}",
+        )
+      }
+      None => ()
     }
   }
   None
