@@ -164,6 +164,14 @@ GOLD_FIXTURES=(
   "parser/newline"
   "listings/numberLiterals"
   "listings2/numberLiterals"
+  "listings/equality"
+  "listings/inequality"
+  "listings2/equality"
+  "listings2/inequality"
+  "mappings/equality"
+  "mappings/inequality"
+  "mappings2/equality"
+  "mappings2/inequality"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output

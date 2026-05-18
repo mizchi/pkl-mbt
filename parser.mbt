@@ -2660,49 +2660,56 @@ priv struct ListingBodyItem {
 /// spread back into the parent via WhenSpread so the binding stays
 /// transparent at render time.
 fn build_listing_body(items : Array[ListingBodyItem]) -> Expr {
-  let any_local = {
-    let mut found = false
-    for item in items {
-      if item.kind == LocalBindingItem {
-        found = true
-        break
-      }
-    }
-    found
-  }
-  if !any_local {
-    let elements : Array[Expr] = []
-    for item in items {
-      elements.push(item.value)
-    }
-    return ListingLiteral(elements)
-  }
-  build_listing_body_chain(items, 0)
-}
-
-///|
-fn build_listing_body_chain(
-  items : Array[ListingBodyItem],
-  start : Int,
-) -> Expr {
+  // PKL-148av: hoist every `local NAME = EXPR` to lexical scope so an
+  // element expression appearing *before* its corresponding `local`
+  // resolves through the binding (Apple Pkl's behaviour — locals are
+  // hoisted within the body, not strictly declared-before-use).
+  // Previously the chain walked items in order and only wrapped the
+  // tail of the body after each local, leaving leading elements
+  // outside the binding scope (`new Listing { x; local x = "one" }`
+  // surfaced `Cannot find property \`x\`.`). The new shape wraps each
+  // element expression in nested `((local) -> elem)(value)` calls so
+  // every element sees every local; the value site of each local
+  // itself still only sees the locals declared before it, matching
+  // standard `let` scoping.
+  let locals : Array[(String, Expr)] = []
   let elements : Array[Expr] = []
-  let mut i = start
-  while i < items.length() {
-    let item = items[i]
+  for item in items {
     if item.kind == LocalBindingItem {
-      let body = build_listing_body_chain(items, i + 1)
-      let bound = CallExpr(
-        LambdaExpr([{ name: item.name, type_name: None }], body, None),
-        [item.value],
-      )
-      elements.push(WhenSpread(bound))
-      return ListingLiteral(elements)
+      locals.push((item.name, item.value))
     } else {
       elements.push(item.value)
-      i = i + 1
     }
   }
-  ListingLiteral(elements)
+  if locals.length() == 0 {
+    return ListingLiteral(elements)
+  }
+  let wrapped_elements : Array[Expr] = []
+  for el in elements {
+    // Preserve the `WhenSpread(inner)` shape for `when`-branch and
+    // spread elements so the listing evaluator's spread-flatten path
+    // still picks them up — wrap the inner expression in the local
+    // bindings instead of swapping the WhenSpread for a raw CallExpr.
+    let (raw, restore_when_spread) = match el {
+      WhenSpread(inner) => (inner, true)
+      _ => (el, false)
+    }
+    let mut wrapped = raw
+    for i = locals.length() - 1; i >= 0; i = i - 1 {
+      let (name, value) = locals[i]
+      wrapped = CallExpr(
+        LambdaExpr([{ name, type_name: None }], wrapped, None),
+        [value],
+      )
+    }
+    let final_el = if restore_when_spread {
+      WhenSpread(wrapped)
+    } else {
+      wrapped
+    }
+    wrapped_elements.push(final_el)
+  }
+  ListingLiteral(wrapped_elements)
 }
 
 ///|
@@ -2735,6 +2742,7 @@ fn Parser::parse_mapping_body(self : Parser) -> Expr {
   self.builder.start_node(mapping_expr())
   ignore(self.expect(lbrace(), "{"))
   let entries : Array[MappingEntry] = []
+  let locals : Array[(String, Expr)] = []
   self.consume_separators()
   while !self.at(eof()) && !self.at(rbrace()) {
     self.skip_member_header()
@@ -2757,6 +2765,17 @@ fn Parser::parse_mapping_body(self : Parser) -> Expr {
         Some(entry) => entries.push(entry)
         None => ()
       }
+    } else if self.at(local_kw()) {
+      // PKL-148av: Apple Pkl allows `local NAME = EXPR` declarations
+      // inside a Mapping body; the binding hoists to the body's
+      // lexical extent and the entry expressions can reference it
+      // (`new Mapping { ["k"] = x; local x = 1 }`). Capture each
+      // local and rewrite every entry key/value below with nested
+      // `((local) -> ...)(value)` calls so forward references work.
+      match self.parse_local_decl() {
+        Some(binding) => locals.push((binding.name, binding.value))
+        None => ()
+      }
     } else {
       self.skip_unknown_member()
     }
@@ -2764,7 +2783,30 @@ fn Parser::parse_mapping_body(self : Parser) -> Expr {
   }
   ignore(self.expect(rbrace(), "}"))
   self.builder.finish_node()
-  MappingLiteral(entries)
+  if locals.length() == 0 {
+    return MappingLiteral(entries)
+  }
+  let wrap = fn(expr : Expr) {
+    let (raw, restore_when_spread) = match expr {
+      WhenSpread(inner) => (inner, true)
+      _ => (expr, false)
+    }
+    let mut w = raw
+    for i = locals.length() - 1; i >= 0; i = i - 1 {
+      let (name, value) = locals[i]
+      w = CallExpr(LambdaExpr([{ name, type_name: None }], w, None), [value])
+    }
+    if restore_when_spread {
+      WhenSpread(w)
+    } else {
+      w
+    }
+  }
+  let wrapped_entries : Array[MappingEntry] = []
+  for entry in entries {
+    wrapped_entries.push({ key: wrap(entry.key), value: wrap(entry.value) })
+  }
+  MappingLiteral(wrapped_entries)
 }
 
 ///|

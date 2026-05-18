@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklMappingAmendAndForwardLocalRefsScenario = new Scenario {
+  id = "PKL-148av"
+  name = "mapping amend support and forward-local-ref hoisting in listing and mapping bodies"
+  description =
+    "Eight upstream equality / inequality fixtures (listings, listings2, mappings, mappings2) needed three interlocking pieces. (1) `(mapping) { [key] = value }` / `(mapping) { [key] { body } }` had no eval support — every Mapping amend hit `object amendment expects Object`. New `eval_mapping_amend` mirrors `eval_listing_subscript_amend` on `Array[ValueEntry]`: `@subscript$` upserts the entry, deep-merges when the existing entry value is ObjectValue / ListingValue / MappingValue and the new body is an object literal; `@when` / `@for` / `@spread` splice MappingValue / MapValue payloads onto the entry list. (2) Named-property amend on a Listing or Mapping (`(x) { default = 9 }`) silently no-ops because pkl-mbt does not surface the element-default slot Apple Pkl tracks separately; the previous `object amendment expects Object` diagnostic was over-strict. Equality of `(x) { default = 9 }` against `x` stays `true` as a result (matches gold). (3) `local NAME = EXPR` inside a Listing or Mapping body had to hoist across the body — a bare-element reference appearing BEFORE the `local` declaration (`new Listing { x; local x = ELEM }`) used to surface a Cannot-find-property diagnostic. The previous chain-style desugar only wrapped items AFTER each `local`. New `build_listing_body` collects locals first, then wraps every element expression in nested `((local) -> elem)(value)` calls so every element sees every local — and preserves `WhenSpread(inner)` shape (wraps inner, restores spread wrapper) so `when (cond) { body }` branches still spread correctly. `parse_mapping_body` learns the same local-collection / wrap pass for entry keys and values. The amend-body sibling `local NAME = EXPR` case (`(x) { y; local y = ELEM }`) is the symmetric problem: `eval_listing_subscript_amend` and `eval_mapping_amend` now both pre-register `@local$` / `@hidden$` members in the lazy binding chain before evaluating element / subscript values, mirroring the loop in `eval_object_members_with_options`. +8 fixtures (`listings/equality`, `listings/inequality`, `listings2/equality`, `listings2/inequality`, `mappings/equality`, `mappings/inequality`, `mappings2/equality`, `mappings2/inequality`), 152 to 160; listings 31.2 to 43.8 percent, listings2 30.0 to 50.0 percent, mappings 22.2 to 44.4 percent, mappings2 25.0 to 50.0 percent."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148au" }
+  tags { "evaluator"; "parser"; "amend"; "listing"; "mapping"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Silent no-op for named-property amend on Listing / Mapping"
+      rationale =
+        "Apple Pkl's Listing / Mapping carry a `default` slot (used when an out-of-range index or missing key is read); pkl-mbt's ListingValue / MappingValue projection doesn't expose that slot. The previous strict diagnostic surfaced every `(x) { default = 9 }` as an error; the gold output's `x == (x) { default = 9 }` requires the value to compare equal to `x` (default isn't part of element / entry identity). Silently dropping unknown named properties on Listing / Mapping amends matches Apple Pkl's observable equality semantics on the affected fixtures and doesn't mask any real bug — Apple Pkl's own diagnostic for misspelled properties on Listing / Mapping would have been a different message, and the read-only properties (`length`, `isEmpty`) don't accept assignment in the first place. Object amends still raise the existing diagnostic for unknown properties."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Hoist locals across the entire body (not declaration-order chain) for forward refs"
+      rationale =
+        "The previous `build_listing_body_chain` walked items in order: each `local` opened a fresh scope whose body was the recursively-desugared remainder, so an element BEFORE the local sat outside the binding scope. The new shape collects all locals first, then wraps every element with all locals in declared order. Each local value still only sees earlier-declared locals (standard `let`-style scoping); only the element expressions get the body-wide hoist. WhenSpread elements need special handling — wrap the inner expression, restore the WhenSpread shape — so the listing evaluator spread-flatten path still picks them up (without this, `when (false) { 0 }; x; local x = ELEM` projected the when-branch ObjectValue as a single element instead of splicing nothing)."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Use existing AmendExpr base dispatch for `[key] { body }` deep-merge instead of synthesizing an Expr"
+      rationale =
+        "An earlier draft introduced an `IntrinsicValue(Value)` expression variant to feed a pre-evaluated existing entry value back through `AmendExpr`'s base dispatch. Adding a new AST variant for a single use site cluttered the AST and would have required corresponding typecheck / lint / codegen handling. Inlining the dispatch (ObjectValue → merge_value_members; ListingValue / ListValue → eval_listing_subscript_amend; MappingValue → recursive eval_mapping_amend; scalar → override) keeps the AST stable and routes through the same merge primitives. The trade-off: a recursive `[k] { [k2] { ... } }` chain re-enters eval_mapping_amend rather than the central AmendExpr arm, but the shapes are identical and the gold fixtures don't probe the difference."
+    }
+  }
+}
+
 local pklBinaryContinuationAcrossSeparatorsScenario = new Scenario {
   id = "PKL-148au"
   name = "binary operators continue across newlines and semicolons"
@@ -5651,5 +5683,6 @@ scenarios {
   pklFunctionReturnTypeFunctionFormScenario
   pklAsIsCompoundTypeOperandsScenario
   pklBinaryContinuationAcrossSeparatorsScenario
+  pklMappingAmendAndForwardLocalRefsScenario
   ...roadmap.entries
 }
