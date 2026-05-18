@@ -1,0 +1,3126 @@
+///|
+fn eval_expr_with_bindings(
+  expr : Expr,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match expr {
+    IntLiteral(value) => Some(IntValue(value))
+    FloatLiteral(value) => Some(FloatValue(value))
+    BoolLiteral(value) => Some(BoolValue(value))
+    StringLiteral(value) => Some(StringValue(value))
+    NullLiteral => Some(NullValue)
+    ImportExpr(uri) =>
+      match resolve_import(uri) {
+        Some(EvalOk(value)) => Some(value)
+        Some(EvalError(errors)) => {
+          for error in errors {
+            diagnostics.push(error)
+          }
+          None
+        }
+        None => {
+          diagnostics.push(diag("Cannot find module `\{uri}`."))
+          None
+        }
+      }
+    ObjectLiteral(members) =>
+      Some(
+        ObjectValue(
+          eval_object_members(
+            members, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
+          ),
+        ),
+      )
+    TypedObjectLiteral(type_name, members) => {
+      let merged = merge_value_members(
+        eval_class_default_members(
+          type_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
+        ),
+        eval_object_members(
+          members, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
+        ),
+      )
+      // PKL-148b: fire class-property constraints at construction time
+      // so `new P { l {} }` where `l: Listing<String>(!isEmpty)` raises
+      // the violation diagnostic right where the value is built, not
+      // only at the top-level binding boundary. The check returns the
+      // first violation; subsequent ones still surface if the outer
+      // binding pass re-runs the check.
+      let mut violation_emitted = false
+      for field in members {
+        match lookup_member(merged, field.name) {
+          Some(member_value) => {
+            // PKL-148i: enforce the declared type annotation first so
+            // `new Person { name = 42 }` rejects with "Expected value
+            // of type `String`, but got type `Int`. Value: 42" instead
+            // of silently keeping the integer. Restricted to literal
+            // value expressions: free-form expression bodies are
+            // still subject to a pre-existing forward-binding leak
+            // (locals from other module-level objects can resolve
+            // into a sibling body's identifier lookups), and firing
+            // the type check on the leaked value would mask the gold
+            // output of fixtures the leak does not otherwise break.
+            // Fixing the leak itself is tracked separately.
+            let value_is_literal = match field.value {
+              IntLiteral(_)
+              | FloatLiteral(_)
+              | StringLiteral(_)
+              | BoolLiteral(_)
+              | NullLiteral => true
+              _ => false
+            }
+            let type_message = if value_is_literal {
+              eval_class_property_type_rejection_message(
+                type_name,
+                field.name,
+                member_value,
+                declarations,
+              )
+            } else {
+              None
+            }
+            match type_message {
+              Some(message) => {
+                diagnostics.push(diag(message))
+                violation_emitted = true
+              }
+              None =>
+                match
+                  eval_class_property_constraint_value_rejection_message(
+                    type_name,
+                    field.name,
+                    member_value,
+                    declarations,
+                  ) {
+                  Some(message) => {
+                    diagnostics.push(diag(message))
+                    violation_emitted = true
+                  }
+                  None =>
+                    // PKL-148c: static predicate cascade returned no
+                    // match; try a runtime evaluation of the constraint
+                    // expression with `this` bound to the candidate value
+                    // (and the surrounding object's members hoisted into
+                    // env via implicit receiver). Catches the harder
+                    // forms: `Int(this >= min)`, `Int(abs < 100)`,
+                    // `Address(street.endsWith("St."))`, etc.
+                    match
+                      eval_runtime_constraint_for_property(
+                        type_name,
+                        field.name,
+                        member_value,
+                        merged,
+                        bindings,
+                        env,
+                        class_env,
+                        cache,
+                        stack,
+                        declarations,
+                        resolve_import,
+                      ) {
+                      Some(message) => {
+                        diagnostics.push(diag(message))
+                        violation_emitted = true
+                      }
+                      None => ()
+                    }
+                }
+            }
+          }
+          None => ()
+        }
+      }
+      if violation_emitted {
+        None
+      } else {
+        Some(ObjectValue(merged))
+      }
+    }
+    ListingLiteral(elements) => {
+      let values : Array[Value] = []
+      for element in elements {
+        // PKL-136: a `WhenSpread(inner)` element wraps a ConditionalExpr
+        // whose branches are ListingLiterals. Evaluate the wrapper and
+        // spread the resulting ListingValue's elements into the parent.
+        match element {
+          WhenSpread(inner) =>
+            match
+              eval_expr_with_bindings(
+                inner, bindings, env, class_env, cache, stack, declarations, diagnostics,
+                resolve_import,
+              ) {
+              Some(ListingValue(inner_elements))
+              | Some(ListValue(inner_elements)) =>
+                for v in inner_elements {
+                  values.push(v)
+                }
+              // PKL-148s: `...?x` against a null `x` silently skips
+              // (also covers `...x` against null — see the matching
+              // arm in `eval_object_members` for the rationale).
+              Some(NullValue) => ()
+              Some(_) =>
+                diagnostics.push(
+                  diag("when block inside Listing must produce a Listing"),
+                )
+              None => ()
+            }
+          _ =>
+            match
+              eval_expr_with_bindings(
+                element, bindings, env, class_env, cache, stack, declarations, diagnostics,
+                resolve_import,
+              ) {
+              Some(value) => values.push(value)
+              None => ()
+            }
+        }
+      }
+      Some(ListingValue(values))
+    }
+    MappingLiteral(entries) => {
+      let values : Array[ValueEntry] = []
+      let mut duplicate_emitted = false
+      for entry in entries {
+        // PKL-136: a synthetic MappingEntry with `key = WhenSpread(inner)`
+        // is the Mapping-body when block. Evaluate the wrapper and spread
+        // the resulting MappingValue's entries.
+        match entry.key {
+          WhenSpread(inner) =>
+            match
+              eval_expr_with_bindings(
+                inner, bindings, env, class_env, cache, stack, declarations, diagnostics,
+                resolve_import,
+              ) {
+              Some(MappingValue(inner_entries)) =>
+                for e in inner_entries {
+                  values.push(e)
+                }
+              // PKL-148s: `...?x` against a null `x` silently skips
+              // (also covers `...x` against null).
+              Some(NullValue) => ()
+              Some(_) =>
+                diagnostics.push(
+                  diag("when block inside Mapping must produce a Mapping"),
+                )
+              None => ()
+            }
+          _ => {
+            let key = eval_expr_with_bindings(
+              entry.key,
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            )
+            let value = eval_expr_with_bindings(
+              entry.value,
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            )
+            match (key, value) {
+              (Some(k), Some(v)) => {
+                // PKL-148k: Apple Pkl rejects two entries that resolve
+                // to the same key inside a single Mapping body (even
+                // when the key expressions themselves are different
+                // string-concat compositions like `"barn owl"` and
+                // `"bar" + "n owl"`). The rejection text quotes the
+                // duplicate key via inline PCF render and aborts the
+                // whole literal — emit the first violation and skip
+                // the rest of the body. The check is restricted to
+                // scalar key shapes: composite-key equality
+                // (ObjectValue, ListingValue, MappingValue, ...)
+                // collapses without class identity, so two
+                // structurally-identical `new Dynamic {}` /
+                // `new Person {}` keys would false-positive as
+                // duplicates against `mappings/mapping1`. Composite
+                // keys fall through to the unchecked push until
+                // ObjectValue carries a class tag (PKL-148k full
+                // slice).
+                let is_scalar_key = match k {
+                  IntValue(_)
+                  | FloatValue(_)
+                  | StringValue(_)
+                  | BoolValue(_)
+                  | NullValue
+                  | DurationValue(_, _)
+                  | DataSizeValue(_, _)
+                  | RegexValue(_)
+                  | BytesValue(_) => true
+                  _ => false
+                }
+                let mut is_duplicate = false
+                if is_scalar_key {
+                  for existing in values {
+                    if existing.key == k {
+                      is_duplicate = true
+                      break
+                    }
+                  }
+                }
+                if is_duplicate {
+                  if !duplicate_emitted {
+                    diagnostics.push(
+                      diag(
+                        "Duplicate definition of member `\{render_pcf_value_inline(k)}`.",
+                      ),
+                    )
+                    duplicate_emitted = true
+                  }
+                } else {
+                  values.push({ key: k, value: v })
+                }
+              }
+              _ => ()
+            }
+          }
+        }
+      }
+      if duplicate_emitted {
+        None
+      } else {
+        Some(MappingValue(values))
+      }
+    }
+    MemberAccess(target_expr, member_name) =>
+      // PKL-139: `module.foo` is Apple Pkl's self-reference to the
+      // current module's `foo` binding. Short-circuit the member access
+      // to a direct binding lookup so the value is resolved through the
+      // module's binding env rather than treating `module` as an
+      // ordinary identifier (which would fail with "unbound identifier").
+      // PKL-148ah: in `amends` / `extends` mode the child module's
+      // bindings list only carries its own additions — parent-only
+      // names (`a` in `moduleRefLibrary`) aren't reachable via
+      // `find_binding(child_bindings, ...)`. Fall back to the parent
+      // snapshot pushed as `super = ObjectValue(parent_members)` by
+      // `eval_program` so `module.X` resolves through the merged
+      // module surface instead of returning None.
+      if target_expr is Identifier("module") {
+        match
+          resolve_binding_value(
+            member_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
+          ) {
+          Some(value) => Some(value)
+          None =>
+            match lookup_value(cache, "super") {
+              Some(ObjectValue(parent_members)) =>
+                lookup_member(parent_members, member_name)
+              _ => None
+            }
+        }
+      } else if target_expr is Identifier("this") &&
+        (
+          find_binding(bindings, member_name) is Some(_) ||
+          lookup_value(env, member_name) is Some(_) ||
+          lookup_value(cache, member_name) is Some(_)
+        ) {
+        // PKL-148g: `this.X` inside an object body resolves the same as
+        // a bare `X` reference when `X` is in the implicit-receiver
+        // scope (siblings + enclosing bindings). When `X` is a
+        // value-derived property (e.g. `abs` on an Int receiver), fall
+        // through to the standard member-access dispatch instead so the
+        // runtime constraint helper's `this.abs < 100` rewrite still
+        // resolves through `eval_int_property`.
+        resolve_binding_value(
+          member_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
+        )
+      } else {
+        match
+          eval_expr_with_bindings(
+            target_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
+          ) {
+          Some(ObjectValue(members)) =>
+            // PKL-143: if the object is a `pkl:reflect` mirror (carries
+            // the hidden `__kind` marker), intercept introspection
+            // members before the generic `lookup_member` path.
+            match reflect_kind(members) {
+              Some("Class") =>
+                match member_name {
+                  "properties" =>
+                    match reflect_reflectee_name(members) {
+                      Some(name) =>
+                        Some(reflect_class_properties(name, declarations))
+                      None => lookup_member(members, member_name)
+                    }
+                  "methods" =>
+                    match reflect_reflectee_name(members) {
+                      Some(name) =>
+                        Some(reflect_class_methods(name, declarations))
+                      None => lookup_member(members, member_name)
+                    }
+                  "supertype" =>
+                    match reflect_reflectee_name(members) {
+                      Some(name) =>
+                        Some(reflect_class_supertype(name, declarations))
+                      None => lookup_member(members, member_name)
+                    }
+                  _ =>
+                    match lookup_member(members, member_name) {
+                      Some(value) => Some(value)
+                      None => {
+                        // PKL-148d: Apple Pkl reports member-access
+                        // failures on a Class mirror with a `in object
+                        // of type Class` suffix so users see the
+                        // class-as-value context.
+                        diagnostics.push(
+                          diag(
+                            "Cannot find property `\{member_name}` in object of type `Class`.",
+                          ),
+                        )
+                        None
+                      }
+                    }
+                }
+              Some("Module") =>
+                match member_name {
+                  "classes" => Some(reflect_module_classes(declarations))
+                  _ =>
+                    match lookup_member(members, member_name) {
+                      Some(value) => Some(value)
+                      None => {
+                        diagnostics.push(
+                          diag("Cannot find property `\{member_name}`."),
+                        )
+                        None
+                      }
+                    }
+                }
+              _ =>
+                // PKL-148u: a pending `@error$<name>` member from
+                // class-default structural rejection takes precedence
+                // — surface its message and short-circuit the lookup
+                // so `test.catch(() -> bad.res13)` catches just that
+                // property's rejection (not the first-encountered
+                // diagnostic of the surrounding class). The sibling
+                // member with the actual (type-invalid) value is left
+                // in place for equality / iteration but is unreachable
+                // through this lookup path.
+                match lookup_pending_error_message(members, member_name) {
+                  Some(message) => {
+                    diagnostics.push(diag(message))
+                    None
+                  }
+                  None =>
+                    // PKL-148j: external member access on an
+                    // ObjectValue hides `local` members from the
+                    // outside-of-body namespace (`foo.x` where `foo`
+                    // declares `local x = 2` should not resolve to
+                    // `2`); switch from the hidden-aware
+                    // `lookup_member` to `lookup_visible_member` so
+                    // the local slot is invisible here. Module-level
+                    // function declarations are also stored under the
+                    // hidden prefix (to keep them out of rendered
+                    // output) but stay reachable to importers via
+                    // `Base.func`, so a FunctionValue match through
+                    // `lookup_member` is still allowed as a follow-up.
+                    // The diagnostic matches Apple Pkl's wording (`in
+                    // object of type \`Dynamic\``); class-tagged
+                    // objects would carry their host class name
+                    // instead, but until ObjectValue grows a class
+                    // tag the best default is `Dynamic`.
+                    match lookup_visible_member(members, member_name) {
+                      Some(value) => Some(value)
+                      None =>
+                        match lookup_member(members, member_name) {
+                          Some(FunctionValue(_, _, _, _, _) as exported) =>
+                            Some(exported)
+                          _ => {
+                            diagnostics.push(
+                              diag(
+                                "Cannot find property `\{member_name}` in object of type `Dynamic`.",
+                              ),
+                            )
+                            None
+                          }
+                        }
+                    }
+                }
+            }
+          Some(ListingValue(elements)) | Some(ListValue(elements)) =>
+            if is_listing_property_name(member_name) {
+              eval_listing_property(elements, member_name, diagnostics)
+            } else {
+              diagnostics.push(
+                diag(
+                  "Cannot find property `\{member_name}` in object of type `Listing`.",
+                ),
+              )
+              None
+            }
+          Some(MappingValue(entries)) =>
+            if is_mapping_property_name(member_name) {
+              eval_mapping_property(entries, member_name, diagnostics)
+            } else {
+              diagnostics.push(
+                diag(
+                  "Cannot find property `\{member_name}` in object of type `Mapping`.",
+                ),
+              )
+              None
+            }
+          Some(StringValue(s)) =>
+            if is_string_property_name(member_name) {
+              eval_string_property(s, member_name, diagnostics)
+            } else {
+              diagnostics.push(
+                diag(
+                  "Cannot find property `\{member_name}` in object of type `String`.",
+                ),
+              )
+              None
+            }
+          Some(IntValue(n)) =>
+            if is_duration_unit_name(member_name) {
+              Some(DurationValue(n.to_double(), member_name))
+            } else if is_datasize_unit_name(member_name) {
+              Some(DataSizeValue(n.to_double(), member_name))
+            } else if is_int_property_name(member_name) {
+              eval_int_property(n, member_name, diagnostics)
+            } else {
+              diagnostics.push(
+                diag(
+                  "Cannot find property `\{member_name}` in object of type `Int`.",
+                ),
+              )
+              None
+            }
+          // PKL-121: same dispatch for Float magnitudes (`1.5.s`,
+          // `2.5.gib`). The Duration / DataSize value carries the
+          // Double magnitude verbatim.
+          Some(FloatValue(d)) =>
+            if is_duration_unit_name(member_name) {
+              Some(DurationValue(d, member_name))
+            } else if is_datasize_unit_name(member_name) {
+              Some(DataSizeValue(d, member_name))
+            } else {
+              diagnostics.push(
+                diag(
+                  "Cannot find property `\{member_name}` in object of type `Float`.",
+                ),
+              )
+              None
+            }
+          Some(DurationValue(n, unit)) =>
+            eval_duration_property(n, unit, member_name, diagnostics)
+          Some(DataSizeValue(n, unit)) =>
+            eval_datasize_property(n, unit, member_name, diagnostics)
+          Some(RegexValue(pattern)) =>
+            eval_regex_property(pattern, member_name, diagnostics)
+          Some(BytesValue(bytes)) =>
+            eval_bytes_property(bytes, member_name, diagnostics)
+          // PKL-119a: `.first` / `.second` reach the two ordered
+          // elements directly off the dedicated `PairValue`. Other
+          // member names surface the standard upstream wording so a
+          // typo lands on the same error path as Listing / Mapping.
+          Some(PairValue(first, second)) =>
+            match member_name {
+              "first" => Some(first)
+              "second" => Some(second)
+              // PKL-148: `.key` / `.value` are Apple Pkl's named aliases
+              // for `.first` / `.second` — fixtures like `api/pair.pkl`
+              // exercise both naming surfaces against the same Pair.
+              "key" => Some(first)
+              "value" => Some(second)
+              _ => {
+                diagnostics.push(
+                  diag(
+                    "Cannot find property `\{member_name}` in object of type `Pair`.",
+                  ),
+                )
+                None
+              }
+            }
+          // PKL-119b: `.start` / `.end` / `.step` reach the three Int
+          // carrier slots directly. Bare `.step` (no call) returns the
+          // step value; method form `.step(newValue)` is handled in
+          // the CallExpr dispatcher.
+          Some(IntSeqValue(start, end, step)) =>
+            match member_name {
+              "start" => Some(IntValue(start))
+              "end" => Some(IntValue(end))
+              "step" => Some(IntValue(step))
+              _ => {
+                diagnostics.push(
+                  diag(
+                    "Cannot find property `\{member_name}` in object of type `IntSeq`.",
+                  ),
+                )
+                None
+              }
+            }
+          // PKL-119c: SetValue's bare-property surface — `.length`,
+          // `.isEmpty`, `.isNotEmpty`, `.first`, `.last`, `.distinct`
+          // (identity since Set is already unique). Method names
+          // (`.contains` / `.toList` / `.map` / `.filter` / `.fold`)
+          // fall through to the CallExpr dispatcher.
+          Some(SetValue(elements)) =>
+            match member_name {
+              "length" => Some(IntValue(elements.length()))
+              "isEmpty" => Some(BoolValue(elements.length() == 0))
+              "isNotEmpty" => Some(BoolValue(elements.length() != 0))
+              "first" =>
+                if elements.length() == 0 {
+                  diagnostics.push(diag("Set.first is empty"))
+                  None
+                } else {
+                  Some(elements[0])
+                }
+              "last" =>
+                if elements.length() == 0 {
+                  diagnostics.push(diag("Set.last is empty"))
+                  None
+                } else {
+                  Some(elements[elements.length() - 1])
+                }
+              "distinct" => Some(SetValue(elements))
+              _ => {
+                diagnostics.push(
+                  diag(
+                    "Cannot find property `\{member_name}` in object of type `Set`.",
+                  ),
+                )
+                None
+              }
+            }
+          // PKL-119d: MapValue's bare-property surface — `.length`,
+          // `.isEmpty`, `.isNotEmpty`, `.keys` (Listing of keys),
+          // `.values` (Listing of values), `.entries` (Listing of
+          // Pair<K, V>). Method names (`.getOrNull` / `.containsKey`
+          // / `.toMap` / `.toMapping` / `.map` / `.filter` / `.fold`)
+          // fall through to the CallExpr dispatcher.
+          Some(MapValue(entries)) =>
+            match member_name {
+              "length" => Some(IntValue(entries.length()))
+              "isEmpty" => Some(BoolValue(entries.length() == 0))
+              "isNotEmpty" => Some(BoolValue(entries.length() != 0))
+              "keys" => {
+                let keys : Array[Value] = []
+                for entry in entries {
+                  keys.push(entry.key)
+                }
+                Some(SetValue(keys))
+              }
+              "values" => {
+                let values : Array[Value] = []
+                for entry in entries {
+                  values.push(entry.value)
+                }
+                Some(ListingValue(values))
+              }
+              "entries" => {
+                let pairs : Array[Value] = []
+                for entry in entries {
+                  pairs.push(PairValue(entry.key, entry.value))
+                }
+                Some(ListingValue(pairs))
+              }
+              _ => {
+                diagnostics.push(
+                  diag(
+                    "Cannot find property `\{member_name}` in object of type `Map`.",
+                  ),
+                )
+                None
+              }
+            }
+          Some(_) => {
+            diagnostics.push(diag("member access expects Object"))
+            None
+          }
+          None => None
+        }
+      }
+    SafeMemberAccess(target_expr, member_name) =>
+      match
+        eval_expr_with_bindings(
+          target_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
+        ) {
+        Some(NullValue) => Some(NullValue)
+        Some(ObjectValue(members)) =>
+          match lookup_member(members, member_name) {
+            Some(value) => Some(value)
+            None => {
+              diagnostics.push(diag("Cannot find property `\{member_name}`."))
+              None
+            }
+          }
+        Some(ListingValue(elements)) | Some(ListValue(elements)) =>
+          if is_listing_property_name(member_name) {
+            eval_listing_property(elements, member_name, diagnostics)
+          } else {
+            diagnostics.push(
+              diag(
+                "Cannot find property `\{member_name}` in object of type `Listing`.",
+              ),
+            )
+            None
+          }
+        Some(MappingValue(entries)) =>
+          if is_mapping_property_name(member_name) {
+            eval_mapping_property(entries, member_name, diagnostics)
+          } else {
+            diagnostics.push(
+              diag(
+                "Cannot find property `\{member_name}` in object of type `Mapping`.",
+              ),
+            )
+            None
+          }
+        Some(StringValue(s)) =>
+          if is_string_property_name(member_name) {
+            eval_string_property(s, member_name, diagnostics)
+          } else {
+            diagnostics.push(
+              diag(
+                "Cannot find property `\{member_name}` in object of type `String`.",
+              ),
+            )
+            None
+          }
+        Some(IntValue(n)) =>
+          if is_duration_unit_name(member_name) {
+            Some(DurationValue(n.to_double(), member_name))
+          } else if is_datasize_unit_name(member_name) {
+            Some(DataSizeValue(n.to_double(), member_name))
+          } else if is_int_property_name(member_name) {
+            eval_int_property(n, member_name, diagnostics)
+          } else {
+            diagnostics.push(
+              diag(
+                "Cannot find property `\{member_name}` in object of type `Int`.",
+              ),
+            )
+            None
+          }
+        // PKL-121: SafeMemberAccess version of the Float-magnitude
+        // unit dispatch (`(maybeFloat ?? 0.5).s`).
+        Some(FloatValue(d)) =>
+          if is_duration_unit_name(member_name) {
+            Some(DurationValue(d, member_name))
+          } else if is_datasize_unit_name(member_name) {
+            Some(DataSizeValue(d, member_name))
+          } else if is_float_property_name(member_name) {
+            eval_float_property(d, member_name, diagnostics)
+          } else {
+            diagnostics.push(
+              diag(
+                "Cannot find property `\{member_name}` in object of type `Float`.",
+              ),
+            )
+            None
+          }
+        Some(DurationValue(n, unit)) =>
+          eval_duration_property(n, unit, member_name, diagnostics)
+        Some(DataSizeValue(n, unit)) =>
+          eval_datasize_property(n, unit, member_name, diagnostics)
+        Some(RegexValue(pattern)) =>
+          eval_regex_property(pattern, member_name, diagnostics)
+        Some(BytesValue(bytes)) =>
+          eval_bytes_property(bytes, member_name, diagnostics)
+        Some(_) => {
+          diagnostics.push(diag("safe member access expects Object"))
+          None
+        }
+        None => None
+      }
+    SubscriptAccess(target_expr, key_expr) => {
+      let target = eval_expr_with_bindings(
+        target_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      )
+      let key = eval_expr_with_bindings(
+        key_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      )
+      match (target, key) {
+        (Some(ListingValue(elements)), Some(IntValue(index)))
+        | (Some(ListValue(elements)), Some(IntValue(index))) =>
+          if index >= 0 && index < elements.length() {
+            Some(elements[index])
+          } else {
+            // PKL-148h: match Apple Pkl's wording so `module.catch(...)`
+            // strings round-trip against gold. The container tag picks
+            // `List(...)` for `ListValue` and falls back to
+            // `Listing(...)` for the Listing block form.
+            let coll_text = match target {
+              Some(v) => render_pcf_value_inline(v)
+              None => ""
+            }
+            let upper = elements.length() - 1
+            diagnostics.push(
+              diag(
+                "Element index `\{index}` is out of range `0`..`\{upper}`. Collection: \{coll_text}",
+              ),
+            )
+            None
+          }
+        (Some(ListingValue(_)), Some(_)) | (Some(ListValue(_)), Some(_)) => {
+          diagnostics.push(diag("listing index expects Int"))
+          None
+        }
+        (Some(MappingValue(entries)), Some(key_value)) =>
+          match lookup_entry(entries, key_value) {
+            Some(value) => Some(value)
+            None => {
+              diagnostics.push(diag("unknown mapping key"))
+              None
+            }
+          }
+        (Some(_), Some(_)) => {
+          diagnostics.push(diag("subscript access expects Listing or Mapping"))
+          None
+        }
+        _ => None
+      }
+    }
+    AmendExpr(base_expr, members) =>
+      match
+        eval_expr_with_bindings(
+          base_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
+        ) {
+        Some(ObjectValue(base_members)) => {
+          // PKL-148e: thread `super` into the body cache. `(target)
+          // { body }` lets the body reference `super.X` to read the
+          // pre-amend value of property `X` on the target, matching
+          // Apple Pkl's amend-chain semantics in `objects/super1` and
+          // friends.
+          let amend_cache = copy_value_bindings(cache)
+          amend_cache.push({ name: "super", value: ObjectValue(base_members) })
+          // PKL-148ar: `[[ pred ]] { body }` predicate-member fires
+          // against the base's Dynamic-shape entries (`@element$` for
+          // bare elements, `@subscript$` for `[key]` entries). Split
+          // the amend body into predicate members and regular members;
+          // process predicates first by filtering / amending the base
+          // entries, then merge the regular members on the modified
+          // base. Without this preprocessing, `eval_object_members`
+          // would eval the `@predicate$<offset>` member's CallExpr
+          // body and surface `Cannot find property @__predicate_entry`.
+          let predicate_members : Array[ObjectMember] = []
+          let regular_members : Array[ObjectMember] = []
+          for m in members {
+            if m.name.has_prefix("@predicate$") {
+              predicate_members.push(m)
+            } else {
+              regular_members.push(m)
+            }
+          }
+          let modified_base = if predicate_members.length() == 0 {
+            base_members
+          } else {
+            apply_predicate_members_to_object(
+              base_members, predicate_members, bindings, env, class_env, amend_cache,
+              stack, declarations, diagnostics, resolve_import,
+            )
+          }
+          Some(
+            ObjectValue(
+              merge_value_members(
+                modified_base,
+                eval_object_members(
+                  regular_members, bindings, env, class_env, amend_cache, stack,
+                  declarations, diagnostics, resolve_import,
+                ),
+              ),
+            ),
+          )
+        }
+        Some(ListingValue(elements)) | Some(ListValue(elements)) =>
+          // PKL-148w: `(listing) { [N] = newValue }` replaces element
+          // N. Out-of-range indices surface Apple Pkl's wording
+          // (`Element index \`<n>\` is out of range \`0\`..\`<upper>\`.`).
+          // Members that aren't `@subscript$...` are deferred to a
+          // follow-up (`(listing) { name = "..." }` mixing element
+          // overrides with property-style amends).
+          eval_listing_subscript_amend(
+            elements, members, bindings, env, class_env, cache, stack, declarations,
+            diagnostics, resolve_import,
+          )
+        Some(MappingValue(entries)) =>
+          // PKL-148av: `(mapping) { [key] = value }` upserts the entry,
+          // and `(mapping) { [key] { body } }` amends an existing entry.
+          // Named properties (`default = X`) are silently skipped — same
+          // reasoning as the Listing path above.
+          eval_mapping_amend(
+            entries, members, bindings, env, class_env, cache, stack, declarations,
+            diagnostics, resolve_import,
+          )
+        Some(_) => {
+          diagnostics.push(diag("object amendment expects Object"))
+          None
+        }
+        None => None
+      }
+    Identifier(name) =>
+      // PKL-148ak: when a sibling local member's eval landed a
+      // deferred per-property rejection (the `@error$<bare>` env
+      // entry hoisted by `eval_object_members`), surface that
+      // diagnostic before resolving the bare-name value. The
+      // sentinel only lives in env when the surrounding body ran
+      // with `defer_property_errors=true` (class default eval); for
+      // every other site the lookup misses and the normal resolver
+      // runs unchanged. `test.catch(() -> bad_local)` captures the
+      // surfaced diagnostic — without this intercept the lambda
+      // body read the type-invalid value directly, no throw, and
+      // `test.catch` reported `Expected an exception, but none was
+      // thrown.` (gold expected the rejection message).
+      if lookup_value(env, error_member_name(name))
+        is Some(StringValue(message)) {
+        diagnostics.push(diag(message))
+        None
+      } else {
+        match
+          resolve_binding_value(
+            name, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
+          ) {
+          Some(value) => Some(value)
+          None =>
+            // PKL-148d: a bare class name (`Person`) used as a value
+            // projects to a `pkl:reflect.Class` mirror. This unlocks
+            // `Person.foo` / `Person.bar()` failure paths that snippetTest
+            // captures via `test.catch(...)`, plus future Class-arg APIs.
+            match lookup_class_binding(class_env, name) {
+              Some(_) => Some(synth_class_mirror_for_name(name))
+              None =>
+                // PKL-148e: stdlib type names (`Int` / `Float` / `String`
+                // / ...) also project to a Class mirror so equality and
+                // comparison fixtures (`Int == Int`, `Int == 3.getClass()`)
+                // round-trip without a user class declaration.
+                if is_stdlib_class_name(name) {
+                  Some(synth_class_mirror_for_name(name))
+                } else {
+                  diagnostics.push(diag("Cannot find property `\{name}`."))
+                  None
+                }
+            }
+        }
+      }
+    CallExpr(callee, arguments) =>
+      if callee is Identifier("Bytes") &&
+        !stack_contains_binding(stack, "Bytes") &&
+        find_binding(bindings, "Bytes") is None {
+        // PKL-083: `Bytes(<Listing of Int>)` constructor. Each element
+        // is validated 0..=255 inside `build_bytes_from_int_listing`;
+        // anything else records a diagnostic and bails.
+        if arguments.length() == 1 {
+          match
+            eval_expr_with_bindings(
+              arguments[0],
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ) {
+            Some(ListingValue(elements)) | Some(ListValue(elements)) =>
+              build_bytes_from_int_listing(elements, diagnostics)
+            Some(_) => {
+              diagnostics.push(diag("Bytes expects a Listing of Int"))
+              None
+            }
+            None => None
+          }
+        } else {
+          diagnostics.push(diag("Bytes expects exactly one argument"))
+          None
+        }
+      } else if callee is MemberAccess(Identifier("Bytes"), "fromBase64") &&
+        !stack_contains_binding(stack, "Bytes") &&
+        find_binding(bindings, "Bytes") is None {
+        // PKL-083: `Bytes.fromBase64("<base64>")` static-style decoder.
+        // Decoding errors surface as a diagnostic carrying the base64
+        // engine's own message.
+        if arguments.length() == 1 {
+          match
+            eval_expr_with_bindings(
+              arguments[0],
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ) {
+            Some(StringValue(encoded)) =>
+              Some(BytesValue(@base64.decode(encoded[:]))) catch {
+                _ => {
+                  diagnostics.push(
+                    diag("Bytes.fromBase64: malformed base64 input"),
+                  )
+                  None
+                }
+              }
+            Some(_) => {
+              diagnostics.push(
+                diag("Bytes.fromBase64 expects a String argument"),
+              )
+              None
+            }
+            None => None
+          }
+        } else {
+          diagnostics.push(
+            diag("Bytes.fromBase64 expects exactly one argument"),
+          )
+          None
+        }
+      } else if (
+          callee is MemberAccess(Identifier("module"), "catch") ||
+          callee is MemberAccess(Identifier("test"), "catch")
+        ) &&
+        !stack_contains_binding(stack, "catch") &&
+        find_binding(bindings, "catch") is None &&
+        arguments.length() == 1 {
+        // PKL-147: snippetTest fixtures call `module.catch(lambda)` to
+        // probe whether the lambda throws. Reuse the binding-time
+        // intercept by reconstructing the surface form recognised by
+        // `pkl_test_catch_lambda_body` and routing through
+        // `eval_pkl_test_catch_binding_value`. Lambdas with non-zero
+        // arity fall through to the generic CallExpr path so a future
+        // proper `catch` member can take over.
+        eval_pkl_test_catch_binding_value(
+          CallExpr(callee, arguments),
+          bindings,
+          env,
+          class_env,
+          cache,
+          stack,
+          declarations,
+          resolve_import,
+        )
+      } else if (
+          callee is MemberAccess(Identifier("module"), "catchOrNull") ||
+          callee is MemberAccess(Identifier("test"), "catchOrNull")
+        ) &&
+        !stack_contains_binding(stack, "catchOrNull") &&
+        find_binding(bindings, "catchOrNull") is None &&
+        arguments.length() == 1 {
+        // PKL-148o: `catchOrNull(fun)` mirrors `catch(fun)` but the
+        // no-throw branch returns `null` instead of throwing — used
+        // throughout the snippetTest examples blocks to project
+        // "did this throw?" as a Boolean (`catchOrNull(...) == null`).
+        eval_pkl_test_catch_or_null_binding_value(
+          CallExpr(callee, arguments),
+          bindings,
+          env,
+          class_env,
+          cache,
+          stack,
+          declarations,
+          resolve_import,
+        )
+      } else if callee is Identifier("throw") &&
+        !stack_contains_binding(stack, "throw") &&
+        find_binding(bindings, "throw") is None {
+        // PKL-084 split-1: `throw("...")` aborts evaluation by pushing a
+        // diagnostic carrying the message verbatim and returning no value.
+        // The message must evaluate to a String — anything else is a
+        // dedicated diagnostic rather than the user-supplied one so the
+        // origin of the failure stays unambiguous.
+        if arguments.length() == 1 {
+          match
+            eval_expr_with_bindings(
+              arguments[0],
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ) {
+            Some(StringValue(message)) => {
+              diagnostics.push(diag(message))
+              None
+            }
+            Some(_) => {
+              diagnostics.push(diag("throw expects a String argument"))
+              None
+            }
+            None => None
+          }
+        } else {
+          diagnostics.push(diag("throw expects exactly one argument"))
+          None
+        }
+      } else if callee is Identifier("read") &&
+        !stack_contains_binding(stack, "read") &&
+        find_binding(bindings, "read") is None {
+        // PKL-098: `read(uri)` evaluates the URI string and dispatches by
+        // scheme prefix. The sandbox policy is explicit: only `env:` is
+        // currently on the allow-list, all other schemes (`prop:`,
+        // `file:`, `https:`, etc.) surface a diagnostic naming the
+        // offending scheme rather than silently failing or escaping to
+        // the host. The `read?(uri)` null-returning variant requires
+        // parser support and stays deferred.
+        if arguments.length() == 1 {
+          match
+            eval_expr_with_bindings(
+              arguments[0],
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ) {
+            Some(StringValue(uri)) => eval_read_uri(uri, diagnostics)
+            Some(_) => {
+              diagnostics.push(diag("read expects a String argument"))
+              None
+            }
+            None => None
+          }
+        } else {
+          diagnostics.push(diag("read expects exactly one argument"))
+          None
+        }
+      } else if callee is Identifier("trace") &&
+        !stack_contains_binding(stack, "trace") &&
+        find_binding(bindings, "trace") is None {
+        // PKL-084 split-1: `trace(value)` evaluates the argument and
+        // returns it verbatim. Apple Pkl additionally writes the value to
+        // stderr as a side effect; the diagnostic-surface piece of that
+        // contract is deferred to a follow-up slice because the only
+        // observable channel for a stderr stamp lives in the CLI layer
+        // and would expand the slice into renderer + diagnostic territory.
+        if arguments.length() == 1 {
+          eval_expr_with_bindings(
+            arguments[0],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          )
+        } else {
+          diagnostics.push(diag("trace expects exactly one argument"))
+          None
+        }
+      } else if (callee is Identifier("List") || callee is Identifier("Set")) &&
+        (
+          (
+            callee is Identifier("List") &&
+            !stack_contains_binding(stack, "List") &&
+            find_binding(bindings, "List") is None
+          ) ||
+          (
+            callee is Identifier("Set") &&
+            !stack_contains_binding(stack, "Set") &&
+            find_binding(bindings, "Set") is None
+          )
+        ) {
+        // PKL-139: `List(...)` / `Set(...)` are Apple Pkl's constructor
+        // functions for the immutable indexed collection and the
+        // unordered unique collection. pkl-mbt collapses `List` and
+        // `Listing` into the same `ListingValue` until PKL-119 splits
+        // Set / Pair / Map / IntSeq variants out; both forms produce
+        // `ListingValue` here. The behavioural difference (Set ignores
+        // duplicates) is the only divergence: we project Set's args
+        // through `distinct` so chained operations behave correctly.
+        let arg_values : Array[Value] = []
+        let mut ok = true
+        for argument in arguments {
+          match
+            eval_expr_with_bindings(
+              argument, bindings, env, class_env, cache, stack, declarations, diagnostics,
+              resolve_import,
+            ) {
+            Some(v) => arg_values.push(v)
+            None => ok = false
+          }
+        }
+        if !ok {
+          None
+        } else if callee is Identifier("Set") {
+          // PKL-119c: Set carries the dedicated `SetValue` variant so
+          // PCF round-trips through the `Set(...)` constructor form
+          // and the typechecker distinguishes it from `Listing<T>`.
+          // Duplicates are dropped at construction; insertion order
+          // is preserved.
+          let unique : Array[Value] = []
+          for v in arg_values {
+            if !contains_value(unique, v) {
+              unique.push(v)
+            }
+          }
+          Some(SetValue(unique))
+        } else {
+          // PKL-148h: `List(...)` lands in the dedicated `ListValue`
+          // variant. Element-level operations (`+`, subscript, length,
+          // method dispatch) treat List/Listing/Set uniformly; only the
+          // PCF rendering and the type-tag diverge.
+          Some(ListValue(arg_values))
+        }
+      } else if callee is Identifier("Map") &&
+        !stack_contains_binding(stack, "Map") &&
+        find_binding(bindings, "Map") is None {
+        // PKL-119d: Apple Pkl's `Map(k1, v1, k2, v2, ...)` constructor
+        // builds an immutable functional map. Arguments come in
+        // alternating `key, value` pairs; later duplicate keys
+        // overwrite earlier ones (matching upstream Map semantics).
+        // The result is the dedicated `MapValue` variant — distinct
+        // from `MappingValue` (the object-style `new Mapping { ... }`
+        // form) so PCF round-trips through the constructor form and
+        // the typechecker keeps `Map<K, V>` separate from
+        // `Mapping<K, V>`.
+        if arguments.length() % 2 != 0 {
+          diagnostics.push(
+            diag(
+              "Map expects an even number of arguments (alternating key, value)",
+            ),
+          )
+          None
+        } else {
+          let entries : Array[ValueEntry] = []
+          let mut ok = true
+          let mut i = 0
+          while i < arguments.length() {
+            let key_v = eval_expr_with_bindings(
+              arguments[i],
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            )
+            let value_v = eval_expr_with_bindings(
+              arguments[i + 1],
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            )
+            match (key_v, value_v) {
+              (Some(k), Some(v)) => {
+                // Overwrite earlier same-key entries so the carrier
+                // matches upstream functional-map semantics.
+                let mut replaced = false
+                for j = 0; j < entries.length(); j = j + 1 {
+                  if entries[j].key == k {
+                    entries[j] = { key: k, value: v }
+                    replaced = true
+                    break
+                  }
+                }
+                if !replaced {
+                  entries.push({ key: k, value: v })
+                }
+              }
+              _ => ok = false
+            }
+            i = i + 2
+          }
+          if ok {
+            Some(MapValue(entries))
+          } else {
+            None
+          }
+        }
+      } else if callee is Identifier("IntSeq") &&
+        !stack_contains_binding(stack, "IntSeq") &&
+        find_binding(bindings, "IntSeq") is None {
+        // PKL-119b: `IntSeq(start, end)` constructs an `IntSeqValue`
+        // with step = 1. The `step` knob is set later via
+        // `IntSeq(...).step(n)` rather than a third constructor
+        // argument, matching Apple Pkl's two-arg constructor surface.
+        if arguments.length() != 2 {
+          diagnostics.push(diag("IntSeq expects exactly two arguments"))
+          None
+        } else {
+          let start = eval_expr_with_bindings(
+            arguments[0],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          )
+          let end_v = eval_expr_with_bindings(
+            arguments[1],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          )
+          match (start, end_v) {
+            (Some(IntValue(s)), Some(IntValue(e))) => Some(IntSeqValue(s, e, 1))
+            (Some(_), Some(_)) => {
+              diagnostics.push(diag("IntSeq expects Int arguments"))
+              None
+            }
+            _ => None
+          }
+        }
+      } else if callee is Identifier("Pair") &&
+        !stack_contains_binding(stack, "Pair") &&
+        find_binding(bindings, "Pair") is None {
+        // PKL-119a: `Pair(first, second)` constructs a dedicated
+        // `PairValue`. Member access (`.first` / `.second`) lands on
+        // the same value through the `PairValue` arm in
+        // `eval_member_access`, and renderers project it as
+        // `Pair(a, b)` (PCF) / `[a, b]` (JSON / YAML / Properties /
+        // plist).
+        if arguments.length() != 2 {
+          diagnostics.push(diag("Pair expects exactly two arguments"))
+          None
+        } else {
+          let first = eval_expr_with_bindings(
+            arguments[0],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          )
+          let second = eval_expr_with_bindings(
+            arguments[1],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          )
+          match (first, second) {
+            (Some(a), Some(b)) => Some(PairValue(a, b))
+            _ => None
+          }
+        }
+      } else if is_pkl_math_intrinsic_call(callee, bindings, stack) {
+        // PKL-120: `pkl:math`'s Float-side helpers route through the
+        // `_pkl_math_<op>` global intrinsic names — `sqrt`, `pow`,
+        // `log`, `exp`, `floor`, `ceil`, `round`, `sin`, `cos`,
+        // `tan`, `atan`, `atan2`. The synthetic `pkl:math` source
+        // defines each public name as a lambda forwarding to the
+        // corresponding intrinsic so the user-facing API stays
+        // `math.sqrt(x)` while the computation lives in MoonBit.
+        eval_pkl_math_intrinsic(
+          callee, arguments, bindings, env, class_env, cache, stack, declarations,
+          diagnostics, resolve_import,
+        )
+      } else if is_pkl_semver_intrinsic_call(callee, bindings, stack) {
+        // PKL-123: same forwarding pattern as `pkl:math`. The
+        // synthetic `pkl:semver` source defines `parse`,
+        // `parseOrNull`, `compare`, `isLessThan`, `isGreaterThan`,
+        // `isEqualTo` as lambdas calling the `_pkl_semver_<op>`
+        // intrinsics declared below. Keeping the parse + compare
+        // logic in MoonBit avoids a String→Int helper in pkl and
+        // means SemVer pre-release ordering follows the spec.
+        eval_pkl_semver_intrinsic(
+          callee, arguments, bindings, env, class_env, cache, stack, declarations,
+          diagnostics, resolve_import,
+        )
+      } else if callee is Identifier("Regex") &&
+        !stack_contains_binding(stack, "Regex") &&
+        find_binding(bindings, "Regex") is None {
+        // PKL-081: `Regex("<pattern>")` is recognized as a constructor
+        // form before the generic call path runs. The argument must be a
+        // single String literal evaluating to the pattern; the result is
+        // a `RegexValue` carrying the pattern verbatim. Patterns are not
+        // compiled here — that happens lazily inside the method
+        // dispatchers, so a Regex value can be constructed even if the
+        // pattern is later unused.
+        if arguments.length() == 1 {
+          match
+            eval_expr_with_bindings(
+              arguments[0],
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ) {
+            Some(StringValue(pattern)) => Some(RegexValue(pattern))
+            Some(_) => {
+              diagnostics.push(diag("Regex expects a String argument"))
+              None
+            }
+            None => None
+          }
+        } else {
+          diagnostics.push(diag("Regex expects exactly one argument"))
+          None
+        }
+      } else {
+        match callee {
+          // PKL-117: `super.method(args)` dispatches to the parent
+          // class's implementation while keeping the current
+          // `this`. The current class name lives in the
+          // `@current_class` marker pushed by
+          // `eval_class_method_call`; the parent comes from the
+          // class binding's `parent_name`.
+          MemberAccess(Identifier("super"), method_name) =>
+            eval_super_method_call(
+              method_name, arguments, bindings, env, class_env, cache, stack, declarations,
+              diagnostics, resolve_import,
+            )
+          MemberAccess(target_expr, method_name) =>
+            if class_method_call_available(
+                target_expr, method_name, bindings, class_env,
+              ) {
+              eval_class_method_call(
+                target_expr, method_name, arguments, false, bindings, env, class_env,
+                cache, stack, declarations, diagnostics, resolve_import,
+              )
+            } else if target_expr is Identifier(class_name) &&
+              lookup_class_binding(class_env, class_name) is Some(_) {
+              // PKL-148d: `Person.bar()` where `Person` is a class name
+              // and `bar` isn't a static-callable method. Apple Pkl
+              // reports `Cannot find method \`bar\` in class \`Class\`.`
+              // — distinct from the property-access wording.
+              diagnostics.push(
+                diag("Cannot find method `\{method_name}` in class `Class`."),
+              )
+              None
+            } else if method_name == "getClass" && arguments.length() == 0 {
+              // PKL-148: `value.getClass()` returns a `pkl:reflect.Class`
+              // mirror exposing `simpleName` / `name`. snippetTest's
+              // `api/any.pkl` exercises this on every primitive variant
+              // — Int, Float, Bool, String, Duration, DataSize, List,
+              // Map, Listing, Mapping, Dynamic, Pair, Null.
+              match
+                eval_expr_with_bindings(
+                  target_expr, bindings, env, class_env, cache, stack, declarations,
+                  diagnostics, resolve_import,
+                ) {
+                Some(value) => Some(synth_class_mirror_for_value(value))
+                None => None
+              }
+            } else if is_listing_method_name(method_name) ||
+              is_mapping_method_name(method_name) ||
+              is_string_method_name(method_name) ||
+              is_int_method_name(method_name) ||
+              // PKL-148: Bool / Float method dispatchers join the
+              // gate so `true.xor(false)` / `1.5.abs()` route through
+              // the receiver-typed arm instead of `eval_callable_call`.
+              is_bool_method_name(method_name) ||
+              is_float_method_name(method_name) ||
+              is_regex_method_name(method_name) ||
+              is_bytes_method_name(method_name) ||
+              is_intseq_method_name(method_name) ||
+              is_set_method_name(method_name) ||
+              is_map_method_name(method_name) ||
+              method_name == "toUnit" ||
+              method_name == "toBytes" ||
+              method_name == "isSubclassOf" ||
+              method_name == "parse" {
+              match
+                eval_expr_with_bindings(
+                  target_expr, bindings, env, class_env, cache, stack, declarations,
+                  diagnostics, resolve_import,
+                ) {
+                // PKL-143: `Class.isSubclassOf(other)` walks the parent
+                // chain of the receiver class against the reflectee of
+                // the argument mirror. The receiver is structurally an
+                // ObjectValue carrying the `__kind = "Class"` marker,
+                // so we check that nested inside the ObjectValue arm
+                // before falling through to other lookups.
+                Some(ObjectValue(receiver_members)) =>
+                  if method_name == "parse" &&
+                    reflect_kind(receiver_members) is Some("JsonParser") {
+                    // PKL-144 / PKL-145: `<json.Parser>.parse(source)`
+                    // routes through `@json.parse` and projects the
+                    // result via `json_to_value`. The receiver is
+                    // identified via the hidden `__kind = "JsonParser"`
+                    // marker that the synthetic `pkl:json.Parser`
+                    // class stamps.
+                    if arguments.length() != 1 {
+                      diagnostics.push(
+                        diag(
+                          "json.Parser.parse expects 1 argument, got \{arguments.length()}",
+                        ),
+                      )
+                      None
+                    } else {
+                      match
+                        eval_expr_with_bindings(
+                          arguments[0],
+                          bindings,
+                          env,
+                          class_env,
+                          cache,
+                          stack,
+                          declarations,
+                          diagnostics,
+                          resolve_import,
+                        ) {
+                        Some(StringValue(source_text)) => {
+                          let use_mapping = parser_use_mapping(receiver_members)
+                          try {
+                            let parsed = @json.parse(source_text[:])
+                            Some(json_to_value(parsed, use_mapping))
+                          } catch {
+                            err => {
+                              diagnostics.push(
+                                diag("json.Parser.parse: \{err}"),
+                              )
+                              None
+                            }
+                          }
+                        }
+                        Some(_) => {
+                          diagnostics.push(
+                            diag("json.Parser.parse expects a String argument"),
+                          )
+                          None
+                        }
+                        None => None
+                      }
+                    }
+                  } else if method_name == "parse" &&
+                    reflect_kind(receiver_members) is Some("YamlParser") {
+                    // PKL-146: `<yaml.Parser>.parse(source)` routes
+                    // through `@yaml.Yaml::load_from_string` and
+                    // projects the first document via `yaml_to_value`.
+                    // Multi-document YAML returns the first document
+                    // for now; full multi-doc support (returning a
+                    // Listing of docs) lands when a fixture demands
+                    // it. Empty input → NullValue.
+                    if arguments.length() != 1 {
+                      diagnostics.push(
+                        diag(
+                          "yaml.Parser.parse expects 1 argument, got \{arguments.length()}",
+                        ),
+                      )
+                      None
+                    } else {
+                      match
+                        eval_expr_with_bindings(
+                          arguments[0],
+                          bindings,
+                          env,
+                          class_env,
+                          cache,
+                          stack,
+                          declarations,
+                          diagnostics,
+                          resolve_import,
+                        ) {
+                        Some(StringValue(source_text)) => {
+                          let use_mapping = parser_use_mapping(receiver_members)
+                          try {
+                            let docs = @yaml.Yaml::load_from_string(
+                              source_text[:],
+                            )
+                            if docs.length() == 0 {
+                              Some(NullValue)
+                            } else {
+                              Some(yaml_to_value(docs[0], use_mapping))
+                            }
+                          } catch {
+                            err => {
+                              diagnostics.push(
+                                diag("yaml.Parser.parse: \{err}"),
+                              )
+                              None
+                            }
+                          }
+                        }
+                        Some(_) => {
+                          diagnostics.push(
+                            diag("yaml.Parser.parse expects a String argument"),
+                          )
+                          None
+                        }
+                        None => None
+                      }
+                    }
+                  } else if reflect_kind(receiver_members) is Some("Class") &&
+                    method_name == "isSubclassOf" {
+                    if arguments.length() != 1 {
+                      diagnostics.push(
+                        diag(
+                          "Class.isSubclassOf expects 1 argument, got \{arguments.length()}",
+                        ),
+                      )
+                      None
+                    } else {
+                      match
+                        eval_expr_with_bindings(
+                          arguments[0],
+                          bindings,
+                          env,
+                          class_env,
+                          cache,
+                          stack,
+                          declarations,
+                          diagnostics,
+                          resolve_import,
+                        ) {
+                        Some(ObjectValue(other_members)) =>
+                          match
+                            (
+                              reflect_reflectee_name(receiver_members),
+                              reflect_reflectee_name(other_members),
+                            ) {
+                            (Some(child), Some(parent)) =>
+                              Some(
+                                BoolValue(
+                                  reflect_is_subclass_of(
+                                    child, parent, declarations,
+                                  ),
+                                ),
+                              )
+                            _ => {
+                              diagnostics.push(
+                                diag(
+                                  "Class.isSubclassOf expects a Class mirror argument",
+                                ),
+                              )
+                              None
+                            }
+                          }
+                        _ => {
+                          diagnostics.push(
+                            diag(
+                              "Class.isSubclassOf expects a Class mirror argument",
+                            ),
+                          )
+                          None
+                        }
+                      }
+                    }
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                Some(ListingValue(elements)) | Some(ListValue(elements)) =>
+                  if is_listing_method_name(method_name) {
+                    // PKL-148h: List and Listing share the method
+                    // surface (`.filter`, `.map`, `.length`, ...). The
+                    // dispatcher's element-walking logic is identical;
+                    // the receiver type only re-emerges at `.toList()` /
+                    // `.toListing()` (each tags its result with the
+                    // matching variant).
+                    eval_listing_method(
+                      elements, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                Some(MappingValue(entries)) =>
+                  if is_mapping_method_name(method_name) {
+                    eval_mapping_method(
+                      entries, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                Some(StringValue(s)) =>
+                  if is_string_method_name(method_name) {
+                    eval_string_method(
+                      s, method_name, arguments, bindings, env, class_env, cache,
+                      stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                Some(IntValue(n)) =>
+                  if is_int_method_name(method_name) {
+                    eval_int_method(
+                      n, method_name, arguments, bindings, env, class_env, cache,
+                      stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                // PKL-148: Bool method dispatch — `xor` / `implies` /
+                // `and` / `or` / `toString` / `getClass`. snippetTest
+                // fixtures lean on these to express truth tables.
+                Some(BoolValue(b)) =>
+                  eval_bool_method(
+                    b, method_name, arguments, bindings, env, class_env, cache, stack,
+                    declarations, diagnostics, resolve_import,
+                  )
+                Some(FloatValue(d)) =>
+                  // PKL-148: Float method dispatch covers `abs` /
+                  // `toString` / `round` / `floor` / `ceil` / `isNaN`
+                  // / `isFinite` / `isInfinite`.
+                  eval_float_method(
+                    d, method_name, arguments, bindings, env, class_env, cache, stack,
+                    declarations, diagnostics, resolve_import,
+                  )
+                Some(DurationValue(n, unit)) =>
+                  eval_duration_method(
+                    n, unit, method_name, arguments, bindings, env, class_env, cache,
+                    stack, declarations, diagnostics, resolve_import,
+                  )
+                Some(DataSizeValue(n, unit)) =>
+                  eval_datasize_method(
+                    n, unit, method_name, arguments, bindings, env, class_env, cache,
+                    stack, declarations, diagnostics, resolve_import,
+                  )
+                Some(RegexValue(pattern)) =>
+                  eval_regex_method(
+                    pattern, method_name, arguments, bindings, env, class_env, cache,
+                    stack, declarations, diagnostics, resolve_import,
+                  )
+                Some(BytesValue(bytes)) =>
+                  eval_bytes_method(
+                    bytes, method_name, arguments, bindings, env, class_env, cache,
+                    stack, declarations, diagnostics, resolve_import,
+                  )
+                // PKL-119b: IntSeq methods (`step(n)` / `toList` /
+                // `toListing` / `map` / `fold`) dispatch through the
+                // dedicated method evaluator. `step` is also a
+                // property accessor — the call form (with parens)
+                // lands here; bare `.step` resolves earlier in the
+                // member-access dispatcher.
+                Some(IntSeqValue(start, end_v, step)) =>
+                  if is_intseq_method_name(method_name) {
+                    eval_intseq_method(
+                      start, end_v, step, method_name, arguments, bindings, env,
+                      class_env, cache, stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                // PKL-119c: Set methods (`.contains` / `.toList` /
+                // `.toListing` / `.toSet` / `.map` / `.filter` /
+                // `.fold` / `.join`) dispatch through the dedicated
+                // method evaluator.
+                Some(SetValue(elements)) =>
+                  if is_set_method_name(method_name) {
+                    eval_set_method(
+                      elements, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                // PKL-119d: Map methods (`.containsKey` / `.getOrNull`
+                // / `.getOrThrow` / `.toMap` / `.toMapping` /
+                // `.toList` / `.map` / `.filter` / `.fold`) dispatch
+                // through the dedicated method evaluator.
+                Some(MapValue(entries)) =>
+                  if is_map_method_name(method_name) {
+                    eval_map_method(
+                      entries, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                _ =>
+                  eval_callable_call(
+                    callee, arguments, bindings, env, class_env, cache, stack, declarations,
+                    diagnostics, resolve_import,
+                  )
+              }
+            } else {
+              eval_callable_call(
+                callee, arguments, bindings, env, class_env, cache, stack, declarations,
+                diagnostics, resolve_import,
+              )
+            }
+          SafeMemberAccess(target_expr, method_name) =>
+            if class_method_call_available(
+                target_expr, method_name, bindings, class_env,
+              ) {
+              eval_class_method_call(
+                target_expr, method_name, arguments, true, bindings, env, class_env,
+                cache, stack, declarations, diagnostics, resolve_import,
+              )
+            } else if is_listing_method_name(method_name) ||
+              is_mapping_method_name(method_name) ||
+              is_string_method_name(method_name) ||
+              is_int_method_name(method_name) ||
+              is_regex_method_name(method_name) ||
+              is_bytes_method_name(method_name) ||
+              is_intseq_method_name(method_name) ||
+              is_set_method_name(method_name) ||
+              is_map_method_name(method_name) ||
+              method_name == "toUnit" ||
+              method_name == "toBytes" {
+              match
+                eval_expr_with_bindings(
+                  target_expr, bindings, env, class_env, cache, stack, declarations,
+                  diagnostics, resolve_import,
+                ) {
+                Some(NullValue) => Some(NullValue)
+                Some(ListingValue(elements)) | Some(ListValue(elements)) =>
+                  if is_listing_method_name(method_name) {
+                    // PKL-148h: List and Listing share the method
+                    // surface (`.filter`, `.map`, `.length`, ...). The
+                    // dispatcher's element-walking logic is identical;
+                    // the receiver type only re-emerges at `.toList()` /
+                    // `.toListing()` (each tags its result with the
+                    // matching variant).
+                    eval_listing_method(
+                      elements, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                Some(MappingValue(entries)) =>
+                  if is_mapping_method_name(method_name) {
+                    eval_mapping_method(
+                      entries, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                Some(StringValue(s)) =>
+                  if is_string_method_name(method_name) {
+                    eval_string_method(
+                      s, method_name, arguments, bindings, env, class_env, cache,
+                      stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                Some(IntValue(n)) =>
+                  if is_int_method_name(method_name) {
+                    eval_int_method(
+                      n, method_name, arguments, bindings, env, class_env, cache,
+                      stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                // PKL-148: Bool method dispatch — `xor` / `implies` /
+                // `and` / `or` / `toString` / `getClass`. snippetTest
+                // fixtures lean on these to express truth tables.
+                Some(BoolValue(b)) =>
+                  eval_bool_method(
+                    b, method_name, arguments, bindings, env, class_env, cache, stack,
+                    declarations, diagnostics, resolve_import,
+                  )
+                Some(FloatValue(d)) =>
+                  // PKL-148: Float method dispatch covers `abs` /
+                  // `toString` / `round` / `floor` / `ceil` / `isNaN`
+                  // / `isFinite` / `isInfinite`.
+                  eval_float_method(
+                    d, method_name, arguments, bindings, env, class_env, cache, stack,
+                    declarations, diagnostics, resolve_import,
+                  )
+                Some(DurationValue(n, unit)) =>
+                  eval_duration_method(
+                    n, unit, method_name, arguments, bindings, env, class_env, cache,
+                    stack, declarations, diagnostics, resolve_import,
+                  )
+                Some(DataSizeValue(n, unit)) =>
+                  eval_datasize_method(
+                    n, unit, method_name, arguments, bindings, env, class_env, cache,
+                    stack, declarations, diagnostics, resolve_import,
+                  )
+                Some(RegexValue(pattern)) =>
+                  eval_regex_method(
+                    pattern, method_name, arguments, bindings, env, class_env, cache,
+                    stack, declarations, diagnostics, resolve_import,
+                  )
+                Some(BytesValue(bytes)) =>
+                  eval_bytes_method(
+                    bytes, method_name, arguments, bindings, env, class_env, cache,
+                    stack, declarations, diagnostics, resolve_import,
+                  )
+                _ =>
+                  eval_callable_call(
+                    callee, arguments, bindings, env, class_env, cache, stack, declarations,
+                    diagnostics, resolve_import,
+                  )
+              }
+            } else {
+              eval_callable_call(
+                callee, arguments, bindings, env, class_env, cache, stack, declarations,
+                diagnostics, resolve_import,
+              )
+            }
+          _ =>
+            eval_callable_call(
+              callee, arguments, bindings, env, class_env, cache, stack, declarations,
+              diagnostics, resolve_import,
+            )
+        }
+      }
+    LambdaExpr(parameters, body, return_type_name) =>
+      Some(
+        FunctionValue(
+          parameters,
+          body,
+          return_type_name,
+          capture_value_bindings(env, cache),
+          fresh_function_id(),
+        ),
+      )
+    NonNullExpr(inner_expr) =>
+      match
+        eval_expr_with_bindings(
+          inner_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
+        ) {
+        Some(NullValue) => {
+          diagnostics.push(diag("Expected a non-null value, but got `null`."))
+          None
+        }
+        Some(value) => Some(value)
+        None => None
+      }
+    UnaryExpr(op, inner_expr) => {
+      let inner = eval_expr_with_bindings(
+        inner_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      )
+      match (op, inner) {
+        (Negate, Some(IntValue(value))) => Some(IntValue(0 - value))
+        (Negate, Some(FloatValue(value))) => Some(FloatValue(0.0 - value))
+        (Negate, Some(DurationValue(value, unit))) =>
+          Some(DurationValue(0 - value, unit))
+        (Negate, Some(DataSizeValue(value, unit))) =>
+          Some(DataSizeValue(0 - value, unit))
+        (Not, Some(BoolValue(value))) => Some(BoolValue(!value))
+        (Negate, Some(_)) => {
+          diagnostics.push(diag("operator - expects numeric operand"))
+          None
+        }
+        (Not, Some(_)) => {
+          diagnostics.push(diag("operator ! expects Boolean operand"))
+          None
+        }
+        (_, None) => None
+      }
+    }
+    BinaryExpr(op, left_expr, right_expr) => {
+      match op {
+        And => {
+          let left = eval_expr_with_bindings(
+            left_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
+          )
+          match left {
+            Some(BoolValue(false)) => return Some(BoolValue(false))
+            Some(BoolValue(true)) => ()
+            Some(_) => {
+              diagnostics.push(diag("operator && expects Boolean operands"))
+              return None
+            }
+            None => return None
+          }
+          match
+            eval_expr_with_bindings(
+              right_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+              resolve_import,
+            ) {
+            Some(BoolValue(value)) => return Some(BoolValue(value))
+            Some(_) => {
+              diagnostics.push(diag("operator && expects Boolean operands"))
+              return None
+            }
+            None => return None
+          }
+        }
+        Or => {
+          let left = eval_expr_with_bindings(
+            left_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
+          )
+          match left {
+            Some(BoolValue(true)) => return Some(BoolValue(true))
+            Some(BoolValue(false)) => ()
+            Some(_) => {
+              diagnostics.push(diag("operator || expects Boolean operands"))
+              return None
+            }
+            None => return None
+          }
+          match
+            eval_expr_with_bindings(
+              right_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+              resolve_import,
+            ) {
+            Some(BoolValue(value)) => return Some(BoolValue(value))
+            Some(_) => {
+              diagnostics.push(diag("operator || expects Boolean operands"))
+              return None
+            }
+            None => return None
+          }
+        }
+        NullCoalesce => {
+          let left = eval_expr_with_bindings(
+            left_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
+          )
+          match left {
+            Some(NullValue) =>
+              return eval_expr_with_bindings(
+                right_expr, bindings, env, class_env, cache, stack, declarations,
+                diagnostics, resolve_import,
+              )
+            Some(value) => return Some(value)
+            None => return None
+          }
+        }
+        Is =>
+          // PKL-114: evaluate `<value> is <TypeName>` at runtime. The
+          // parser stores the right operand as `Identifier(type_name)`
+          // carrying the verbatim type annotation text (e.g. "Int",
+          // "Number", "Float?", "String | Int"). Anything more exotic
+          // on the right falls through to the parser-only diagnostic
+          // below.
+          match right_expr {
+            Identifier(type_name) =>
+              match
+                eval_expr_with_bindings(
+                  left_expr, bindings, env, class_env, cache, stack, declarations,
+                  diagnostics, resolve_import,
+                ) {
+                Some(value) =>
+                  return Some(BoolValue(value_is_type(value, type_name)))
+                None => return None
+              }
+            _ => {
+              diagnostics.push(
+                diag("operator is right operand must be a type name"),
+              )
+              return None
+            }
+          }
+        // PKL-148b: `as` is a runtime type cast. The typechecker has
+        // already verified the assignment-compatibility statically; at
+        // runtime we just need to ensure the value matches the
+        // annotation and surface a diagnostic otherwise. The cast is
+        // shape-preserving (no coercion / widening).
+        As => {
+          let value_opt = eval_expr_with_bindings(
+            left_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
+          )
+          match (value_opt, right_expr) {
+            (Some(value), Identifier(type_name)) => {
+              let aliases = eval_type_alias_bindings(declarations)
+              let resolved = eval_resolved_type_alias(type_name, aliases)
+              // PKL-150 / PKL-148at: shape-preserving cast — the
+              // `eval_value_accepts_type_annotation` cascade now
+              // handles unions (`Int|String`), nullables (`T?`),
+              // generic heads (`Listing<Int>` → strip to `Listing`),
+              // string-literal singletons (`"Pigeon"`), and the
+              // constrained shape (`Foo(...)`) uniformly, so the
+              // As eval no longer needs to do the head strip itself.
+              // user_class_annotation is a separate fallback for
+              // user-declared class names that the cascade doesn't
+              // recognise. The diagnostic still quotes the surface
+              // name so user-facing messages preserve the original
+              // annotation text.
+              let user_class_head = match
+                pkl_constrained_type_base_name(resolved) {
+                Some(base) => base
+                None => resolved
+              }
+              let user_class_head = match user_class_head.find("<") {
+                Some(idx) =>
+                  String::unsafe_substring(user_class_head, start=0, end=idx)
+                None => user_class_head
+              }
+              if eval_value_accepts_type_annotation(resolved, value) ||
+                value_satisfies_user_class_annotation(
+                  user_class_head, value, declarations,
+                ) {
+                return Some(value)
+              } else {
+                diagnostics.push(
+                  diag(
+                    "Expected value of type `\{type_name}`, but got type `\{eval_value_type_name(value)}`. Value: \{render_pcf_value_inline(value)}",
+                  ),
+                )
+                return None
+              }
+            }
+            (None, _) => return None
+            _ => {
+              diagnostics.push(
+                diag("operator as right operand must be a type name"),
+              )
+              return None
+            }
+          }
+        }
+        // PKL-148b: `x |> f` is the forward-pipe operator — desugars
+        // to `f(x)`. Apple Pkl's runtime semantics match a direct
+        // single-arg call against the right operand. PKL-148k: when
+        // the right side isn't a callable, project Apple Pkl's
+        // dedicated diagnostic (`Operator `|>` is not defined for
+        // operand types `<L>` and `<R>`. Left operand : <l> Right
+        // operand: <r>`) instead of the generic `call expects
+        // Function`; the latter loses the pipe context that
+        // `module.catch(() -> 42 |> 21)` round-trips.
+        Pipe => {
+          let right_value = eval_expr_with_bindings(
+            right_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
+          )
+          match right_value {
+            Some(FunctionValue(_, _, _, _, _)) =>
+              return eval_expr_with_bindings(
+                CallExpr(right_expr, [left_expr]),
+                bindings,
+                env,
+                class_env,
+                cache,
+                stack,
+                declarations,
+                diagnostics,
+                resolve_import,
+              )
+            Some(right_val) => {
+              let left_value = eval_expr_with_bindings(
+                left_expr, bindings, env, class_env, cache, stack, declarations,
+                diagnostics, resolve_import,
+              )
+              match left_value {
+                Some(left_val) => {
+                  let left_type = eval_value_type_name(left_val)
+                  let right_type = eval_value_type_name(right_val)
+                  let left_render = render_pcf_value_inline(left_val)
+                  let right_render = render_pcf_value_inline(right_val)
+                  diagnostics.push(
+                    diag(
+                      "Operator `|>` is not defined for operand types `\{left_type}` and `\{right_type}`. Left operand : \{left_render} Right operand: \{right_render}",
+                    ),
+                  )
+                }
+                None => ()
+              }
+              return None
+            }
+            None => return None
+          }
+        }
+        _ => ()
+      }
+      let left = eval_expr_with_bindings(
+        left_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      )
+      let right = eval_expr_with_bindings(
+        right_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      )
+      match (left, right) {
+        (Some(IntValue(a)), Some(IntValue(b))) =>
+          match op {
+            Add => Some(IntValue(a + b))
+            Subtract => Some(IntValue(a - b))
+            Multiply => Some(IntValue(a * b))
+            Divide =>
+              // PKL-092: `/` widens to Float when both operands are Int,
+              // mirroring Apple Pkl's `Int.div` semantics (`5 / 2 = 2.5`).
+              if b == 0 {
+                diagnostics.push(diag("division by zero"))
+                None
+              } else {
+                Some(FloatValue(a.to_double() / b.to_double()))
+              }
+            IntDivide =>
+              if b == 0 {
+                diagnostics.push(diag("division by zero"))
+                None
+              } else {
+                Some(IntValue(a / b))
+              }
+            Modulo =>
+              if b == 0 {
+                diagnostics.push(diag("division by zero"))
+                None
+              } else {
+                Some(IntValue(a % b))
+              }
+            Power =>
+              match int_pow(a, b) {
+                Some(value) => Some(IntValue(value))
+                None => {
+                  diagnostics.push(
+                    diag("operator ** expects non-negative exponent"),
+                  )
+                  None
+                }
+              }
+            LessThan => Some(BoolValue(a < b))
+            LessOrEqual => Some(BoolValue(a <= b))
+            GreaterThan => Some(BoolValue(a > b))
+            GreaterOrEqual => Some(BoolValue(a >= b))
+            Equal => Some(BoolValue(a == b))
+            NotEqual => Some(BoolValue(a != b))
+            And | Or | NullCoalesce | Is | As | Pipe => panic()
+          }
+        (Some(FloatValue(a)), Some(FloatValue(b))) =>
+          eval_float_binary(op, a, b, diagnostics)
+        (Some(IntValue(a)), Some(FloatValue(b))) =>
+          eval_float_binary(op, a.to_double(), b, diagnostics)
+        (Some(FloatValue(a)), Some(IntValue(b))) =>
+          eval_float_binary(op, a, b.to_double(), diagnostics)
+        (Some(DurationValue(av, au)), Some(DurationValue(bv, bu))) =>
+          // Same-unit arithmetic keeps the magnitudes raw to avoid Int32
+          // overflow on the intermediate ns conversion (one `1.s` already
+          // grosses 1e9 ns — `4.s` alone overflows). Mixed-unit operations
+          // pick the smaller unit so the result stays expressible as an
+          // Int; the upstream evaluator switches to Float for fractional
+          // mixed-unit cases, which is the documented gap for this slice.
+          if au == bu {
+            match op {
+              Add => Some(DurationValue(av + bv, au))
+              Subtract => Some(DurationValue(av - bv, au))
+              LessThan => Some(BoolValue(av < bv))
+              LessOrEqual => Some(BoolValue(av <= bv))
+              GreaterThan => Some(BoolValue(av > bv))
+              GreaterOrEqual => Some(BoolValue(av >= bv))
+              Equal => Some(BoolValue(av == bv))
+              NotEqual => Some(BoolValue(av != bv))
+              _ => {
+                diagnostics.push(
+                  diag(
+                    "operator \{operator_name(op)} not defined for Duration operands",
+                  ),
+                )
+                None
+              }
+            }
+          } else {
+            let target = smaller_duration_unit(au, bu)
+            let a_in = duration_in_unit(av, au, target)
+            let b_in = duration_in_unit(bv, bu, target)
+            match op {
+              Add => Some(DurationValue(a_in + b_in, target))
+              Subtract => Some(DurationValue(a_in - b_in, target))
+              LessThan => Some(BoolValue(a_in < b_in))
+              LessOrEqual => Some(BoolValue(a_in <= b_in))
+              GreaterThan => Some(BoolValue(a_in > b_in))
+              GreaterOrEqual => Some(BoolValue(a_in >= b_in))
+              Equal => Some(BoolValue(a_in == b_in))
+              NotEqual => Some(BoolValue(a_in != b_in))
+              _ => {
+                diagnostics.push(
+                  diag(
+                    "operator \{operator_name(op)} not defined for Duration operands",
+                  ),
+                )
+                None
+              }
+            }
+          }
+        (Some(DataSizeValue(av, au)), Some(DataSizeValue(bv, bu))) =>
+          if au == bu {
+            match op {
+              Add => Some(DataSizeValue(av + bv, au))
+              Subtract => Some(DataSizeValue(av - bv, au))
+              LessThan => Some(BoolValue(av < bv))
+              LessOrEqual => Some(BoolValue(av <= bv))
+              GreaterThan => Some(BoolValue(av > bv))
+              GreaterOrEqual => Some(BoolValue(av >= bv))
+              Equal => Some(BoolValue(av == bv))
+              NotEqual => Some(BoolValue(av != bv))
+              _ => {
+                diagnostics.push(
+                  diag(
+                    "operator \{operator_name(op)} not defined for DataSize operands",
+                  ),
+                )
+                None
+              }
+            }
+          } else {
+            let target = smaller_datasize_unit(au, bu)
+            let a_in = datasize_in_unit(av, au, target)
+            let b_in = datasize_in_unit(bv, bu, target)
+            match op {
+              Add => Some(DataSizeValue(a_in + b_in, target))
+              Subtract => Some(DataSizeValue(a_in - b_in, target))
+              LessThan => Some(BoolValue(a_in < b_in))
+              LessOrEqual => Some(BoolValue(a_in <= b_in))
+              GreaterThan => Some(BoolValue(a_in > b_in))
+              GreaterOrEqual => Some(BoolValue(a_in >= b_in))
+              Equal => Some(BoolValue(a_in == b_in))
+              NotEqual => Some(BoolValue(a_in != b_in))
+              _ => {
+                diagnostics.push(
+                  diag(
+                    "operator \{operator_name(op)} not defined for DataSize operands",
+                  ),
+                )
+                None
+              }
+            }
+          }
+        // PKL-119be (IntSeq equality follow-up): Apple Pkl treats two
+        // IntSeq operands as equal when they produce the same Int
+        // sequence — empty IntSeqs are equal regardless of endpoints
+        // (`IntSeq(0, -1) == IntSeq(10, -10)`) and non-empty IntSeqs
+        // are step-aware (`IntSeq(-10, 10).step(2) ==
+        // IntSeq(-10, 11).step(2)`). The structural `derive(Eq)` the
+        // value variant inherits doesn't capture either case, so route
+        // through `intseq_value_equal` which materializes both sides
+        // and compares element-by-element. Non-Equal ops on
+        // IntSeq-IntSeq pairs aren't defined upstream — emit the
+        // standard "not defined" diagnostic.
+        (Some(IntSeqValue(s1, e1, st1)), Some(IntSeqValue(s2, e2, st2))) => {
+          let eq = intseq_value_equal(s1, e1, st1, s2, e2, st2)
+          match op {
+            Equal => Some(BoolValue(eq))
+            NotEqual => Some(BoolValue(!eq))
+            _ => {
+              diagnostics.push(
+                diag(
+                  "operator \{operator_name(op)} not defined for IntSeq operands",
+                ),
+              )
+              None
+            }
+          }
+        }
+        // PKL-148: Listing / Set / Map / String concatenation via `+`.
+        // Apple Pkl's `Listing + Listing` returns a new Listing with the
+        // right-hand elements appended; `Set + Set` is union (right-hand
+        // order preserved for new elements); `Map + Map` is right-biased
+        // merge; `String + String` is concatenation.
+        (Some(ListingValue(la)), Some(ListingValue(lb))) if op == Add => {
+          let merged : Array[Value] = []
+          for v in la {
+            merged.push(v)
+          }
+          for v in lb {
+            merged.push(v)
+          }
+          Some(ListingValue(merged))
+        }
+        (Some(SetValue(la)), Some(SetValue(lb))) if op == Add => {
+          let merged : Array[Value] = []
+          for v in la {
+            merged.push(v)
+          }
+          for v in lb {
+            if !contains_value(merged, v) {
+              merged.push(v)
+            }
+          }
+          Some(SetValue(merged))
+        }
+        // PKL-148b: Set + Listing (or List, since both project as
+        // ListingValue today) widens to a Set with the right-hand
+        // elements unioned in. Mirrors Apple Pkl's `Set + Collection`.
+        (Some(SetValue(la)), Some(ListingValue(lb))) if op == Add => {
+          let merged : Array[Value] = []
+          for v in la {
+            merged.push(v)
+          }
+          for v in lb {
+            if !contains_value(merged, v) {
+              merged.push(v)
+            }
+          }
+          Some(SetValue(merged))
+        }
+        (Some(ListingValue(la)), Some(SetValue(lb))) if op == Add => {
+          let merged : Array[Value] = []
+          for v in la {
+            merged.push(v)
+          }
+          for v in lb {
+            merged.push(v)
+          }
+          Some(ListingValue(merged))
+        }
+        // PKL-148h: `List + List` preserves the List type (matches
+        // upstream — Apple Pkl renders `List(1, 2) + List(3)` as
+        // `List(1, 2, 3)`). `List + Set` appends elements with no
+        // dedup and stays a List; `Set + List` unions and stays a Set;
+        // `List + Listing` widens to Listing (and the symmetric form
+        // stays Listing) — matches Apple Pkl's left-biased Collection
+        // dispatch where the LHS variant decides the result shape.
+        (Some(ListValue(la)), Some(ListValue(lb))) if op == Add => {
+          let merged : Array[Value] = []
+          for v in la {
+            merged.push(v)
+          }
+          for v in lb {
+            merged.push(v)
+          }
+          Some(ListValue(merged))
+        }
+        (Some(ListValue(la)), Some(SetValue(lb))) if op == Add => {
+          let merged : Array[Value] = []
+          for v in la {
+            merged.push(v)
+          }
+          for v in lb {
+            merged.push(v)
+          }
+          Some(ListValue(merged))
+        }
+        (Some(SetValue(la)), Some(ListValue(lb))) if op == Add => {
+          let merged : Array[Value] = []
+          for v in la {
+            merged.push(v)
+          }
+          for v in lb {
+            if !contains_value(merged, v) {
+              merged.push(v)
+            }
+          }
+          Some(SetValue(merged))
+        }
+        (Some(ListValue(la)), Some(ListingValue(lb))) if op == Add => {
+          let merged : Array[Value] = []
+          for v in la {
+            merged.push(v)
+          }
+          for v in lb {
+            merged.push(v)
+          }
+          Some(ListingValue(merged))
+        }
+        (Some(ListingValue(la)), Some(ListValue(lb))) if op == Add => {
+          let merged : Array[Value] = []
+          for v in la {
+            merged.push(v)
+          }
+          for v in lb {
+            merged.push(v)
+          }
+          Some(ListingValue(merged))
+        }
+        (Some(MappingValue(ea)), Some(MappingValue(eb))) if op == Add => {
+          let merged : Array[ValueEntry] = []
+          for e in ea {
+            merged.push(e)
+          }
+          for e in eb {
+            let mut replaced = false
+            for i = 0; i < merged.length(); i = i + 1 {
+              if merged[i].key == e.key {
+                merged[i] = e
+                replaced = true
+                break
+              }
+            }
+            if !replaced {
+              merged.push(e)
+            }
+          }
+          Some(MappingValue(merged))
+        }
+        (Some(MapValue(ea)), Some(MapValue(eb))) if op == Add => {
+          let merged : Array[ValueEntry] = []
+          for e in ea {
+            merged.push(e)
+          }
+          for e in eb {
+            let mut replaced = false
+            for i = 0; i < merged.length(); i = i + 1 {
+              if merged[i].key == e.key {
+                merged[i] = e
+                replaced = true
+                break
+              }
+            }
+            if !replaced {
+              merged.push(e)
+            }
+          }
+          Some(MapValue(merged))
+        }
+        (Some(StringValue(sa)), Some(StringValue(sb))) if op == Add =>
+          Some(StringValue(sa + sb))
+        // PKL-148b: Duration / DataSize scalar arithmetic. Multiplying
+        // by Int / Float scales the magnitude; dividing by Int / Float
+        // scales it down. Apple Pkl preserves the magnitude unit.
+        (Some(DurationValue(n, unit)), Some(IntValue(k))) if op == Multiply =>
+          Some(DurationValue(n * k.to_double(), unit))
+        (Some(DurationValue(n, unit)), Some(FloatValue(k))) if op == Multiply =>
+          Some(DurationValue(n * k, unit))
+        (Some(IntValue(k)), Some(DurationValue(n, unit))) if op == Multiply =>
+          Some(DurationValue(n * k.to_double(), unit))
+        (Some(FloatValue(k)), Some(DurationValue(n, unit))) if op == Multiply =>
+          Some(DurationValue(n * k, unit))
+        (Some(DurationValue(n, unit)), Some(IntValue(k))) if op == Divide &&
+          k != 0 => Some(DurationValue(n / k.to_double(), unit))
+        (Some(DurationValue(n, unit)), Some(FloatValue(k))) if op == Divide &&
+          k != 0.0 => Some(DurationValue(n / k, unit))
+        (Some(DataSizeValue(n, unit)), Some(IntValue(k))) if op == Multiply =>
+          Some(DataSizeValue(n * k.to_double(), unit))
+        (Some(DataSizeValue(n, unit)), Some(FloatValue(k))) if op == Multiply =>
+          Some(DataSizeValue(n * k, unit))
+        (Some(IntValue(k)), Some(DataSizeValue(n, unit))) if op == Multiply =>
+          Some(DataSizeValue(n * k.to_double(), unit))
+        (Some(FloatValue(k)), Some(DataSizeValue(n, unit))) if op == Multiply =>
+          Some(DataSizeValue(n * k, unit))
+        (Some(DataSizeValue(n, unit)), Some(IntValue(k))) if op == Divide &&
+          k != 0 => Some(DataSizeValue(n / k.to_double(), unit))
+        (Some(DataSizeValue(n, unit)), Some(FloatValue(k))) if op == Divide &&
+          k != 0.0 => Some(DataSizeValue(n / k, unit))
+        // Sets are unordered; their derived `==` would compare element
+        // arrays positionally. Fall back to a multiset comparison
+        // (same elements, ignoring order) so `Set(1, 2) == Set(2, 1)`.
+        (Some(SetValue(xs)), Some(SetValue(ys))) if op == Equal =>
+          Some(BoolValue(set_values_equal(xs, ys)))
+        (Some(SetValue(xs)), Some(SetValue(ys))) if op == NotEqual =>
+          Some(BoolValue(!set_values_equal(xs, ys)))
+        // Objects compare by visible-member content rather than by the
+        // derived `==`. Apple Pkl treats property order as irrelevant
+        // (`{foo=1; bar=2} == {bar=2; foo=1}`) and ignores hidden /
+        // `local` members in the comparison.
+        (Some(ObjectValue(xs)), Some(ObjectValue(ys))) if op == Equal =>
+          Some(BoolValue(object_values_equal(xs, ys)))
+        (Some(ObjectValue(xs)), Some(ObjectValue(ys))) if op == NotEqual =>
+          Some(BoolValue(!object_values_equal(xs, ys)))
+        // Maps and Mappings carry key/value pairs whose order is also
+        // immaterial. Compare as bag-of-entries.
+        (Some(MapValue(xs)), Some(MapValue(ys))) if op == Equal =>
+          Some(BoolValue(map_entries_equal(xs, ys)))
+        (Some(MapValue(xs)), Some(MapValue(ys))) if op == NotEqual =>
+          Some(BoolValue(!map_entries_equal(xs, ys)))
+        (Some(MappingValue(xs)), Some(MappingValue(ys))) if op == Equal =>
+          Some(BoolValue(map_entries_equal(xs, ys)))
+        (Some(MappingValue(xs)), Some(MappingValue(ys))) if op == NotEqual =>
+          Some(BoolValue(!map_entries_equal(xs, ys)))
+        (Some(a), Some(b)) if op == Equal => Some(BoolValue(a == b))
+        (Some(a), Some(b)) if op == NotEqual => Some(BoolValue(a != b))
+        (Some(_), Some(_)) => {
+          let message = match op {
+            Add
+            | Subtract
+            | Multiply
+            | Divide
+            | IntDivide
+            | Modulo
+            | Power
+            | LessThan
+            | LessOrEqual
+            | GreaterThan
+            | GreaterOrEqual =>
+              "operator \{operator_name(op)} expects Int operands"
+            _ => "operator \{operator_name(op)} expects compatible operands"
+          }
+          diagnostics.push(diag(message))
+          None
+        }
+        _ => None
+      }
+    }
+    ConditionalExpr(condition_expr, then_expr, else_expr) =>
+      match
+        eval_expr_with_bindings(
+          condition_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
+        ) {
+        Some(BoolValue(true)) =>
+          eval_expr_with_bindings(
+            then_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
+          )
+        Some(BoolValue(false)) =>
+          eval_expr_with_bindings(
+            else_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
+          )
+        Some(NullValue) => {
+          // PKL-148c: Apple Pkl renders null condition as a dedicated
+          // form (no `Value: ...` segment).
+          diagnostics.push(
+            diag("Expected value of type `Boolean`, but got `null`."),
+          )
+          None
+        }
+        Some(other) => {
+          diagnostics.push(
+            diag(
+              "Expected value of type `Boolean`, but got type `\{eval_value_type_name(other)}`. Value: \{render_pcf_value_inline(other)}",
+            ),
+          )
+          None
+        }
+        None => None
+      }
+    ForGenerator(var1, var2, source_expr, body_members) =>
+      eval_for_generator(
+        var1, var2, source_expr, body_members, bindings, env, class_env, cache, stack,
+        declarations, diagnostics, resolve_import,
+      )
+    ErrorExpr(message) => {
+      diagnostics.push(diag(message))
+      None
+    }
+    UnsupportedExpr => {
+      diagnostics.push(diag("unsupported expression"))
+      None
+    }
+    // PKL-136: a stray `WhenSpread` outside a Listing/Mapping body
+    // simply evaluates its inner — the listing/mapping arms above pluck
+    // it out before reaching here. Keep the arm explicit so future eval
+    // changes don't silently drop the wrapper.
+    WhenSpread(inner) =>
+      eval_expr_with_bindings(
+        inner, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      )
+    // PKL-103: `read?(uri)` returns `null` instead of pushing a
+    // diagnostic when the URI is missing or rejected by the sandbox
+    // policy. Today only `read` is wired; other null-safe call
+    // intrinsics will reuse the same arm.
+    NullSafeCallExpr(callee, arguments) =>
+      match callee {
+        Identifier("read") => {
+          if arguments.length() != 1 {
+            diagnostics.push(diag("read? expects exactly one argument"))
+            return None
+          }
+          let uri_value = eval_expr_with_bindings(
+            arguments[0],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          )
+          match uri_value {
+            Some(StringValue(uri)) => {
+              let probe_diagnostics : Array[Diagnostic] = []
+              match eval_read_uri(uri, probe_diagnostics) {
+                Some(value) => Some(value)
+                None => Some(NullValue)
+              }
+            }
+            Some(_) => {
+              diagnostics.push(diag("read? expects a String argument"))
+              None
+            }
+            None => None
+          }
+        }
+        _ => {
+          diagnostics.push(diag("null-safe call is only supported for read?"))
+          None
+        }
+      }
+    // PKL-128: render each part of an interpolated string and
+    // concatenate. Non-string parts route through
+    // `value_to_string_for_join`, which already handles every Value
+    // variant (used by `Listing.join`).
+    InterpolatedString(parts) => {
+      let buf = StringBuilder::new()
+      let mut ok = true
+      for part in parts {
+        match
+          eval_expr_with_bindings(
+            part, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
+          ) {
+          Some(value) => buf.write_string(value_to_string_for_join(value))
+          None => ok = false
+        }
+      }
+      if ok {
+        Some(StringValue(buf.to_string()))
+      } else {
+        None
+      }
+    }
+  }
+}
+
+///|
+fn eval_for_generator(
+  var1 : String,
+  var2 : String?,
+  source_expr : Expr,
+  body_members : Array[ObjectMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let source = eval_expr_with_bindings(
+    source_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+    resolve_import,
+  )
+  let mut accumulated : Array[ValueMember] = []
+  match source {
+    Some(ListingValue(elements)) | Some(ListValue(elements)) =>
+      for i = 0; i < elements.length(); i = i + 1 {
+        let iter_cache = copy_value_bindings(cache)
+        match var2 {
+          Some(name2) => {
+            iter_cache.push({ name: var1, value: IntValue(i) })
+            iter_cache.push({ name: name2, value: elements[i] })
+          }
+          None => iter_cache.push({ name: var1, value: elements[i] })
+        }
+        let iter_members = eval_object_members(
+          body_members, bindings, env, class_env, iter_cache, stack, declarations,
+          diagnostics, resolve_import,
+        )
+        accumulated = merge_value_members(accumulated, iter_members)
+      }
+    Some(MappingValue(entries)) =>
+      for entry in entries {
+        let iter_cache = copy_value_bindings(cache)
+        match var2 {
+          Some(name2) => {
+            iter_cache.push({ name: var1, value: entry.key })
+            iter_cache.push({ name: name2, value: entry.value })
+          }
+          None => {
+            diagnostics.push(
+              diag(
+                "for-generator over Mapping requires two variables (key, value)",
+              ),
+            )
+            return None
+          }
+        }
+        let iter_members = eval_object_members(
+          body_members, bindings, env, class_env, iter_cache, stack, declarations,
+          diagnostics, resolve_import,
+        )
+        accumulated = merge_value_members(accumulated, iter_members)
+      }
+    Some(_) => {
+      diagnostics.push(diag("for-generator source must be Listing or Mapping"))
+      return None
+    }
+    None => return None
+  }
+  Some(ObjectValue(accumulated))
+}
+
+///|
+fn eval_object_members(
+  members : Array[ObjectMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Array[ValueMember] {
+  eval_object_members_with_options(
+    members,
+    bindings,
+    env,
+    class_env,
+    cache,
+    stack,
+    declarations,
+    diagnostics,
+    resolve_import,
+    defer_property_errors=false,
+  )
+}
+
+///|
+/// PKL-148u: extended form with `defer_property_errors`. When true,
+/// any property whose evaluation produces a diagnostic (or a
+/// structural rejection) has the first diagnostic captured into a
+/// `@error$<name>` sentinel member instead of bubbling to the outer
+/// `diagnostics` array. The ObjectValue access path picks the
+/// sentinel up at `obj.<name>` time, raises the diag, and short-
+/// circuits — matching Apple Pkl's lazy per-property class-default
+/// semantics. Module-binding eval and user-body literal eval keep
+/// the default eager behaviour (defer=false).
+fn eval_object_members_with_options(
+  members : Array[ObjectMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+  defer_property_errors~ : Bool,
+) -> Array[ValueMember] {
+  // PKL-148e: pre-register every sibling member as a binding so a
+  // forward reference (`x = 1 + y; y = 2`) resolves through the
+  // bindings-driven lazy lookup path. Cycle detection still kicks in
+  // via the `stack` argument inside `resolve_binding_value`.
+  let local_bindings : Array[Binding] = []
+  for binding in bindings {
+    local_bindings.push(binding)
+  }
+  for field in members {
+    if field.name == "@when" || field.name == "@for" || field.name == "@spread" {
+      continue
+    }
+    // PKL-148x: `@subscript$<offset>` / `@element$<offset>`
+    // sentinels are Dynamic-shape payloads that don't expose a
+    // user-visible name, so they shouldn't register as binding
+    // targets for sibling property resolution. The eval-side
+    // dispatch in the value-emit loop below handles their actual
+    // evaluation (decode `@__index_entry` for subscripts, eval the
+    // raw value for elements).
+    if field.name.has_prefix("@subscript$") ||
+      field.name.has_prefix("@element$") {
+      continue
+    }
+    let bare = strip_member_visibility_prefix(field.name)
+    local_bindings.push({
+      name: bare,
+      type_name: field.type_name,
+      value: field.value,
+      exported: true,
+      abstract_slot: false,
+    })
+  }
+  let values : Array[ValueMember] = []
+  for field in members {
+    // PKL-148x: Dynamic-shape sentinels. `@subscript$<offset>`
+    // (`[key] = value` mapping entry) decodes the synthetic
+    // `CallExpr(Identifier("@__index_entry"), [key, value])` payload
+    // and stores the (key, value) pair as a synthetic ObjectValue
+    // with `@key` / `@value` members; `@element$<offset>` evaluates
+    // the raw bare-expression payload and keeps the sentinel name
+    // so the renderer projects it listing-style (no `name =`
+    // prefix).
+    if field.name.has_prefix("@subscript$") {
+      match field.value {
+        CallExpr(Identifier("@__index_entry"), args) =>
+          if args.length() == 2 {
+            let key = eval_expr_with_bindings(
+              args[0],
+              local_bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            )
+            let val = eval_expr_with_bindings(
+              args[1],
+              local_bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            )
+            match (key, val) {
+              (Some(k), Some(v)) =>
+                values.push({
+                  name: field.name,
+                  value: ObjectValue([
+                    { name: "@key", value: k },
+                    { name: "@value", value: v },
+                  ]),
+                })
+              _ => ()
+            }
+          }
+        _ => ()
+      }
+      continue
+    }
+    if field.name.has_prefix("@element$") {
+      match
+        eval_expr_with_bindings(
+          field.value,
+          local_bindings,
+          env,
+          class_env,
+          cache,
+          stack,
+          declarations,
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(v) => values.push({ name: field.name, value: v })
+        None => ()
+      }
+      continue
+    }
+    // PKL-148d: build a per-field eval env that shadows the outer
+    // scope with the members already produced inside this body. Apple
+    // Pkl's implicit-receiver resolution means `bar { x = 2; y = x +
+    // 3 }` resolves `x` in `y`'s RHS to the inner `x = 2` first, not
+    // the enclosing `foo.x`. The env entries are pushed in
+    // declaration order so a later field sees the earlier values.
+    let local_env : Array[ValueBinding] = []
+    for binding in env {
+      local_env.push(binding)
+    }
+    for prior in values {
+      if is_error_member_name(prior.name) {
+        // PKL-148ak: a `@error$<stored>` sentinel from a deferred
+        // type / constraint rejection on a sibling. Strip whatever
+        // visibility prefix lives inside the sentinel name so the
+        // env entry sits under `@error$<bare>` — the Identifier
+        // resolution path picks it up before the (type-invalid)
+        // bare-name value and raises the deferred diagnostic so
+        // `test.catch(() -> p2)` can capture it.
+        let inner = String::unsafe_substring(
+          prior.name,
+          start=error_member_prefix.length(),
+          end=prior.name.length(),
+        )
+        let bare = strip_member_visibility_prefix(inner)
+        local_env.push({ name: error_member_name(bare), value: prior.value })
+      } else if is_invisible_member_name(prior.name) {
+        // PKL-148d: a `local l = 2` / `hidden h = 2` member surfaces
+        // under its visibility prefix; strip when hoisting into env
+        // so subsequent sibling expressions can reference the bare
+        // name. PKL-148j: handles both `@hidden$` and `@local$` via
+        // `strip_member_visibility_prefix`.
+        let bare = strip_member_visibility_prefix(prior.name)
+        local_env.push({ name: bare, value: prior.value })
+      } else {
+        local_env.push({ name: prior.name, value: prior.value })
+      }
+    }
+    // PKL-148ah: when this object body is the RHS of a module-level
+    // binding currently on the resolution stack (`foo = { b = 43;
+    // m3 = module.foo.b }`), expose the in-progress members as the
+    // binding's value so `module.foo.b` resolves against the partial
+    // snapshot rather than re-entering the binding (which would emit
+    // `cyclic property reference foo`). Apple Pkl handles this through
+    // implicit late binding — the prior siblings are visible inside
+    // the body via the implicit-receiver chain, and `module.<self>`
+    // sees the same snapshot. Mirror the snapshot by copying the
+    // already-computed `values`; the inflight entry sits at the end of
+    // `local_env` so `lookup_value` (last-match-wins) returns it ahead
+    // of anything the outer scope might have shadowed.
+    if stack.length() > 0 {
+      let inflight_name = stack[stack.length() - 1]
+      let snapshot : Array[ValueMember] = []
+      for prior in values {
+        snapshot.push(prior)
+      }
+      local_env.push({ name: inflight_name, value: ObjectValue(snapshot) })
+    }
+    // PKL-148u: when `defer_property_errors` is true, route each
+    // property's eval through a local diagnostics buffer so a
+    // failure becomes a per-property `@error$<name>` sentinel
+    // instead of bubbling to the outer diagnostics array. Sentinel
+    // members are picked up by the ObjectValue access path
+    // (`lookup_pending_error_message`) at access time.
+    let property_diagnostics : Array[Diagnostic] = if defer_property_errors {
+      []
+    } else {
+      diagnostics
+    }
+    match
+      eval_expr_with_bindings(
+        field.value,
+        local_bindings,
+        local_env,
+        class_env,
+        cache,
+        stack,
+        declarations,
+        property_diagnostics,
+        resolve_import,
+      ) {
+      Some(raw_value) => {
+        let value = coerce_value_to_annotated_type(raw_value, field.type_name)
+        if field.name == "@when" || field.name == "@for" {
+          match value {
+            ObjectValue(branch_members) =>
+              for branch_member in branch_members {
+                values.push(branch_member)
+              }
+            _ =>
+              property_diagnostics.push(
+                diag("object-body generator must produce an object body"),
+              )
+          }
+        } else if field.name == "@spread" {
+          // PKL-148s / PKL-148x: splice the spread payload into the
+          // parent. ObjectValue merges members directly;
+          // ListingValue / ListValue / SetValue lower to
+          // `@element$<offset>` sentinels (Dynamic-shape unnamed
+          // elements); MappingValue / MapValue lower to
+          // `@subscript$<offset>` sentinels (Dynamic-shape mapping
+          // entries with `@key` / `@value` sub-members). `NullValue`
+          // is silently skipped (covers `...?x` against null; the
+          // required `...x` form would ideally surface a diagnostic,
+          // but the AST-level required-vs-optional distinction isn't
+          // worth the bookkeeping until a gold fixture exercises it).
+          match value {
+            ObjectValue(spread_members) =>
+              for spread_member in spread_members {
+                values.push(spread_member)
+              }
+            ListingValue(elements) | ListValue(elements) | SetValue(elements) =>
+              for i = 0; i < elements.length(); i = i + 1 {
+                values.push({
+                  name: "@element$spread" + field.name + "$" + i.to_string(),
+                  value: elements[i],
+                })
+              }
+            MappingValue(entries) | MapValue(entries) =>
+              for i = 0; i < entries.length(); i = i + 1 {
+                values.push({
+                  name: "@subscript$spread" + field.name + "$" + i.to_string(),
+                  value: ObjectValue([
+                    { name: "@key", value: entries[i].key },
+                    { name: "@value", value: entries[i].value },
+                  ]),
+                })
+              }
+            NullValue => ()
+            _ =>
+              property_diagnostics.push(
+                diag("spread in object body expects Object or null"),
+              )
+          }
+        } else {
+          let structural_reject = match field.type_name {
+            Some(annotation) =>
+              eval_resolved_annotation_structural_rejection_message(
+                annotation, value, declarations,
+              )
+            None => None
+          }
+          match structural_reject {
+            Some(message) => {
+              property_diagnostics.push(diag(message))
+              values.push({ name: field.name, value })
+            }
+            None =>
+              if pkl_constrained_type_annotation_value_is_valid(
+                  field.type_name,
+                  value,
+                  property_diagnostics,
+                ) {
+                values.push({ name: field.name, value })
+              }
+          }
+        }
+      }
+      None => ()
+    }
+    // PKL-148u: post-process the per-property buffer when deferring.
+    // Any diagnostic landed during this property's eval becomes a
+    // `@error$<name>` sentinel that the ObjectValue access path
+    // surfaces lazily; the outer diagnostics array stays untouched
+    // so a sibling property's eval has its own clean slate. If the
+    // property failed without producing a member (e.g. function-call
+    // rejection that returned `None`), push a `NullValue` placeholder
+    // so external `.X` access doesn't surface "Cannot find property"
+    // before the pending-error intercept fires.
+    if defer_property_errors && property_diagnostics.length() > 0 {
+      let mut already_present = false
+      for entry in values {
+        if entry.name == field.name {
+          already_present = true
+          break
+        }
+      }
+      if !already_present {
+        values.push({ name: field.name, value: NullValue })
+      }
+      values.push({
+        name: error_member_name(field.name),
+        value: StringValue(property_diagnostics[0].message),
+      })
+    }
+  }
+  values
+}

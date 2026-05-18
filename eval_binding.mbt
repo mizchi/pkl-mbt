@@ -1,0 +1,389 @@
+///|
+fn stack_contains_binding(stack : Array[String], name : String) -> Bool {
+  for item in stack {
+    if item == name {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn push_binding_stack(stack : Array[String], name : String) -> Array[String] {
+  let next : Array[String] = []
+  for item in stack {
+    next.push(item)
+  }
+  next.push(name)
+  next
+}
+
+///|
+fn typed_object_class_name_for_expr(
+  expr : Expr,
+  bindings : Array[Binding],
+  stack : Array[String],
+) -> String? {
+  match expr {
+    TypedObjectLiteral(type_name, _) => Some(type_name)
+    AmendExpr(base, _) | NonNullExpr(base) =>
+      typed_object_class_name_for_expr(base, bindings, stack)
+    Identifier(name) =>
+      if stack_contains_binding(stack, name) {
+        None
+      } else {
+        match find_binding(bindings, name) {
+          Some(binding) =>
+            typed_object_class_name_for_expr(
+              binding.value,
+              bindings,
+              push_binding_stack(stack, name),
+            )
+          None => None
+        }
+      }
+    _ => None
+  }
+}
+
+///|
+fn copy_value_bindings(bindings : Array[ValueBinding]) -> Array[ValueBinding] {
+  let copied : Array[ValueBinding] = []
+  for binding in bindings {
+    copied.push(binding)
+  }
+  copied
+}
+
+///|
+fn capture_value_bindings(
+  env : Array[ValueBinding],
+  cache : Array[ValueBinding],
+) -> Array[ValueBinding] {
+  let captured = copy_value_bindings(env)
+  for binding in cache {
+    captured.push(binding)
+  }
+  captured
+}
+
+///|
+fn int_pow(base : Int, exponent : Int) -> Int? {
+  if exponent < 0 {
+    return None
+  }
+  let mut result = 1
+  let mut i = 0
+  while i < exponent {
+    result = result * base
+    i += 1
+  }
+  Some(result)
+}
+
+///|
+fn resolve_binding_value(
+  name : String,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  // PKL-148d: lexical scope wins over module-level bindings. Apple
+  // Pkl's implicit-receiver chain walks the innermost object body
+  // first (`bar { x = 2; y = x + 3 }` resolves the RHS `x` to the
+  // inner `x = 2`, not the module-level `x = 0`). The env slot now
+  // carries the inner-scope members so a lookup must check it before
+  // the module's binding cache.
+  match lookup_value(env, name) {
+    Some(value) => return Some(value)
+    None => ()
+  }
+  match lookup_value(cache, name) {
+    Some(value) => Some(value)
+    None =>
+      match find_binding(bindings, name) {
+        Some(binding) =>
+          if stack_contains_binding(stack, name) {
+            // PKL-148t: when a property's RHS self-references the
+            // same name but a sibling module-level function shares
+            // it (`function qux(...) = ...` beside `qux = qux(...)`),
+            // Apple Pkl resolves the RHS occurrence through the
+            // function namespace first. Try the function-shaped
+            // binding before surfacing the cycle diagnostic — only
+            // when the currently-resolving binding is itself NOT a
+            // function (otherwise the fallback would short-circuit
+            // back to the same binding).
+            let cyclic_is_function = match binding.value {
+              LambdaExpr(_, _, _) => true
+              _ => false
+            }
+            if !cyclic_is_function {
+              match find_function_binding(bindings, name) {
+                Some(fn_binding) =>
+                  return eval_expr_with_bindings(
+                    fn_binding.value,
+                    bindings,
+                    env,
+                    class_env,
+                    cache,
+                    stack,
+                    declarations,
+                    diagnostics,
+                    resolve_import,
+                  )
+                None => ()
+              }
+            }
+            diagnostics.push(diag("cyclic property reference \{name}"))
+            None
+          } else {
+            match
+              eval_expr_with_bindings(
+                binding.value,
+                bindings,
+                env,
+                class_env,
+                cache,
+                push_binding_stack(stack, name),
+                declarations,
+                diagnostics,
+                resolve_import,
+              ) {
+              Some(raw_value) => {
+                let value = coerce_value_to_annotated_type(
+                  raw_value,
+                  binding.type_name,
+                )
+                // PKL-148u: structural type rejection ahead of the
+                // constraint cascade. Module-level bindings surface
+                // the diagnostic eagerly (no lazy access-time
+                // intercept; the binding is evaluated once on
+                // reference). For class defaults, see the deferred
+                // `@error$` encoding in `eval_object_members`.
+                let structural_reject = match binding.type_name {
+                  Some(annotation) =>
+                    eval_resolved_annotation_structural_rejection_message(
+                      annotation, value, declarations,
+                    )
+                  None => None
+                }
+                match structural_reject {
+                  Some(message) => {
+                    diagnostics.push(diag(message))
+                    None
+                  }
+                  None =>
+                    if pkl_constrained_type_annotation_value_is_valid(
+                        binding.type_name,
+                        value,
+                        diagnostics,
+                      ) {
+                      cache.push({ name, value })
+                      Some(value)
+                    } else {
+                      None
+                    }
+                }
+              }
+              None => None
+            }
+          }
+        None => None
+      }
+  }
+}
+
+///|
+fn push_receiver_method_bindings(
+  method_cache : Array[ValueBinding],
+  receiver_members : Array[ValueMember],
+) -> Unit {
+  for value_member in receiver_members {
+    method_cache.push({ name: value_member.name, value: value_member.value })
+    // PKL-148e: hidden / local class properties are stored under their
+    // visibility prefix. The method body references them by the bare
+    // name (`c`, not `@hidden$c` / `@local$c`); push the stripped form
+    // alongside the prefixed one so cache lookup resolves both.
+    if is_invisible_member_name(value_member.name) {
+      method_cache.push({
+        name: strip_member_visibility_prefix(value_member.name),
+        value: value_member.value,
+      })
+    }
+  }
+  method_cache.push({ name: "this", value: ObjectValue(receiver_members) })
+}
+
+///|
+/// PKL-117: marker pushed onto `method_cache` so `super.method(...)`
+/// can find the enclosing class. The marker key uses an `@` prefix
+/// — the lexer treats `@` as its own token so the name can't
+/// collide with a user-written Pkl identifier.
+fn push_super_dispatch_marker(
+  method_cache : Array[ValueBinding],
+  current_class : String,
+) -> Unit {
+  method_cache.push({
+    name: "@current_class",
+    value: StringValue(current_class),
+  })
+}
+
+///|
+/// PKL-148e: expose sibling class methods to a method body. Apple Pkl
+/// scopes class methods like locals — `function compute() = b(c)` can
+/// call `function b(x) = ...` declared in the same class without
+/// `this.b(c)`. Walk the parent chain so an override (or new method)
+/// in a subclass shadows the parent definition, matching the
+/// inheritance order. Already-bound names (parameters, properties) win
+/// because they were pushed onto the cache earlier.
+fn push_sibling_class_methods(
+  method_cache : Array[ValueBinding],
+  class_name : String,
+  class_env : Array[ClassBinding],
+  env : Array[ValueBinding],
+  cache : Array[ValueBinding],
+) -> Unit {
+  let captured_env = capture_value_bindings(env, cache)
+  // Collect the inheritance chain bottom-up, then push parent → derived
+  // so a derived class's method ends up *after* its parent's same-named
+  // method in the cache. `lookup_value` returns the last match, so the
+  // most-derived override wins (virtual dispatch).
+  let chain : Array[ClassBinding] = []
+  let mut current : String? = Some(class_name)
+  while current is Some(name) {
+    match lookup_class_binding(class_env, name) {
+      Some(class_binding) => {
+        chain.push(class_binding)
+        current = class_binding.parent_name
+      }
+      None => current = None
+    }
+  }
+  for i = chain.length() - 1; i >= 0; i = i - 1 {
+    for class_method in chain[i].methods {
+      match class_method.body {
+        Some(body) =>
+          method_cache.push({
+            name: class_method.name,
+            value: FunctionValue(
+              class_method.parameters,
+              body,
+              class_method.return_type_name,
+              captured_env,
+              fresh_function_id(),
+            ),
+          })
+        None => ()
+      }
+    }
+  }
+}
+
+///|
+fn eval_value_type_name(value : Value) -> String {
+  match value {
+    IntValue(_) => "Int"
+    FloatValue(_) => "Float"
+    BoolValue(_) => "Boolean"
+    StringValue(_) => "String"
+    NullValue => "Null"
+    ObjectValue(_) => "Object"
+    ListingValue(_) => "Listing"
+    ListValue(_) => "List"
+    MappingValue(_) => "Mapping"
+    FunctionValue(_, _, _, _, _) => "Function"
+    DurationValue(_, _) => "Duration"
+    DataSizeValue(_, _) => "DataSize"
+    RegexValue(_) => "Regex"
+    BytesValue(_) => "Bytes"
+    PairValue(_, _) => "Pair"
+    IntSeqValue(_, _, _) => "IntSeq"
+    SetValue(_) => "Set"
+    MapValue(_) => "Map"
+  }
+}
+
+///|
+/// PKL-148: synthesize a `pkl:reflect.Class` mirror for any runtime
+/// `Value`. snippetTest fixtures lean on `x.getClass().simpleName` to
+/// pin a value's type at runtime — the mirror only needs `simpleName`
+/// and `name` to satisfy the common usage. The `__kind` marker keeps
+/// the value compatible with the existing reflect-introspection path.
+fn synth_class_mirror_for_value(value : Value) -> Value {
+  synth_class_mirror_for_name(eval_value_type_name(value))
+}
+
+///|
+/// PKL-148d: build the same `pkl:reflect.Class` mirror from a bare
+/// class name. Used when a class identifier (`Person`) is read as a
+/// value rather than as a type annotation — Apple Pkl treats the
+/// identifier as a Class instance whose member-access surface
+/// produces `Cannot find property \`X\` in object of type \`Class\`.`
+/// for anything other than `simpleName` / `name`.
+fn synth_class_mirror_for_name(name : String) -> Value {
+  ObjectValue([
+    { name: hidden_member_name("__kind"), value: StringValue("Class") },
+    { name: hidden_member_name("reflectee"), value: StringValue(name) },
+    { name: "simpleName", value: StringValue(name) },
+    { name: "name", value: StringValue(name) },
+  ])
+}
+
+///|
+/// PKL-148e: a stdlib type name (`Int` / `Float` / `String` / etc.)
+/// is usable as a class-as-value just like a user-declared `class Foo`.
+/// Apple Pkl exposes them through `pkl:base` so `Int == Int`,
+/// `Int == 3.getClass()`, `Int != Float` round-trip via the Class
+/// mirror's `name` / `simpleName` / `reflectee` fields.
+fn is_stdlib_class_name(name : String) -> Bool {
+  match name {
+    "Int"
+    | "Int8"
+    | "Int16"
+    | "Int32"
+    | "UInt"
+    | "UInt8"
+    | "UInt16"
+    | "UInt32"
+    | "Float"
+    | "Number"
+    | "String"
+    | "Boolean"
+    | "Bool"
+    | "Null"
+    | "Bytes"
+    | "Duration"
+    | "DataSize"
+    | "Regex"
+    | "Listing"
+    | "Mapping"
+    | "Set"
+    | "Map"
+    | "List"
+    | "Pair"
+    | "IntSeq"
+    | "Dynamic"
+    | "Typed"
+    | "Object"
+    | "Any"
+    | "Class"
+    | "Module"
+    | "TypeAlias"
+    | "Annotation"
+    | "Resource"
+    | "Function"
+    | "Function0"
+    | "Function1"
+    | "Function2"
+    | "Function3"
+    | "Function4"
+    | "Function5" => true
+    _ => false
+  }
+}

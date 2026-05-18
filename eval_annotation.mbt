@@ -1,0 +1,1029 @@
+///|
+fn eval_type_alias_bindings(
+  declarations : Array[Declaration],
+) -> Array[EvalTypeAliasBinding] {
+  let aliases : Array[EvalTypeAliasBinding] = []
+  for declaration in declarations {
+    match declaration {
+      TypeAliasDeclaration(type_alias) =>
+        aliases.push({ name: type_alias.name, target: type_alias.target })
+      ClassDeclaration(_) | FunctionDeclaration(_) => ()
+    }
+  }
+  aliases
+}
+
+///|
+fn eval_constrained_type_source_name_with_depth(
+  name : String,
+  aliases : Array[EvalTypeAliasBinding],
+  depth : Int,
+) -> String? {
+  if depth > 8 {
+    return None
+  }
+  if pkl_constrained_type_annotation_has_supported_constraint(name) {
+    return Some(name)
+  }
+  match lookup_eval_type_alias(aliases, name) {
+    Some(target) =>
+      eval_constrained_type_source_name_with_depth(target, aliases, depth + 1)
+    None => None
+  }
+}
+
+///|
+fn eval_resolved_type_alias_with_depth(
+  name : String,
+  aliases : Array[EvalTypeAliasBinding],
+  depth : Int,
+) -> String {
+  if depth > 8 {
+    return name
+  }
+  match lookup_eval_type_alias(aliases, name) {
+    Some(target) =>
+      eval_resolved_type_alias_with_depth(target, aliases, depth + 1)
+    None => name
+  }
+}
+
+///|
+fn eval_resolved_type_alias(
+  name : String,
+  aliases : Array[EvalTypeAliasBinding],
+) -> String {
+  eval_resolved_type_alias_with_depth(name, aliases, 0)
+}
+
+///|
+fn eval_constrained_type_source_name(
+  name : String,
+  aliases : Array[EvalTypeAliasBinding],
+) -> String? {
+  eval_constrained_type_source_name_with_depth(name, aliases, 0)
+}
+
+///|
+// PKL-138: coerce an empty `ObjectValue([])` to the empty Listing /
+// Mapping value when the binding's type annotation requires it. Parsers
+// can't tell whether `new {}` (no explicit type, empty body) is meant
+// to be a Listing, Mapping, or Object — the binding's type annotation
+// is the disambiguator, applied here at eval time.
+//
+// Non-empty `ObjectValue`s aren't coerced: if the body had real entries
+// they would have been parsed as listing / mapping body via the
+// `parse_inferred_new_body` peek (which dispatches on the first
+// significant token), so a non-empty ObjectValue with a Listing /
+// Mapping annotation is a real type mismatch.
+
+///|
+/// PKL-148: when a typed binding (`p: Person = new {}`) gets filled in
+/// with an empty object, fall back to the class's declared default
+/// property values. Without this the rendered output is `p {}` instead
+/// of the inherited defaults. The expansion runs only for ObjectValue
+/// with zero visible members where `type_name` names a user-defined
+/// class; everything else passes through.
+fn apply_class_defaults_for_type(
+  value : Value,
+  type_name : String?,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  match (value, type_name) {
+    (ObjectValue(members), Some(name)) =>
+      if visible_members(members).length() != 0 {
+        value
+      } else {
+        let base = name
+        match lookup_class_binding(class_env, base) {
+          Some(_) => {
+            let defaults = eval_class_default_members(
+              base,
+              bindings,
+              env,
+              class_env,
+              cache,
+              [],
+              declarations,
+              diagnostics,
+              resolve_import,
+            )
+            if defaults.length() == 0 {
+              value
+            } else {
+              ObjectValue(merge_value_members(defaults, members))
+            }
+          }
+          None => value
+        }
+      }
+    _ => value
+  }
+}
+
+///|
+/// Synthesize a runtime default value for a typed property that has no
+/// `=` initializer. Mirrors Apple Pkl's auto-default rules so a module
+/// like `class P; p: P` renders as `p {}`. Returns `None` when the
+/// type doesn't have a representable default (e.g., an unresolved
+/// generic) so the caller can fall back to the abstract-slot skip.
+fn synthesize_default_for_type(
+  type_name : String?,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match type_name {
+    None => None
+    Some(raw) => {
+      let name = trim_spaces(raw)
+      // Nullable types (`T?`) default to null.
+      if name.has_suffix("?") || name == "Null" || name == "Nothing" {
+        return Some(NullValue)
+      }
+      // String literal type `"foo"` defaults to the literal text.
+      if name.length() >= 2 && name[0] == '"' && name[name.length() - 1] == '"' {
+        let inner = String::unsafe_substring(
+          name,
+          start=1,
+          end=name.length() - 1,
+        )
+        return Some(StringValue(inner))
+      }
+      // `*A|B|...` union with a default branch picks the starred type.
+      if name.has_prefix("*") {
+        let rest = String::unsafe_substring(name, start=1, end=name.length())
+        let pipe = rest.find("|")
+        let head = match pipe {
+          Some(idx) => String::unsafe_substring(rest, start=0, end=idx)
+          None => rest
+        }
+        return synthesize_default_for_type(
+          Some(trim_spaces(head)),
+          bindings,
+          env,
+          class_env,
+          cache,
+          declarations,
+          diagnostics,
+          resolve_import,
+        )
+      }
+      // Structural collections fall back to their empty form. Set/Map
+      // carry dedicated variants that round-trip through the PCF
+      // constructor renderer; Listing/Mapping render as block bodies.
+      // PKL-148j: `Collection<T>` and `List<T>` default to `ListValue`
+      // (Apple Pkl renders `List()` for both, matching the
+      // `basic/propertyDefaults` gold).
+      if name == "Listing" || name.has_prefix("Listing<") {
+        return Some(ListingValue([]))
+      }
+      if name == "Mapping" || name.has_prefix("Mapping<") {
+        return Some(MappingValue([]))
+      }
+      if name == "Set" || name.has_prefix("Set<") {
+        return Some(SetValue([]))
+      }
+      if name == "Map" || name.has_prefix("Map<") {
+        return Some(MapValue([]))
+      }
+      if name == "List" ||
+        name.has_prefix("List<") ||
+        name == "Collection" ||
+        name.has_prefix("Collection<") {
+        return Some(ListValue([]))
+      }
+      // User-defined class → `new T {}` with class defaults applied.
+      let base = match name.find("<") {
+        Some(idx) => String::unsafe_substring(name, start=0, end=idx)
+        None => name
+      }
+      match lookup_class_binding(class_env, base) {
+        Some(_) =>
+          Some(
+            apply_class_defaults_for_type(
+              ObjectValue([]),
+              Some(base),
+              bindings,
+              env,
+              class_env,
+              cache,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ),
+          )
+        None => None
+      }
+    }
+  }
+}
+
+///|
+fn coerce_value_to_annotated_type(value : Value, type_name : String?) -> Value {
+  match (value, type_name) {
+    (ObjectValue(members), Some(name)) if members.length() == 0 =>
+      if name == "Listing" ||
+        name == "List" ||
+        name.has_prefix("Listing<") ||
+        name.has_prefix("List<") {
+        ListingValue([])
+      } else if name == "Mapping" || name.has_prefix("Mapping<") {
+        MappingValue([])
+      } else if name == "Set" || name.has_prefix("Set<") {
+        // PKL-119 will introduce SetValue; until then collapse to
+        // ListingValue (matches how Listing/List share a variant today).
+        ListingValue([])
+      } else {
+        value
+      }
+    _ => value
+  }
+}
+
+///|
+fn eval_constrained_type_annotation_value_is_valid(
+  type_name : String?,
+  value : Value,
+  aliases : Array[EvalTypeAliasBinding],
+  diagnostics : Array[Diagnostic],
+) -> Bool {
+  match type_name {
+    Some(display_name) =>
+      match eval_constrained_type_source_name(display_name, aliases) {
+        Some(source_name) =>
+          match
+            pkl_constrained_type_annotation_value_rejection_message_from_source(
+              display_name, source_name, value,
+            ) {
+            Some(message) => {
+              diagnostics.push(diag(message))
+              false
+            }
+            None => true
+          }
+        None => true
+      }
+    None => true
+  }
+}
+
+///|
+fn eval_user_defined_constrained_type_annotation_value_is_valid(
+  type_name : String?,
+  value : Value,
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+) -> Bool {
+  match
+    pkl_user_defined_constrained_type_annotation_value_rejection_message(
+      type_name, value, declarations,
+    ) {
+    Some(message) => {
+      diagnostics.push(diag(message))
+      false
+    }
+    None => true
+  }
+}
+
+///|
+fn eval_lookup_class_decl(
+  declarations : Array[Declaration],
+  name : String,
+) -> ClassDecl? {
+  let mut found : ClassDecl? = None
+  for declaration in declarations {
+    match declaration {
+      ClassDeclaration(class_decl) =>
+        if class_decl.name == name {
+          found = Some(class_decl)
+        }
+      FunctionDeclaration(_) | TypeAliasDeclaration(_) => ()
+    }
+  }
+  found
+}
+
+///|
+fn eval_class_property_annotation_with_depth(
+  declarations : Array[Declaration],
+  class_name : String,
+  property_name : String,
+  depth : Int,
+) -> String? {
+  if depth > 8 {
+    return None
+  }
+  match eval_lookup_class_decl(declarations, class_name) {
+    Some(class_decl) => {
+      let mut found = false
+      let mut annotation : String? = None
+      for property in class_decl.properties {
+        if property.name == property_name {
+          found = true
+          annotation = property.type_name
+        }
+      }
+      // PKL-148i: a subclass property that omits the type annotation
+      // (e.g. `name = "Pigeon"` while the parent declared
+      // `name: String`) still inherits the parent's annotation —
+      // amend overrides must satisfy it. Walk the parent chain when
+      // either the property isn't declared locally OR is declared
+      // without its own annotation.
+      if found && annotation is Some(_) {
+        annotation
+      } else {
+        match class_decl.parent_name {
+          Some(parent_name) =>
+            eval_class_property_annotation_with_depth(
+              declarations,
+              parent_name,
+              property_name,
+              depth + 1,
+            )
+          None => None
+        }
+      }
+    }
+    None => None
+  }
+}
+
+///|
+fn eval_class_property_annotation(
+  declarations : Array[Declaration],
+  class_name : String,
+  property_name : String,
+) -> String? {
+  eval_class_property_annotation_with_depth(
+    declarations, class_name, property_name, 0,
+  )
+}
+
+///|
+
+///|
+/// PKL-148c: pretty-print a constraint text by re-inserting whitespace
+/// around binary comparison / logical operators. `parse_type_text`
+/// strips trivia so the captured constraint reads `this>=min` rather
+/// than Apple Pkl's `this >= min`; this helper restores the spaces
+/// before the text reaches the diagnostic.
+fn pretty_constraint_text(text : String) -> String {
+  let trimmed = pkl_constraint_trim(text)
+  let multi : Array[String] = [">=", "<=", "==", "!=", "&&", "||"]
+  let single : Array[Char] = ['>', '<']
+  let buf = StringBuilder::new()
+  let n = trimmed.length()
+  let mut i = 0
+  let mut depth = 0
+  while i < n {
+    let c = trimmed[i].to_int().unsafe_to_char()
+    if c == '"' {
+      // copy a string literal verbatim
+      buf.write_char(c)
+      i = i + 1
+      while i < n {
+        let cc = trimmed[i].to_int().unsafe_to_char()
+        buf.write_char(cc)
+        i = i + 1
+        if cc == '\\' && i < n {
+          buf.write_char(trimmed[i].to_int().unsafe_to_char())
+          i = i + 1
+        } else if cc == '"' {
+          break
+        }
+      }
+      continue
+    }
+    if c == '(' || c == '[' {
+      depth = depth + 1
+    } else if c == ')' || c == ']' {
+      depth = depth - 1
+    }
+    if depth >= 0 {
+      // Check multi-char ops first.
+      let mut matched = false
+      for op in multi {
+        let m = op.length()
+        if i + m <= n {
+          let mut equal = true
+          for j = 0; j < m; j = j + 1 {
+            if trimmed[i + j] != op[j] {
+              equal = false
+              break
+            }
+          }
+          if equal {
+            ensure_trailing_space(buf)
+            buf.write_string(op)
+            buf.write_char(' ')
+            i = i + m
+            matched = true
+            break
+          }
+        }
+      }
+      if matched {
+        continue
+      }
+      let mut single_matched = false
+      for op in single {
+        if c == op {
+          // Don't space a `<` / `>` that's part of a generic type
+          // argument list (rare in constraint texts, but defensive).
+          ensure_trailing_space(buf)
+          buf.write_char(op)
+          buf.write_char(' ')
+          i = i + 1
+          single_matched = true
+          break
+        }
+      }
+      if single_matched {
+        continue
+      }
+    }
+    buf.write_char(c)
+    i = i + 1
+  }
+  collapse_spaces(buf.to_string())
+}
+
+///|
+fn ensure_trailing_space(buf : StringBuilder) -> Unit {
+  let current = buf.to_string()
+  if current.length() > 0 {
+    let last = current[current.length() - 1].to_int().unsafe_to_char()
+    if last != ' ' {
+      buf.write_char(' ')
+    }
+  }
+}
+
+///|
+fn collapse_spaces(text : String) -> String {
+  let buf = StringBuilder::new()
+  let mut prev_space = false
+  for i = 0; i < text.length(); i = i + 1 {
+    let c = text[i].to_int().unsafe_to_char()
+    if c == ' ' {
+      if !prev_space {
+        buf.write_char(' ')
+      }
+      prev_space = true
+    } else {
+      buf.write_char(c)
+      prev_space = false
+    }
+  }
+  pkl_constraint_trim(buf.to_string())
+}
+
+///|
+/// PKL-148c: walk an `Expr` tree and replace each bare
+/// `Identifier(name)` whose name doesn't appear in the constraint's
+/// known scope with `MemberAccess(Identifier("this"), name)`. Apple
+/// Pkl's constraint expression body uses implicit-receiver lookup —
+/// `abs` inside `Int(abs < 100)` resolves as `this.abs`. We pre-rewrite
+/// instead of overloading the Identifier eval arm so the standard
+/// resolver stays unchanged for non-constraint expressions.
+fn rewrite_implicit_this_in_expr(
+  expr : Expr,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  cache : Array[ValueBinding],
+) -> Expr {
+  match expr {
+    Identifier(name) => {
+      if name == "this" ||
+        name == "module" ||
+        name == "true" ||
+        name == "false" ||
+        name == "null" {
+        return expr
+      }
+      let in_bindings = find_binding(bindings, name) is Some(_)
+      let in_env = lookup_value(env, name) is Some(_)
+      let in_cache = lookup_value(cache, name) is Some(_)
+      if in_bindings || in_env || in_cache {
+        expr
+      } else {
+        MemberAccess(Identifier("this"), name)
+      }
+    }
+    MemberAccess(target, name) =>
+      MemberAccess(
+        rewrite_implicit_this_in_expr(target, bindings, env, cache),
+        name,
+      )
+    SafeMemberAccess(target, name) =>
+      SafeMemberAccess(
+        rewrite_implicit_this_in_expr(target, bindings, env, cache),
+        name,
+      )
+    SubscriptAccess(target, key) =>
+      SubscriptAccess(
+        rewrite_implicit_this_in_expr(target, bindings, env, cache),
+        rewrite_implicit_this_in_expr(key, bindings, env, cache),
+      )
+    CallExpr(callee, args) => {
+      let new_callee = rewrite_implicit_this_in_expr(
+        callee, bindings, env, cache,
+      )
+      let new_args : Array[Expr] = []
+      for a in args {
+        new_args.push(rewrite_implicit_this_in_expr(a, bindings, env, cache))
+      }
+      CallExpr(new_callee, new_args)
+    }
+    NullSafeCallExpr(callee, args) => {
+      let new_callee = rewrite_implicit_this_in_expr(
+        callee, bindings, env, cache,
+      )
+      let new_args : Array[Expr] = []
+      for a in args {
+        new_args.push(rewrite_implicit_this_in_expr(a, bindings, env, cache))
+      }
+      NullSafeCallExpr(new_callee, new_args)
+    }
+    UnaryExpr(op, inner) =>
+      UnaryExpr(op, rewrite_implicit_this_in_expr(inner, bindings, env, cache))
+    BinaryExpr(op, l, r) =>
+      BinaryExpr(
+        op,
+        rewrite_implicit_this_in_expr(l, bindings, env, cache),
+        rewrite_implicit_this_in_expr(r, bindings, env, cache),
+      )
+    NonNullExpr(inner) =>
+      NonNullExpr(rewrite_implicit_this_in_expr(inner, bindings, env, cache))
+    ConditionalExpr(c, t, e) =>
+      ConditionalExpr(
+        rewrite_implicit_this_in_expr(c, bindings, env, cache),
+        rewrite_implicit_this_in_expr(t, bindings, env, cache),
+        rewrite_implicit_this_in_expr(e, bindings, env, cache),
+      )
+    _ => expr
+  }
+}
+
+///|
+/// PKL-148c: parse a constraint expression text into an `Expr`. Uses
+/// the regular parser by wrapping the source as `__probe = (text)` and
+/// pulling the binding's value back out. Returns `None` when the parse
+/// fails or the binding is missing — the caller falls through to the
+/// existing static predicate path.
+fn parse_constraint_expression(text : String) -> Expr? {
+  let wrapped = "__probe = (" + text + ")"
+  let parsed = parse_source(wrapped)
+  for binding in parsed.program.bindings {
+    if binding.name == "__probe" {
+      return Some(binding.value)
+    }
+  }
+  None
+}
+
+///|
+/// PKL-148c: run an arbitrary constraint expression against a candidate
+/// value with `this` bound. When the candidate is an `ObjectValue`, the
+/// object's members are also hoisted into the env so the implicit
+/// receiver form (`street.endsWith("St.")` rather than
+/// `this.street.endsWith("St.")`) resolves. Returns the canonical
+/// diagnostic text when the predicate evaluates to `false`.
+fn eval_runtime_constraint_for_property(
+  class_name : String,
+  property_name : String,
+  property_value : Value,
+  enclosing_members : Array[ValueMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> String? {
+  let source_name = match
+    eval_class_property_annotation(declarations, class_name, property_name) {
+    Some(s) => s
+    None => return None
+  }
+  let text = match pkl_constrained_type_constraint_text(source_name) {
+    Some(t) => t
+    None => return None
+  }
+  let parts = pkl_split_constraint_arguments(text)
+  for part in parts {
+    let expr = match parse_constraint_expression(part) {
+      Some(e) => e
+      None => continue
+    }
+    // Build a fresh env with `this` bound to the candidate. If the
+    // candidate is an ObjectValue, push its members under their bare
+    // names too so identifier lookup picks them up before falling
+    // through to the surrounding scope (implicit receiver). The
+    // enclosing class's other property values are also added so a
+    // sibling reference (`Int(this >= min)`) resolves.
+    let new_env : Array[ValueBinding] = []
+    for binding in env {
+      new_env.push(binding)
+    }
+    new_env.push({ name: "this", value: property_value })
+    match property_value {
+      ObjectValue(receiver_members) =>
+        for value_member in receiver_members {
+          if !is_invisible_member_name(value_member.name) {
+            new_env.push({ name: value_member.name, value: value_member.value })
+          }
+        }
+      _ => ()
+    }
+    for value_member in enclosing_members {
+      if !is_invisible_member_name(value_member.name) &&
+        value_member.name != property_name {
+        new_env.push({ name: value_member.name, value: value_member.value })
+      }
+    }
+    // PKL-148c: rewrite bare `Identifier(name)` nodes inside the
+    // constraint expression to `MemberAccess(Identifier("this"), name)`
+    // when `name` is neither a binding nor in env. Apple Pkl treats
+    // `abs` inside `Int(abs < 100)` as `this.abs` because the
+    // candidate value is the implicit receiver of the constraint
+    // body. Pre-rewriting the tree keeps the existing
+    // `eval_expr_with_bindings` flow untouched.
+    let rewritten = rewrite_implicit_this_in_expr(
+      expr, bindings, new_env, cache,
+    )
+    let probe_diags : Array[Diagnostic] = []
+    match
+      eval_expr_with_bindings(
+        rewritten, bindings, new_env, class_env, cache, stack, declarations, probe_diags,
+        resolve_import,
+      ) {
+      Some(BoolValue(true)) => ()
+      Some(BoolValue(false)) => {
+        // PKL-148d: the diagnostic's `Value:` segment renders
+        // ObjectValue candidates with their declared class name
+        // (`new Address { ... }` rather than `new { ... }`), matching
+        // Apple Pkl's compact-line form.
+        let hint = match pkl_constrained_type_base_name(source_name) {
+          Some(base) =>
+            if base == "Int" ||
+              base == "Float" ||
+              base == "Number" ||
+              base == "Boolean" ||
+              base == "String" ||
+              base == "Listing" ||
+              base == "Mapping" ||
+              base == "Set" ||
+              base == "Map" ||
+              base.has_prefix("Listing<") ||
+              base.has_prefix("Mapping<") ||
+              base.has_prefix("Set<") ||
+              base.has_prefix("Map<") {
+              None
+            } else {
+              Some(base)
+            }
+          None => None
+        }
+        return Some(
+          "Type constraint `\{pretty_constraint_text(part)}` violated. Value: \{render_pcf_value_inline_compact(property_value, hint)}",
+        )
+      }
+      // A non-Bool result or a diagnostic from inside the expression
+      // means the predicate is shape-incompatible with this slice's
+      // runtime — fall through silently rather than masking the
+      // original static-predicate path.
+      _ => ()
+    }
+  }
+  None
+}
+
+///|
+fn eval_class_property_constraint_value_rejection_message(
+  class_name : String,
+  property_name : String,
+  value : Value,
+  declarations : Array[Declaration],
+) -> String? {
+  match
+    eval_class_property_annotation(declarations, class_name, property_name) {
+    Some(source_name) => {
+      let display_name = "\{class_name} member \{property_name}"
+      // PKL-148b: a class property typed `Listing<...>(...)` whose
+      // amend body is empty (`l {}`) initially evaluates to an empty
+      // ObjectValue. Coerce to ListingValue before the constraint
+      // dispatch so the Listing-host predicate (e.g. `!isEmpty`) fires.
+      let coerced = coerce_value_to_annotated_type(value, Some(source_name))
+      match
+        pkl_constrained_type_annotation_value_rejection_message_from_source(
+          display_name, source_name, coerced,
+        ) {
+        Some(message) => Some(message)
+        None =>
+          pkl_user_defined_constrained_type_annotation_value_rejection_message_from_source(
+            display_name, source_name, coerced, declarations,
+          )
+      }
+    }
+    None => None
+  }
+}
+
+///|
+/// PKL-148i: reject an assignment whose value's runtime type doesn't
+/// satisfy the property's declared type annotation. The existing
+/// `eval_class_property_constraint_value_rejection_message` only
+/// dispatches predicate-style constraints (`Int(x > 0)`), so a bare
+/// type annotation like `name: String` never fires when the supplied
+/// value is the wrong shape (`new Person { name = 42 }` evaluated to
+/// `42` instead of producing the upstream rejection diagnostic).
+/// Mirrors the surface of `eval_callable_return_rejection_message`:
+/// resolve type alias, accept type parameters, and only emit when
+/// neither the builtin acceptance set nor a user-class annotation
+/// satisfies the value.
+fn eval_class_property_type_rejection_message(
+  class_name : String,
+  property_name : String,
+  value : Value,
+  declarations : Array[Declaration],
+) -> String? {
+  match
+    eval_class_property_annotation(declarations, class_name, property_name) {
+    Some(source_name) => {
+      if eval_type_name_is_type_parameter(source_name, declarations) {
+        return None
+      }
+      let aliases = eval_type_alias_bindings(declarations)
+      let resolved_type_name = eval_resolved_type_alias(source_name, aliases)
+      let base = match pkl_constrained_type_base_name(resolved_type_name) {
+        Some(b) => b
+        None => resolved_type_name
+      }
+      let coerced = coerce_value_to_annotated_type(value, Some(source_name))
+      // Normalize generic type heads (`Listing<X>` → `Listing`,
+      // `Mapping<K,V>` → `Mapping`, `Pair<A,B>` → `Pair`, …) before
+      // the acceptance check; `eval_value_accepts_type_annotation`
+      // matches against the bare collection name.
+      let stripped_q = if base.has_suffix("?") {
+        String::unsafe_substring(base, start=0, end=base.length() - 1)
+      } else {
+        base
+      }
+      let head = {
+        let mut cut = -1
+        let n = stripped_q.length()
+        for i = 0; i < n; i = i + 1 {
+          if stripped_q[i].to_int().unsafe_to_char() == '<' {
+            cut = i
+            break
+          }
+        }
+        if cut < 0 {
+          stripped_q
+        } else {
+          String::unsafe_substring(stripped_q, start=0, end=cut)
+        }
+      }
+      let head_with_optional = if base.has_suffix("?") {
+        head + "?"
+      } else {
+        head
+      }
+      if eval_value_accepts_type_annotation(head_with_optional, coerced) {
+        return None
+      }
+      if value_satisfies_user_class_annotation(head, coerced, declarations) {
+        return None
+      }
+      // Only reject for stdlib type names or known user classes;
+      // unknown annotations stay silent (matches the legacy behaviour
+      // for not-yet-implemented surface).
+      if !is_stdlib_class_name(head) &&
+        !(eval_lookup_class_decl(declarations, head) is Some(_)) {
+        return None
+      }
+      Some(
+        "Expected value of type `\{base}`, but got type `\{eval_value_type_name(coerced)}`. Value: \{render_pcf_value_inline(coerced)}",
+      )
+    }
+    None => None
+  }
+}
+
+///|
+fn eval_object_member_expr_is_provided(
+  members : Array[ObjectMember],
+  name : String,
+) -> Bool {
+  for field in members {
+    if field.name == name {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn eval_class_property_default_constraints_are_valid_with_depth(
+  class_name : String,
+  provided_members : Array[ObjectMember],
+  values : Array[ValueMember],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  depth : Int,
+) -> Bool {
+  if depth > 8 {
+    return true
+  }
+  match eval_lookup_class_decl(declarations, class_name) {
+    Some(class_decl) => {
+      let mut ok = true
+      match class_decl.parent_name {
+        Some(parent_name) =>
+          if !eval_class_property_default_constraints_are_valid_with_depth(
+              parent_name,
+              provided_members,
+              values,
+              declarations,
+              diagnostics,
+              depth + 1,
+            ) {
+            ok = false
+          }
+        None => ()
+      }
+      for property in class_decl.properties {
+        if property.value is Some(_) &&
+          !eval_object_member_expr_is_provided(provided_members, property.name) {
+          match lookup_member(values, property.name) {
+            Some(default_value) =>
+              match
+                eval_class_property_constraint_value_rejection_message(
+                  class_name,
+                  property.name,
+                  default_value,
+                  declarations,
+                ) {
+                Some(message) => {
+                  diagnostics.push(diag(message))
+                  ok = false
+                }
+                None => ()
+              }
+            None => ()
+          }
+        }
+      }
+      ok
+    }
+    None => true
+  }
+}
+
+///|
+fn eval_class_property_default_constraints_are_valid(
+  class_name : String,
+  provided_members : Array[ObjectMember],
+  values : Array[ValueMember],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+) -> Bool {
+  eval_class_property_default_constraints_are_valid_with_depth(
+    class_name, provided_members, values, declarations, diagnostics, 0,
+  )
+}
+
+///|
+fn eval_expr_class_property_constraints_are_valid(
+  expr : Expr,
+  value : Value,
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+) -> Bool {
+  match (expr, value) {
+    (TypedObjectLiteral(class_name, members), ObjectValue(values)) => {
+      let mut ok = true
+      for field in members {
+        match lookup_member(values, field.name) {
+          Some(member_value) => {
+            match
+              eval_class_property_constraint_value_rejection_message(
+                class_name,
+                field.name,
+                member_value,
+                declarations,
+              ) {
+              Some(message) => {
+                diagnostics.push(diag(message))
+                ok = false
+              }
+              None => ()
+            }
+            if !eval_expr_class_property_constraints_are_valid(
+                field.value,
+                member_value,
+                declarations,
+                diagnostics,
+              ) {
+              ok = false
+            }
+          }
+          None => ()
+        }
+      }
+      if !eval_class_property_default_constraints_are_valid(
+          class_name, members, values, declarations, diagnostics,
+        ) {
+        ok = false
+      }
+      ok
+    }
+    (ObjectLiteral(members), ObjectValue(values)) => {
+      let mut ok = true
+      for field in members {
+        match lookup_member(values, field.name) {
+          Some(member_value) =>
+            if !eval_expr_class_property_constraints_are_valid(
+                field.value,
+                member_value,
+                declarations,
+                diagnostics,
+              ) {
+              ok = false
+            }
+          None => ()
+        }
+      }
+      ok
+    }
+    _ => true
+  }
+}
+
+///|
+fn eval_object_member_alias_constraints_are_valid(
+  members : Array[ObjectMember],
+  values : Array[ValueMember],
+  aliases : Array[EvalTypeAliasBinding],
+  diagnostics : Array[Diagnostic],
+) -> Bool {
+  let mut ok = true
+  for object_member in members {
+    match lookup_member(values, object_member.name) {
+      Some(value) => {
+        if !eval_constrained_type_annotation_value_is_valid(
+            object_member.type_name,
+            value,
+            aliases,
+            diagnostics,
+          ) {
+          ok = false
+        }
+        if !eval_expr_alias_constraints_are_valid(
+            object_member.value,
+            value,
+            aliases,
+            diagnostics,
+          ) {
+          ok = false
+        }
+      }
+      None => ()
+    }
+  }
+  ok
+}
+
+///|
+fn eval_expr_alias_constraints_are_valid(
+  expr : Expr,
+  value : Value,
+  aliases : Array[EvalTypeAliasBinding],
+  diagnostics : Array[Diagnostic],
+) -> Bool {
+  match (expr, value) {
+    (ObjectLiteral(members), ObjectValue(values)) =>
+      eval_object_member_alias_constraints_are_valid(
+        members, values, aliases, diagnostics,
+      )
+    (TypedObjectLiteral(_, members), ObjectValue(values)) =>
+      eval_object_member_alias_constraints_are_valid(
+        members, values, aliases, diagnostics,
+      )
+    _ => true
+  }
+}
