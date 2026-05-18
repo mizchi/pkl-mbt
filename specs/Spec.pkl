@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklBinaryContinuationAcrossSeparatorsScenario = new Scenario {
+  id = "PKL-148au"
+  name = "binary operators continue across newlines and semicolons"
+  description =
+    "Apple Pkl treats newlines and semicolons as whitespace inside an expression — `1 -\\n 2\\n + 3 *\\n 4 / 5` parses as one binary chain. The only exception is `-`: a newline or `;` immediately before `-` makes it unary on the next number (so `2\\n - 1` is two listing elements, `2` and `-1`, not one binary). pkl-mbt's `parse_add_expr` / `parse_mul_expr` previously only crossed plain whitespace, so any binary chain that spanned a newline broke (`2 -\\n 1\\n + 2 *\\n 3 / 4` element-parsed as `2 - 1` then choked on the leading `+` of the next line). Two coupled fixes: (1) `parse_add_expr` peeks past separators when the current line has no operator — if a `+` follows the separator run, advance past the trivia and continue the chain; `-` stays whitespace-only because of the unary-minus ambiguity. After the operator, swallow trailing separators so the right operand can sit on a fresh line / past a `;` (`1;; +; 2;` puts a `;` between `+` and `2`). (2) `parse_mul_expr` mirrors the logic for `*` / `/` / `%` / `~/` — all unambiguously binary. New helpers `skip_trivia_and_semicolons` / `skip_trivia_and_semicolons_from` walk past whitespace + newline + comment + semicolon for the peek + swallow steps. +2 fixtures (`listings/numberLiterals`, `listings2/numberLiterals`), 150 → 152; listings 25.0% → 31.2%; listings2 20.0% → 30.0%."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148at" }
+  tags { "parser"; "binary"; "separators"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Treat `-` separately because of the unary-minus ambiguity"
+      rationale =
+        "`+`, `*`, `/`, `%`, `~/` have no unary form, so any occurrence after a separator is unambiguously a continuation of the previous expression. `-` is also a unary prefix (`-1`); Apple Pkl's documented rule is that a newline or `;` immediately before `-` flips it to unary — `2\\n - 1` becomes two listing elements (`2` and `-1`). Allowing `-` to cross separators would have collapsed those cases into a single binary expression, breaking the fixture's element count expectations."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Swallow separators on both sides of the operator (peek before, skip after)"
+      rationale =
+        "The fixture `1;; +; 2;` puts separators on BOTH sides of `+`. A one-sided fix (peek-before only) would have read past `;;` to find `+`, then attempted to parse the right operand starting at the `;` immediately after `+` — `parse_primary_expr` would have choked on the bare `;`. Swallowing separators after the operator before recursing into `parse_mul_expr` lets the right operand sit on the next significant token regardless of intervening punctuation."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Keep the unconditional `skip_whitespace` + `at(plus())` fast path before the peek"
+      rationale =
+        "When the operator is on the SAME line (the common case `1 + 2`), the existing `skip_whitespace` + `at(plus())` check fires without paying for the separator-aware peek. Only when that check misses does the loop fall back to `skip_trivia_and_semicolons_from` to look for a continuation. This keeps the cost of the new path proportional to its use — single-line expressions don't pay any overhead."
+    }
+  }
+}
+
 local pklAsIsCompoundTypeOperandsScenario = new Scenario {
   id = "PKL-148at"
   name = "as and is accept union nullable generic head function type and string literal right operands"
@@ -5618,5 +5650,6 @@ scenarios {
   pklPredicateMemberScenario
   pklFunctionReturnTypeFunctionFormScenario
   pklAsIsCompoundTypeOperandsScenario
+  pklBinaryContinuationAcrossSeparatorsScenario
   ...roadmap.entries
 }

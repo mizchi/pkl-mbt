@@ -418,6 +418,38 @@ fn Parser::skip_trivia(self : Parser) -> Unit {
 }
 
 ///|
+/// PKL-148au: skip trivia (whitespace + newline + comment) plus
+/// semicolons. Used by the binary-expression continuation peek so
+/// `1\n + 2\n / 3` and `1;; + 2; / 3` keep parsing as a single
+/// chain (Apple Pkl treats semicolons / newlines as whitespace
+/// inside an expression).
+fn Parser::skip_trivia_and_semicolons(self : Parser) -> Unit {
+  while self.pos < self.len {
+    match self.tokens[self.pos].kind().raw() {
+      2 | 3 | 4 | 42 => ignore(self.bump())
+      _ => return
+    }
+  }
+}
+
+///|
+/// PKL-148au: peek past whitespace + newline + comment + semicolon
+/// from `start`, returning the next significant token index. Sibling
+/// to `skip_trivia_from`. The binary-expression continuation logic
+/// uses this to decide whether the upcoming operator should re-enter
+/// the chain after a soft separator.
+fn Parser::skip_trivia_and_semicolons_from(self : Parser, start : Int) -> Int {
+  let mut i = start
+  while i < self.len {
+    match self.tokens[i].kind().raw() {
+      2 | 3 | 4 | 42 => i += 1
+      _ => return i
+    }
+  }
+  i
+}
+
+///|
 fn Parser::consume_separators(self : Parser) -> Unit {
   while true {
     self.skip_whitespace()
@@ -1768,16 +1800,46 @@ fn Parser::parse_type_operand_expr(self : Parser) -> Expr {
 fn Parser::parse_add_expr(self : Parser) -> Expr {
   let checkpoint = self.builder.checkpoint()
   let mut left = self.parse_mul_expr()
-  while ({
-          self.skip_whitespace()
-          self.at(plus()) || self.at(minus())
-        }) {
-    self.builder.start_node_at(checkpoint, binary_expr())
-    let op = if self.at(plus()) { BinaryOp::Add } else { BinaryOp::Subtract }
-    ignore(self.bump())
-    let right = self.parse_mul_expr()
-    self.builder.finish_node()
-    left = BinaryExpr(op, left, right)
+  let mut keep_going = true
+  while keep_going {
+    // PKL-148au: `+` is unambiguously binary, so it can continue
+    // across newlines / semicolons (`1\n + 2`, `1;; +; 2`). `-` is
+    // ambiguous (`2\n - 1` is two elements, not one binary), so it
+    // only continues across plain whitespace + comments.
+    self.skip_whitespace()
+    if self.at(plus()) {
+      self.builder.start_node_at(checkpoint, binary_expr())
+      ignore(self.bump())
+      let right = self.parse_mul_expr()
+      self.builder.finish_node()
+      left = BinaryExpr(BinaryOp::Add, left, right)
+      continue
+    }
+    if self.at(minus()) {
+      self.builder.start_node_at(checkpoint, binary_expr())
+      ignore(self.bump())
+      let right = self.parse_mul_expr()
+      self.builder.finish_node()
+      left = BinaryExpr(BinaryOp::Subtract, left, right)
+      continue
+    }
+    // PKL-148au: no operator on the current line — peek past
+    // newlines / semicolons for a continuation `+`. `-` stays
+    // out of this branch because of the unary-minus ambiguity.
+    let after_sep = self.skip_trivia_and_semicolons_from(self.pos)
+    if after_sep < self.len && self.tokens[after_sep].kind() == plus() {
+      self.skip_trivia_and_semicolons()
+      self.builder.start_node_at(checkpoint, binary_expr())
+      ignore(self.bump())
+      // Also swallow any trailing separators after the operator
+      // (`1;; +; 2;` puts a `;` between `+` and `2`).
+      self.skip_trivia_and_semicolons()
+      let right = self.parse_mul_expr()
+      self.builder.finish_node()
+      left = BinaryExpr(BinaryOp::Add, left, right)
+      continue
+    }
+    keep_going = false
   }
   left
 }
@@ -1787,11 +1849,30 @@ fn Parser::parse_mul_expr(self : Parser) -> Expr {
   let checkpoint = self.builder.checkpoint()
   let mut left = self.parse_power_expr()
   while ({
+          // PKL-148au: `*` / `/` / `%` / `~/` are unambiguously
+          // binary, so they continue across newlines / semicolons
+          // (`1\n / 2`, `3 *\n 4`). Peek past separators when the
+          // current line has no operator.
           self.skip_whitespace()
-          self.at(star()) ||
-          self.at(slash()) ||
-          self.at(percent()) ||
-          self.at(int_div())
+          if self.at(star()) ||
+            self.at(slash()) ||
+            self.at(percent()) ||
+            self.at(int_div()) {
+            true
+          } else {
+            let after_sep = self.skip_trivia_and_semicolons_from(self.pos)
+            if after_sep < self.len {
+              let k = self.tokens[after_sep].kind()
+              if k == star() || k == slash() || k == percent() || k == int_div() {
+                self.skip_trivia_and_semicolons()
+                true
+              } else {
+                false
+              }
+            } else {
+              false
+            }
+          }
         }) {
     self.builder.start_node_at(checkpoint, binary_expr())
     let op = if self.at(star()) {
@@ -1804,6 +1885,10 @@ fn Parser::parse_mul_expr(self : Parser) -> Expr {
       BinaryOp::IntDivide
     }
     ignore(self.bump())
+    // PKL-148au: swallow separators after the operator so the
+    // right operand can sit on a fresh line / past a `;` (`3 *\n
+    // 4`, `1;; / 2;`).
+    self.skip_trivia_and_semicolons()
     let right = self.parse_power_expr()
     self.builder.finish_node()
     left = BinaryExpr(op, left, right)

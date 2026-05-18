@@ -1,6 +1,6 @@
 # Test SPEC
 
-264 tests across 2 module(s) — 199 pending, 65 active
+265 tests across 2 module(s) — 200 pending, 65 active
 
 ## `specs/`
 
@@ -266,6 +266,13 @@
   > Apple Pkl's `import "@<dep>/<rest>"` resolves the `<dep>` short-name through the nearest ancestor `PklProject.deps.json` file. For local-type deps (`type: "local"`, `path: "../packageWithSpaces/"`) the importer combines the PklProject directory with the entry's `path` and the import's remainder to land on a regular file. pkl-mbt's `resolve_import_path` had no `@`-prefix arm, so the loader joined `<from_dir>/@<dep>/<rest>` as if it were a relative path and the read failed with `Cannot find module`. The fix adds `resolve_at_prefix_dep` in the CLI loader: walk `from` upward looking for `PklProject.deps.json`, JSON-parse it via `@json.parse`, scan `resolvedDependencies` for an entry whose key path-tail (`package://host/<dep>@<v>` → `<dep>`) matches the import's `<dep>`, and when the entry is `local`-type combine the PklProject directory with `dep.path + rest` to produce the absolute path. The resolution is then registered in the sandbox cache (reusing the triple-dot registry from PKL-148r), and `analysis.mbt`'s resolve_import_path consults the same cache for `@`-prefix URIs so the IO-free eval-side lookup lands on the same file. Remote-type deps (`type: "remote"`) return None — package download (`pkl download-package` equivalent) is parked in PKL-129 and the fixture-side coverage stays None. +1 fixture (`projects/project7/spacesInImport`), 130 → 131; projects category 36.8% → 42.1%.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-148r
+  - decisions: 3 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **binary operators continue across newlines and semicolons** (minor) — verifies: PKL-148au — tags: parser, binary, separators, upstream, compat
+  > Apple Pkl treats newlines and semicolons as whitespace inside an expression — `1 -\n 2\n + 3 *\n 4 / 5` parses as one binary chain. The only exception is `-`: a newline or `;` immediately before `-` makes it unary on the next number (so `2\n - 1` is two listing elements, `2` and `-1`, not one binary). pkl-mbt's `parse_add_expr` / `parse_mul_expr` previously only crossed plain whitespace, so any binary chain that spanned a newline broke (`2 -\n 1\n + 2 *\n 3 / 4` element-parsed as `2 - 1` then choked on the leading `+` of the next line). Two coupled fixes: (1) `parse_add_expr` peeks past separators when the current line has no operator — if a `+` follows the separator run, advance past the trivia and continue the chain; `-` stays whitespace-only because of the unary-minus ambiguity. After the operator, swallow trailing separators so the right operand can sit on a fresh line / past a `;` (`1;; +; 2;` puts a `;` between `+` and `2`). (2) `parse_mul_expr` mirrors the logic for `*` / `/` / `%` / `~/` — all unambiguously binary. New helpers `skip_trivia_and_semicolons` / `skip_trivia_and_semicolons_from` walk past whitespace + newline + comment + semicolon for the peek + swallow steps. +2 fixtures (`listings/numberLiterals`, `listings2/numberLiterals`), 150 → 152; listings 25.0% → 31.2%; listings2 20.0% → 30.0%.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-148at
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
@@ -1116,10 +1123,10 @@
   - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **super late binding amend lambda form class-aware object equality** [draft] — verifies: PKL-148au — tags: evaluator, stdlib, upstream, compat, next
+- [ ] **super late binding amend lambda form class-aware object equality** [draft] — verifies: PKL-148av — tags: evaluator, stdlib, upstream, compat, next
   > PKL-148ak folded the `@error$` deferred-rejection prefix into the invisible-member set, hoisted the sentinel into per-field env, and added an Identifier intercept so `test.catch(() -> bad_local)` captures the deferred diagnostic against typed locals (+1 fixture, 143 → 144; basic 55.8% → 57.0%); PKL-148al added the PCF triple-quoted heredoc form for multi-line strings at block positions and reordered Dynamic-shape projection so named properties land before bare elements / subscript entries (+1 fixture, 144 → 145; api 7.4% → 8.4%). The harder remaining pieces — all of which require non-local evaluator work — are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this, needed for `objects/super2` / `super3` / `super4`, `classes/supercallsInLet`, and `basic/moduleRef3`'s `const a = 44` override of the parent's `aa = module.a`); the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambda*` fixtures); runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`); constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13); class-aware ObjectValue tagging so `new Person {} != new Person2 {}` (needed for `objects/equality`'s c-block + composite Mapping keys in `mappings/mapping1` that PKL-148k currently sidesteps via a scalar-only duplicate-check gate — a prototype hidden `__class` marker landed in PKL-148i but was reverted after it broke 14 structural-equality unit tests; the right shape is a dedicated `ObjectValue(class_name: String?, members)` enum-shape refactor); the `pipeOperator` res11 diagnostic also needs the class-aware tag to project `pipeOperator#Person` / `new Person {}`; object-body amend chain (`(obj) { ... } { ... }` — needed for `objects/equality` a11); free-form (non-literal) amend-override rejections (`(res3) { y = expr }` against `Int(this > x)` constraints — gated today on the upstream forward-binding leak where a sibling object's `local x = 1` resolves into a later object body's identifier lookup); listing/mapping body re-eval on amend so listing `(x) {}` / `default = N` work (needed for `listings/equality`, `listings/inequality`, `mappings/equality`, `mappings/inequality`). Listing/List-method receiver-tag preservation (`list.map(...)` returns a List, `listing.map(...)` returns a Listing) is a sub-task too; today the dispatcher always re-wraps as ListingValue. Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along; PcfRenderer / JsonRenderer instance-method bodies (renderDocument / renderValue) plus converter dispatch (`converters { [Any] = ...; [Dog] = ... }` + regex path matching) are the next api/-shaped slice once the leverage analysis surfaces a 1-flip-per-feature angle.
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-148at
+  - depends on: PKL-148au
   - body: _not yet implemented_
 
 - [ ] **super method call** — verifies: PKL-117a — tags: evaluator, inheritance
@@ -1631,7 +1638,7 @@
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
-- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d, PKL-148e, PKL-148f, PKL-148g, PKL-148h, PKL-148i, PKL-148j, PKL-148k, PKL-148l, PKL-148m, PKL-148n, PKL-148o, PKL-148p, PKL-148q, PKL-148r, PKL-148s, PKL-148t, PKL-148u, PKL-148v, PKL-148w, PKL-148x, PKL-148y, PKL-148aa, PKL-148ab, PKL-148ac, PKL-148ad, PKL-148ae, PKL-148af, PKL-148ag, PKL-148ah, PKL-148ai, PKL-148aj, PKL-148ak, PKL-148al, PKL-148an, PKL-148ao, PKL-148ap, PKL-148aq, PKL-148ar, PKL-148as, PKL-148at — tags: moonbit, upstream, compatibility, contract
+- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d, PKL-148e, PKL-148f, PKL-148g, PKL-148h, PKL-148i, PKL-148j, PKL-148k, PKL-148l, PKL-148m, PKL-148n, PKL-148o, PKL-148p, PKL-148q, PKL-148r, PKL-148s, PKL-148t, PKL-148u, PKL-148v, PKL-148w, PKL-148x, PKL-148y, PKL-148aa, PKL-148ab, PKL-148ac, PKL-148ad, PKL-148ae, PKL-148af, PKL-148ag, PKL-148ah, PKL-148ai, PKL-148aj, PKL-148ak, PKL-148al, PKL-148an, PKL-148ao, PKL-148ap, PKL-148aq, PKL-148ar, PKL-148as, PKL-148at, PKL-148au — tags: moonbit, upstream, compatibility, contract
   > Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF and JSON).
   - body: `cmd` (exit 0 expected)
 
@@ -2008,7 +2015,9 @@
   - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
 - **PKL-148at** — as and is accept union nullable generic head function type and string literal right operands
   - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
-- **PKL-148au** — super late binding amend lambda form class-aware object equality
+- **PKL-148au** — binary operators continue across newlines and semicolons
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-148av** — super late binding amend lambda form class-aware object equality
   - _No active implementation._
 - **PKL-148b** — pkl:base method surface second wave
   - test: `specs/Test.pkl` — moon unit tests

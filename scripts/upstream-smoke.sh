@@ -162,6 +162,8 @@ GOLD_FIXTURES=(
   "generators/predicateMembersThis"
   "classes/constraints10"
   "parser/newline"
+  "listings/numberLiterals"
+  "listings2/numberLiterals"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output
