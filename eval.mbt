@@ -6753,10 +6753,74 @@ fn eval_super_method_call(
 ) -> Value? {
   let current_class = match lookup_value(cache, "@current_class") {
     Some(StringValue(name)) => name
-    _ => {
-      diagnostics.push(diag("super.\{method_name} used outside a class body"))
-      return None
-    }
+    _ =>
+      // PKL-148ac: module-level fallback. `extends "parent.pkl"`
+      // pushes `super = ObjectValue(parent_members)` into the cache at
+      // module init time; a child-module function / hidden property
+      // calling `super.X(...)` lives outside any class body, so
+      // `@current_class` is absent. Look up `method_name` in the
+      // super-bound ObjectValue's members — when it's a FunctionValue,
+      // apply it to the evaluated arguments through the same lambda
+      // path. The lookup goes through `lookup_member` (not the visible
+      // variant) because module-level functions are stored under the
+      // hidden member prefix.
+      match lookup_value(cache, "super") {
+        Some(ObjectValue(parent_members)) => {
+          let target = match lookup_member(parent_members, method_name) {
+            Some(value) => Some(value)
+            None =>
+              lookup_member(parent_members, hidden_member_name(method_name))
+          }
+          match target {
+            Some(FunctionValue(_, _, _, _, _) as fn_value) => {
+              let argument_values : Array[Value] = []
+              let mut args_ok = true
+              for argument in arguments {
+                match
+                  eval_expr_with_bindings(
+                    argument, bindings, env, class_env, cache, stack, declarations,
+                    diagnostics, resolve_import,
+                  ) {
+                  Some(value) => argument_values.push(value)
+                  None => args_ok = false
+                }
+              }
+              if !args_ok {
+                return None
+              }
+              return apply_function_value(
+                "super.\{method_name}",
+                fn_value,
+                argument_values,
+                bindings,
+                env,
+                class_env,
+                cache,
+                stack,
+                declarations,
+                diagnostics,
+                resolve_import,
+              )
+            }
+            Some(_) => {
+              diagnostics.push(diag("super.\{method_name} is not a callable"))
+              return None
+            }
+            None => {
+              diagnostics.push(
+                diag("Cannot find method `\{method_name}` in parent module."),
+              )
+              return None
+            }
+          }
+        }
+        _ => {
+          diagnostics.push(
+            diag("super.\{method_name} used outside a class body"),
+          )
+          return None
+        }
+      }
   }
   let parent_name = match lookup_class_binding(class_env, current_class) {
     Some(binding) =>
@@ -11328,6 +11392,19 @@ fn eval_program(
   // extends as inheritance, not a namespaced import). Pull the parent
   // ClassExports in directly so an inherited typed slot like
   // `pp1: Person1` can resolve `Person1` against the parent.
+  //
+  // PKL-148ac: also eagerly evaluate the parent module so `super.X` /
+  // `super.X(...)` inside the child's own functions / hidden properties
+  // can dispatch to the parent's binding / FunctionValue. The parent's
+  // members are pushed as `super = ObjectValue(...)` into the cache so
+  // every module-level FunctionValue created during this `eval_program`
+  // captures `super` via `capture_value_bindings(env, cache)`. The
+  // cache (not env) is the right home because class-default evaluation
+  // (PKL-148aa) pushes its own class-level `super` later — and that
+  // sits on top of the same cache, so a class body's `super.X` keeps
+  // pointing at the parent class while a module-level body sees the
+  // parent module. Pushing into env would force the module-level super
+  // ahead of every class-default super, regressing PKL-148aa.
   match program.module_relation {
     Some(relation) =>
       match resolve_import_classes(relation.uri) {
@@ -11342,6 +11419,17 @@ fn eval_program(
           }
         None => ()
       }
+    None => ()
+  }
+  match program.module_relation {
+    Some(relation) => {
+      let parent_members = eval_module_relation(
+        relation, diagnostics, resolve_import,
+      )
+      if parent_members.length() > 0 {
+        cache.push({ name: "super", value: ObjectValue(parent_members) })
+      }
+    }
     None => ()
   }
   for binding in program.bindings {

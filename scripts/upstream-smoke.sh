@@ -139,6 +139,9 @@ GOLD_FIXTURES=(
   "basic/localMethodOverride1"
   "basic/localMethodOverride2"
   "basic/localMethodTyped4"
+  "modules/supercalls2"
+  "modules/amendModule4"
+  "modules/extendModule1"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output
