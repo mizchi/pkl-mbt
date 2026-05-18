@@ -2139,6 +2139,47 @@ fn eval_type_name_is_type_parameter(
 }
 
 ///|
+/// PKL-148ag: true iff every choice in the union-resolved form of
+/// `type_name` fails to resolve to a stdlib class, user class,
+/// typealias, or in-scope type parameter. The check feeds the
+/// callable parameter / return rejection paths so an unknown type
+/// annotation surfaces `Cannot find type \`<name>\`.` (Apple Pkl's
+/// upstream wording) instead of the mismatched-value message that
+/// otherwise pretends the annotation is meaningful.
+fn eval_type_name_is_unresolvable(
+  type_name : String,
+  declarations : Array[Declaration],
+) -> Bool {
+  let aliases = eval_type_alias_bindings(declarations)
+  let resolved = eval_resolved_type_alias(type_name, aliases)
+  for choice in split_top_level_union_choices(resolved) {
+    let trimmed = pkl_constraint_trim(choice)
+    let without_constraint = match pkl_constrained_type_base_name(trimmed) {
+      Some(base) => base
+      None => trimmed
+    }
+    let head = match without_constraint.find("<") {
+      Some(idx) =>
+        String::unsafe_substring(without_constraint, start=0, end=idx)
+      None => without_constraint
+    }
+    let head_no_optional = if head.has_suffix("?") {
+      String::unsafe_substring(head, start=0, end=head.length() - 1)
+    } else {
+      head
+    }
+    if head_no_optional == "" ||
+      head_no_optional.has_prefix("\"") ||
+      is_stdlib_class_name(head_no_optional) ||
+      eval_lookup_class_decl(declarations, head_no_optional) is Some(_) ||
+      eval_type_name_is_type_parameter(head_no_optional, declarations) {
+      return false
+    }
+  }
+  true
+}
+
+///|
 /// PKL-148l: a callable's parameter declared with a basic type
 /// annotation (`a: Int`, `b: Number`, `s: String`, etc.) must reject
 /// arguments whose runtime type does not satisfy the annotation
@@ -2273,6 +2314,15 @@ fn eval_callable_argument_type_rejection_message(
           None => ()
         }
         return None
+      }
+      // PKL-148ag: when the annotation itself doesn't name a known
+      // type (no stdlib class, user class, typealias, or in-scope
+      // type parameter resolves), Apple Pkl surfaces
+      // `Cannot find type \`<name>\`.` — not the mismatched-value
+      // wording. Run the resolvability gate before crafting the
+      // value-mismatch message.
+      if eval_type_name_is_unresolvable(source, declarations) {
+        return Some("Cannot find type `\{source}`.")
       }
       // PKL-148u: Apple Pkl quotes the RESOLVED type name in the
       // rejection diagnostic (not the source alias name). Strip a
@@ -2469,6 +2519,12 @@ fn eval_callable_return_rejection_message(
         matched
       }
       if !union_accepted {
+        // PKL-148ag: unresolvable annotation → `Cannot find type`
+        // rather than the value-mismatch wording. Mirrors the
+        // parameter-side gate.
+        if eval_type_name_is_unresolvable(type_name, declarations) {
+          return Some("Cannot find type `\{type_name}`.")
+        }
         // PKL-148: align with Apple Pkl's diagnostic wording so
         // snippetTest fixtures that capture this exact string via
         // `test.catch(...)` match byte-for-byte. The trailing

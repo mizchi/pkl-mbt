@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklObjectBodyLocalFunctionScenario = new Scenario {
+  id = "PKL-148ag"
+  name = "object-body local function and unknown-type diagnostic"
+  description =
+    "Apple Pkl lets an object body declare `local function f(...) = body` whose lexical scope covers every sibling member: `foo { local function f1(x: Int): Int = x + 1; res1 = f1(42) }` resolves `f1` to the in-body lambda. pkl-mbt's `parse_object_body_members` consumed the `local` visibility modifier but then dispatched on `at_property_decl()` / bare-expression — the leading `function` keyword (lexed as the bare identifier `function`) fell through to `parse_expr` and surfaced as `Cannot find property \\\\`function\\\\`.` at eval time. The fix adds a dedicated arm before the property-decl check: when the next significant token's text is `function`, reuse `parse_function_decl` to consume the full method shape (parameters, optional return type, body) and lower it to `ObjectMember { name = local_member_name(decl.name), value = LambdaExpr(params, body, return_type) }`. `eval_object_members` already strips the `@local$` prefix when hoisting prior members into the per-field eval env, so a sibling `f(arg)` resolves the bare name and `eval_callable_call`'s fallback path applies the FunctionValue. The same slice closes a related diagnostic gap: when a parameter / return annotation names a type that doesn't resolve to a stdlib class, user class, typealias, or in-scope type parameter, Apple Pkl emits `Cannot find type \\\\`<name>\\\\`.` — not the mismatched-value wording. A new `eval_type_name_is_unresolvable` helper runs the same `resolve → split-union → strip-constraint → strip-generic-head → strip-optional` cascade as the accept path, and the rejection-message functions short-circuit through it before crafting the value-mismatch message. +6 fixtures (`basic/localMethodInAmendingModule`, `basic/localMethodTyped`, `basic/localMethodTyped2`, `basic/localMethodTyped5`, `basic/localMethodTyped6`, `basic/localMethodUntyped`), 133 → 139; basic category 44.2% → 51.2%."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148af" }
+  tags { "parser"; "evaluator"; "diagnostics"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Lower object-body `local function` to a `@local$f = LambdaExpr(...)` ObjectMember instead of teaching ObjectMember to carry FunctionDecl"
+      rationale =
+        "ObjectMember carries an `Expr` value; FunctionDecl is its own structure (parameters / return_type / body / annotations). Adding a `MethodMember(FunctionDecl)` variant would ripple through every evaluator dispatcher that pattern-matches on ObjectMember.value. Lowering to LambdaExpr at parse time piggybacks on the existing prefix-strip logic in `eval_object_members` (`@local$f` hoists as bare `f` in the per-field env) and the existing `eval_callable_call` fallback that accepts any Identifier resolving to a FunctionValue — so the slice fits behind the parser surface with zero evaluator changes for the call-site path."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Add a dedicated `eval_type_name_is_unresolvable` helper rather than threading the resolvability check through the union-walk loop"
+      rationale =
+        "The union-acceptance walk and the unresolvability gate ask different questions about the same shape: the former is `any choice accepts <value>`, the latter is `every choice fails to name a known type`. Folding them would tangle the loop with two early-exit conditions and a four-way state (accepted / value-rejected / unknown / known-but-rejected). A separate helper keeps each loop single-purpose; the cost is one extra pass over the choices on the rejection path, which is cold."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Restrict the unresolvability gate to callable parameter / return paths (not class-property defaults)"
+      rationale =
+        "Class-property defaults already short-circuit on unknown annotations earlier in the cascade (the `if !is_stdlib_class_name(head) && !(eval_lookup_class_decl is Some(_))` guard returns None without a diagnostic). Adding the gate there would change behaviour for fixtures that currently rely on the silent skip. Only the callable rejection paths surface a value-mismatch message that needs the unknown-type wording substitution — keeping the change scoped avoids opening a second front of diagnostic churn."
+    }
+  }
+}
+
 local pklTypeRejectionWalksCollectionElementsScenario = new Scenario {
   id = "PKL-148af"
   name = "callable arg type rejection walks collection elements"
@@ -5195,5 +5227,6 @@ scenarios {
   pklAtPrefixLocalDepImportScenario
   pklConstraintCascadeListMapOptionalScenario
   pklTypeRejectionWalksCollectionElementsScenario
+  pklObjectBodyLocalFunctionScenario
   ...roadmap.entries
 }

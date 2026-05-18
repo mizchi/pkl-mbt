@@ -2663,6 +2663,38 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
       } else {
         self.skip_unknown_member()
       }
+    } else if self.at(identifier()) && self.peek().text() == "function" {
+      // PKL-148ag: `local function f(...) = body` inside an object body.
+      // Apple Pkl scopes the method to the body's lexical extent;
+      // siblings inside the same body call `f(...)` and resolve through
+      // the implicit-receiver chain. Reuse `parse_function_decl` and
+      // lower to `@local$f = (params) -> body` — the lambda's
+      // FunctionValue lands in the object's member list and
+      // `eval_object_members` already strips the `@local$` prefix when
+      // hoisting prior members into the per-field eval env, so a sibling
+      // `f(arg)` resolves the bare name. Only the LocalMember visibility
+      // makes sense for an in-body function (Apple Pkl rejects
+      // body-level `function f(...)` without `local`); the other
+      // visibilities fall through to the same encoding for resilience.
+      match self.parse_function_decl() {
+        Some(decl) => {
+          let body_expr = match decl.body {
+            Some(e) => e
+            None => UnsupportedExpr
+          }
+          let lambda = LambdaExpr(
+            decl.parameters,
+            body_expr,
+            decl.return_type_name,
+          )
+          let stored_name = match visibility {
+            LocalMember | VisibleMember | HiddenMember =>
+              local_member_name(decl.name)
+          }
+          members.push({ name: stored_name, type_name: None, value: lambda })
+        }
+        None => ()
+      }
     } else if self.at_property_decl() {
       match self.parse_object_member() {
         Some(field) => {

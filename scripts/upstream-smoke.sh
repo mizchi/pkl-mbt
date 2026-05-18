@@ -145,6 +145,12 @@ GOLD_FIXTURES=(
   "projects/project7/spacesInImport"
   "methods/methodParameterConstraints2"
   "basic/localTypedModuleMember"
+  "basic/localMethodInAmendingModule"
+  "basic/localMethodTyped"
+  "basic/localMethodTyped2"
+  "basic/localMethodTyped5"
+  "basic/localMethodTyped6"
+  "basic/localMethodUntyped"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output
