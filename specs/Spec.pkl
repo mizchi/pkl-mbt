@@ -1896,6 +1896,32 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklSuperPropertyInClassDefaultScenario = new Scenario {
+  id = "PKL-148aa"
+  name = "super property access in class default body"
+  description =
+    "Apple Pkl's `class D extends C { result = let (x = \"d\") super.value + x }` resolves `super.value` against the parent class C's already-evaluated property defaults. pkl-mbt only pushed a `super` binding into the cache inside `AmendExpr` evaluation (the `(target) { ... }` form) and inside `eval_class_method_call` via the `@current_class` marker for `eval_super_method_call`. Class default bodies that referenced `super.X` as a property access — not a method call — fell through to `resolve_binding_value(\"super\", ...)` which has no entry and surfaced `Cannot find property \\`super\\`.`. `eval_class_default_members` now copies the cache before evaluating the class's own defaults and pushes `{ name: \"super\", value: ObjectValue(base_values) }` when the parent contributed any members. `base_values` is the parent's recursively-evaluated default set (including the grand-parent chain), so a property read like `super.value` lands on the parent's value without disturbing the method-call path (`super.foo()` still goes through `CallExpr(MemberAccess(Identifier(\"super\"), _), _) → eval_super_method_call` and uses `@current_class`). Lambda-captured cases work too: the `let (x = \"d\") body` desugar to `CallExpr(LambdaExpr([x], body), [\"d\"])` captures the cache (which now includes `super`) via `capture_value_bindings`, so the body sees `super` even after the lambda hop. +1 fixture (`classes/supercallsInLet`), 123 → 124; classes category 52.9% → 55.9%."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148y" }
+  tags { "evaluator"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Push `super` only when `base_values` is non-empty"
+      rationale =
+        "A class with no parent (`class A {}`) has empty `base_values`, so pushing `super = ObjectValue([])` would resolve `super.X` lookups in unrelated places to `Cannot find property X in object of type Dynamic.` instead of the existing `Cannot find property super.` (the right diagnostic — `super` truly isn't bound here). The empty-base short-circuit keeps the no-parent diagnostic unchanged while wiring the meaningful case."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Use `copy_value_bindings(cache)` instead of mutating the caller's cache"
+      rationale =
+        "The caller's cache is reused across sibling property evaluations (and across the merge-with-base step). Mutating it in place would leak `super` into the merged ValueMember bindings for subsequent class-default evaluations of unrelated classes (the cache is threaded through `eval_object_members_with_options` and shared with caller stacks). Copying keeps the `super` binding scoped to this class's defaults; the cost is one array clone per `new <ClassWithParent>` evaluation, negligible against the existing per-property work."
+    }
+  }
+}
+
 local pklListingAmendGeneratorToleranceScenario = new Scenario {
   id = "PKL-148y"
   name = "listing amend body tolerates when for spread generator members"
@@ -5009,5 +5035,6 @@ scenarios {
   pklListingSubscriptAmendScenario
   pklDynamicShapeViaSentinelsScenario
   pklListingAmendGeneratorToleranceScenario
+  pklSuperPropertyInClassDefaultScenario
   ...roadmap.entries
 }

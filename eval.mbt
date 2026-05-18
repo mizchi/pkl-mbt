@@ -10907,6 +10907,26 @@ fn eval_class_default_members(
     }
     None => ()
   }
+  // PKL-148aa: thread `super` into the cache used when evaluating the
+  // class's own defaults so a property body can reference the parent
+  // class via property access (`super.value`) — Apple Pkl rebinds
+  // `super` to the parent's resolved members across the class chain.
+  // CallExpr(MemberAccess(Identifier("super"), m), args) already goes
+  // through `eval_super_method_call`, which uses the `@current_class`
+  // marker — that marker only exists inside method evaluation. The
+  // property-default path didn't push a `super` value at all, so a
+  // bare `super.value` resolution would fall through to the generic
+  // "Cannot find property `super`." diagnostic. Pushing the parent's
+  // already-evaluated `base_values` (which itself includes the
+  // grand-parent chain) is enough to satisfy property reads without
+  // disturbing the method-call path.
+  let defaults_cache = if base_values.length() > 0 {
+    let cloned = copy_value_bindings(cache)
+    cloned.push({ name: "super", value: ObjectValue(base_values) })
+    cloned
+  } else {
+    cache
+  }
   merge_value_members(
     base_values,
     eval_object_members_with_options(
@@ -10914,7 +10934,7 @@ fn eval_class_default_members(
       bindings,
       env,
       class_env,
-      cache,
+      defaults_cache,
       stack,
       declarations,
       diagnostics,
