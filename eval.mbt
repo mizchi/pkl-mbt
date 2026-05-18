@@ -8021,11 +8021,27 @@ fn eval_expr_with_bindings(
       // to a direct binding lookup so the value is resolved through the
       // module's binding env rather than treating `module` as an
       // ordinary identifier (which would fail with "unbound identifier").
+      // PKL-148ah: in `amends` / `extends` mode the child module's
+      // bindings list only carries its own additions — parent-only
+      // names (`a` in `moduleRefLibrary`) aren't reachable via
+      // `find_binding(child_bindings, ...)`. Fall back to the parent
+      // snapshot pushed as `super = ObjectValue(parent_members)` by
+      // `eval_program` so `module.X` resolves through the merged
+      // module surface instead of returning None.
       if target_expr is Identifier("module") {
-        resolve_binding_value(
-          member_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
-          resolve_import,
-        )
+        match
+          resolve_binding_value(
+            member_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
+          ) {
+          Some(value) => Some(value)
+          None =>
+            match lookup_value(cache, "super") {
+              Some(ObjectValue(parent_members)) =>
+                lookup_member(parent_members, member_name)
+              _ => None
+            }
+        }
       } else if target_expr is Identifier("this") &&
         (
           find_binding(bindings, member_name) is Some(_) ||
@@ -10600,6 +10616,26 @@ fn eval_object_members_with_options(
       } else {
         local_env.push({ name: prior.name, value: prior.value })
       }
+    }
+    // PKL-148ah: when this object body is the RHS of a module-level
+    // binding currently on the resolution stack (`foo = { b = 43;
+    // m3 = module.foo.b }`), expose the in-progress members as the
+    // binding's value so `module.foo.b` resolves against the partial
+    // snapshot rather than re-entering the binding (which would emit
+    // `cyclic property reference foo`). Apple Pkl handles this through
+    // implicit late binding — the prior siblings are visible inside
+    // the body via the implicit-receiver chain, and `module.<self>`
+    // sees the same snapshot. Mirror the snapshot by copying the
+    // already-computed `values`; the inflight entry sits at the end of
+    // `local_env` so `lookup_value` (last-match-wins) returns it ahead
+    // of anything the outer scope might have shadowed.
+    if stack.length() > 0 {
+      let inflight_name = stack[stack.length() - 1]
+      let snapshot : Array[ValueMember] = []
+      for prior in values {
+        snapshot.push(prior)
+      }
+      local_env.push({ name: inflight_name, value: ObjectValue(snapshot) })
     }
     // PKL-148u: when `defer_property_errors` is true, route each
     // property's eval through a local diagnostics buffer so a

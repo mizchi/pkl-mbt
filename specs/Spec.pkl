@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklModuleSelfRefAndAmendModuleParentFallbackScenario = new Scenario {
+  id = "PKL-148ah"
+  name = "module self-ref partial visibility plus amend parent member fallback"
+  description =
+    "Apple Pkl's `module.<self>.<sibling>` reference, where `<self>` is the binding currently being evaluated, reads the in-progress partial object (siblings already computed in source order) instead of cycling — and `module.X` inside an `amends` / `extends` child resolves to the parent module's member when the child doesn't shadow it. pkl-mbt's `resolve_binding_value` short-circuit treated both as `cyclic property reference foo` / `Cannot find property a` respectively: the cyclic detector fired because the inflight binding was on the stack with no live snapshot in env, and `module.X` only consulted `find_binding(child_bindings, ...)` which doesn't carry parent-only names in amends mode. The fix has two parts. (1) `eval_object_members` pushes `{ name: <top_of_stack>, value: ObjectValue(values_snapshot) }` into per-field `local_env` so the in-flight object is exposed under the binding name being resolved; lookup_value's last-match-wins ordering means `module.foo.b` resolves through the snapshot ahead of the cycle path. (2) The `module.X` short-circuit (in MemberAccess) falls back to `lookup_value(cache, \"super\")` and reads X from the parent ObjectValue when the primary `resolve_binding_value` returns None — the `super = ObjectValue(parent_members)` pushed by `eval_program` (PKL-148ac) for amends / extends modules carries the parent surface. +2 fixtures (`basic/moduleRef1`, `basic/moduleRef2`), 139 → 141; basic category 51.2% → 53.5%."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148ag" }
+  tags { "evaluator"; "modules"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Snapshot copy of `values` rather than holding a live reference"
+      rationale =
+        "Pushing `ObjectValue(values)` directly into local_env would expose the live accumulator — every subsequent push to `values` would mutate the snapshot retroactively. The fix takes a copy so the partial value at field K reflects siblings 0..K-1 only, matching Apple Pkl's source-order visibility semantic. The cost is O(K) per field; trivial against the typical body size."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Late-binding (parent's `aa = module.a` re-eval against child's `a`) deferred to a later slice"
+      rationale =
+        "`basic/moduleRef3` (`extends \"moduleRefLibrary.pkl\"` + `const a = 44`) still expects `aa = 44`, but the parent's `aa` was eagerly computed in `eval_module_relation` against the parent's own `a = 42` before `super` was pushed. Re-evaluating parent members in the child's scope requires plumbing the parent's parsed Bindings through resolve_import (which currently only returns the evaluated Value); that's a deeper refactor and rides as its own slice instead of being bolted into this one."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "`super` fallback uses `lookup_member` (bare match) not `find_member_exact`"
+      rationale =
+        "Parent members surface under bare names in `parent_members` (the renderable surface), not under `@local$X` / `@hidden$X` prefixes. `lookup_member`'s name-strip handling makes the bare match natural; `find_member_exact` would require duplicating the prefix-aware lookup. The two helpers are interchangeable here because `super`'s ObjectValue carries the post-merge member shape."
+    }
+  }
+}
+
 local pklObjectBodyLocalFunctionScenario = new Scenario {
   id = "PKL-148ag"
   name = "object-body local function and unknown-type diagnostic"
@@ -5228,5 +5260,6 @@ scenarios {
   pklConstraintCascadeListMapOptionalScenario
   pklTypeRejectionWalksCollectionElementsScenario
   pklObjectBodyLocalFunctionScenario
+  pklModuleSelfRefAndAmendModuleParentFallbackScenario
   ...roadmap.entries
 }
