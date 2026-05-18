@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklAtPrefixLocalDepImportScenario = new Scenario {
+  id = "PKL-148ad"
+  name = "at-prefix local dep import resolution"
+  description =
+    "Apple Pkl's `import \"@<dep>/<rest>\"` resolves the `<dep>` short-name through the nearest ancestor `PklProject.deps.json` file. For local-type deps (`type: \"local\"`, `path: \"../packageWithSpaces/\"`) the importer combines the PklProject directory with the entry's `path` and the import's remainder to land on a regular file. pkl-mbt's `resolve_import_path` had no `@`-prefix arm, so the loader joined `<from_dir>/@<dep>/<rest>` as if it were a relative path and the read failed with `Cannot find module`. The fix adds `resolve_at_prefix_dep` in the CLI loader: walk `from` upward looking for `PklProject.deps.json`, JSON-parse it via `@json.parse`, scan `resolvedDependencies` for an entry whose key path-tail (`package://host/<dep>@<v>` → `<dep>`) matches the import's `<dep>`, and when the entry is `local`-type combine the PklProject directory with `dep.path + rest` to produce the absolute path. The resolution is then registered in the sandbox cache (reusing the triple-dot registry from PKL-148r), and `analysis.mbt`'s resolve_import_path consults the same cache for `@`-prefix URIs so the IO-free eval-side lookup lands on the same file. Remote-type deps (`type: \"remote\"`) return None — package download (`pkl download-package` equivalent) is parked in PKL-129 and the fixture-side coverage stays None. +1 fixture (`projects/project7/spacesInImport`), 130 → 131; projects category 36.8% → 42.1%."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148r" }
+  tags { "loader"; "sandbox"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Reuse the triple-dot sandbox cache instead of a parallel `@`-prefix registry"
+      rationale =
+        "Both triple-dot (`import \".../...\"`) and at-prefix (`import \"@<dep>/...\"`) resolutions share the same shape: `(from, uri) → absolute_path` cached by the CLI loader and looked up by the analysis layer. A dedicated registry would duplicate the storage struct, the `register_*` / `lookup_*` API, and the analysis-side consult site. Reusing `register_triple_dot_resolution` / `lookup_triple_dot_resolution` keeps the cache singleton; the function names trail the original use case but the shape is generic — a follow-up rename to `register_loader_resolution` would not change behaviour."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Defer remote-type dependency handling to PKL-129 (`package://` download)"
+      rationale =
+        "Remote-type deps require fetching a zipball from `package://host/...`, verifying SHA-256, and unpacking it under a cache dir. That work is the PKL-129 slice (`package://` URI parse + metadata probe + zipball-URL extraction already landed in PKL-129b1; DEFLATE+SHA-256+cache loop is still parked). Returning None for `type: \"remote\"` here keeps the at-prefix loader cohesive (local deps work end-to-end) without dragging in the network / crypto surface; the existing `Cannot find module` diagnostic surfaces for remote-only fixtures (`projects/project4/main` and friends) until PKL-129 closes."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "JSON-parse `PklProject.deps.json` instead of hand-scanning"
+      rationale =
+        "The `.deps.json` shape is well-defined (`resolvedDependencies` map keyed by `package://...@<major>`). `@json.parse` is already a dependency for `pkl:json.Parser.parse`, so adding the import in `cmd/mpkl/moon.pkg` reuses the existing parser and tolerates whitespace / escapes / ordering variation. Hand-scanning a few specific keys would be fragile against Apple Pkl's future additions to the file schema."
+    }
+  }
+}
+
 local pklModuleLevelSuperDispatchScenario = new Scenario {
   id = "PKL-148ac"
   name = "module-level super dispatch for extends"
@@ -5096,5 +5128,6 @@ scenarios {
   pklSuperPropertyInClassDefaultScenario
   pklClassMethodsLexicalScopeScenario
   pklModuleLevelSuperDispatchScenario
+  pklAtPrefixLocalDepImportScenario
   ...roadmap.entries
 }

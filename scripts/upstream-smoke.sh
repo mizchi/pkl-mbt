@@ -142,6 +142,7 @@ GOLD_FIXTURES=(
   "modules/supercalls2"
   "modules/amendModule4"
   "modules/extendModule1"
+  "projects/project7/spacesInImport"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output

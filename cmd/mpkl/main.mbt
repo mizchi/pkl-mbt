@@ -211,7 +211,136 @@ async fn diagnose_package_uri(uri : String) -> Unit {
 }
 
 ///|
+
+///|
+/// PKL-148ad: resolve an `@<dep>/<rest>` project-dependency import URI
+/// to an absolute file path by walking up `from`'s ancestor
+/// directories for a `PklProject.deps.json`, JSON-parsing the
+/// `resolvedDependencies` map, finding the entry whose key path-tail
+/// matches `<dep>` (`package://host/<dep>@<v>` → `<dep>`), and — when
+/// the entry is `type: "local"` — combining the PklProject directory
+/// with the entry's `path` and the import's `<rest>`. Remote entries
+/// (`type: "remote"`) return None; package download is its own slice
+/// (PKL-129). Returns the absolute path on a match so the caller can
+/// register it in the sandbox cache (mirroring the triple-dot path).
+fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
+  if !uri.has_prefix("@") {
+    return None
+  }
+  let after_at = String::unsafe_substring(uri, start=1, end=uri.length())
+  let slash_idx = match after_at.find("/") {
+    Some(idx) => idx
+    None => return None
+  }
+  let dep_name = String::unsafe_substring(after_at, start=0, end=slash_idx)
+  let rest = String::unsafe_substring(
+    after_at,
+    start=slash_idx + 1,
+    end=after_at.length(),
+  )
+  let mut current = match from.rev_find("/") {
+    Some(idx) => String::unsafe_substring(from, start=0, end=idx)
+    None => ""
+  }
+  let mut keep_walking = true
+  while keep_walking {
+    let deps_path = if current == "" {
+      "PklProject.deps.json"
+    } else {
+      current + "/PklProject.deps.json"
+    }
+    if @fs.path_exists(deps_path) {
+      let body = @fs.read_file_to_string(deps_path) catch { _ => "" }
+      if body != "" {
+        let parsed = Some(@json.parse(body[:])) catch { _ => None }
+        match parsed {
+          Some(Object(top)) =>
+            match top.get("resolvedDependencies") {
+              Some(Object(deps)) =>
+                for key, value in deps {
+                  let key_tail = match key.rev_find("/") {
+                    Some(idx) =>
+                      String::unsafe_substring(
+                        key,
+                        start=idx + 1,
+                        end=key.length(),
+                      )
+                    None => key
+                  }
+                  let entry_name = match key_tail.find("@") {
+                    Some(idx) =>
+                      String::unsafe_substring(key_tail, start=0, end=idx)
+                    None => key_tail
+                  }
+                  if entry_name == dep_name {
+                    match value {
+                      Object(entry) => {
+                        let is_local = match entry.get("type") {
+                          Some(String(s)) => s == "local"
+                          _ => false
+                        }
+                        let path_str = match entry.get("path") {
+                          Some(String(s)) => Some(s)
+                          _ => None
+                        }
+                        match (is_local, path_str) {
+                          (true, Some(path)) => {
+                            let dep_dir = if path.has_suffix("/") {
+                              path
+                            } else {
+                              path + "/"
+                            }
+                            let joined = if dep_dir.has_prefix("/") {
+                              dep_dir + rest
+                            } else if current == "" {
+                              dep_dir + rest
+                            } else {
+                              current + "/" + dep_dir + rest
+                            }
+                            return Some(joined)
+                          }
+                          _ => ()
+                        }
+                      }
+                      _ => ()
+                    }
+                  }
+                }
+              _ => ()
+            }
+          _ => ()
+        }
+      }
+    }
+    if current == "" || current == "/" {
+      keep_walking = false
+    } else {
+      match current.rev_find("/") {
+        Some(idx) =>
+          current = String::unsafe_substring(current, start=0, end=idx)
+        None => current = ""
+      }
+    }
+  }
+  None
+}
+
+///|
 fn resolve_import_path(from : String, uri : String) -> String {
+  // PKL-148ad: project-dependency import (`import "@<dep>/<rest>"`).
+  // The PklProject.deps.json file in an ancestor directory carries
+  // the resolved dependency map; local-type deps are FS-loadable.
+  // Cache the resolution into the same sandbox registry the
+  // triple-dot path uses so the IO-free analysis layer sees the
+  // mapping too. Falls through to the legacy join when no @-prefix
+  // resolution matches.
+  match resolve_at_prefix_dep(from, uri) {
+    Some(resolved) => {
+      @pkl.register_triple_dot_resolution(from, uri, resolved)
+      return resolved
+    }
+    None => ()
+  }
   // PKL-148r: triple-dot import (`import ".../X/Y.pkl"`). Walk the
   // ancestor directories of `from` looking for the first one that
   // contains the remainder path as a file. Cache the resolution into

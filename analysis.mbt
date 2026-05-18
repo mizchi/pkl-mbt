@@ -152,6 +152,20 @@ fn resolve_import_path(from : String, uri : String) -> String {
       None => return uri
     }
   }
+  // PKL-148ad: `@<dep>/<rest>` project-dependency imports — the CLI
+  // loader resolves the local dep via `PklProject.deps.json` and
+  // registers the absolute path in the same sandbox cache the triple-
+  // dot path uses. Consult it here so eval-side resolution lands on
+  // the same file the loader read. Falling through to the bare uri
+  // keeps the existing "Cannot find module" diagnostic for the case
+  // where the CLI never registered a resolution (e.g. remote-type dep
+  // — PKL-129 package download still deferred).
+  if uri.has_prefix("@") {
+    match lookup_triple_dot_resolution(from, uri) {
+      Some(resolved) => return resolved
+      None => return uri
+    }
+  }
   if uri.has_prefix("/") || uri.find(":") is Some(_) {
     return uri
   }

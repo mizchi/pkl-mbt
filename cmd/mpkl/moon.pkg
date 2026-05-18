@@ -2,6 +2,7 @@ import {
   "mizchi/pkl" @pkl,
   "mizchi/x/http" @http,
   "moonbitlang/async",
+  "moonbitlang/core/json" @json,
   "moonbitlang/x/fs" @fs,
   "moonbitlang/x/sys" @sys,
 }
