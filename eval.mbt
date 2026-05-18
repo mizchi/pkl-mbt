@@ -378,6 +378,11 @@ fn value_is_type(value : Value, type_name : String) -> Bool {
         ObjectValue(_) => true
         _ => false
       }
+    "Dynamic" =>
+      match value {
+        ObjectValue(_) => true
+        _ => false
+      }
     "Any" => true
     _ => false
   }

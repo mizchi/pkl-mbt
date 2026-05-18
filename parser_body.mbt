@@ -470,7 +470,14 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
         kind == null_kw() ||
         kind == new_kw() ||
         kind == minus() ||
-        kind == bang()
+        kind == bang() ||
+        // PKL-148bb: `if (cond) ... else ...` / `let (x = ...) ...` at
+        // object-body position is a value-producing element (Apple Pkl
+        // accepts conditional expressions as bare entries inside
+        // `dynamic { ... }`-style bodies — `basic/newInsideIf` and
+        // `basic/newInsideLet` both rely on this).
+        kind == if_kw() ||
+        kind == let_kw()
       let identifier_kind_safe = kind == identifier() &&
         next_non_trivia != arrow() &&
         next_non_trivia != comma() &&

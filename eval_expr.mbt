@@ -2230,7 +2230,17 @@ fn eval_expr_with_bindings(
                 ) {
                 Some(value) => {
                   // Structural check first against the base type.
-                  if !value_is_type(value, type_name) {
+                  let base_for_user_check = match
+                    pkl_constrained_type_base_name(type_name) {
+                    Some(b) => b
+                    None => type_name
+                  }
+                  let user_class_match = if value is ObjectValue(_) {
+                    lookup_class_binding(class_env, base_for_user_check) is Some(_)
+                  } else {
+                    false
+                  }
+                  if !value_is_type(value, type_name) && !user_class_match {
                     return Some(BoolValue(false))
                   }
                   // PKL-148bb: if the type carries a predicate

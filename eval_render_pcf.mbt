@@ -279,11 +279,19 @@ fn render_pcf_block_body(
       // first, preserving each bucket's source-order. `@element$` and
       // `@subscript$` are the dynamic-shape sentinel families; every
       // other prefix-free name is a property.
+      // PKL-148bb: split the dynamic-shape sentinels further — Apple
+      // Pkl emits `[key] = ...` subscript entries before bare element
+      // entries inside the same body (`basic/newInsideIf` /
+      // `basic/newInsideLet` mix subscripts and `if`/`let` expression
+      // elements; the bare entry must follow the subscript even when
+      // it textually comes first in the source).
       let named : Array[ValueMember] = []
+      let subscripts : Array[ValueMember] = []
       let elements : Array[ValueMember] = []
       for field in visible {
-        if field.name.has_prefix("@element$") ||
-          field.name.has_prefix("@subscript$") {
+        if field.name.has_prefix("@subscript$") {
+          subscripts.push(field)
+        } else if field.name.has_prefix("@element$") {
           elements.push(field)
         } else {
           named.push(field)
@@ -291,6 +299,9 @@ fn render_pcf_block_body(
       }
       let ordered : Array[ValueMember] = []
       for m in named {
+        ordered.push(m)
+      }
+      for m in subscripts {
         ordered.push(m)
       }
       for m in elements {
