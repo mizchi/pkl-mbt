@@ -132,6 +132,8 @@ GOLD_FIXTURES=(
   "modules/typedModuleMethods1"
   "types/typeAlias2"
   "listings/wrongIndex"
+  "generators/spreadSyntaxTyped"
+  "generators/forGeneratorNestedReference2"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output

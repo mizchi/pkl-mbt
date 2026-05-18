@@ -10279,6 +10279,17 @@ fn eval_object_members_with_options(
     if field.name == "@when" || field.name == "@for" || field.name == "@spread" {
       continue
     }
+    // PKL-148x: `@subscript$<offset>` / `@element$<offset>`
+    // sentinels are Dynamic-shape payloads that don't expose a
+    // user-visible name, so they shouldn't register as binding
+    // targets for sibling property resolution. The eval-side
+    // dispatch in the value-emit loop below handles their actual
+    // evaluation (decode `@__index_entry` for subscripts, eval the
+    // raw value for elements).
+    if field.name.has_prefix("@subscript$") ||
+      field.name.has_prefix("@element$") {
+      continue
+    }
     let bare = strip_member_visibility_prefix(field.name)
     local_bindings.push({
       name: bare,
@@ -10290,6 +10301,74 @@ fn eval_object_members_with_options(
   }
   let values : Array[ValueMember] = []
   for field in members {
+    // PKL-148x: Dynamic-shape sentinels. `@subscript$<offset>`
+    // (`[key] = value` mapping entry) decodes the synthetic
+    // `CallExpr(Identifier("@__index_entry"), [key, value])` payload
+    // and stores the (key, value) pair as a synthetic ObjectValue
+    // with `@key` / `@value` members; `@element$<offset>` evaluates
+    // the raw bare-expression payload and keeps the sentinel name
+    // so the renderer projects it listing-style (no `name =`
+    // prefix).
+    if field.name.has_prefix("@subscript$") {
+      match field.value {
+        CallExpr(Identifier("@__index_entry"), args) =>
+          if args.length() == 2 {
+            let key = eval_expr_with_bindings(
+              args[0],
+              local_bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            )
+            let val = eval_expr_with_bindings(
+              args[1],
+              local_bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            )
+            match (key, val) {
+              (Some(k), Some(v)) =>
+                values.push({
+                  name: field.name,
+                  value: ObjectValue([
+                    { name: "@key", value: k },
+                    { name: "@value", value: v },
+                  ]),
+                })
+              _ => ()
+            }
+          }
+        _ => ()
+      }
+      continue
+    }
+    if field.name.has_prefix("@element$") {
+      match
+        eval_expr_with_bindings(
+          field.value,
+          local_bindings,
+          env,
+          class_env,
+          cache,
+          stack,
+          declarations,
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(v) => values.push({ name: field.name, value: v })
+        None => ()
+      }
+      continue
+    }
     // PKL-148d: build a per-field eval env that shadows the outer
     // scope with the members already produced inside this body. Apple
     // Pkl's implicit-receiver resolution means `bar { x = 2; y = x +
@@ -10350,17 +10429,38 @@ fn eval_object_members_with_options(
               )
           }
         } else if field.name == "@spread" {
-          // PKL-148s: splice the spread value's members into the
-          // parent. `NullValue` is silently skipped (covers `...?x`
-          // against null; the required `...x` form would ideally
-          // surface a diagnostic, but treating both alike unblocks
-          // `spreadSyntaxTyped` / `spreadSyntaxNullable` without
-          // demanding the AST-level required-vs-optional distinction
-          // that none of the current gold fixtures exercise).
+          // PKL-148s / PKL-148x: splice the spread payload into the
+          // parent. ObjectValue merges members directly;
+          // ListingValue / ListValue / SetValue lower to
+          // `@element$<offset>` sentinels (Dynamic-shape unnamed
+          // elements); MappingValue / MapValue lower to
+          // `@subscript$<offset>` sentinels (Dynamic-shape mapping
+          // entries with `@key` / `@value` sub-members). `NullValue`
+          // is silently skipped (covers `...?x` against null; the
+          // required `...x` form would ideally surface a diagnostic,
+          // but the AST-level required-vs-optional distinction isn't
+          // worth the bookkeeping until a gold fixture exercises it).
           match value {
             ObjectValue(spread_members) =>
               for spread_member in spread_members {
                 values.push(spread_member)
+              }
+            ListingValue(elements) | ListValue(elements) | SetValue(elements) =>
+              for i = 0; i < elements.length(); i = i + 1 {
+                values.push({
+                  name: "@element$spread" + field.name + "$" + i.to_string(),
+                  value: elements[i],
+                })
+              }
+            MappingValue(entries) | MapValue(entries) =>
+              for i = 0; i < entries.length(); i = i + 1 {
+                values.push({
+                  name: "@subscript$spread" + field.name + "$" + i.to_string(),
+                  value: ObjectValue([
+                    { name: "@key", value: entries[i].key },
+                    { name: "@value", value: entries[i].value },
+                  ]),
+                })
               }
             NullValue => ()
             _ =>
@@ -12064,6 +12164,44 @@ fn render_pcf_object_member(
   indent : Int,
   buf : StringBuilder,
 ) -> Unit {
+  // PKL-148x: Dynamic-shape sentinel members render specially.
+  // `@element$<offset>` projects listing-style (no `name =` prefix);
+  // `@subscript$<offset>` decodes the synthetic `@key`/`@value`
+  // payload and projects `[key] = value` (or `[key] { ... }` for
+  // block values).
+  if field.name.has_prefix("@element$") {
+    // Use the `render_pcf_inline` form so nested ObjectValue / Listing
+    // / Mapping elements pick up the `new ` prefix (`new { ... }`),
+    // matching Apple Pkl's PCF projection of unnamed Dynamic elements.
+    render_pcf_inline(field.value, indent, buf)
+    return
+  }
+  if field.name.has_prefix("@subscript$") {
+    match field.value {
+      ObjectValue(pair_members) =>
+        match
+          (
+            lookup_member(pair_members, "@key"),
+            lookup_member(pair_members, "@value"),
+          ) {
+          (Some(k), Some(v)) => {
+            buf.write_char('[')
+            render_pcf_inline(k, indent, buf)
+            buf.write_char(']')
+            if pcf_is_block_value(v) {
+              buf.write_char(' ')
+              render_pcf_block_body(v, indent, buf)
+            } else {
+              buf.write_string(" = ")
+              render_pcf_scalar(v, buf)
+            }
+          }
+          _ => ()
+        }
+      _ => ()
+    }
+    return
+  }
   buf.write_string(field.name)
   if pcf_is_block_value(field.value) {
     buf.write_char(' ')

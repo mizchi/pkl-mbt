@@ -1896,6 +1896,32 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklDynamicShapeViaSentinelsScenario = new Scenario {
+  id = "PKL-148x"
+  name = "Dynamic value shape via element and subscript sentinel members"
+  description =
+    "Apple Pkl's `new {}` accepts mixed-shape bodies: named properties (`name = value`), unnamed listing-style elements (bare `value`), and mapping-style entries (`[key] = value`) coexist on the same ObjectValue (Dynamic shape). pkl-mbt's ObjectValue carries only `Array[ValueMember]` (name → value), so unnamed elements were dropped at parse time (`skip_unknown_member`) and `[key] = value` couldn't be represented even after PKL-148w wired the parse side for AmendExpr. The Dynamic shape lands via sentinel member names that ride inside the existing `Array[ValueMember]` storage — no Value enum change. Parser captures bare expressions in an object body as `ObjectMember { name = \"@element$<offset>\" }` (offset disambiguates multiple unnamed entries) and `[key] = value` as `ObjectMember { name = \"@subscript$<offset>\", value = CallExpr(Identifier(\"@__index_entry\"), [key, value]) }` (the same encoding PKL-148w introduced for AmendExpr). Eval-side `eval_object_members` evaluates each sentinel and stores the result as a ValueMember keeping the sentinel name; `@subscript$` payloads decode the CallExpr and produce a synthetic `ObjectValue([@key, @value])` so the (key, value) pair survives as a Value. Renderer's `render_pcf_object_member` projects `@element$` listing-style (`render_pcf_inline` so nested Dynamic objects pick up the `new ` prefix) and `@subscript$` as `[key] = value` (or `[key] { body }` for block values). The `@spread` arm in `eval_object_members` was extended to lower ListingValue / ListValue / SetValue payloads into `@element$spread<i>` entries and MappingValue / MapValue payloads into `@subscript$spread<i>` entries, so `new { ...listing }` and `new { ...mapping }` now flatten into the parent Dynamic. `parse_inferred_new_body` routes a body whose first significant token is `...` through the object-body parser (the Dynamic shape now absorbs every payload shape, so the listing-only route is no longer needed). +2 fixtures (`generators/spreadSyntaxTyped`, `generators/forGeneratorNestedReference2`), 120 → 122; generators category 9.5% → 19.0%."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148w" }
+  tags { "parser"; "evaluator"; "renderer"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Implement Dynamic shape via sentinel member names rather than a new Value variant (`DynamicValue { named, elements, entries }`)"
+      rationale =
+        "A new Value variant would force every consumer of the Value enum (renderers across PCF / JSON / YAML / Properties / plist, equality, operator dispatch, coercion, mbti surface, ~30 sites) to handle the new shape. The sentinel-name approach piggybacks on the existing `Array[ValueMember]` storage and the established `@hidden$` / `@local$` / `@error$` / `@spread` / `@when` / `@for` / `@subscript$` family — only one site (the PCF object-member renderer) needs to learn the new prefixes; all other code paths treat sentinel-named members as ordinary entries (`visible_members` keeps them visible, equality compares by name+value). The downside is rendering-order coupling (insertion order = render order) and inability to merge / dedupe sentinel slots — both acceptable for Dynamic where order matters anyway."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Route `{ ...x }` (triple-dot prefix) through the object-body parser, not the listing-body parser"
+      rationale =
+        "Before PKL-148x the listing-body parser was the only spread-aware path; the object-body parser's @spread arm only accepted ObjectValue. With the Dynamic shape, the object-body @spread arm now absorbs every payload shape (Object merges, Listing / Set lower to @element$, Mapping / Map lower to @subscript$, Null silently skipped). Routing `{ ...x }` through the object body lets the spread resolve to whatever the runtime payload happens to be — fixing `spreadSyntaxTyped` (`new { ...dynamicObj }` merges members) without breaking `spreadSyntaxNullable` (`b { ...?listing }` lowers to `@element$` entries that render listing-style)."
+    }
+  }
+}
+
 local pklListingSubscriptAmendScenario = new Scenario {
   id = "PKL-148w"
   name = "subscript amend on Listing with out-of-range diagnostic"
@@ -4955,5 +4981,6 @@ scenarios {
   pklLazyClassDefaultTypeRejectionScenario
   pklClassParentTypealiasResolutionScenario
   pklListingSubscriptAmendScenario
+  pklDynamicShapeViaSentinelsScenario
   ...roadmap.entries
 }

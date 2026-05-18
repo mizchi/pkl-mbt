@@ -2257,11 +2257,24 @@ fn Parser::parse_inferred_new_body(self : Parser) -> Expr {
   } else {
     first_text
   }
+  // PKL-148x: a body whose first significant token is `...` (triple
+  // dot, spread) routes through the object-body parser now that the
+  // Dynamic-shape `@element$` / `@subscript$` sentinels exist; the
+  // object-body `@spread` arm absorbs the payload regardless of
+  // whether it evaluates to an ObjectValue (merge members),
+  // ListingValue / ListValue / SetValue (push as `@element$`
+  // entries), MappingValue (push as `@subscript$` entries), or
+  // NullValue (silently skip).
+  let body_first_is_triple_dot = body_first_idx + 2 < self.len &&
+    self.tokens[body_first_idx].kind() == dot() &&
+    self.tokens[body_first_idx + 1].kind() == dot() &&
+    self.tokens[body_first_idx + 2].kind() == dot()
   if body_first == lbracket() {
     self.parse_mapping_body()
   } else if body_first == rbrace() ||
     body_first == when_kw() ||
     body_first == for_kw() ||
+    body_first_is_triple_dot ||
     self.at_property_decl_from(body_first_idx) ||
     // `hidden` / `fixed` are identifiers token-wise but mark a
     // property declaration when they precede an identifier.
@@ -2271,14 +2284,6 @@ fn Parser::parse_inferred_new_body(self : Parser) -> Expr {
     ) {
     self.parse_object_body()
   } else {
-    // PKL-148s: a body whose first significant token is `...` is a
-    // spread member. The listing parser handles the spread via
-    // `WhenSpread(payload)` (eval's listing arm flattens
-    // ListingValue / ListValue / NullValue). For the typed binding
-    // case (`res: Person = new { ...obj }`), the eval coerces the
-    // resulting ListingValue back through the class-default machinery
-    // by virtue of the binding's annotation — `spreadSyntaxTyped`
-    // takes the typed-coercion path instead of the parse-side route.
     self.parse_listing_body()
   }
 }
@@ -2675,7 +2680,63 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
         None => ()
       }
     } else {
-      self.skip_unknown_member()
+      // PKL-148x: a bare expression at object-body position is a
+      // Dynamic-shape unnamed element (Apple Pkl's `new {}` accepts
+      // both `name = value` properties and bare elements
+      // simultaneously). Stash under a `@element$<offset>` sentinel
+      // so the renderer can project it listing-style (no `name =`
+      // prefix). When the parser doesn't recognise the input as an
+      // expression at all (UnsupportedExpr / zero advance), fall
+      // through to `skip_unknown_member` to preserve the legacy
+      // tolerance for malformed bodies. The amend-lambda shorthand
+      // (`(f) { x -> body }`) also lands here; the trailing `->`
+      // after a bare identifier signals an Apple-Pkl-specific
+      // lambda-amend form that pkl-mbt doesn't yet support — defer
+      // to `skip_unknown_member` so existing parse-suite fixtures
+      // don't regress when the body is fed through `parse_expr`.
+      // Conservative element detection: only emit `@element$` when
+      // the next token looks like a value-producing expression start
+      // (literal, `new`, prefix sign, `(...)`, identifier-followed-by
+      // a call/access/operator). Identifier alone with a trailing
+      // `:` / `->` / `,` resembles a typed-lambda-parameter list
+      // (Apple-Pkl-specific amend-lambda shorthand) that pkl-mbt
+      // doesn't yet support — defer to `skip_unknown_member` there
+      // so the existing parse-suite fixtures don't regress.
+      let kind = self.peek_kind()
+      let next_non_trivia = self.peek_non_trivia_kind(self.pos + 1)
+      let is_value_start = kind == int_token() ||
+        kind == float_token() ||
+        kind == string_token() ||
+        kind == true_kw() ||
+        kind == false_kw() ||
+        kind == null_kw() ||
+        kind == new_kw() ||
+        kind == minus() ||
+        kind == bang()
+      let identifier_kind_safe = kind == identifier() &&
+        next_non_trivia != arrow() &&
+        next_non_trivia != comma() &&
+        next_non_trivia != colon()
+      if is_value_start || identifier_kind_safe {
+        let start_pos = self.pos
+        let expr = self.parse_expr()
+        match expr {
+          UnsupportedExpr => self.skip_unknown_member()
+          _ =>
+            if self.pos == start_pos {
+              self.skip_unknown_member()
+            } else {
+              let offset = self.byte_offset
+              members.push({
+                name: "@element$" + offset.to_string(),
+                type_name: None,
+                value: expr,
+              })
+            }
+        }
+      } else {
+        self.skip_unknown_member()
+      }
     }
     self.consume_separators()
   }
