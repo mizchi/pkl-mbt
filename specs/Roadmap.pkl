@@ -585,6 +585,22 @@
 ///                     forms with quoted-string arguments. +1
 ///                     fixture (`basic/letTyped`), 141 → 142;
 ///                     basic category 53.5% → 54.7%.
+///   PKL-148aj (35th)  Object-body member-header dispatch
+///                     absorbs `const` and other modifier
+///                     prefixes. Collapsed the two pre-passes
+///                     (`consume_member_visibility_modifiers` +
+///                     `skip_member_header`) into a single
+///                     `consume_member_header` loop that handles
+///                     annotations / visibility / modifier idents
+///                     in any order, and added a
+///                     `skip_member_prefix_from` helper so
+///                     `parse_inferred_new_body` routes any
+///                     modifier-led body (`const baz`,
+///                     `const local function biz`) to
+///                     `parse_object_body` instead of silently
+///                     dropping into `parse_listing_body`. +1
+///                     fixture (`basic/constModifier4`),
+///                     142 → 143; basic category 54.7% → 55.8%.
 @ModuleInfo { minPklVersion = "0.31.0" }
 module specs.Roadmap
 
@@ -602,12 +618,12 @@ import "../pkspec/Spec.pkl"
 // against `scripts/upstream-smoke.sh` after each landing.
 
 local pklSuperLateBindAndAmendLambda: Spec.Scenario = new {
-  id = "PKL-148aj"
+  id = "PKL-148ak"
   name = "super late binding amend lambda form class-aware object equality"
   description =
-    "PKL-148ah exposed the in-progress object under `module.<self>` for partial-snapshot reads and chained the `module.X` short-circuit through `super` so amends-mode parent-only names resolve (+2 fixtures, 139 → 141; basic 51.2% → 53.5%); PKL-148ai added the string-literal singleton type arm and `endsWith` / `startsWith` / `contains` string constraint predicates (+1 fixture, 141 → 142; basic 53.5% → 54.7%). The harder remaining pieces — all of which require non-local evaluator work — are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this, needed for `objects/super2` / `super3` / `super4`, `classes/supercallsInLet`, and `basic/moduleRef3`'s `const a = 44` override of the parent's `aa = module.a`); the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambda*` fixtures); runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`); constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13); class-aware ObjectValue tagging so `new Person {} != new Person2 {}` (needed for `objects/equality`'s c-block + composite Mapping keys in `mappings/mapping1` that PKL-148k currently sidesteps via a scalar-only duplicate-check gate — a prototype hidden `__class` marker landed in PKL-148i but was reverted after it broke 14 structural-equality unit tests; the right shape is a dedicated `ObjectValue(class_name: String?, members)` enum-shape refactor); the `pipeOperator` res11 diagnostic also needs the class-aware tag to project `pipeOperator#Person` / `new Person {}`; object-body amend chain (`(obj) { ... } { ... }` — needed for `objects/equality` a11); free-form (non-literal) amend-override rejections (`(res3) { y = expr }` against `Int(this > x)` constraints — gated today on the upstream forward-binding leak where a sibling object's `local x = 1` resolves into a later object body's identifier lookup); listing/mapping body re-eval on amend so listing `(x) {}` / `default = N` work (needed for `listings/equality`, `listings/inequality`, `mappings/equality`, `mappings/inequality`). Listing/List-method receiver-tag preservation (`list.map(...)` returns a List, `listing.map(...)` returns a Listing) is a sub-task too; today the dispatcher always re-wraps as ListingValue. Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along."
+    "PKL-148ah exposed the in-progress object under `module.<self>` for partial-snapshot reads and chained the `module.X` short-circuit through `super` so amends-mode parent-only names resolve (+2 fixtures, 139 → 141; basic 51.2% → 53.5%); PKL-148ai added the string-literal singleton type arm and `endsWith` / `startsWith` / `contains` string constraint predicates (+1 fixture, 141 → 142; basic 53.5% → 54.7%); PKL-148aj collapsed the object-body member-header into one pass and taught `parse_inferred_new_body` to peek through arbitrary modifier prefixes so `const`-led members route to `parse_object_body` instead of being lost in `parse_listing_body` (+1 fixture, 142 → 143; basic 54.7% → 55.8%). The harder remaining pieces — all of which require non-local evaluator work — are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this, needed for `objects/super2` / `super3` / `super4`, `classes/supercallsInLet`, and `basic/moduleRef3`'s `const a = 44` override of the parent's `aa = module.a`); the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambda*` fixtures); runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`); constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13); class-aware ObjectValue tagging so `new Person {} != new Person2 {}` (needed for `objects/equality`'s c-block + composite Mapping keys in `mappings/mapping1` that PKL-148k currently sidesteps via a scalar-only duplicate-check gate — a prototype hidden `__class` marker landed in PKL-148i but was reverted after it broke 14 structural-equality unit tests; the right shape is a dedicated `ObjectValue(class_name: String?, members)` enum-shape refactor); the `pipeOperator` res11 diagnostic also needs the class-aware tag to project `pipeOperator#Person` / `new Person {}`; object-body amend chain (`(obj) { ... } { ... }` — needed for `objects/equality` a11); free-form (non-literal) amend-override rejections (`(res3) { y = expr }` against `Int(this > x)` constraints — gated today on the upstream forward-binding leak where a sibling object's `local x = 1` resolves into a later object body's identifier lookup); listing/mapping body re-eval on amend so listing `(x) {}` / `default = N` work (needed for `listings/equality`, `listings/inequality`, `mappings/equality`, `mappings/inequality`). Listing/List-method receiver-tag preservation (`list.map(...)` returns a List, `listing.map(...)` returns a Listing) is a sub-task too; today the dispatcher always re-wraps as ListingValue. Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along."
   contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-148ai" }
+  dependsOn { "PKL-148aj" }
   tags { "evaluator"; "stdlib"; "upstream"; "compat"; "next" }
   reviewStatus = "draft"
   severity = "major"

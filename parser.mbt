@@ -2252,11 +2252,7 @@ fn Parser::parse_inferred_new_body(self : Parser) -> Expr {
   } else {
     first_idx
   }
-  let body_first_text = if first == local_kw() {
-    after_locals_text
-  } else {
-    first_text
-  }
+  let _ = if first == local_kw() { after_locals_text } else { first_text }
   // PKL-148x: a body whose first significant token is `...` (triple
   // dot, spread) routes through the object-body parser now that the
   // Dynamic-shape `@element$` / `@subscript$` sentinels exist; the
@@ -2269,6 +2265,24 @@ fn Parser::parse_inferred_new_body(self : Parser) -> Expr {
     self.tokens[body_first_idx].kind() == dot() &&
     self.tokens[body_first_idx + 1].kind() == dot() &&
     self.tokens[body_first_idx + 2].kind() == dot()
+  // PKL-148aj: skip past any leading member-header tokens (modifier
+  // idents like `const` / `fixed` / `abstract`, the `hidden` / `local`
+  // visibility prefixes, and annotations) before deciding whether the
+  // body parses as an object or a listing. Previously only `hidden`
+  // and `fixed` were treated as property-decl signals here, so `const
+  // qux = 99` (and any combination like `const local function`) routed
+  // through `parse_listing_body` and the `qux = 99` member was lost.
+  let prefix_skipped_idx = self.skip_member_prefix_from(body_first_idx)
+  let prefix_skipped_kind = if prefix_skipped_idx >= self.len {
+    eof()
+  } else {
+    self.tokens[prefix_skipped_idx].kind()
+  }
+  let prefix_skipped_text = if prefix_skipped_idx >= self.len {
+    ""
+  } else {
+    self.tokens[prefix_skipped_idx].text()
+  }
   if body_first == lbracket() {
     self.parse_mapping_body()
   } else if body_first == rbrace() ||
@@ -2276,16 +2290,70 @@ fn Parser::parse_inferred_new_body(self : Parser) -> Expr {
     body_first == for_kw() ||
     body_first_is_triple_dot ||
     self.at_property_decl_from(body_first_idx) ||
-    // `hidden` / `fixed` are identifiers token-wise but mark a
-    // property declaration when they precede an identifier.
-    (
-      (body_first_text == "hidden" || body_first_text == "fixed") &&
-      self.at_property_decl_from(self.skip_trivia_from(body_first_idx + 1))
-    ) {
+    self.at_property_decl_from(prefix_skipped_idx) ||
+    prefix_skipped_text == "function" ||
+    prefix_skipped_kind == when_kw() ||
+    prefix_skipped_kind == for_kw() {
     self.parse_object_body()
   } else {
     self.parse_listing_body()
   }
+}
+
+///|
+/// PKL-148aj: walk past trivia + any sequence of annotation / visibility
+/// (`local`, `hidden`) / modifier (`const`, `fixed`, `abstract`, ...)
+/// tokens starting at `start`, returning the index of the first non-
+/// prefix significant token. Mirrors the loop in `consume_member_header`
+/// without committing to a parser advance, so callers can peek at what a
+/// modifier run is actually decorating.
+fn Parser::skip_member_prefix_from(self : Parser, start : Int) -> Int {
+  let mut i = self.skip_trivia_from(start)
+  while i < self.len {
+    let kind = self.tokens[i].kind()
+    let text = self.tokens[i].text()
+    if kind == at_sign() {
+      // Skip the annotation name (dotted identifier chain) and an
+      // optional balanced `(...)` / `{...}` payload.
+      let mut j = i + 1
+      while j < self.len &&
+            (
+              self.tokens[j].kind() == identifier() ||
+              self.tokens[j].kind() == dot()
+            ) {
+        j += 1
+      }
+      j = self.skip_trivia_from(j)
+      if j < self.len &&
+        (self.tokens[j].kind() == lparen() || self.tokens[j].kind() == lbrace()) {
+        let open_kind = self.tokens[j].kind()
+        let close_kind = if open_kind == lparen() { rparen() } else { rbrace() }
+        let mut depth = 0
+        while j < self.len {
+          let k = self.tokens[j].kind()
+          if k == open_kind {
+            depth += 1
+          } else if k == close_kind {
+            depth -= 1
+            if depth == 0 {
+              j += 1
+              break
+            }
+          }
+          j += 1
+        }
+      }
+      i = self.skip_trivia_from(j)
+    } else if kind == local_kw() {
+      i = self.skip_trivia_from(i + 1)
+    } else if kind == identifier() &&
+      (text == "hidden" || is_modifier_text(text)) {
+      i = self.skip_trivia_from(i + 1)
+    } else {
+      break
+    }
+  }
+  i
 }
 
 ///|
@@ -2599,8 +2667,7 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
   let members : Array[ObjectMember] = []
   self.consume_separators()
   while !self.at(eof()) && !self.at(rbrace()) {
-    let visibility = self.consume_member_visibility_modifiers()
-    self.skip_member_header()
+    let visibility = self.consume_member_header()
     if self.at(when_kw()) {
       match self.parse_when_member() {
         Some(field) => members.push(field)
@@ -2800,20 +2867,35 @@ priv enum MemberVisibility {
 /// `abstract`, etc.) can still pass through. When both modifiers are
 /// present on the same member the more restrictive `LocalMember` wins —
 /// `hidden local x` should not be reachable through external `.x`.
-fn Parser::consume_member_visibility_modifiers(
-  self : Parser,
-) -> MemberVisibility {
+/// PKL-148aj: object-body members accept any interleaving of modifier
+/// keywords (`const`, `fixed`, ...) and visibility keywords (`local`,
+/// `hidden`) before the member's name, e.g. `const local function biz()`.
+/// The previous shape — `consume_member_visibility_modifiers` then
+/// `skip_member_header` — only saw the visibility keywords that
+/// physically led the modifier run, so `const local` parsed as
+/// VisibleMember + a leftover `local` token that no later branch
+/// recognises (the body fell through to the bare-expression path and
+/// failed with `Cannot find property`). Do both passes in one loop so
+/// visibility latches independent of position.
+fn Parser::consume_member_header(self : Parser) -> MemberVisibility {
+  self.pending_annotations.clear()
+  self.pending_modifiers.clear()
   let mut visibility : MemberVisibility = VisibleMember
   let mut keep_going = true
   while keep_going {
     self.skip_trivia()
-    if self.at(local_kw()) {
+    if self.at(at_sign()) {
+      ignore(self.parse_annotation())
+    } else if self.at(local_kw()) {
       visibility = LocalMember
       ignore(self.bump())
     } else if self.at(identifier()) && self.peek().text() == "hidden" {
       if visibility != LocalMember {
         visibility = HiddenMember
       }
+      ignore(self.bump())
+    } else if self.at(identifier()) && is_modifier_text(self.peek().text()) {
+      self.pending_modifiers.push(self.peek().text())
       ignore(self.bump())
     } else {
       keep_going = false

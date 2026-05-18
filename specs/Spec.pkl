@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklObjectBodyMemberHeaderDispatchScenario = new Scenario {
+  id = "PKL-148aj"
+  name = "object body member header dispatch absorbs const and other modifier prefixes"
+  description =
+    "Apple Pkl's object-body grammar lets any modifier keyword (`const`, `fixed`, `abstract`, ...) interleave with the `local` / `hidden` visibility prefix before the member's name — `const local function biz() = baz` and the simpler `const qux = 99` are both legal. pkl-mbt had two missing pieces in the parser. (1) `consume_member_visibility_modifiers` only consumed `local` / `hidden`; when the leading token was `const` the loop exited with VisibleMember, `skip_member_header` consumed `const`, and the parser then sat on `local function biz()` with no further visibility pass — the body-member dispatcher fell through to the bare-expression branch and lost the function. (2) `parse_inferred_new_body` disambiguates between an object body and a listing body by looking at the first significant token after `{`; only `hidden` and `fixed` (plus `local NAME = EXPR` blocks via `skip_local_decls_from`) routed to `parse_object_body`. A leading `const` (or `abstract`, etc.) failed every check and routed the entire body through `parse_listing_body`, dropping every named member silently — the rendered output of `const baz = 15; foo { const local bar = baz; … }` was `baz = 15; foo {}`. The fix collapses the two parser passes into a single `consume_member_header` that handles annotations + visibility + modifier-text idents in one loop, and adds a `skip_member_prefix_from` helper that walks past trivia + annotations + visibility + modifier idents so `parse_inferred_new_body` can ask `at_property_decl_from` on the token *after* the prefix run. +1 fixture (`basic/constModifier4`), 142 → 143; basic category 54.7% → 55.8%."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148ai" }
+  tags { "parser"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Collapse `consume_member_visibility_modifiers` + `skip_member_header` into one `consume_member_header` loop"
+      rationale =
+        "Calling the two passes in sequence assumed `local` / `hidden` always physically led the modifier run. Apple Pkl allows `const local`, `abstract local`, etc., so the visibility latch has to survive past arbitrary modifier prefixes. Doing both jobs in one loop — push to `pending_modifiers` when the token is a modifier ident, set the visibility enum when the token is `local_kw` / `hidden`, drain annotations when the token is `@` — removes the ordering dependency and lets later modifier-vs-visibility insertions (e.g. a future `nullable` modifier) extend the same loop instead of growing a new pass."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Object-vs-listing disambiguation peeks through the full member prefix"
+      rationale =
+        "Hard-coding `hidden` and `fixed` as the only modifier idents that route to `parse_object_body` was a band-aid for the original two-modifier surface; the upstream grammar treats every modifier symmetrically, and Apple Pkl's `const baz = 15` body sample is precisely the failure mode it produces. `skip_member_prefix_from` walks the same shape as `consume_member_header` (annotations + visibility + modifier idents) so the disambiguator's at-property-decl check sees the actual member shape rather than the modifier ident — keeping a single source of truth for what counts as a member prefix."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Peek-only helper rather than reusing the advancing parser pass"
+      rationale =
+        "The disambiguator runs *before* `parse_object_body` / `parse_listing_body` claims the `{` — it has to read tokens without advancing the parser cursor, because mis-dispatching to the listing form has to be recoverable. `skip_member_prefix_from` takes a start index and returns the next significant index, mirroring `skip_local_decls_from`'s shape; reusing the advancing `consume_member_header` here would require save / restore of `pos` + `pending_modifiers` + `pending_annotations`, which is the kind of state shuffling that bites later when annotations grow side effects."
+    }
+  }
+}
+
 local pklLiteralTypeUnionAndStringAffixPredicatesScenario = new Scenario {
   id = "PKL-148ai"
   name = "string literal type union plus startsWith endsWith contains string constraints"
@@ -5294,5 +5326,6 @@ scenarios {
   pklObjectBodyLocalFunctionScenario
   pklModuleSelfRefAndAmendModuleParentFallbackScenario
   pklLiteralTypeUnionAndStringAffixPredicatesScenario
+  pklObjectBodyMemberHeaderDispatchScenario
   ...roadmap.entries
 }
