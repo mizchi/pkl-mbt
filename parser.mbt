@@ -3343,14 +3343,17 @@ fn parse_float_text(text : String) -> Double {
 /// and parses each `\(...)` content as a Pkl expression. Strings with
 /// no interpolation segments collapse back to a plain `StringLiteral`.
 fn parse_string_literal_text(text : String) -> Expr {
-  // PKL-148an: raw string literal `<N #s>"..."<N #s>` (single-line)
-  // or `<N #s>"""..."""<N #s>` (heredoc). The lexer pairs a leading
-  // run of `#`s with the same count on the close. Strip both runs +
-  // the opening / closing quotes; emit the inner text verbatim with
-  // no `\` escape decoding and no `\(...)` interpolation. Heredoc
-  // indent stripping still applies — Apple Pkl drops the leading
-  // newline and the closing delimiter's indentation in raw heredocs
-  // the same way it does for the non-raw form.
+  // PKL-148an / PKL-148ao: raw string literal `<N #s>"..."<N #s>`
+  // (single-line) or `<N #s>"""..."""<N #s>` (heredoc). The lexer
+  // pairs a leading run of `#`s with the same count on the close.
+  // Strip both runs + the opening / closing quotes, then assemble
+  // the inner text through `assemble_string_parts` with the same
+  // hash count — escape sequences (`\n`, `\t`, etc.) stay verbatim
+  // in raw form, and only the `\<N #>(expr)` marker (with matching
+  // hash count) opens an interpolation segment. Heredoc indent
+  // stripping still applies — Apple Pkl drops the leading newline
+  // and the closing delimiter's indentation in raw heredocs the
+  // same way it does for the non-raw form.
   if text.length() >= 2 && text.has_prefix("#") {
     let mut hash_count = 0
     while hash_count < text.length() &&
@@ -3364,22 +3367,22 @@ fn parse_string_literal_text(text : String) -> Expr {
         hash_count + 2 < text.length() &&
         text[hash_count + 1].to_int().unsafe_to_char() == '"' &&
         text[hash_count + 2].to_int().unsafe_to_char() == '"'
-      if is_heredoc {
-        let inner = strip_heredoc_indent(
+      let inner = if is_heredoc {
+        strip_heredoc_indent(
           String::unsafe_substring(
             text,
             start=hash_count + 3,
             end=text.length() - hash_count - 3,
           ),
         )
-        return StringLiteral(inner)
+      } else {
+        String::unsafe_substring(
+          text,
+          start=hash_count + 1,
+          end=text.length() - hash_count - 1,
+        )
       }
-      let inner = String::unsafe_substring(
-        text,
-        start=hash_count + 1,
-        end=text.length() - hash_count - 1,
-      )
-      return StringLiteral(inner)
+      return assemble_string_parts(inner, hash_count)
     }
   }
   // Strip the surrounding quotes (if present) but track the inner text
@@ -3400,10 +3403,131 @@ fn parse_string_literal_text(text : String) -> Expr {
   } else {
     text
   }
-  // Fast path: no interpolation marker → reuse the existing escape
-  // decoder so the common case stays a single allocation.
-  if inner.find("\\(") is None {
-    return StringLiteral(decode_string_escapes(inner))
+  assemble_string_parts(inner, 0)
+}
+
+///|
+/// PKL-148ao: detect a string-literal start at `start` and return the
+/// index just past its closing delimiter. Returns `start` unchanged
+/// when no string literal begins here. Handles four shapes:
+///
+/// - `"..."` (single-line non-raw): scans to the matching `"` skipping
+///   `\<any>` escape pairs so a `\"` inside doesn't close the string
+///   prematurely.
+/// - `"""..."""` (heredoc non-raw): scans to the matching `"""`.
+/// - `<N #>"..."<N #>` (single-line raw): scans to a `"` followed by
+///   exactly `hash_count` `#`s.
+/// - `<N #>"""..."""<N #>` (heredoc raw): scans to `"""` followed by
+///   `hash_count` `#`s.
+///
+/// Used by the interpolation walker in `assemble_string_parts` so a
+/// `\#(<expr that contains a "..." or #"..."# arg>)` segment is sliced
+/// at the correct closing `)` instead of being cut short by a `)` that
+/// happens to live inside a nested string literal.
+fn skip_string_at(s : String, start : Int) -> Int {
+  if start >= s.length() {
+    return start
+  }
+  let c = s[start].to_int().unsafe_to_char()
+  let mut hash_count = 0
+  let mut quote_pos = start
+  if c == '#' {
+    while quote_pos < s.length() &&
+          s[quote_pos].to_int().unsafe_to_char() == '#' {
+      hash_count = hash_count + 1
+      quote_pos = quote_pos + 1
+    }
+    if quote_pos >= s.length() || s[quote_pos].to_int().unsafe_to_char() != '"' {
+      return start
+    }
+  } else if c != '"' {
+    return start
+  }
+  let is_heredoc = quote_pos + 2 < s.length() &&
+    s[quote_pos + 1].to_int().unsafe_to_char() == '"' &&
+    s[quote_pos + 2].to_int().unsafe_to_char() == '"'
+  if is_heredoc {
+    let mut p = quote_pos + 3
+    while p + 2 + hash_count < s.length() {
+      if s[p].to_int().unsafe_to_char() == '"' &&
+        s[p + 1].to_int().unsafe_to_char() == '"' &&
+        s[p + 2].to_int().unsafe_to_char() == '"' {
+        let mut ok = true
+        for h = 0; h < hash_count; h = h + 1 {
+          if s[p + 3 + h].to_int().unsafe_to_char() != '#' {
+            ok = false
+            break
+          }
+        }
+        if ok {
+          return p + 3 + hash_count
+        }
+      }
+      p = p + 1
+    }
+    return s.length()
+  }
+  let mut p = quote_pos + 1
+  while p < s.length() {
+    let ch = s[p].to_int().unsafe_to_char()
+    if hash_count == 0 && ch == '\\' && p + 1 < s.length() {
+      // Non-raw escape — skip the two-char sequence so `\"` doesn't
+      // close the string here.
+      p = p + 2
+      continue
+    }
+    if ch == '"' {
+      if hash_count == 0 {
+        return p + 1
+      }
+      let mut ok = true
+      for h = 0; h < hash_count; h = h + 1 {
+        if p + 1 + h >= s.length() ||
+          s[p + 1 + h].to_int().unsafe_to_char() != '#' {
+          ok = false
+          break
+        }
+      }
+      if ok {
+        return p + 1 + hash_count
+      }
+    }
+    if ch == '\n' {
+      // Unterminated single-line string — bail at the newline so the
+      // outer walker can resume.
+      return p
+    }
+    p = p + 1
+  }
+  s.length()
+}
+
+///|
+/// PKL-148ao: walk a string literal's inner body and split it into
+/// `StringLiteral` / interpolation `Expr` segments. `hash_count`
+/// controls both the interpolation marker shape and the literal-
+/// segment decoding:
+///
+/// - `hash_count == 0` (non-raw): `\(expr)` opens an interpolation
+///   segment; literal segments run through `decode_string_escapes`
+///   so the standard `\n` / `\t` / `\u{...}` escapes resolve.
+/// - `hash_count >= 1` (raw): the marker is `\<hash_count #>(expr)` —
+///   the `\` followed by exactly `hash_count` `#`s and an opening
+///   `(`. Inside a raw string the regular `\n` / `\t` escapes stay
+///   verbatim (no decoding), but interpolation still works through
+///   the hashed marker.
+///
+/// The function returns a single `StringLiteral` when no interpolation
+/// fires, or `InterpolatedString(parts)` when at least one segment
+/// was lifted into an expression.
+fn assemble_string_parts(inner : String, hash_count : Int) -> Expr {
+  let is_raw = hash_count > 0
+  let decode = fn(s : String) -> String {
+    if is_raw {
+      s
+    } else {
+      decode_string_escapes(s)
+    }
   }
   let parts : Array[Expr] = []
   let buf = StringBuilder::new()
@@ -3411,57 +3535,128 @@ fn parse_string_literal_text(text : String) -> Expr {
   let mut i = 0
   while i < inner.length() {
     let c = inner[i].to_int().unsafe_to_char()
-    if c == '\\' && i + 1 < inner.length() {
-      let next = inner[i + 1].to_int().unsafe_to_char()
-      if next == '(' {
-        // Flush any accumulated literal segment.
-        if buf_has_content {
-          parts.push(StringLiteral(decode_string_escapes(buf.to_string())))
-          buf.reset()
-          buf_has_content = false
+    // PKL-148ao: in raw mode (`hash_count > 0`), the `\<N #>X` form
+    // re-enables escape decoding for X (`\#t` → tab, `\#n` → newline,
+    // `\##u{61}` → `a`, etc.). The hash count must match exactly; a
+    // `\#t` inside a `##"..."##` literal is still verbatim. The
+    // marker is detected by reading the hash run after `\`; if `X` is
+    // `(`, the marker arm below handles it as interpolation. For
+    // every other recognised escape char we decode and emit, then
+    // skip past the escape sequence.
+    if is_raw && c == '\\' && i + 1 + hash_count < inner.length() {
+      let mut hashes_ok = true
+      for h = 0; h < hash_count; h = h + 1 {
+        if inner[i + 1 + h].to_int().unsafe_to_char() != '#' {
+          hashes_ok = false
+          break
         }
-        // Walk a balanced `(...)` group to find the matching close.
-        let mut depth = 1
-        let mut j = i + 2
-        while j < inner.length() && depth > 0 {
-          let cc = inner[j].to_int().unsafe_to_char()
-          if cc == '(' {
-            depth = depth + 1
-          } else if cc == ')' {
-            depth = depth - 1
-            if depth == 0 {
-              break
-            }
-          }
-          j = j + 1
-        }
-        let segment = String::unsafe_substring(inner, start=i + 2, end=j)
-        // Parse the segment as a Pkl expression by routing it through
-        // `parse_source` and pulling the body Expr (or the last
-        // binding's value as fallback).
-        let parsed = parse_source(segment)
-        let expr = match parsed.program.body {
-          Some(body_expr) => body_expr
-          None =>
-            if parsed.program.bindings.length() > 0 {
-              parsed.program.bindings[parsed.program.bindings.length() - 1].value
-            } else {
-              ErrorExpr("empty interpolation")
-            }
-        }
-        parts.push(expr)
-        i = j + 1
-      } else {
-        // Regular escape (handled by decode_string_escapes); accumulate
-        // the two chars verbatim so the final flush hands the literal
-        // back to the decoder.
-        buf.write_char(c)
-        buf_has_content = true
-        if i + 1 < inner.length() {
-          buf.write_char(next)
-        }
-        i = i + 2
       }
+      if hashes_ok {
+        let escape_char = inner[i + 1 + hash_count].to_int().unsafe_to_char()
+        if escape_char != '(' {
+          // Decode the escape inline and emit the resolved char(s).
+          // Reuse `decode_string_escapes` by feeding it the equivalent
+          // non-raw escape (`\#t` → `\t`); the helper already knows
+          // every Apple-Pkl escape including `\u{...}`.
+          let consumed = if escape_char == 'u' &&
+            i + 2 + hash_count < inner.length() &&
+            inner[i + 2 + hash_count].to_int().unsafe_to_char() == '{' {
+            let mut k = i + 3 + hash_count
+            while k < inner.length() &&
+                  inner[k].to_int().unsafe_to_char() != '}' {
+              k = k + 1
+            }
+            if k < inner.length() {
+              k + 1 - i
+            } else {
+              inner.length() - i
+            }
+          } else {
+            2 + hash_count
+          }
+          let escape_payload = String::unsafe_substring(
+            inner,
+            start=i + 1 + hash_count,
+            end=i + consumed,
+          )
+          let resolved = decode_string_escapes("\\" + escape_payload)
+          buf.write_string(resolved)
+          buf_has_content = true
+          i = i + consumed
+          continue
+        }
+      }
+    }
+    // Detect interpolation marker: `\` + `hash_count` `#`s + `(`.
+    let mut marker = false
+    if c == '\\' && i + 1 + hash_count < inner.length() {
+      let mut hashes_ok = true
+      for h = 0; h < hash_count; h = h + 1 {
+        if inner[i + 1 + h].to_int().unsafe_to_char() != '#' {
+          hashes_ok = false
+          break
+        }
+      }
+      if hashes_ok && inner[i + 1 + hash_count].to_int().unsafe_to_char() == '(' {
+        marker = true
+      }
+    }
+    if marker {
+      if buf_has_content {
+        parts.push(StringLiteral(decode(buf.to_string())))
+        buf.reset()
+        buf_has_content = false
+      }
+      let open_paren = i + 1 + hash_count
+      let mut depth = 1
+      let mut j = open_paren + 1
+      while j < inner.length() && depth > 0 {
+        let cc = inner[j].to_int().unsafe_to_char()
+        // PKL-148ao: skip the entire content of any string literal we
+        // encounter so embedded `(` / `)` inside a nested string don't
+        // disturb the balanced-paren count. Handles single-line raw
+        // (`<N #>"..."<N #>`), heredoc raw (`<N #>"""..."""<N #>`),
+        // non-raw (`"..."`), and non-raw heredoc (`"""..."""`). The
+        // outer hash count is independent — a `#"..."#` argument inside
+        // a `\#(...)` segment is still recognised verbatim because the
+        // skip walker only consumes balanced delimiters.
+        let skipped = skip_string_at(inner, j)
+        if skipped > j {
+          j = skipped
+          continue
+        }
+        if cc == '(' {
+          depth = depth + 1
+        } else if cc == ')' {
+          depth = depth - 1
+          if depth == 0 {
+            break
+          }
+        }
+        j = j + 1
+      }
+      let segment = String::unsafe_substring(inner, start=open_paren + 1, end=j)
+      let parsed = parse_source(segment)
+      let expr = match parsed.program.body {
+        Some(body_expr) => body_expr
+        None =>
+          if parsed.program.bindings.length() > 0 {
+            parsed.program.bindings[parsed.program.bindings.length() - 1].value
+          } else {
+            ErrorExpr("empty interpolation")
+          }
+      }
+      parts.push(expr)
+      i = j + 1
+    } else if c == '\\' && !is_raw && i + 1 < inner.length() {
+      // Regular escape in a non-raw string — accumulate the two-char
+      // sequence so the eventual `decode_string_escapes` call resolves
+      // it. In raw strings we fall through to the generic char branch
+      // because escapes are verbatim.
+      buf.write_char(c)
+      buf.write_char(inner[i + 1].to_int().unsafe_to_char())
+      buf_has_content = true
+      i = i + 2
     } else {
       buf.write_char(c)
       buf_has_content = true
@@ -3469,25 +3664,18 @@ fn parse_string_literal_text(text : String) -> Expr {
     }
   }
   if buf_has_content {
-    parts.push(StringLiteral(decode_string_escapes(buf.to_string())))
+    parts.push(StringLiteral(decode(buf.to_string())))
   }
-  // Apply escape decoding to every literal-segment part now that the
-  // splits are done. Inner expressions are pre-parsed and need no
-  // further escape work.
-  let normalized : Array[Expr] = []
-  for part in parts {
-    match part {
-      StringLiteral(text) => normalized.push(StringLiteral(text))
-      other => normalized.push(other)
-    }
+  if parts.length() == 0 {
+    return StringLiteral("")
   }
-  if normalized.length() == 1 {
-    match normalized[0] {
+  if parts.length() == 1 {
+    match parts[0] {
       StringLiteral(_) as plain => return plain
       _ => ()
     }
   }
-  InterpolatedString(normalized)
+  InterpolatedString(parts)
 }
 
 ///|
@@ -3593,6 +3781,41 @@ fn decode_string_escapes(text : String) -> String {
     let c = text[i].to_int().unsafe_to_char()
     if c == '\\' && i + 1 < text.length() {
       let next = text[i + 1].to_int().unsafe_to_char()
+      // PKL-148ao: `\u{HHHH}` unicode escape — read hex digits up to
+      // the matching `}` and emit the resulting code point. Used by
+      // both non-raw strings (`"\u{1F920}"`) and raw strings through
+      // the `\<N #>u{...}` form (decoded inline before reaching here).
+      if next == 'u' &&
+        i + 2 < text.length() &&
+        text[i + 2].to_int().unsafe_to_char() == '{' {
+        let mut j = i + 3
+        let mut code = 0
+        while j < text.length() {
+          let ch = text[j].to_int().unsafe_to_char()
+          if ch == '}' {
+            break
+          }
+          let digit = if ch >= '0' && ch <= '9' {
+            ch.to_int() - '0'.to_int()
+          } else if ch >= 'a' && ch <= 'f' {
+            ch.to_int() - 'a'.to_int() + 10
+          } else if ch >= 'A' && ch <= 'F' {
+            ch.to_int() - 'A'.to_int() + 10
+          } else {
+            -1
+          }
+          if digit < 0 {
+            break
+          }
+          code = code * 16 + digit
+          j = j + 1
+        }
+        if j < text.length() && text[j].to_int().unsafe_to_char() == '}' {
+          buf.write_char(code.unsafe_to_char())
+          i = j + 1
+          continue
+        }
+      }
       match next {
         'n' => buf.write_char('\n')
         't' => buf.write_char('\t')

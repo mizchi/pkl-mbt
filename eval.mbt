@@ -12546,11 +12546,35 @@ fn render_pcf_string_heredoc(
   for i = 0; i < parts.length(); i = i + 1 {
     buf.write_char('\n')
     write_pcf_indent(buf, indent)
-    buf.write_string(parts[i])
+    // PKL-148ao: each content line still needs the backslash / tab /
+    // CR escape pass so a literal `\` round-trips as `\\` and a literal
+    // tab character as `\t`. `\n` is already consumed by the line
+    // split. `"` doesn't need escaping inside a heredoc (the close
+    // delimiter is `"""`, not a single `"`).
+    buf.write_string(escape_string_heredoc(parts[i]))
   }
   buf.write_char('\n')
   write_pcf_indent(buf, indent)
   buf.write_string("\"\"\"")
+}
+
+///|
+/// PKL-148ao: heredoc-position escape pass. Heredoc strings preserve
+/// `"` verbatim (close delimiter is `"""`) but still need to escape
+/// the actual `\`, `\t`, and `\r` characters so the rendered source
+/// re-parses to the same value. `\n` is line-split before this fires,
+/// so it never appears here.
+fn escape_string_heredoc(value : String) -> String {
+  let buf = StringBuilder::new()
+  for c in value {
+    match c {
+      '\\' => buf.write_string("\\\\")
+      '\t' => buf.write_string("\\t")
+      '\r' => buf.write_string("\\r")
+      _ => buf.write_char(c)
+    }
+  }
+  buf.to_string()
 }
 
 ///|

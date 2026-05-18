@@ -157,6 +157,8 @@ GOLD_FIXTURES=(
   "basic/constModifier4"
   "basic/localTypedClassMember"
   "api/pcfRenderer1"
+  "basic/rawString"
+  "basic/stringMultiline"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output

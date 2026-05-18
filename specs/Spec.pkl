@@ -1896,6 +1896,44 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklRawStringInterpolationScenario = new Scenario {
+  id = "PKL-148ao"
+  name = "raw string interpolation plus raw escape decoding plus unicode escape plus heredoc backslash"
+  description =
+    "Apple Pkl's raw string literal supports an `\\<N #>(expr)` interpolation marker — the same `\\(...)` shape as a non-raw string but prefixed with `N` `#`s, where `N` matches the leading hash count of the raw delimiter. Inside a raw string the same N-hash escape re-enables every standard escape: `\\#t` → tab, `\\##n` → newline, `\\#u{1F920}` → 🤠. PKL-148an landed the delimiter strip + verbatim text path; this slice closes the interpolation + escape loop. Four coupled changes. (1) Lexer learns to skip an entire `\\<N #>(...)` argument when scanning for the close delimiter — without it a `\"##` inside a nested raw string (e.g. `#\"a\\#(##\"b\"##)c\"#`) mis-terminates the outer literal. `is_raw_interp_marker` + `skip_raw_interp_arg` + `skip_nested_string_at` walk balanced `(...)` while recognising every nested string shape (single-line / heredoc, raw / non-raw, arbitrary hash count). (2) Parser's `assemble_string_parts` is parameterised on `hash_count`: 0 routes to the non-raw walker (looks for `\\(`, runs `decode_string_escapes` on literal segments), > 0 routes to the raw walker (looks for `\\<N #>(`, keeps literal segments verbatim, but decodes `\\<N #>X` inline by feeding the equivalent non-raw escape through `decode_string_escapes`). (3) `decode_string_escapes` gains a `\\u{HHHH}` arm — hex digits up to the matching `}`, emitted as a single code point. This was missing entirely (`\\u` fell through to the catch-all that wrote `u` literally), so non-raw `\"\\u{1F920}\"` and raw `\"\\#u{1F920}\"` both gain support in one place. (4) PCF heredoc render now escapes each content line via `escape_string_heredoc` (`\\` → `\\\\`, `\\t` → literal `\\t`, `\\r` → literal `\\r`); previously a heredoc string containing a literal `\\` round-tripped as a single backslash and broke gold-match for any multi-line value with escape-significant chars. +2 fixtures (basic/rawString, basic/stringMultiline — the latter benefits from the unicode escape arm), 145 → 147; basic category 57.0% → 59.3%."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148an" }
+  tags { "parser"; "lexer"; "strings"; "renderer"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Parameterise the interpolation walker on `hash_count` rather than forking raw / non-raw paths"
+      rationale =
+        "The non-raw `\\(expr)` walker and the raw `\\<N #>(expr)` walker differ in two narrow ways: the escape character run length (0 hashes for non-raw, N for raw) and the literal-segment decoder (full escape decode for non-raw, verbatim for raw with an inline `\\<N #>X` re-decode). Doing both in one function keeps the marker-detection + balanced-paren walk + segment-parsing logic shared — duplicating the entire walker for raw would have meant two places to fix the same bug class (e.g. a nested string inside a balanced `(...)` arg). The `decode` closure + `is_raw` flag is enough to specialise the two leaf behaviours."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Decode raw `\\<N #>X` escapes inline by routing through `decode_string_escapes`"
+      rationale =
+        "The naive approach — implementing every Apple-Pkl escape (`\\n`, `\\t`, `\\r`, `\\\"`, `\\\\`, `\\u{...}`) twice (once in `decode_string_escapes` for non-raw, once in a raw-specific decoder) — would invite the two decoders to drift. Reconstructing the equivalent non-raw escape (`\\#t` → `\\t`) and feeding it through `decode_string_escapes` keeps escape coverage in one helper, including the new `\\u{HHHH}` arm. The hash-count probe is local to the raw branch; the non-raw branch's existing semantics are untouched."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Lexer carries its own string-skipping logic instead of delegating to the parser"
+      rationale =
+        "The interpolation argument needs to be walked at both lexing (to determine where the outer string ends) and parsing (to slice the segment for `parse_source`). A parser-only walker would still leave the lexer mis-terminating the outer token, surfacing as a downstream `unsupported expression` with no way to attribute the failure to the string content. Mirroring the walker in the lexer (with a shared shape — `is_raw_interp_marker` / `skip_raw_interp_arg` / `skip_nested_string_at` mirror the parser's `skip_string_at` flow) costs ~100 lines but keeps the token boundaries correct and the parser's segment slice trustworthy. Refactoring them to a shared module is possible but would require pulling string-shape constants out of both — deferred."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "PCF heredoc render escapes backslash + tab + CR but NOT double-quote"
+      rationale =
+        "A heredoc's close delimiter is `\"\"\"`, so a single `\"` inside the body parses back verbatim (no risk of premature close from a lone `\"`). But the standard escape interpretation still runs in Apple Pkl's heredoc lexer — `\\\\` decodes to a literal `\\`, `\\t` decodes to tab — so a heredoc containing a literal `\\` character must round-trip as `\\\\`, not as a single `\\` (which the re-parse would interpret as the start of an escape). Skipping `\"` keeps the heredoc form readable; escaping `\\` / `\\t` / `\\r` preserves the value's exact byte content."
+    }
+  }
+}
+
 local pklRawStringLiteralScenario = new Scenario {
   id = "PKL-148an"
   name = "raw string literal with arbitrary hash count for single-line and heredoc forms"
@@ -5426,5 +5464,6 @@ scenarios {
   pklDeferredPropertyErrorSentinelRoutingScenario
   pklPcfHeredocAndDynamicOrderingScenario
   pklRawStringLiteralScenario
+  pklRawStringInterpolationScenario
   ...roadmap.entries
 }

@@ -72,6 +72,151 @@ fn Lexer::slice_from(self : Lexer, start : Int) -> String {
 }
 
 ///|
+/// PKL-148ao: peek for an `\<hash_count #>(` interpolation marker
+/// inside a raw-string body at index `at`. Returns true when the run
+/// matches exactly; the outer scanner then advances past the balanced
+/// `(...)` argument via `skip_raw_interp_arg`.
+fn Lexer::is_raw_interp_marker(
+  self : Lexer,
+  at : Int,
+  hash_count : Int,
+) -> Bool {
+  if at + 1 + hash_count >= self.len {
+    return false
+  }
+  if self.char_at(at) != '\\' {
+    return false
+  }
+  for h = 0; h < hash_count; h = h + 1 {
+    if self.char_at(at + 1 + h) != '#' {
+      return false
+    }
+  }
+  self.char_at(at + 1 + hash_count) == '('
+}
+
+///|
+/// PKL-148ao: skip past an `\<hash_count #>(...)` interpolation
+/// argument inside a raw-string body. Returns the index just past
+/// the matching `)`. Walks balanced `(...)`, treating any nested
+/// string literal as one opaque unit so a `)` inside a nested
+/// string can't close the outer interpolation prematurely.
+fn Lexer::skip_raw_interp_arg(
+  self : Lexer,
+  marker_at : Int,
+  hash_count : Int,
+) -> Int {
+  let mut j = marker_at + 1 + hash_count + 1
+  let mut depth = 1
+  while j < self.len && depth > 0 {
+    let after = self.skip_nested_string_at(j)
+    if after > j {
+      j = after
+      continue
+    }
+    let ch = self.char_at(j)
+    if ch == '(' {
+      depth = depth + 1
+    } else if ch == ')' {
+      depth = depth - 1
+      if depth == 0 {
+        return j + 1
+      }
+    }
+    j = j + 1
+  }
+  j
+}
+
+///|
+/// PKL-148ao: detect a nested string literal at `start` inside a
+/// raw-string body and return the index just past its closing
+/// delimiter. Returns `start` unchanged when no string begins
+/// here. Handles single-line / heredoc non-raw and raw forms with
+/// arbitrary hash counts. Used by `skip_raw_interp_arg` so a `)`
+/// inside a nested string can't terminate the outer interpolation.
+fn Lexer::skip_nested_string_at(self : Lexer, start : Int) -> Int {
+  if start >= self.len {
+    return start
+  }
+  let c = self.char_at(start)
+  let mut hash_count = 0
+  let mut quote_pos = start
+  if c == '#' {
+    while quote_pos < self.len && self.char_at(quote_pos) == '#' {
+      hash_count = hash_count + 1
+      quote_pos = quote_pos + 1
+    }
+    if quote_pos >= self.len || self.char_at(quote_pos) != '"' {
+      return start
+    }
+  } else if c != '"' {
+    return start
+  }
+  let is_heredoc = quote_pos + 2 < self.len &&
+    self.char_at(quote_pos + 1) == '"' &&
+    self.char_at(quote_pos + 2) == '"'
+  if is_heredoc {
+    let mut p = quote_pos + 3
+    while p + 2 + hash_count < self.len {
+      if hash_count > 0 && self.is_raw_interp_marker(p, hash_count) {
+        p = self.skip_raw_interp_arg(p, hash_count)
+        continue
+      }
+      if self.char_at(p) == '"' &&
+        self.char_at(p + 1) == '"' &&
+        self.char_at(p + 2) == '"' {
+        let mut ok = true
+        for h = 0; h < hash_count; h = h + 1 {
+          if self.char_at(p + 3 + h) != '#' {
+            ok = false
+            break
+          }
+        }
+        if ok {
+          return p + 3 + hash_count
+        }
+      }
+      p = p + 1
+    }
+    return self.len
+  }
+  let mut p = quote_pos + 1
+  while p < self.len {
+    if hash_count == 0 && self.char_at(p) == '\\' && p + 1 < self.len {
+      // Non-raw escape: skip the two-char pair so `\"` doesn't close.
+      p = p + 2
+      continue
+    }
+    if hash_count > 0 && self.is_raw_interp_marker(p, hash_count) {
+      p = self.skip_raw_interp_arg(p, hash_count)
+      continue
+    }
+    let ch = self.char_at(p)
+    if ch == '"' {
+      if hash_count == 0 {
+        return p + 1
+      }
+      let mut ok = true
+      for h = 0; h < hash_count; h = h + 1 {
+        if p + 1 + h >= self.len || self.char_at(p + 1 + h) != '#' {
+          ok = false
+          break
+        }
+      }
+      if ok {
+        return p + 1 + hash_count
+      }
+    }
+    if ch == '\n' {
+      return p
+    }
+    p = p + 1
+  }
+  self.len
+}
+
+///|
 fn keyword_or_identifier(text : String) -> @cst.SyntaxKind {
   match text {
     "let" => let_kw()
@@ -277,13 +422,17 @@ fn Lexer::next_token(self : Lexer) -> Token {
     }
     return Token::new(int_token(), self.slice_from(start))
   }
-  // PKL-148an: raw string literal — `#"..."#` (single-line) or
-  // `#"""..."""#` (heredoc). Apple Pkl allows an arbitrary number
-  // of leading `#`s; the closing delimiter must carry the same
-  // count. Inside a raw string `\` escape sequences and `\(...)`
-  // interpolation are NOT interpreted (verbatim text). The
-  // `\<N hashes>(expr)` form re-enables interpolation, but that's a
-  // follow-up — the lexer simply scans until the matching close.
+  // PKL-148an / PKL-148ao: raw string literal — `<N #>"..."<N #>`
+  // (single-line) or `<N #>"""..."""<N #>` (heredoc). Apple Pkl
+  // allows an arbitrary number of leading `#`s; the closing
+  // delimiter must carry the same count. Inside a raw string `\`
+  // escape sequences and `\(...)` interpolation stay verbatim; the
+  // `\<N #>(expr)` form re-enables interpolation. The lexer scans
+  // to the matching close, but it has to step past any
+  // `\<N #>(...)` interpolation argument as one balanced group —
+  // otherwise a nested `"..."` or `"##` inside the argument would
+  // be misread as the outer close (`#"a\#(##"b"##)c"#` is a single
+  // literal whose close is the last `"#`).
   if c == '#' {
     let mut hash_count = 0
     while self.pos + hash_count < self.len &&
@@ -300,6 +449,10 @@ fn Lexer::next_token(self : Lexer) -> Token {
         // Need to find `"""` + hash_count `#`s.
         let needed = 3 + hash_count
         while p + needed - 1 < self.len {
+          if self.is_raw_interp_marker(p, hash_count) {
+            p = self.skip_raw_interp_arg(p, hash_count)
+            continue
+          }
           if self.char_at(p) == '"' &&
             self.char_at(p + 1) == '"' &&
             self.char_at(p + 2) == '"' {
@@ -326,6 +479,10 @@ fn Lexer::next_token(self : Lexer) -> Token {
       let mut p = quote_pos + 1
       let needed = 1 + hash_count
       while p + needed - 1 < self.len {
+        if self.is_raw_interp_marker(p, hash_count) {
+          p = self.skip_raw_interp_arg(p, hash_count)
+          continue
+        }
         let ch = self.char_at(p)
         if ch == '"' {
           let mut ok = true
