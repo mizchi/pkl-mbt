@@ -1896,6 +1896,32 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklFunctionReturnTypeFunctionFormScenario = new Scenario {
+  id = "PKL-148as"
+  name = "function return type accepts function-type form arrow"
+  description =
+    "Apple Pkl lets a function declaration's return type carry a function-type shape — `function matches(pattern: String): (String) -> Boolean = (str) -> str.matches(...)`. The return-type slot is the one site where `->` is part of the type surface rather than a lambda body marker; every other site that consumes a type annotation (lambda parameters, let bindings, property declarations) needs `->` to mark the boundary so the lambda body can take over. pkl-mbt's `parse_function_decl` routed the return-type parse through `parse_type_annotation`, which sets `stop_at_arrow=true` — correct for the other sites but wrong here, so `function f(): (X) -> Y = body` walked `(X)` then broke at `->` without recognising the type continuation. The body parse then looked for `=` but saw `->` and silently dropped the function (the decl was emitted with body=None, so the call site `f(...)` surfaced `Cannot find property f`). The fix inlines the colon-aware walk at this specific call site with `stop_at_arrow=false`. +1 fixture (`classes/constraints10`), 148 → 149; classes category 55.9% → 58.8%. unsupp class shrinks 15 → 14."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148ar" }
+  tags { "parser"; "type-annotation"; "function"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Inline the colon-aware walk at the function-return site rather than adding a flag to `parse_type_annotation`"
+      rationale =
+        "Adding a `stop_at_arrow~ : Bool` parameter to `parse_type_annotation` would force every existing caller to update — most of them (lambda-parameter annotation at line 904 / 939 / 1404 / 2104 / 2128, let-decl at 3261) genuinely need the stop-at-arrow semantic to leave room for the trailing `->` of a lambda body or arrow function. Inlining the walk at the single contrary call site (function-decl return type) keeps the helper API stable and the changed semantic obvious where it matters."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Do not extend the fix to lambda return-type annotations (line 2106) in this slice"
+      rationale =
+        "Lambda return-type annotation appears in shapes like `(a: Int): (X) -> Y -> body` — the `->` is genuinely ambiguous between \"part of the type\" and \"start of the lambda body\". Pkl resolves this with whitespace / precedence rules that pkl-mbt doesn't yet model. The function-decl site is unambiguous (the trailing `=` is the body marker, not `->`), so the fix lands cleanly here. A separate slice can teach the lambda return-type slot to disambiguate; today only `classes/constraints10` exercises the function-decl shape."
+    }
+  }
+}
+
 local pklPredicateMemberScenario = new Scenario {
   id = "PKL-148ar"
   name = "predicate member double bracket selects and amends target entries"
@@ -5558,5 +5584,6 @@ scenarios {
   pklAmendChainAndUnionContinuationScenario
   pklPostfixTripleDotBailScenario
   pklPredicateMemberScenario
+  pklFunctionReturnTypeFunctionFormScenario
   ...roadmap.entries
 }

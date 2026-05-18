@@ -1498,7 +1498,31 @@ fn Parser::parse_function_decl(self : Parser) -> FunctionDecl? {
     }
     ignore(self.expect(rparen(), ")"))
   }
-  let return_type_name = self.parse_type_annotation()
+  // PKL-148as: function return-type annotation must accept the
+  // function-type form `(X) -> Y` (the only place where `->` is part
+  // of the type rather than a lambda body marker). `parse_type_annotation`
+  // stops at arrow (correct for lambda-parameter annotations where
+  // `(a: Int) -> body` has `Int` as the param type and `->` as the
+  // body marker), so the return-type slot is the one site that must
+  // bypass that stop. Inline the colon-aware walk here with
+  // `stop_at_arrow=false` so `function matches(...): (String) -> Boolean
+  // = ...` parses the whole function type before looking for `=`.
+  self.skip_whitespace()
+  let return_type_name = if self.at(colon()) {
+    ignore(self.bump())
+    self.skip_whitespace()
+    let t = self.parse_type_text(
+      stop_at_arrow=false,
+      stop_at_expression_operator=false,
+    )
+    if t == "" {
+      None
+    } else {
+      Some(t)
+    }
+  } else {
+    None
+  }
   let body = if ({
       self.skip_whitespace()
       self.at(eq())
