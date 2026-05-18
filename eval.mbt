@@ -10871,6 +10871,7 @@ fn eval_class_default_members(
 ) -> Array[ValueMember] {
   let defaults : Array[ObjectMember] = []
   let base_values : Array[ValueMember] = []
+  let own_methods : Array[FunctionDecl] = []
   match lookup_class_binding(class_env, type_name) {
     Some(class_binding) => {
       match class_binding.parent_name {
@@ -10904,6 +10905,9 @@ fn eval_class_default_members(
           None => ()
         }
       }
+      for method_decl in class_binding.methods {
+        own_methods.push(method_decl)
+      }
     }
     None => ()
   }
@@ -10920,12 +10924,41 @@ fn eval_class_default_members(
   // already-evaluated `base_values` (which itself includes the
   // grand-parent chain) is enough to satisfy property reads without
   // disturbing the method-call path.
-  let defaults_cache = if base_values.length() > 0 {
-    let cloned = copy_value_bindings(cache)
-    cloned.push({ name: "super", value: ObjectValue(base_values) })
-    cloned
+  //
+  // PKL-148ab: lexical-scoped class methods. `class Foo { function f()
+  // = "x"; y = f() }` calls `f()` bare inside the default body — Apple
+  // Pkl resolves it through the class's lexical method set, not via a
+  // class-method dispatch on `this`. Each method is materialised into
+  // the defaults cache as a `FunctionValue` whose `captured_env` is
+  // the SAME `defaults_cache` array (not a copy). MoonBit's Array is a
+  // mutable reference, so subsequent method pushes are visible inside
+  // each method's captured env at call time — letting methods call
+  // each other mutually. The class's own methods take precedence over
+  // any inherited methods in the lexical scope (defaults_cache is
+  // built fresh per class layer).
+  let needs_clone = base_values.length() > 0 || own_methods.length() > 0
+  let defaults_cache = if needs_clone {
+    copy_value_bindings(cache)
   } else {
     cache
+  }
+  if base_values.length() > 0 {
+    defaults_cache.push({ name: "super", value: ObjectValue(base_values) })
+  }
+  for method_decl in own_methods {
+    match method_decl.body {
+      Some(body) => {
+        let fn_value = FunctionValue(
+          method_decl.parameters,
+          body,
+          method_decl.return_type_name,
+          defaults_cache,
+          fresh_function_id(),
+        )
+        defaults_cache.push({ name: method_decl.name, value: fn_value })
+      }
+      None => ()
+    }
   }
   merge_value_members(
     base_values,

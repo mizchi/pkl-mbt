@@ -1896,6 +1896,32 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklClassMethodsLexicalScopeScenario = new Scenario {
+  id = "PKL-148ab"
+  name = "class methods bare-name resolution in class default body"
+  description =
+    "Apple Pkl's `class Foo { local function f() = \"original\"; x = f() }` calls `f()` bare from a property default — resolution walks the class's own lexical method set (no `this` dispatch needed, `local` modifier doesn't alter the bare-name reachability inside the declaring class). pkl-mbt parsed class methods into `ClassDecl.methods` but never injected them as Identifier-resolvable bindings, so `f()` fell through `Cannot find property \\`f\\`.`. `eval_class_default_members` now collects the class's own methods alongside the parent's recursive `base_values`, then pushes each method as a `FunctionValue` into the same `defaults_cache` it threads into `eval_object_members_with_options`. Each `FunctionValue.captured_env` references the live `defaults_cache` (no copy), so when one method calls another mutual-recursively, the lookup at call time sees every sibling pushed before the call. Lexical (not virtual) scoping: the recursive `eval_class_default_members(\"Foo1\", ...)` pushes Foo1's methods during Foo1's defaults evaluation, then back at Foo2's layer pushes Foo2's methods — so `Foo1.x = f()` always resolves to Foo1's `f` (Apple Pkl's expected behaviour), and a Foo2-defined property would resolve to Foo2's `f`. +3 fixtures (`basic/localMethodOverride1` / `localMethodOverride2` / `localMethodTyped4`), 124 → 127; basic category 39.5% → 43.0%."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148aa" }
+  tags { "evaluator"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Share `defaults_cache` (no copy) as each FunctionValue's captured_env"
+      rationale =
+        "Method A calling method B requires B to be reachable from A's captured environment. A two-pass approach — push placeholders first, then walk and replace each FunctionValue's captured_env — would need mutation through the FunctionValue tuple, which MoonBit can't express without rebuilding the value. Sharing the live `defaults_cache` array exploits that `apply_function_value`'s `copy_value_bindings(captured_env)` snapshots at call time, AFTER every method has been pushed. The snapshot then includes every sibling. The cost is a captured reference to the cache from each FunctionValue; the cache itself is scoped to this `eval_class_default_members` call so it does not outlive the class layer."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Lexical-only scoping — each class layer pushes only its own methods, not inherited ones"
+      rationale =
+        "Apple Pkl's `class Foo1 { local function f() = \"original\"; x = f() }` keeps `f` resolution lexical: `x = f()` defined inside Foo1's body sees Foo1's `f`, even when invoked through `new Foo2 {}.x` where Foo2 declares its own `f`. The recursive `eval_class_default_members(\"Foo1\", ...)` call (from Foo2's level) pushes Foo1's methods during Foo1's defaults evaluation, so `x = f()` lands on Foo1's `FunctionValue`. Back at Foo2's layer, only Foo2's methods are pushed — Foo2's own defaults (if any) would see Foo2's `f`. This matches Apple's local-function lexical scoping (and works for non-local class methods too: same name, same arena)."
+    }
+  }
+}
+
 local pklSuperPropertyInClassDefaultScenario = new Scenario {
   id = "PKL-148aa"
   name = "super property access in class default body"
@@ -5036,5 +5062,6 @@ scenarios {
   pklDynamicShapeViaSentinelsScenario
   pklListingAmendGeneratorToleranceScenario
   pklSuperPropertyInClassDefaultScenario
+  pklClassMethodsLexicalScopeScenario
   ...roadmap.entries
 }

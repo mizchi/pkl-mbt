@@ -136,6 +136,9 @@ GOLD_FIXTURES=(
   "generators/forGeneratorNestedReference2"
   "listings2/wrongIndex"
   "classes/supercallsInLet"
+  "basic/localMethodOverride1"
+  "basic/localMethodOverride2"
+  "basic/localMethodTyped4"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output
