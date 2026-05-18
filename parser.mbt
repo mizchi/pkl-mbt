@@ -2967,12 +2967,34 @@ fn is_local_member_name(name : String) -> Bool {
 }
 
 ///|
+/// PKL-148ak: prefix marker for a deferred per-property type / constraint
+/// rejection. `eval_object_members` stamps a `@error$<name>` member
+/// alongside the rejected value; the access paths (member access via
+/// `lookup_pending_error_message`, identifier resolution via the
+/// `error_member_name` env entry hoisted next to the bare name) raise
+/// the diagnostic lazily. The sentinel itself must never reach the
+/// renderer — fold it into the invisible-member set.
+let error_member_prefix : String = "@error$"
+
+///|
+fn error_member_name(name : String) -> String {
+  error_member_prefix + name
+}
+
+///|
+fn is_error_member_name(name : String) -> Bool {
+  name.has_prefix(error_member_prefix)
+}
+
+///|
 /// PKL-148j: combined predicate for any renderer-invisible member.
 /// Renderers / filter sites that previously called `is_hidden_member_name`
 /// to skip non-rendered members should switch to this so `local` members
 /// stay hidden from the output too.
 fn is_invisible_member_name(name : String) -> Bool {
-  is_hidden_member_name(name) || is_local_member_name(name)
+  is_hidden_member_name(name) ||
+  is_local_member_name(name) ||
+  is_error_member_name(name)
 }
 
 ///|

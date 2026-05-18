@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklDeferredPropertyErrorSentinelRoutingScenario = new Scenario {
+  id = "PKL-148ak"
+  name = "deferred property error sentinel hides from output and fires on bare identifier reads"
+  description =
+    "Apple Pkl evaluates class-default property bodies lazily: a typed local whose RHS violates the annotation (`local p2: Int = \"foo\"`) doesn't fail the surrounding class — the rejection is deferred and only raised when the property is actually read, so `test.catch(() -> p2)` captures the diagnostic message verbatim while siblings that never touch `p2` evaluate cleanly. pkl-mbt's `defer_property_errors` mode (PKL-148u) already stamps a `@error$<stored>` sentinel next to each rejected member, but the wiring was one-sided. The sentinel had no invisibility marker, so the PCF renderer projected entries like `@error$@local$p2 = \"Expected value of type \\`Int\\`, but got type \\`String\\`. Value: \\\"foo\\\"\"` next to the legitimate `res*` members. And `local` member hoisting only pushed the bare name + (type-invalid) value into the per-field `local_env`; an Identifier reference to `p2` from a sibling — including the lambda body of `test.catch(() -> p2)` — read the value silently with no diagnostic, so `test.catch` reported `Expected an exception, but none was thrown.` instead of the gold message. Three coordinated changes. (1) Moved the `@error$` prefix out of `eval.mbt` into `parser.mbt` (`error_member_prefix` / `error_member_name` / `is_error_member_name`) and extended `is_invisible_member_name` to include it, so every existing renderer / equality / iteration site picks up the filter without per-site touch-ups. (2) `eval_object_members`'s hoisting loop now recognises `@error$<stored>` entries and re-emits them as `@error$<bare>` env bindings (with whatever inner visibility prefix stripped), so the sentinel sits in env alongside the bare-name value. (3) `eval_expr_with_bindings`'s Identifier arm checks `lookup_value(env, error_member_name(name))` first; when present it pushes the message and returns None, mirroring the `lookup_pending_error_message` short-circuit that the member-access arm already runs. Lambdas closed over the env (including the `test.catch(() -> p2)` body) see the same intercept. +1 fixture (`basic/localTypedClassMember`), 143 → 144; basic category 55.8% → 57.0%."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148aj" }
+  tags { "evaluator"; "diagnostics"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "`@error$` prefix relocated to parser.mbt so `is_invisible_member_name` gates the renderer in one place"
+      rationale =
+        "The deferred-rejection sentinel had been defined as a string literal inside `pending_error_member_name` in eval.mbt; the renderer's `visible_members` filter checked `is_invisible_member_name`, which only knew about `@hidden$` and `@local$`. Adding the `@error$` check directly inside the eval-side helper would have required every renderer / equality / iteration site to consult two predicates. Moving the constant + predicate into parser.mbt and folding it into the existing invisible set means a single edit to `is_invisible_member_name` cascades to every caller — including paths I'd otherwise have to remember to update (PCF mapping render, structural equality walks, deep-equality member iteration)."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Hoist the sentinel into env under `@error$<bare>` rather than wrapping the bare-name value in a throwing marker"
+      rationale =
+        "The alternative — wrapping the type-invalid value in a sentinel Value variant (e.g. `ErrorValue(message)`) — would touch every Value pattern match in the cascade and require equality / coercion to decide what an ErrorValue means in their context. The two-entry shape (`<bare>` → invalid value, `@error$<bare>` → message) keeps the existing value variants untouched and matches the on-disk member shape, so the env intercept reads identically to the `lookup_pending_error_message` short-circuit that the member-access path already uses. Lambdas close over env naturally — `test.catch(() -> p2)` sees the intercept without any extra plumbing through the Lambda value."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Identifier intercept fires before `resolve_binding_value` rather than inside it"
+      rationale =
+        "`resolve_binding_value` is the shared resolution path for module-level bindings, lexical bindings, and synth class mirrors. Pushing the `@error$` lookup inside would cost a probe on every name lookup project-wide for a slice that only fires in `defer_property_errors=true` bodies. Doing the check inline at the Identifier arm — where env is already in hand — keeps the cost local to the affected slice; non-deferred bodies pay one extra `lookup_value(env, ...)` per identifier, which is a linear-in-env walk that the hot path was already doing for the primary lookup anyway."
+    }
+  }
+}
+
 local pklObjectBodyMemberHeaderDispatchScenario = new Scenario {
   id = "PKL-148aj"
   name = "object body member header dispatch absorbs const and other modifier prefixes"
@@ -5327,5 +5359,6 @@ scenarios {
   pklModuleSelfRefAndAmendModuleParentFallbackScenario
   pklLiteralTypeUnionAndStringAffixPredicatesScenario
   pklObjectBodyMemberHeaderDispatchScenario
+  pklDeferredPropertyErrorSentinelRoutingScenario
   ...roadmap.entries
 }

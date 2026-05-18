@@ -155,6 +155,7 @@ GOLD_FIXTURES=(
   "basic/moduleRef2"
   "basic/letTyped"
   "basic/constModifier4"
+  "basic/localTypedClassMember"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output

@@ -325,22 +325,16 @@ fn reflect_is_subclass_of(
 ///|
 
 ///|
-/// PKL-148u: prefix marker for a deferred class-default type
-/// rejection. `eval_object_members` stamps a `@error$<name>` member
-/// next to the (type-invalid) value when the structural check
-/// rejects; the ObjectValue access path picks it up at `bad.<name>`
-/// time, raises the diagnostic, and short-circuits the lookup —
-/// mirroring Apple Pkl's lazy per-property semantics.
-fn pending_error_member_name(name : String) -> String {
-  "@error$" + name
-}
-
-///|
+/// PKL-148u: lookup helper for the `@error$<name>` deferred-rejection
+/// sentinel. The prefix itself now lives in parser.mbt as
+/// `error_member_prefix` so the renderer's invisibility check
+/// (`is_invisible_member_name`) and the eval-side stamper share a
+/// single source of truth.
 fn lookup_pending_error_message(
   members : Array[ValueMember],
   name : String,
 ) -> String? {
-  let prefixed = pending_error_member_name(name)
+  let prefixed = error_member_name(name)
   for field in members {
     if field.name == prefixed {
       match field.value {
@@ -8569,31 +8563,49 @@ fn eval_expr_with_bindings(
         None => None
       }
     Identifier(name) =>
-      match
-        resolve_binding_value(
-          name, bindings, env, class_env, cache, stack, declarations, diagnostics,
-          resolve_import,
-        ) {
-        Some(value) => Some(value)
-        None =>
-          // PKL-148d: a bare class name (`Person`) used as a value
-          // projects to a `pkl:reflect.Class` mirror. This unlocks
-          // `Person.foo` / `Person.bar()` failure paths that snippetTest
-          // captures via `test.catch(...)`, plus future Class-arg APIs.
-          match lookup_class_binding(class_env, name) {
-            Some(_) => Some(synth_class_mirror_for_name(name))
-            None =>
-              // PKL-148e: stdlib type names (`Int` / `Float` / `String`
-              // / ...) also project to a Class mirror so equality and
-              // comparison fixtures (`Int == Int`, `Int == 3.getClass()`)
-              // round-trip without a user class declaration.
-              if is_stdlib_class_name(name) {
-                Some(synth_class_mirror_for_name(name))
-              } else {
-                diagnostics.push(diag("Cannot find property `\{name}`."))
-                None
-              }
-          }
+      // PKL-148ak: when a sibling local member's eval landed a
+      // deferred per-property rejection (the `@error$<bare>` env
+      // entry hoisted by `eval_object_members`), surface that
+      // diagnostic before resolving the bare-name value. The
+      // sentinel only lives in env when the surrounding body ran
+      // with `defer_property_errors=true` (class default eval); for
+      // every other site the lookup misses and the normal resolver
+      // runs unchanged. `test.catch(() -> bad_local)` captures the
+      // surfaced diagnostic — without this intercept the lambda
+      // body read the type-invalid value directly, no throw, and
+      // `test.catch` reported `Expected an exception, but none was
+      // thrown.` (gold expected the rejection message).
+      if lookup_value(env, error_member_name(name))
+        is Some(StringValue(message)) {
+        diagnostics.push(diag(message))
+        None
+      } else {
+        match
+          resolve_binding_value(
+            name, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
+          ) {
+          Some(value) => Some(value)
+          None =>
+            // PKL-148d: a bare class name (`Person`) used as a value
+            // projects to a `pkl:reflect.Class` mirror. This unlocks
+            // `Person.foo` / `Person.bar()` failure paths that snippetTest
+            // captures via `test.catch(...)`, plus future Class-arg APIs.
+            match lookup_class_binding(class_env, name) {
+              Some(_) => Some(synth_class_mirror_for_name(name))
+              None =>
+                // PKL-148e: stdlib type names (`Int` / `Float` / `String`
+                // / ...) also project to a Class mirror so equality and
+                // comparison fixtures (`Int == Int`, `Int == 3.getClass()`)
+                // round-trip without a user class declaration.
+                if is_stdlib_class_name(name) {
+                  Some(synth_class_mirror_for_name(name))
+                } else {
+                  diagnostics.push(diag("Cannot find property `\{name}`."))
+                  None
+                }
+            }
+        }
       }
     CallExpr(callee, arguments) =>
       if callee is Identifier("Bytes") &&
@@ -10620,7 +10632,22 @@ fn eval_object_members_with_options(
       local_env.push(binding)
     }
     for prior in values {
-      if is_invisible_member_name(prior.name) {
+      if is_error_member_name(prior.name) {
+        // PKL-148ak: a `@error$<stored>` sentinel from a deferred
+        // type / constraint rejection on a sibling. Strip whatever
+        // visibility prefix lives inside the sentinel name so the
+        // env entry sits under `@error$<bare>` — the Identifier
+        // resolution path picks it up before the (type-invalid)
+        // bare-name value and raises the deferred diagnostic so
+        // `test.catch(() -> p2)` can capture it.
+        let inner = String::unsafe_substring(
+          prior.name,
+          start=error_member_prefix.length(),
+          end=prior.name.length(),
+        )
+        let bare = strip_member_visibility_prefix(inner)
+        local_env.push({ name: error_member_name(bare), value: prior.value })
+      } else if is_invisible_member_name(prior.name) {
         // PKL-148d: a `local l = 2` / `hidden h = 2` member surfaces
         // under its visibility prefix; strip when hoisting into env
         // so subsequent sibling expressions can reference the bare
@@ -10775,7 +10802,7 @@ fn eval_object_members_with_options(
         values.push({ name: field.name, value: NullValue })
       }
       values.push({
-        name: pending_error_member_name(field.name),
+        name: error_member_name(field.name),
         value: StringValue(property_diagnostics[0].message),
       })
     }
