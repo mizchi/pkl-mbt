@@ -842,7 +842,18 @@ fn eval_expr_with_bindings(
             regular_members, bindings, env, class_env, amend_cache, stack, declarations,
             diagnostics, resolve_import,
           )
-          let merged = merge_value_members(modified_base, evaluated_regular)
+          let merged = merge_objects_with_late_binding(
+            modified_base,
+            evaluated_regular,
+            bindings,
+            env,
+            class_env,
+            amend_cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          )
           // Fire class-property constraints against amend bodies that
           // target a typed receiver (`(counter) { y = 0 }` where
           // `counter: Counter`). TypedObjectLiteral runs the same
@@ -987,7 +998,7 @@ fn eval_expr_with_bindings(
           }
           module_members.push({
             name: value_binding.name,
-            value: value_binding.value,
+            value: value_binding.value, source: None
           })
         }
         Some(ObjectValue(module_members))
@@ -2925,6 +2936,320 @@ fn eval_for_generator(
 }
 
 ///|
+/// PKL-148bb: scope-aware reference probe used by the late-binding
+/// re-eval pass. `expr_references` in lint.mbt walks *every* sub-
+/// expression — that's the right semantic for cycle detection but
+/// wrong here: a base member whose source is a nested
+/// `ObjectLiteral { x = y; y = 3 }` should *not* be re-evaluated just
+/// because an outer-level amend adds a sibling `y`, since the inner
+/// `y = 3` shadows the outer name. This probe treats every scope-
+/// creating construct (ObjectLiteral / TypedObjectLiteral / AmendExpr
+/// body / LambdaExpr params / ForGenerator key+value+body) as a
+/// barrier: if it declares / binds `name`, the reference is shadowed
+/// and recursion into that scope stops returning true.
+fn expr_references_late_binding(expr : Expr, name : String) -> Bool {
+  match expr {
+    IntLiteral(_) => false
+    FloatLiteral(_) => false
+    BoolLiteral(_) => false
+    StringLiteral(_) => false
+    NullLiteral => false
+    Identifier(n) => n == name
+    ImportExpr(_) => false
+    ObjectLiteral(members) => members_reference_late_binding(members, name)
+    TypedObjectLiteral(type_name, members) =>
+      type_name == name || members_reference_late_binding(members, name)
+    ListingLiteral(elements) => {
+      for element in elements {
+        if expr_references_late_binding(element, name) {
+          return true
+        }
+      }
+      false
+    }
+    MappingLiteral(entries) => {
+      for entry in entries {
+        if expr_references_late_binding(entry.key, name) ||
+          expr_references_late_binding(entry.value, name) {
+          return true
+        }
+      }
+      false
+    }
+    MemberAccess(target, _) => expr_references_late_binding(target, name)
+    SafeMemberAccess(target, _) => expr_references_late_binding(target, name)
+    SubscriptAccess(target, key) =>
+      expr_references_late_binding(target, name) ||
+      expr_references_late_binding(key, name)
+    AmendExpr(base, members) =>
+      expr_references_late_binding(base, name) ||
+      members_reference_late_binding(members, name)
+    CallExpr(callee, arguments) => {
+      if expr_references_late_binding(callee, name) {
+        return true
+      }
+      for argument in arguments {
+        if expr_references_late_binding(argument, name) {
+          return true
+        }
+      }
+      false
+    }
+    LambdaExpr(params, body, _) => {
+      for param in params {
+        if param.name == name {
+          return false
+        }
+      }
+      expr_references_late_binding(body, name)
+    }
+    NonNullExpr(inner) => expr_references_late_binding(inner, name)
+    UnaryExpr(_, inner) => expr_references_late_binding(inner, name)
+    BinaryExpr(_, left, right) =>
+      expr_references_late_binding(left, name) ||
+      expr_references_late_binding(right, name)
+    ConditionalExpr(cond, then_branch, else_branch) =>
+      expr_references_late_binding(cond, name) ||
+      expr_references_late_binding(then_branch, name) ||
+      expr_references_late_binding(else_branch, name)
+    ForGenerator(key_name, value_name, source, members) => {
+      if key_name == name {
+        return false
+      }
+      if value_name is Some(vn) && vn == name {
+        return false
+      }
+      expr_references_late_binding(source, name) ||
+      members_reference_late_binding(members, name)
+    }
+    WhenSpread(inner) => expr_references_late_binding(inner, name)
+    InterpolatedString(parts) => {
+      for part in parts {
+        if expr_references_late_binding(part, name) {
+          return true
+        }
+      }
+      false
+    }
+    NullSafeCallExpr(callee, arguments) => {
+      if expr_references_late_binding(callee, name) {
+        return true
+      }
+      for argument in arguments {
+        if expr_references_late_binding(argument, name) {
+          return true
+        }
+      }
+      false
+    }
+    UnsupportedExpr => false
+    ErrorExpr(_) => false
+  }
+}
+
+///|
+fn members_reference_late_binding(
+  members : Array[ObjectMember],
+  name : String,
+) -> Bool {
+  // ObjectLiteral / AmendExpr / TypedObjectLiteral bodies create a new
+  // sibling scope: a member named `name` shadows the outer reference.
+  for om in members {
+    if strip_member_visibility_prefix(om.name) == name {
+      return false
+    }
+  }
+  for om in members {
+    if expr_references_late_binding(om.value, name) {
+      return true
+    }
+  }
+  false
+}
+
+///|
+/// PKL-148bb: late-binding-aware deep merge for AmendExpr. Walks both
+/// `base` and `overrides` like `merge_value_members` / `deep_merge_amend_value`
+/// would, but with eval context in hand so each nesting level can run a
+/// re-eval pass over base members whose captured `source` expression
+/// references any of the names that were overridden at this level. This
+/// is what makes `objects/lateBinding1` work: amending `foo { y = 4 }`
+/// over a base `foo = { x = y; y = 3 }` re-evaluates `x = y` against the
+/// merged inner env so `x` picks up the new `y` instead of staying at the
+/// cached `3`.
+fn merge_objects_with_late_binding(
+  base : Array[ValueMember],
+  overrides : Array[ValueMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Array[ValueMember] {
+  // Collect bare override names that the late-binding pass should chase.
+  // Only "shadowing" overrides count — names that already live in `base`.
+  // Additive overrides (a fresh sibling name not present in base) must not
+  // trigger re-binding: in `lateBinding2`'s `foo { x = y }` (no inner `y`)
+  // the original resolution of `y` went to the outer scope, and a later
+  // amend that *adds* `foo.y` mustn't yank `x` back to the new inner `y`.
+  //
+  // Skip `@local$` overrides: Apple Pkl treats each amend body's `local`
+  // declarations as a fresh scope-private slot, so an amend that re-binds
+  // `local l = "override"` must not re-trigger sibling expressions that
+  // captured the base body's `local l`. (`basic/localPropertyOverride1`.)
+  let override_names : Array[String] = []
+  for o in overrides {
+    if is_local_member_name(o.name) {
+      continue
+    }
+    let bare = strip_member_visibility_prefix(o.name)
+    let mut in_base = false
+    for bm in base {
+      // A `local` base slot belongs to its own namespace — a visible
+      // amend with the same bare name does not shadow it, so it should
+      // not register here. (`basic/localPropertyOverride1` foo4: the
+      // visible `l = "override"` must not re-trigger `x = l` whose
+      // original `l` resolved against the base body's `local l`.)
+      if is_local_member_name(bm.name) {
+        continue
+      }
+      let bm_bare = strip_member_visibility_prefix(bm.name)
+      if bm_bare == bare {
+        in_base = true
+        break
+      }
+    }
+    if in_base {
+      override_names.push(bare)
+    }
+  }
+  // Build the merged member array mirroring `merge_value_members` +
+  // `deep_merge_amend_value`, but recurse into nested ObjectValue with
+  // eval context so the late-binding pass fires at every level.
+  let merged : Array[ValueMember] = []
+  for bm in base {
+    let exact = find_member_exact(overrides, bm.name)
+    let resolved_member = if exact is Some(_) {
+      find_value_member_exact(overrides, bm.name)
+    } else if is_hidden_member_name(bm.name) {
+      let bare = String::unsafe_substring(
+        bm.name,
+        start=hidden_member_prefix.length(),
+        end=bm.name.length(),
+      )
+      find_value_member_exact(overrides, bare)
+    } else {
+      None
+    }
+    match resolved_member {
+      Some(over_member) => {
+        let new_val = match (bm.value, over_member.value) {
+          (ObjectValue(inner_base), ObjectValue(inner_over)) =>
+            ObjectValue(
+              merge_objects_with_late_binding(
+                inner_base, inner_over, bindings, env, class_env, cache, stack,
+                declarations, diagnostics, resolve_import,
+              ),
+            )
+          (_, ov) => ov
+        }
+        merged.push({
+          name: bm.name,
+          value: new_val,
+          source: over_member.source,
+        })
+      }
+      None => merged.push(bm)
+    }
+  }
+  for o in overrides {
+    if find_member_exact(base, o.name) is Some(_) {
+      continue
+    }
+    let hidden_alias = hidden_member_name(o.name)
+    if find_member_exact(base, hidden_alias) is Some(_) {
+      continue
+    }
+    merged.push(o)
+  }
+  // Late-binding pass at this nesting level: re-evaluate any merged
+  // member whose `source` references one of `override_names`.
+  if override_names.length() == 0 {
+    return merged
+  }
+  let local_env : Array[ValueBinding] = []
+  for b in env {
+    local_env.push(b)
+  }
+  for m in merged {
+    let bare = strip_member_visibility_prefix(m.name)
+    if !is_invisible_member_name(m.name) ||
+      is_local_member_name(m.name) ||
+      is_hidden_member_name(m.name) {
+      local_env.push({ name: bare, value: m.value })
+    }
+  }
+  let final_members : Array[ValueMember] = []
+  for m in merged {
+    let mut reeval_done = false
+    match m.source {
+      Some(src) => {
+        let mut needs = false
+        for name in override_names {
+          let m_bare = strip_member_visibility_prefix(m.name)
+          if name == m_bare {
+            continue
+          }
+          if expr_references_late_binding(src, name) {
+            needs = true
+            break
+          }
+        }
+        if needs {
+          match
+            eval_expr_with_bindings(
+              src, bindings, local_env, class_env, cache, stack, declarations,
+              diagnostics, resolve_import,
+            ) {
+            Some(new_val) => {
+              final_members.push({
+                name: m.name,
+                value: new_val,
+                source: m.source,
+              })
+              reeval_done = true
+            }
+            None => ()
+          }
+        }
+      }
+      None => ()
+    }
+    if !reeval_done {
+      final_members.push(m)
+    }
+  }
+  final_members
+}
+
+///|
+fn find_value_member_exact(
+  members : Array[ValueMember],
+  name : String,
+) -> ValueMember? {
+  let mut found : ValueMember? = None
+  for field in members {
+    if field.name == name {
+      found = Some(field)
+    }
+  }
+  found
+}
+
+///|
 fn eval_object_members(
   members : Array[ObjectMember],
   bindings : Array[Binding],
@@ -3001,7 +3326,7 @@ fn eval_object_members_with_options(
       type_name: field.type_name,
       value: field.value,
       exported: true,
-      abstract_slot: false,
+      abstract_slot: false
     })
   }
   let values : Array[ValueMember] = []
@@ -3045,9 +3370,9 @@ fn eval_object_members_with_options(
                 values.push({
                   name: field.name,
                   value: ObjectValue([
-                    { name: "@key", value: k },
-                    { name: "@value", value: v },
-                  ]),
+                    { name: "@key", value: k, source: None },
+                    { name: "@value", value: v, source: None },
+                  ]), source: None
                 })
               _ => ()
             }
@@ -3069,7 +3394,7 @@ fn eval_object_members_with_options(
           diagnostics,
           resolve_import,
         ) {
-        Some(v) => values.push({ name: field.name, value: v })
+        Some(v) => values.push({ name: field.name, value: v, source: None })
         None => ()
       }
       continue
@@ -3189,7 +3514,7 @@ fn eval_object_members_with_options(
               for i = 0; i < elements.length(); i = i + 1 {
                 values.push({
                   name: "@element$spread" + field.name + "$" + i.to_string(),
-                  value: elements[i],
+                  value: elements[i], source: None
                 })
               }
             MappingValue(entries) | MapValue(entries) =>
@@ -3197,9 +3522,9 @@ fn eval_object_members_with_options(
                 values.push({
                   name: "@subscript$spread" + field.name + "$" + i.to_string(),
                   value: ObjectValue([
-                    { name: "@key", value: entries[i].key },
-                    { name: "@value", value: entries[i].value },
-                  ]),
+                    { name: "@key", value: entries[i].key, source: None },
+                    { name: "@value", value: entries[i].value, source: None },
+                  ]), source: None
                 })
               }
             NullValue => ()
@@ -3219,7 +3544,11 @@ fn eval_object_members_with_options(
           match structural_reject {
             Some(message) => {
               property_diagnostics.push(diag(message))
-              values.push({ name: field.name, value })
+              values.push({
+                name: field.name,
+                value,
+                source: Some(field.value),
+              })
             }
             None =>
               if pkl_constrained_type_annotation_value_is_valid(
@@ -3227,7 +3556,11 @@ fn eval_object_members_with_options(
                   value,
                   property_diagnostics,
                 ) {
-                values.push({ name: field.name, value })
+                values.push({
+                  name: field.name,
+                  value,
+                  source: Some(field.value),
+                })
               }
           }
         }
@@ -3252,11 +3585,11 @@ fn eval_object_members_with_options(
         }
       }
       if !already_present {
-        values.push({ name: field.name, value: NullValue })
+        values.push({ name: field.name, value: NullValue, source: None })
       }
       values.push({
         name: error_member_name(field.name),
-        value: StringValue(property_diagnostics[0].message),
+        value: StringValue(property_diagnostics[0].message), source: None
       })
     }
   }

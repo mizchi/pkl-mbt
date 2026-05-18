@@ -1,14 +1,14 @@
 ///|
 test "Properties renderer escapes special characters in scalar values" {
   let value : Value = ObjectValue([
-    ValueMember::{ name: "tab", value: StringValue("a\tb") },
-    ValueMember::{ name: "newline", value: StringValue("a\nb") },
-    ValueMember::{ name: "cr", value: StringValue("a\rb") },
-    ValueMember::{ name: "ff", value: StringValue("a\u{0C}b") },
-    ValueMember::{ name: "backslash", value: StringValue("c:\\path") },
-    ValueMember::{ name: "leadingspace", value: StringValue(" lead") },
-    ValueMember::{ name: "bangs", value: StringValue("!hello#world") },
-    ValueMember::{ name: "kvchars", value: StringValue("a:b=c") },
+    ValueMember::{ name: "tab", value: StringValue("a\tb"), source: None },
+    ValueMember::{ name: "newline", value: StringValue("a\nb"), source: None },
+    ValueMember::{ name: "cr", value: StringValue("a\rb"), source: None },
+    ValueMember::{ name: "ff", value: StringValue("a\u{0C}b"), source: None },
+    ValueMember::{ name: "backslash", value: StringValue("c:\\path"), source: None },
+    ValueMember::{ name: "leadingspace", value: StringValue(" lead"), source: None },
+    ValueMember::{ name: "bangs", value: StringValue("!hello#world"), source: None },
+    ValueMember::{ name: "kvchars", value: StringValue("a:b=c"), source: None },
   ])
   inspect(
     render_value_as_properties(value),
@@ -29,12 +29,12 @@ test "Properties renderer escapes special characters in scalar values" {
 ///|
 test "Properties renderer escapes special characters in keys" {
   let value : Value = ObjectValue([
-    ValueMember::{ name: "a b", value: IntValue(1) },
-    ValueMember::{ name: "a=b", value: IntValue(2) },
-    ValueMember::{ name: "a:b", value: IntValue(3) },
-    ValueMember::{ name: "a!b", value: IntValue(4) },
-    ValueMember::{ name: "a#b", value: IntValue(5) },
-    ValueMember::{ name: "a\\b", value: IntValue(6) },
+    ValueMember::{ name: "a b", value: IntValue(1), source: None },
+    ValueMember::{ name: "a=b", value: IntValue(2), source: None },
+    ValueMember::{ name: "a:b", value: IntValue(3), source: None },
+    ValueMember::{ name: "a!b", value: IntValue(4), source: None },
+    ValueMember::{ name: "a#b", value: IntValue(5), source: None },
+    ValueMember::{ name: "a\\b", value: IntValue(6), source: None },
   ])
   inspect(
     render_value_as_properties(value),
@@ -53,10 +53,10 @@ test "Properties renderer escapes special characters in keys" {
 ///|
 test "Properties renderer drops empty composites without leaves" {
   let value : Value = ObjectValue([
-    ValueMember::{ name: "name", value: StringValue("pigeon") },
-    ValueMember::{ name: "emptyObj", value: ObjectValue([]) },
-    ValueMember::{ name: "emptyMap", value: MappingValue([]) },
-    ValueMember::{ name: "emptyList", value: ListingValue([]) },
+    ValueMember::{ name: "name", value: StringValue("pigeon"), source: None },
+    ValueMember::{ name: "emptyObj", value: ObjectValue([]), source: None },
+    ValueMember::{ name: "emptyMap", value: MappingValue([]), source: None },
+    ValueMember::{ name: "emptyList", value: ListingValue([]), source: None },
   ])
   // Empty Object/Mapping yield no key (no leaves to attach to); empty
   // Listing emits the inline `[]` form so the entry is preserved.
@@ -103,8 +103,8 @@ test "evaluate top-level properties with forward references" {
     eval_source("foo = bar * 2\nbar = 3") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "foo", value: IntValue(6) },
-        ValueMember::{ name: "bar", value: IntValue(3) },
+        ValueMember::{ name: "foo", value: IntValue(6), source: None },
+        ValueMember::{ name: "bar", value: IntValue(3), source: None },
       ]),
     ),
   )
@@ -131,10 +131,10 @@ test "parse and evaluate Pkl object body property shorthand" {
             ValueMember::{
               name: "y",
               value: ObjectValue([
-                ValueMember::{ name: "z", value: IntValue(1) },
-              ]),
+                ValueMember::{ name: "z", value: IntValue(1), source: None },
+              ]), source: None
             },
-          ]),
+          ]), source: None
         },
       ]),
     ),
@@ -155,7 +155,7 @@ test "typecheck Pkl object body property shorthand" {
 test "evaluate Pkl local module bindings without exporting them" {
   assert_true(
     eval_source("local base = 2\nvalue = base + 1") ==
-    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(3) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(3), source: None }])),
   )
 }
 
@@ -179,8 +179,8 @@ test "analysis session resolves import expressions" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "libFoo", value: IntValue(6) },
-        ValueMember::{ name: "libBar", value: IntValue(3) },
+        ValueMember::{ name: "libFoo", value: IntValue(6), source: None },
+        ValueMember::{ name: "libBar", value: IntValue(3), source: None },
       ]),
     ),
   )
@@ -198,7 +198,7 @@ test "evaluate Pkl Listing literal and index access" {
       ObjectValue([
         ValueMember::{
           name: "numbers",
-          value: ListingValue([IntValue(1), IntValue(2)]),
+          value: ListingValue([IntValue(1), IntValue(2)]), source: None
         },
       ]),
     ),
@@ -292,7 +292,7 @@ test "parse Pkl const function declarations" {
   )
   assert_true(
     eval_source(source) ==
-    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(6) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(6), source: None }])),
   )
 }
 
@@ -317,7 +317,7 @@ test "parse and typecheck Pkl class method declarations" {
     eval_source(
       "class Bird { function label(): String = \"hawk\" }\nbird = new Bird {}",
     ) ==
-    EvalOk(ObjectValue([ValueMember::{ name: "bird", value: ObjectValue([]) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "bird", value: ObjectValue([]), source: None }])),
   )
 }
 
@@ -333,10 +333,10 @@ test "evaluate Pkl class method invocations" {
         ValueMember::{
           name: "counter",
           value: ObjectValue([
-            ValueMember::{ name: "base", value: IntValue(40) },
-          ]),
+            ValueMember::{ name: "base", value: IntValue(40), source: None },
+          ]), source: None
         },
-        ValueMember::{ name: "value", value: IntValue(42) },
+        ValueMember::{ name: "value", value: IntValue(42), source: None },
       ]),
     ),
   )
@@ -350,8 +350,8 @@ test "enforce Pkl constrained method parameter annotations" {
     eval_source(source) ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "counter", value: ObjectValue([]) },
-        ValueMember::{ name: "value", value: IntValue(3) },
+        ValueMember::{ name: "counter", value: ObjectValue([]), source: None },
+        ValueMember::{ name: "value", value: IntValue(3), source: None },
       ]),
     ),
   )
@@ -549,9 +549,9 @@ test "evaluate Pkl typed object class defaults" {
         ValueMember::{
           name: "bird",
           value: ObjectValue([
-            ValueMember::{ name: "name", value: StringValue("hawk") },
-            ValueMember::{ name: "age", value: IntValue(2) },
-          ]),
+            ValueMember::{ name: "name", value: StringValue("hawk"), source: None },
+            ValueMember::{ name: "age", value: IntValue(2), source: None },
+          ]), source: None
         },
       ]),
     ),
@@ -565,9 +565,9 @@ test "evaluate Pkl typed object class defaults" {
         ValueMember::{
           name: "bird",
           value: ObjectValue([
-            ValueMember::{ name: "name", value: StringValue("owl") },
-            ValueMember::{ name: "age", value: IntValue(1) },
-          ]),
+            ValueMember::{ name: "name", value: StringValue("owl"), source: None },
+            ValueMember::{ name: "age", value: IntValue(1), source: None },
+          ]), source: None
         },
       ]),
     ),
@@ -591,7 +591,7 @@ test "evaluate Pkl constrained class property annotations" {
       ObjectValue([
         ValueMember::{
           name: "x",
-          value: ObjectValue([ValueMember::{ name: "a", value: IntValue(6) }]),
+          value: ObjectValue([ValueMember::{ name: "a", value: IntValue(6), source: None }]), source: None
         },
       ]),
     ),
@@ -627,7 +627,7 @@ test "evaluate Pkl constrained class property default values" {
       ObjectValue([
         ValueMember::{
           name: "x",
-          value: ObjectValue([ValueMember::{ name: "a", value: IntValue(6) }]),
+          value: ObjectValue([ValueMember::{ name: "a", value: IntValue(6), source: None }]), source: None
         },
       ]),
     ),
@@ -694,10 +694,10 @@ test "support Pkl class inheritance defaults" {
         ValueMember::{
           name: "bird",
           value: ObjectValue([
-            ValueMember::{ name: "name", value: StringValue("bird") },
-            ValueMember::{ name: "age", value: IntValue(1) },
-            ValueMember::{ name: "wing", value: StringValue("wide") },
-          ]),
+            ValueMember::{ name: "name", value: StringValue("bird"), source: None },
+            ValueMember::{ name: "age", value: IntValue(1), source: None },
+            ValueMember::{ name: "wing", value: StringValue("wide"), source: None },
+          ]), source: None
         },
       ]),
     ),
@@ -740,13 +740,13 @@ test "support Pkl qualified class inheritance types" {
         ValueMember::{
           name: "teacher",
           value: ObjectValue([
-            ValueMember::{ name: "name", value: StringValue("anon") },
-            ValueMember::{ name: "subject", value: StringValue("math") },
-            ValueMember::{ name: "age", value: IntValue(3) },
-          ]),
+            ValueMember::{ name: "name", value: StringValue("anon"), source: None },
+            ValueMember::{ name: "subject", value: StringValue("math"), source: None },
+            ValueMember::{ name: "age", value: IntValue(3), source: None },
+          ]), source: None
         },
-        ValueMember::{ name: "name", value: StringValue("anon") },
-        ValueMember::{ name: "subject", value: StringValue("math") },
+        ValueMember::{ name: "name", value: StringValue("anon"), source: None },
+        ValueMember::{ name: "subject", value: StringValue("math"), source: None },
       ]),
     ),
   )
@@ -841,8 +841,8 @@ test "evaluate Pkl function declarations lambdas and calls" {
     eval_source(source) ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "sum", value: IntValue(3) },
-        ValueMember::{ name: "next", value: IntValue(4) },
+        ValueMember::{ name: "sum", value: IntValue(3), source: None },
+        ValueMember::{ name: "next", value: IntValue(4), source: None },
       ]),
     ),
   )
@@ -852,17 +852,17 @@ test "evaluate Pkl function declarations lambdas and calls" {
 test "evaluate Pkl callable runtime values" {
   assert_true(
     eval_source("local inc = (n) -> n + 1\nlocal f = inc\nvalue = f(41)") ==
-    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(42) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(42), source: None }])),
   )
   assert_true(
     eval_source(
       "function apply(f, n) = f(n)\nlocal inc = (n) -> n + 1\nvalue = apply(inc, 2)",
     ) ==
-    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(3) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(3), source: None }])),
   )
   assert_true(
     eval_source("local box = new { f = (x) -> x + 1 }\nvalue = box.f(2)") ==
-    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(3) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(3), source: None }])),
   )
 }
 
@@ -872,7 +872,7 @@ test "evaluate Pkl callable closure captures" {
     eval_source(
       "function makeAdder(n) = (x) -> x + n\nlocal add2 = makeAdder(2)\nvalue = add2(3)",
     ) ==
-    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(5) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(5), source: None }])),
   )
 }
 
@@ -883,14 +883,14 @@ test "evaluate non-scalar Pkl callable closure captures" {
       "function makeReader(box) = () -> box.name\nlocal reader = makeReader(new { name = \"hawk\" })\nvalue = reader()",
     ) ==
     EvalOk(
-      ObjectValue([ValueMember::{ name: "value", value: StringValue("hawk") }]),
+      ObjectValue([ValueMember::{ name: "value", value: StringValue("hawk"), source: None }]),
     ),
   )
   assert_true(
     eval_source(
       "function makeApply(f) = (n) -> f(n)\nlocal inc = (x) -> x + 1\nlocal applyInc = makeApply(inc)\nvalue = applyInc(2)",
     ) ==
-    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(3) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(3), source: None }])),
   )
 }
 
@@ -898,7 +898,7 @@ test "evaluate non-scalar Pkl callable closure captures" {
 test "evaluate Pkl callable return annotations" {
   assert_true(
     eval_source("function good(): Int = 1\nvalue = good()") ==
-    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(1) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(1), source: None }])),
   )
   guard eval_source("function bad(): Int = \"hawk\"\nvalue = bad()")
     is EvalError(diagnostics) else {
@@ -920,8 +920,8 @@ test "evaluate Pkl class method return annotations" {
     ) ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "counter", value: ObjectValue([]) },
-        ValueMember::{ name: "value", value: IntValue(1) },
+        ValueMember::{ name: "counter", value: ObjectValue([]), source: None },
+        ValueMember::{ name: "value", value: IntValue(1), source: None },
       ]),
     ),
   )
@@ -943,7 +943,7 @@ test "evaluate Pkl class method return annotations" {
 test "evaluate constrained Pkl callable return annotations" {
   assert_true(
     eval_source("function good(): Int(isBetween(0, 10)) = 1\nvalue = good()") ==
-    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(1) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(1), source: None }])),
   )
   guard eval_source("function bad(): Int(isBetween(0, 10)) = 11\nvalue = bad()")
     is EvalError(diagnostics) else {
@@ -963,7 +963,7 @@ test "evaluate user-defined constrained Pkl callable return annotations" {
     eval_source(
       "const function above(n) = (x) -> x > n\nfunction good(): Int(above(5)) = 6\nvalue = good()",
     ) ==
-    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(6) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(6), source: None }])),
   )
   guard eval_source(
       "const function above(n) = (x) -> x > n\nfunction bad(): Int(above(5)) = 1\nvalue = bad()",
@@ -987,8 +987,8 @@ test "evaluate user-defined constrained Pkl class method return annotations" {
     ) ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "counter", value: ObjectValue([]) },
-        ValueMember::{ name: "value", value: IntValue(6) },
+        ValueMember::{ name: "counter", value: ObjectValue([]), source: None },
+        ValueMember::{ name: "value", value: IntValue(6), source: None },
       ]),
     ),
   )
@@ -1012,7 +1012,7 @@ test "evaluate user-defined constrained Pkl callable arguments" {
     eval_source(
       "const function above(n) = (x) -> x > n\nfunction check(n: Int(above(5))) = n\nvalue = check(6)",
     ) ==
-    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(6) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(6), source: None }])),
   )
   guard eval_source(
       "const function above(n) = (x) -> x > n\nfunction check(n: Int(above(5))) = n\nvalue = check(1)",
@@ -1036,8 +1036,8 @@ test "evaluate user-defined constrained Pkl class method arguments" {
     ) ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "counter", value: ObjectValue([]) },
-        ValueMember::{ name: "value", value: IntValue(6) },
+        ValueMember::{ name: "counter", value: ObjectValue([]), source: None },
+        ValueMember::{ name: "value", value: IntValue(6), source: None },
       ]),
     ),
   )
@@ -1061,7 +1061,7 @@ test "evaluate typealiased Pkl callable return annotations" {
     eval_source(
       "typealias Small = Int\nfunction good(): Small = 1\nvalue = good()",
     ) ==
-    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(1) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(1), source: None }])),
   )
   guard eval_source(
       "typealias Small = Int\nfunction bad(): Small = \"hawk\"\nvalue = bad()",
@@ -1079,7 +1079,7 @@ test "evaluate typealiased Pkl callable return annotations" {
     eval_source(
       "typealias Small = Int(isBetween(0, 10))\nfunction good(): Small = 6\nvalue = good()",
     ) ==
-    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(6) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(6), source: None }])),
   )
   guard eval_source(
       "typealias Small = Int(isBetween(0, 10))\nfunction bad(): Small = 11\nvalue = bad()",
@@ -1103,8 +1103,8 @@ test "evaluate typealiased Pkl class method return annotations" {
     ) ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "counter", value: ObjectValue([]) },
-        ValueMember::{ name: "value", value: IntValue(1) },
+        ValueMember::{ name: "counter", value: ObjectValue([]), source: None },
+        ValueMember::{ name: "value", value: IntValue(1), source: None },
       ]),
     ),
   )
@@ -1279,7 +1279,7 @@ test "enforce Pkl constrained function parameter annotations" {
     eval_source(
       "function accept(n: Int(isBetween(0, 10))) = n\nlocal f = accept\nvalue = f(3)",
     ) ==
-    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(3) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "value", value: IntValue(3), source: None }])),
   )
   guard eval_source(
       "function accept(n: Int(isBetween(0, 10))) = n\nlocal f = accept\nvalue = f(11)",

@@ -10,7 +10,7 @@ fn collect_class_bindings(
           name: class_decl.name,
           parent_name: class_decl.parent_name,
           properties: class_decl.properties,
-          methods: class_decl.methods,
+          methods: class_decl.methods
         })
       FunctionDeclaration(_) | TypeAliasDeclaration(_) => ()
     }
@@ -49,7 +49,7 @@ fn add_imported_class_bindings(
             name: "\{decl.import_name}.\{class_export.name}",
             parent_name,
             properties: class_export.properties,
-            methods: class_export.methods,
+            methods: class_export.methods
           })
         }
       None => ()
@@ -67,7 +67,7 @@ fn class_exports_from_parse_result(parsed : ParseResult) -> Array[ClassExport] {
           name: class_decl.name,
           parent_name: class_decl.parent_name,
           properties: class_decl.properties,
-          methods: class_decl.methods,
+          methods: class_decl.methods
         })
       FunctionDeclaration(_) | TypeAliasDeclaration(_) => ()
     }
@@ -371,7 +371,7 @@ fn eval_program(
               name: class_export.name,
               parent_name: class_export.parent_name,
               properties: class_export.properties,
-              methods: class_export.methods,
+              methods: class_export.methods
             })
           }
         None => ()
@@ -410,7 +410,7 @@ fn eval_program(
           diagnostics,
           resolve_import,
         ) {
-        Some(value) => members.push({ name: binding.name, value })
+        Some(value) => members.push({ name: binding.name, value, source: None })
         None => ()
       }
       continue
@@ -491,7 +491,7 @@ fn eval_program(
               type_aliases,
               diagnostics,
             ) {
-            members.push({ name: binding.name, value })
+            members.push({ name: binding.name, value, source: None })
           }
         }
         None => ()
@@ -531,7 +531,7 @@ fn eval_program(
               Some(value) =>
                 members.push({
                   name: hidden_member_name(function_decl.name),
-                  value,
+                  value, source: None
                 })
               None => ()
             }
@@ -750,7 +750,7 @@ fn rewrite_walk(
                 declarations,
                 diagnostics,
                 resolve_import,
-              ),
+              ), source: None
             })
           } else {
             next.push(field)

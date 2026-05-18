@@ -1209,7 +1209,7 @@ fn run_pkl_examples_test(
   match lookup_module_member(value, "examples") {
     Some(examples_value) => {
       let envelope = @pkl.ObjectValue([
-        { name: "examples", value: examples_value },
+        { name: "examples", value: examples_value, source: None },
       ])
       let rendered = @pkl.render_value(envelope) + "\n"
       let golden_path = path + "-expected.pcf"
@@ -1403,6 +1403,7 @@ fn strip_null_object_properties(value : @pkl.Value) -> @pkl.Value {
         kept.push({
           name: entry.name,
           value: strip_null_object_properties(entry.value),
+          source: None,
         })
       }
       @pkl.ObjectValue(kept)

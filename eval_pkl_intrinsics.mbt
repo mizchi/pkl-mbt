@@ -211,11 +211,11 @@ fn semver_value(
     None => NullValue
   }
   ObjectValue([
-    { name: "major", value: IntValue(major) },
-    { name: "minor", value: IntValue(minor) },
-    { name: "patch", value: IntValue(patch) },
-    { name: "preRelease", value: pre_value },
-    { name: "build", value: build_value },
+    { name: "major", value: IntValue(major), source: None },
+    { name: "minor", value: IntValue(minor), source: None },
+    { name: "patch", value: IntValue(patch), source: None },
+    { name: "preRelease", value: pre_value, source: None },
+    { name: "build", value: build_value, source: None },
   ])
 }
 

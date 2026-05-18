@@ -581,8 +581,8 @@ test "Number constraint predicate accepts both Int and Float" {
     eval_source("a: Number(isPositive) = 3\nb: Number(isPositive) = 0.5") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: IntValue(3) },
-        ValueMember::{ name: "b", value: FloatValue(0.5) },
+        ValueMember::{ name: "a", value: IntValue(3), source: None },
+        ValueMember::{ name: "b", value: FloatValue(0.5), source: None },
       ]),
     ),
   )
@@ -604,7 +604,7 @@ test "read built-in resolves env: scheme to the host env variable" {
   assert_true(
     eval_source("res = read(\"env:PKL_MBT_TEST_VAR\")") ==
     EvalOk(
-      ObjectValue([ValueMember::{ name: "res", value: StringValue("hello") }]),
+      ObjectValue([ValueMember::{ name: "res", value: StringValue("hello"), source: None }]),
     ),
   )
   @env.unset_env_var("PKL_MBT_TEST_VAR")
@@ -728,7 +728,7 @@ test "trace built-in passes the value through unchanged" {
   // to be observable.
   assert_true(
     eval_source("res = trace(42)") ==
-    EvalOk(ObjectValue([ValueMember::{ name: "res", value: IntValue(42) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: IntValue(42), source: None }])),
   )
 }
 
@@ -736,7 +736,7 @@ test "trace built-in passes the value through unchanged" {
 test "trace built-in composes inside expressions" {
   assert_true(
     eval_source("res = trace(2) + trace(3)") ==
-    EvalOk(ObjectValue([ValueMember::{ name: "res", value: IntValue(5) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: IntValue(5), source: None }])),
   )
 }
 
@@ -763,14 +763,14 @@ test "pkl:reflect exposes builtin type mirror constants" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "intMirror", value: StringValue("pkl.base#Int") },
+        ValueMember::{ name: "intMirror", value: StringValue("pkl.base#Int"), source: None },
         ValueMember::{
           name: "stringMirror",
-          value: StringValue("pkl.base#String"),
+          value: StringValue("pkl.base#String"), source: None
         },
         ValueMember::{
           name: "booleanMirror",
-          value: StringValue("pkl.base#Boolean"),
+          value: StringValue("pkl.base#Boolean"), source: None
         },
       ]),
     ),
@@ -894,9 +894,9 @@ test "pkl:math composes with Listing builtins" {
             IntValue(1),
             IntValue(9),
             IntValue(4),
-          ]),
+          ]), source: None
         },
-        ValueMember::{ name: "result", value: IntValue(9) },
+        ValueMember::{ name: "result", value: IntValue(9), source: None },
       ]),
     ),
   )
@@ -908,8 +908,8 @@ test "null-coalescing operator returns the left side when non-null" {
     eval_source("a = 7\nb = a ?? 42") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: IntValue(7) },
-        ValueMember::{ name: "b", value: IntValue(7) },
+        ValueMember::{ name: "a", value: IntValue(7), source: None },
+        ValueMember::{ name: "b", value: IntValue(7), source: None },
       ]),
     ),
   )
@@ -921,8 +921,8 @@ test "null-coalescing operator falls through to the right side when null" {
     eval_source("a = null\nb = a ?? 42") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: NullValue },
-        ValueMember::{ name: "b", value: IntValue(42) },
+        ValueMember::{ name: "a", value: NullValue, source: None },
+        ValueMember::{ name: "b", value: IntValue(42), source: None },
       ]),
     ),
   )
@@ -934,9 +934,9 @@ test "null-coalescing chains right-associatively" {
     eval_source("a = null\nb = null\nc = a ?? b ?? 99") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: NullValue },
-        ValueMember::{ name: "b", value: NullValue },
-        ValueMember::{ name: "c", value: IntValue(99) },
+        ValueMember::{ name: "a", value: NullValue, source: None },
+        ValueMember::{ name: "b", value: NullValue, source: None },
+        ValueMember::{ name: "c", value: IntValue(99), source: None },
       ]),
     ),
   )
@@ -946,7 +946,7 @@ test "null-coalescing chains right-associatively" {
 test "let-expression introduces a single scoped binding" {
   assert_true(
     eval_source("result = let (x = 5) x * 2") ==
-    EvalOk(ObjectValue([ValueMember::{ name: "result", value: IntValue(10) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "result", value: IntValue(10), source: None }])),
   )
 }
 
@@ -956,8 +956,8 @@ test "let-expression body can reference outer bindings" {
     eval_source("base = 3\nresult = let (square = base * base) square + 1") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "base", value: IntValue(3) },
-        ValueMember::{ name: "result", value: IntValue(10) },
+        ValueMember::{ name: "base", value: IntValue(3), source: None },
+        ValueMember::{ name: "result", value: IntValue(10), source: None },
       ]),
     ),
   )
@@ -967,7 +967,7 @@ test "let-expression body can reference outer bindings" {
 test "let-expression nests with inner shadowing" {
   assert_true(
     eval_source("result = let (x = 1) let (x = x + 10) let (x = x * 2) x") ==
-    EvalOk(ObjectValue([ValueMember::{ name: "result", value: IntValue(22) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "result", value: IntValue(22), source: None }])),
   )
 }
 
@@ -977,8 +977,8 @@ test "let-expression composes with null-coalescing" {
     eval_source("raw = null\nresult = let (fallback = 99) raw ?? fallback") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "raw", value: NullValue },
-        ValueMember::{ name: "result", value: IntValue(99) },
+        ValueMember::{ name: "raw", value: NullValue, source: None },
+        ValueMember::{ name: "result", value: IntValue(99), source: None },
       ]),
     ),
   )
@@ -995,9 +995,9 @@ test "object body when-conditional picks the then-branch on true" {
         ValueMember::{
           name: "result",
           value: ObjectValue([
-            ValueMember::{ name: "always", value: IntValue(1) },
-            ValueMember::{ name: "flag", value: StringValue("yes") },
-          ]),
+            ValueMember::{ name: "always", value: IntValue(1), source: None },
+            ValueMember::{ name: "flag", value: StringValue("yes"), source: None },
+          ]), source: None
         },
       ]),
     ),
@@ -1015,9 +1015,9 @@ test "object body when-conditional picks the else-branch on false" {
         ValueMember::{
           name: "result",
           value: ObjectValue([
-            ValueMember::{ name: "always", value: IntValue(1) },
-            ValueMember::{ name: "flag", value: StringValue("no") },
-          ]),
+            ValueMember::{ name: "always", value: IntValue(1), source: None },
+            ValueMember::{ name: "flag", value: StringValue("no"), source: None },
+          ]), source: None
         },
       ]),
     ),
@@ -1036,8 +1036,8 @@ test "object body when-conditional without else drops members on false" {
         ValueMember::{
           name: "result",
           value: ObjectValue([
-            ValueMember::{ name: "always", value: IntValue(1) },
-          ]),
+            ValueMember::{ name: "always", value: IntValue(1), source: None },
+          ]), source: None
         },
       ]),
     ),
@@ -1051,9 +1051,9 @@ test "object body when-conditional without else drops members on false" {
         ValueMember::{
           name: "result",
           value: ObjectValue([
-            ValueMember::{ name: "always", value: IntValue(1) },
-            ValueMember::{ name: "flag", value: StringValue("yes") },
-          ]),
+            ValueMember::{ name: "always", value: IntValue(1), source: None },
+            ValueMember::{ name: "flag", value: StringValue("yes"), source: None },
+          ]), source: None
         },
       ]),
     ),
@@ -1069,12 +1069,12 @@ test "object body when-conditional reads outer bindings" {
     ) ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "stage", value: StringValue("prod") },
+        ValueMember::{ name: "stage", value: StringValue("prod"), source: None },
         ValueMember::{
           name: "result",
           value: ObjectValue([
-            ValueMember::{ name: "replicas", value: IntValue(3) },
-          ]),
+            ValueMember::{ name: "replicas", value: IntValue(3), source: None },
+          ]), source: None
         },
       ]),
     ),
@@ -1092,10 +1092,10 @@ test "object body when-conditional emits multiple members per branch" {
         ValueMember::{
           name: "result",
           value: ObjectValue([
-            ValueMember::{ name: "a", value: IntValue(1) },
-            ValueMember::{ name: "b", value: IntValue(2) },
-            ValueMember::{ name: "d", value: IntValue(4) },
-          ]),
+            ValueMember::{ name: "a", value: IntValue(1), source: None },
+            ValueMember::{ name: "b", value: IntValue(2), source: None },
+            ValueMember::{ name: "d", value: IntValue(4), source: None },
+          ]), source: None
         },
       ]),
     ),
@@ -1114,7 +1114,7 @@ test "object body for-generator iterates a Listing with one variable" {
       ObjectValue([
         ValueMember::{
           name: "result",
-          value: ObjectValue([ValueMember::{ name: "last", value: IntValue(3) }]),
+          value: ObjectValue([ValueMember::{ name: "last", value: IntValue(3), source: None }]), source: None
         },
       ]),
     ),
@@ -1132,9 +1132,9 @@ test "object body for-generator binds index and element with two variables" {
         ValueMember::{
           name: "result",
           value: ObjectValue([
-            ValueMember::{ name: "idx", value: IntValue(2) },
-            ValueMember::{ name: "val", value: IntValue(30) },
-          ]),
+            ValueMember::{ name: "idx", value: IntValue(2), source: None },
+            ValueMember::{ name: "val", value: IntValue(30), source: None },
+          ]), source: None
         },
       ]),
     ),
@@ -1152,9 +1152,9 @@ test "object body for-generator binds key and value over a Mapping" {
         ValueMember::{
           name: "result",
           value: ObjectValue([
-            ValueMember::{ name: "lastKey", value: StringValue("b") },
-            ValueMember::{ name: "lastVal", value: IntValue(2) },
-          ]),
+            ValueMember::{ name: "lastKey", value: StringValue("b"), source: None },
+            ValueMember::{ name: "lastVal", value: IntValue(2), source: None },
+          ]), source: None
         },
       ]),
     ),
@@ -1171,7 +1171,7 @@ test "object body for-generator contributes no members on an empty source" {
       ObjectValue([
         ValueMember::{
           name: "result",
-          value: ObjectValue([ValueMember::{ name: "base", value: IntValue(1) }]),
+          value: ObjectValue([ValueMember::{ name: "base", value: IntValue(1), source: None }]), source: None
         },
       ]),
     ),
@@ -1186,12 +1186,12 @@ test "object body for-generator sees outer-scope bindings" {
     ) ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "scale", value: IntValue(10) },
+        ValueMember::{ name: "scale", value: IntValue(10), source: None },
         ValueMember::{
           name: "result",
           value: ObjectValue([
-            ValueMember::{ name: "last", value: IntValue(30) },
-          ]),
+            ValueMember::{ name: "last", value: IntValue(30), source: None },
+          ]), source: None
         },
       ]),
     ),
@@ -1209,7 +1209,7 @@ test "object body for-generator composes with when-conditionals" {
       ObjectValue([
         ValueMember::{
           name: "result",
-          value: ObjectValue([ValueMember::{ name: "last", value: IntValue(4) }]),
+          value: ObjectValue([ValueMember::{ name: "last", value: IntValue(4), source: None }]), source: None
         },
       ]),
     ),
@@ -1370,8 +1370,8 @@ test "typealiased class method argument annotation enforces the alias constraint
 ///|
 test "render Pkl module bindings as Java Properties" {
   let value : Value = ObjectValue([
-    ValueMember::{ name: "name", value: StringValue("pigeon") },
-    ValueMember::{ name: "age", value: IntValue(30) },
+    ValueMember::{ name: "name", value: StringValue("pigeon"), source: None },
+    ValueMember::{ name: "age", value: IntValue(30), source: None },
   ])
   inspect(
     render_value_as_properties(value),
@@ -1386,13 +1386,13 @@ test "render Pkl module bindings as Java Properties" {
 ///|
 test "Properties renderer flattens nested Pkl objects with dotted keys" {
   let value : Value = ObjectValue([
-    ValueMember::{ name: "name", value: StringValue("pigeon") },
+    ValueMember::{ name: "name", value: StringValue("pigeon"), source: None },
     ValueMember::{
       name: "address",
       value: ObjectValue([
-        ValueMember::{ name: "street", value: StringValue("Norton St.") },
-        ValueMember::{ name: "zip", value: IntValue(12345) },
-      ]),
+        ValueMember::{ name: "street", value: StringValue("Norton St."), source: None },
+        ValueMember::{ name: "zip", value: IntValue(12345), source: None },
+      ]), source: None
     },
   ])
   inspect(
@@ -1415,7 +1415,7 @@ test "Properties renderer flattens Mapping with coerced keys" {
         ValueEntry::{ key: StringValue("one"), value: IntValue(1) },
         ValueEntry::{ key: IntValue(2), value: BoolValue(true) },
         ValueEntry::{ key: NullValue, value: StringValue("nullish") },
-      ]),
+      ]), source: None
     },
   ])
   inspect(
@@ -1432,14 +1432,14 @@ test "Properties renderer flattens Mapping with coerced keys" {
 ///|
 test "Properties renderer omits null leaves" {
   let value : Value = ObjectValue([
-    ValueMember::{ name: "name", value: StringValue("pigeon") },
-    ValueMember::{ name: "friend", value: NullValue },
+    ValueMember::{ name: "name", value: StringValue("pigeon"), source: None },
+    ValueMember::{ name: "friend", value: NullValue, source: None },
     ValueMember::{
       name: "address",
       value: ObjectValue([
-        ValueMember::{ name: "street", value: StringValue("Norton St.") },
-        ValueMember::{ name: "fax", value: NullValue },
-      ]),
+        ValueMember::{ name: "street", value: StringValue("Norton St."), source: None },
+        ValueMember::{ name: "fax", value: NullValue, source: None },
+      ]), source: None
     },
   ])
   inspect(
@@ -1457,13 +1457,13 @@ test "Properties renderer emits Listings as compact JSON values" {
   let value : Value = ObjectValue([
     ValueMember::{
       name: "list",
-      value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+      value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]), source: None
     },
     ValueMember::{
       name: "mixed",
-      value: ListingValue([StringValue("string"), BoolValue(true), IntValue(42)]),
+      value: ListingValue([StringValue("string"), BoolValue(true), IntValue(42)]), source: None
     },
-    ValueMember::{ name: "empty", value: ListingValue([]) },
+    ValueMember::{ name: "empty", value: ListingValue([]), source: None },
   ])
   // `:` inside the nested object key/value separator is escaped per
   // Java properties rules. Brackets, braces, commas, and quotes pass
@@ -1485,11 +1485,11 @@ test "Properties renderer emits Listing of nested objects" {
     ValueMember::{
       name: "items",
       value: ListingValue([
-        ObjectValue([ValueMember::{ name: "one", value: IntValue(1) }]),
+        ObjectValue([ValueMember::{ name: "one", value: IntValue(1), source: None }]),
         ObjectValue([
-          ValueMember::{ name: "name", value: StringValue("Pigeon") },
+          ValueMember::{ name: "name", value: StringValue("Pigeon"), source: None },
         ]),
-      ]),
+      ]), source: None
     },
   ])
   inspect(

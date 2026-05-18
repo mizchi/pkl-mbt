@@ -32,7 +32,7 @@ fn reflect_reflectee_name(members : Array[ValueMember]) -> String? {
 
 ///|
 /// PKL-143: project the property declarations of a class as a
-/// `Listing<{name: String, typeName: String?}>`. Returns an empty
+/// `Listing<{name: String, typeName: String?, source: None}>`. Returns an empty
 /// listing when the class isn't found in `declarations`.
 fn reflect_class_properties(
   class_name : String,
@@ -50,8 +50,8 @@ fn reflect_class_properties(
             }
             result.push(
               ObjectValue([
-                { name: "name", value: StringValue(prop.name) },
-                { name: "typeName", value: type_value },
+                { name: "name", value: StringValue(prop.name), source: None },
+                { name: "typeName", value: type_value, source: None },
               ]),
             )
           }
@@ -64,7 +64,7 @@ fn reflect_class_properties(
 
 ///|
 /// PKL-143: project the method declarations of a class as a
-/// `Listing<{name: String, returnTypeName: String?, parameterTypeNames: Listing<String?>}>`.
+/// `Listing<{name: String, returnTypeName: String?, parameterTypeNames: Listing<String?>, source: None}>`.
 fn reflect_class_methods(
   class_name : String,
   declarations : Array[Declaration],
@@ -90,11 +90,11 @@ fn reflect_class_methods(
             }
             result.push(
               ObjectValue([
-                { name: "name", value: StringValue(fn_decl.name) },
-                { name: "returnTypeName", value: return_value },
+                { name: "name", value: StringValue(fn_decl.name), source: None },
+                { name: "returnTypeName", value: return_value, source: None },
                 {
                   name: "parameterTypeNames",
-                  value: ListingValue(parameter_types),
+                  value: ListingValue(parameter_types), source: None
                 },
               ]),
             )
@@ -122,10 +122,10 @@ fn reflect_class_supertype(
           match class_decl.parent_name {
             Some(parent) =>
               return ObjectValue([
-                { name: "reflectee", value: StringValue(parent) },
+                { name: "reflectee", value: StringValue(parent), source: None },
                 {
                   name: hidden_member_name("__kind"),
-                  value: StringValue("Class"),
+                  value: StringValue("Class"), source: None
                 },
               ])
             None => return NullValue
@@ -149,8 +149,8 @@ fn reflect_module_classes(declarations : Array[Declaration]) -> Value {
       ClassDeclaration(class_decl) =>
         result.push(
           ObjectValue([
-            { name: "reflectee", value: StringValue(class_decl.name) },
-            { name: hidden_member_name("__kind"), value: StringValue("Class") },
+            { name: "reflectee", value: StringValue(class_decl.name), source: None },
+            { name: hidden_member_name("__kind"), value: StringValue("Class"), source: None },
           ]),
         )
       _ => ()
@@ -392,7 +392,7 @@ fn rename_overrides_for_hidden_class_properties(
     if hidden_hit {
       renamed.push({
         name: hidden_member_name(value_member.name),
-        value: value_member.value,
+        value: value_member.value, source: None
       })
     } else {
       renamed.push(value_member)
@@ -439,7 +439,7 @@ fn merge_value_members(
       Some(value) =>
         merged.push({
           name: value_member.name,
-          value: deep_merge_amend_value(value_member.value, value),
+          value: deep_merge_amend_value(value_member.value, value), source: None
         })
       None => merged.push(value_member)
     }
@@ -554,7 +554,7 @@ fn all_eval_bindings(program : Program) -> Array[Binding] {
                 function_decl.return_type_name,
               ),
               exported: false,
-              abstract_slot: false,
+              abstract_slot: false
             })
           None => ()
         }

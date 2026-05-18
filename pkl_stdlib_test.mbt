@@ -4,10 +4,10 @@ test "Int.toChar() projects a Unicode code point to a String" {
     eval_source("a = 65\nA = a.toChar()\nz = 122\nlowercase_z = z.toChar()") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: IntValue(65) },
-        ValueMember::{ name: "A", value: StringValue("A") },
-        ValueMember::{ name: "z", value: IntValue(122) },
-        ValueMember::{ name: "lowercase_z", value: StringValue("z") },
+        ValueMember::{ name: "a", value: IntValue(65), source: None },
+        ValueMember::{ name: "A", value: StringValue("A"), source: None },
+        ValueMember::{ name: "z", value: IntValue(122), source: None },
+        ValueMember::{ name: "lowercase_z", value: StringValue("z"), source: None },
       ]),
     ),
   )
@@ -23,9 +23,9 @@ test "Int builtins compose with String / Listing pipelines" {
       ObjectValue([
         ValueMember::{
           name: "xs",
-          value: ListingValue([IntValue(10), IntValue(255), IntValue(16)]),
+          value: ListingValue([IntValue(10), IntValue(255), IntValue(16)]), source: None
         },
-        ValueMember::{ name: "hex_csv", value: StringValue("a,ff,10") },
+        ValueMember::{ name: "hex_csv", value: StringValue("a,ff,10"), source: None },
       ]),
     ),
   )
@@ -41,10 +41,10 @@ test "pkl:math exposes Int range constants" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "max32", value: IntValue(2147483647) },
-        ValueMember::{ name: "min32", value: IntValue(-2147483648) },
-        ValueMember::{ name: "max", value: IntValue(2147483647) },
-        ValueMember::{ name: "min", value: IntValue(-2147483648) },
+        ValueMember::{ name: "max32", value: IntValue(2147483647), source: None },
+        ValueMember::{ name: "min32", value: IntValue(-2147483648), source: None },
+        ValueMember::{ name: "max", value: IntValue(2147483647), source: None },
+        ValueMember::{ name: "min", value: IntValue(-2147483648), source: None },
       ]),
     ),
   )
@@ -60,12 +60,12 @@ test "pkl:math exposes Int abs, min, max functions" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "abs_neg", value: IntValue(7) },
-        ValueMember::{ name: "abs_pos", value: IntValue(4) },
-        ValueMember::{ name: "mn", value: IntValue(3) },
-        ValueMember::{ name: "mx", value: IntValue(8) },
-        ValueMember::{ name: "mn_eq", value: IntValue(5) },
-        ValueMember::{ name: "mx_eq", value: IntValue(5) },
+        ValueMember::{ name: "abs_neg", value: IntValue(7), source: None },
+        ValueMember::{ name: "abs_pos", value: IntValue(4), source: None },
+        ValueMember::{ name: "mn", value: IntValue(3), source: None },
+        ValueMember::{ name: "mx", value: IntValue(8), source: None },
+        ValueMember::{ name: "mn_eq", value: IntValue(5), source: None },
+        ValueMember::{ name: "mx_eq", value: IntValue(5), source: None },
       ]),
     ),
   )
@@ -134,7 +134,7 @@ test "generic class declaration parses without error" {
   }
   assert_true(
     box_value ==
-    Some(ObjectValue([ValueMember::{ name: "value", value: IntValue(5) }])),
+    Some(ObjectValue([ValueMember::{ name: "value", value: IntValue(5), source: None }])),
   )
 }
 
@@ -203,7 +203,7 @@ test "Float literal evaluates as FloatValue" {
   // mixed-arithmetic and constraint cascade tests stack on top.
   assert_true(
     eval_source("res = 3.14") ==
-    EvalOk(ObjectValue([ValueMember::{ name: "res", value: FloatValue(3.14) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: FloatValue(3.14), source: None }])),
   )
 }
 
@@ -225,7 +225,7 @@ test "Float arithmetic widens Int operands" {
 test "Float comparison accepts Int / Float mix" {
   assert_true(
     eval_source("res = 1.5 < 2") ==
-    EvalOk(ObjectValue([ValueMember::{ name: "res", value: BoolValue(true) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: BoolValue(true), source: None }])),
   )
 }
 
@@ -311,7 +311,7 @@ test "PKL-111: Modulo widens on Float operands" {
 test "Float annotation accepts Float value" {
   assert_true(
     eval_source("res: Float = 3.14") ==
-    EvalOk(ObjectValue([ValueMember::{ name: "res", value: FloatValue(3.14) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: FloatValue(3.14), source: None }])),
   )
 }
 
@@ -321,8 +321,8 @@ test "Number annotation accepts Int and Float" {
     eval_source("a: Number = 5\nb: Number = 2.5") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: IntValue(5) },
-        ValueMember::{ name: "b", value: FloatValue(2.5) },
+        ValueMember::{ name: "a", value: IntValue(5), source: None },
+        ValueMember::{ name: "b", value: FloatValue(2.5), source: None },
       ]),
     ),
   )
@@ -332,7 +332,7 @@ test "Number annotation accepts Int and Float" {
 test "Float constraint predicate accepts in-range Float" {
   assert_true(
     eval_source("res: Float(isPositive) = 1.5") ==
-    EvalOk(ObjectValue([ValueMember::{ name: "res", value: FloatValue(1.5) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: FloatValue(1.5), source: None }])),
   )
 }
 
@@ -352,7 +352,7 @@ test "Float constraint predicate rejects out-of-range Float" {
 test "Float isBetween accepts inclusive endpoints" {
   assert_true(
     eval_source("res: Float(isBetween(0, 10)) = 5.5") ==
-    EvalOk(ObjectValue([ValueMember::{ name: "res", value: FloatValue(5.5) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: FloatValue(5.5), source: None }])),
   )
 }
 
@@ -360,7 +360,7 @@ test "Float isBetween accepts inclusive endpoints" {
 test "PKL-112: Float isBetween accepts Float thresholds in range" {
   assert_true(
     eval_source("res: Float(isBetween(0.5, 1.5)) = 1.0") ==
-    EvalOk(ObjectValue([ValueMember::{ name: "res", value: FloatValue(1.0) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: FloatValue(1.0), source: None }])),
   )
 }
 
@@ -382,7 +382,7 @@ test "PKL-112: Float isBetween with Float thresholds rejects out-of-range" {
 test "PKL-112: Float isGreaterThan accepts Float threshold" {
   assert_true(
     eval_source("res: Float(isGreaterThan(0.5)) = 0.75") ==
-    EvalOk(ObjectValue([ValueMember::{ name: "res", value: FloatValue(0.75) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: FloatValue(0.75), source: None }])),
   )
 }
 
@@ -444,7 +444,7 @@ test "PKL-113: == accepts null against nullable binding" {
 test "PKL-114: is Int evaluates to true for Int value" {
   assert_true(
     eval_source("res = 5 is Int") ==
-    EvalOk(ObjectValue([ValueMember::{ name: "res", value: BoolValue(true) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: BoolValue(true), source: None }])),
   )
 }
 
@@ -452,7 +452,7 @@ test "PKL-114: is Int evaluates to true for Int value" {
 test "PKL-114: is Float evaluates to true for Float value" {
   assert_true(
     eval_source("res = 1.5 is Float") ==
-    EvalOk(ObjectValue([ValueMember::{ name: "res", value: BoolValue(true) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: BoolValue(true), source: None }])),
   )
 }
 
@@ -460,7 +460,7 @@ test "PKL-114: is Float evaluates to true for Float value" {
 test "PKL-114: is Int evaluates to false for String value" {
   assert_true(
     eval_source("res = \"x\" is Int") ==
-    EvalOk(ObjectValue([ValueMember::{ name: "res", value: BoolValue(false) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: BoolValue(false), source: None }])),
   )
 }
 
@@ -470,9 +470,9 @@ test "PKL-114: is Number evaluates to true for Int and Float values" {
     eval_source("a = 5 is Number\nb = 1.5 is Number\nc = \"x\" is Number") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: BoolValue(true) },
-        ValueMember::{ name: "b", value: BoolValue(true) },
-        ValueMember::{ name: "c", value: BoolValue(false) },
+        ValueMember::{ name: "a", value: BoolValue(true), source: None },
+        ValueMember::{ name: "b", value: BoolValue(true), source: None },
+        ValueMember::{ name: "c", value: BoolValue(false), source: None },
       ]),
     ),
   )
@@ -484,13 +484,13 @@ test "PKL-114: is guard branches on runtime type" {
     eval_source(
       "function f(x: Number): Int = if (x is Int) x + 1 else 0\nres = f(5)",
     ) ==
-    EvalOk(ObjectValue([ValueMember::{ name: "res", value: IntValue(6) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: IntValue(6), source: None }])),
   )
   assert_true(
     eval_source(
       "function f(x: Number): Int = if (x is Int) x + 1 else 0\nres = f(2.5)",
     ) ==
-    EvalOk(ObjectValue([ValueMember::{ name: "res", value: IntValue(0) }])),
+    EvalOk(ObjectValue([ValueMember::{ name: "res", value: IntValue(0), source: None }])),
   )
 }
 
@@ -677,11 +677,11 @@ test "PKL-148h: Listing.toList() projects to a ListValue" {
       ObjectValue([
         ValueMember::{
           name: "xs",
-          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]), source: None
         },
         ValueMember::{
           name: "ys",
-          value: ListValue([IntValue(1), IntValue(2), IntValue(3)]),
+          value: ListValue([IntValue(1), IntValue(2), IntValue(3)]), source: None
         },
       ]),
     ),

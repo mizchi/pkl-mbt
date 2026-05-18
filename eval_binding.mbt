@@ -212,7 +212,7 @@ fn push_receiver_method_bindings(
     if is_invisible_member_name(value_member.name) {
       method_cache.push({
         name: strip_member_visibility_prefix(value_member.name),
-        value: value_member.value,
+        value: value_member.value
       })
     }
   }
@@ -230,7 +230,7 @@ fn push_super_dispatch_marker(
 ) -> Unit {
   method_cache.push({
     name: "@current_class",
-    value: StringValue(current_class),
+    value: StringValue(current_class)
   })
 }
 
@@ -277,7 +277,7 @@ fn push_sibling_class_methods(
               class_method.return_type_name,
               captured_env,
               fresh_function_id(),
-            ),
+            )
           })
         None => ()
       }
@@ -311,7 +311,7 @@ fn tag_object_with_class(
     }
   }
   let tagged : Array[ValueMember] = [
-    { name: tag_name, value: StringValue(class_name) },
+    { name: tag_name, value: StringValue(class_name), source: None },
   ]
   for m in members {
     tagged.push(m)
@@ -384,10 +384,10 @@ fn synth_class_mirror_for_value(value : Value) -> Value {
 /// for anything other than `simpleName` / `name`.
 fn synth_class_mirror_for_name(name : String) -> Value {
   ObjectValue([
-    { name: hidden_member_name("__kind"), value: StringValue("Class") },
-    { name: hidden_member_name("reflectee"), value: StringValue(name) },
-    { name: "simpleName", value: StringValue(name) },
-    { name: "name", value: StringValue(name) },
+    { name: hidden_member_name("__kind"), value: StringValue("Class"), source: None },
+    { name: hidden_member_name("reflectee"), value: StringValue(name), source: None },
+    { name: "simpleName", value: StringValue(name), source: None },
+    { name: "name", value: StringValue(name), source: None },
   ])
 }
 

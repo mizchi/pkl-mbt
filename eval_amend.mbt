@@ -358,20 +358,20 @@ fn apply_predicate_members_to_object(
                     let updated : Array[ValueMember] = []
                     for p in pair_members {
                       if p.name == "@value" {
-                        updated.push({ name: "@value", value: v })
+                        updated.push({ name: "@value", value: v, source: None })
                       } else {
                         updated.push(p)
                       }
                     }
                     result[i] = {
                       name: target_member.name,
-                      value: ObjectValue(updated),
+                      value: ObjectValue(updated), source: None
                     }
                   }
                   _ => ()
                 }
               } else {
-                result[i] = { name: target_member.name, value: v }
+                result[i] = { name: target_member.name, value: v, source: None }
               }
             None => ()
           }
@@ -431,7 +431,7 @@ fn eval_listing_subscript_amend(
       type_name: field.type_name,
       value: field.value,
       exported: true,
-      abstract_slot: false,
+      abstract_slot: false
     })
   }
   let bindings = augmented_bindings
@@ -687,7 +687,7 @@ fn eval_mapping_amend(
       type_name: field.type_name,
       value: field.value,
       exported: true,
-      abstract_slot: false,
+      abstract_slot: false
     })
   }
   let bindings = augmented_bindings
@@ -877,7 +877,7 @@ fn eval_class_default_members(
             defaults.push({
               name: property.name,
               type_name: property.type_name,
-              value,
+              value
             })
           None => ()
         }
@@ -934,7 +934,7 @@ fn eval_class_default_members(
       } else {
         defaults_cache.push({
           name: value_member.name,
-          value: value_member.value,
+          value: value_member.value
         })
       }
     }

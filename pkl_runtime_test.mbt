@@ -194,7 +194,7 @@ test "PKL-106: module-paths are stored in CLI order" {
 ///|
 test "PKL-125: YAML literal block scalar clips with single trailing newline" {
   let v : Value = ObjectValue([
-    ValueMember::{ name: "p", value: StringValue("line one\nline two\n") },
+    ValueMember::{ name: "p", value: StringValue("line one\nline two\n"), source: None },
   ])
   inspect(
     render_value_as_yaml(v),
@@ -210,7 +210,7 @@ test "PKL-125: YAML literal block scalar clips with single trailing newline" {
 ///|
 test "PKL-125: YAML literal block scalar strips with no trailing newline" {
   let v : Value = ObjectValue([
-    ValueMember::{ name: "p", value: StringValue("alpha\nbeta") },
+    ValueMember::{ name: "p", value: StringValue("alpha\nbeta"), source: None },
   ])
   inspect(
     render_value_as_yaml(v),
@@ -226,7 +226,7 @@ test "PKL-125: YAML literal block scalar strips with no trailing newline" {
 ///|
 test "PKL-125: YAML literal block scalar keeps with multi trailing newlines" {
   let v : Value = ObjectValue([
-    ValueMember::{ name: "p", value: StringValue("alpha\nbeta\n\n\n") },
+    ValueMember::{ name: "p", value: StringValue("alpha\nbeta\n\n\n"), source: None },
   ])
   // The source string has 3 trailing newlines; the natural newline
   // after `  beta` covers one of them, so the rendered form adds 2
@@ -249,7 +249,7 @@ test "PKL-125: YAML falls back to double-quote when a line leads with space" {
   let v : Value = ObjectValue([
     ValueMember::{
       name: "p",
-      value: StringValue("first\n  cannot block\nlast"),
+      value: StringValue("first\n  cannot block\nlast"), source: None
     },
   ])
   inspect(
@@ -266,7 +266,7 @@ test "PKL-125: YAML block scalar in a sequence item indents to column 2" {
   let v : Value = ObjectValue([
     ValueMember::{
       name: "items",
-      value: ListingValue([StringValue("a\nb"), StringValue("single")]),
+      value: ListingValue([StringValue("a\nb"), StringValue("single")]), source: None
     },
   ])
   inspect(

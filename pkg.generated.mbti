@@ -340,7 +340,8 @@ pub(all) struct ValueEntry {
 pub(all) struct ValueMember {
   name : String
   value : Value
-} derive(Eq, @debug.Debug)
+  source : Expr?
+} derive(@debug.Debug)
 
 // Type aliases
 
