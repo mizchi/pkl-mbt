@@ -3343,6 +3343,45 @@ fn parse_float_text(text : String) -> Double {
 /// and parses each `\(...)` content as a Pkl expression. Strings with
 /// no interpolation segments collapse back to a plain `StringLiteral`.
 fn parse_string_literal_text(text : String) -> Expr {
+  // PKL-148an: raw string literal `<N #s>"..."<N #s>` (single-line)
+  // or `<N #s>"""..."""<N #s>` (heredoc). The lexer pairs a leading
+  // run of `#`s with the same count on the close. Strip both runs +
+  // the opening / closing quotes; emit the inner text verbatim with
+  // no `\` escape decoding and no `\(...)` interpolation. Heredoc
+  // indent stripping still applies — Apple Pkl drops the leading
+  // newline and the closing delimiter's indentation in raw heredocs
+  // the same way it does for the non-raw form.
+  if text.length() >= 2 && text.has_prefix("#") {
+    let mut hash_count = 0
+    while hash_count < text.length() &&
+          text[hash_count].to_int().unsafe_to_char() == '#' {
+      hash_count = hash_count + 1
+    }
+    if hash_count >= 1 &&
+      hash_count + 1 <= text.length() &&
+      text[hash_count].to_int().unsafe_to_char() == '"' {
+      let is_heredoc = text.length() >= hash_count * 2 + 6 &&
+        hash_count + 2 < text.length() &&
+        text[hash_count + 1].to_int().unsafe_to_char() == '"' &&
+        text[hash_count + 2].to_int().unsafe_to_char() == '"'
+      if is_heredoc {
+        let inner = strip_heredoc_indent(
+          String::unsafe_substring(
+            text,
+            start=hash_count + 3,
+            end=text.length() - hash_count - 3,
+          ),
+        )
+        return StringLiteral(inner)
+      }
+      let inner = String::unsafe_substring(
+        text,
+        start=hash_count + 1,
+        end=text.length() - hash_count - 1,
+      )
+      return StringLiteral(inner)
+    }
+  }
   // Strip the surrounding quotes (if present) but track the inner text
   // so escape sequences and interpolations can be split independently.
   // PKL-128: a triple-quoted heredoc (`"""..."""`) strips its leading

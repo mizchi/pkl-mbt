@@ -1303,6 +1303,7 @@ local upstreamSmoke = new Test {
     "PKL-148aj"
     "PKL-148ak"
     "PKL-148al"
+    "PKL-148an"
   }
   cmd = "./scripts/upstream-smoke.sh"
   workdir = ".."

@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklRawStringLiteralScenario = new Scenario {
+  id = "PKL-148an"
+  name = "raw string literal with arbitrary hash count for single-line and heredoc forms"
+  description =
+    "Apple Pkl's raw string literal — `#\"...\"#` (single-line) or `#\"\"\"...\"\"\"#` (heredoc), with an arbitrary number of leading `#`s that the closing delimiter must match — passes the inner text through verbatim. `\\` escape sequences (`\\n`, `\\t`, `\\\\`) are NOT interpreted, `\\(...)` is NOT an interpolation marker, and only the matching `\\<N #>(...)` form (which this slice does not yet implement) re-enables interpolation. pkl-mbt's lexer previously fell off the `#` character into the regular token path; the parser then surfaced every raw literal as `unsupported expression`. The fix has two halves. (1) The lexer counts the leading `#` run, requires a `\"` (or `\"\"\"`) immediately after, and scans for a matching `\"<N #>` (or `\"\"\"<N #>`) close. Newlines terminate single-line raw strings the same way the non-raw form would. (2) `parse_string_literal_text` detects a `#` prefix on the captured token, computes the hash count, strips the prefix / suffix, and emits the inner text as a verbatim `StringLiteral` — no escape decoding, no interpolation walk. Heredoc indent stripping still applies via `strip_heredoc_indent`, matching Apple Pkl's non-raw heredoc behaviour. No PCF count change — `basic/rawString` stalls on res28 which uses `\\#(...)` interpolation inside a `#\"...\"#` raw, and the api/* fixtures that use raw strings (api/baseModule, api/jsonParser1/2, api/regex, api/string, api/stringUnicode, api/set, api/mapping, api/listing, api/stringMultiline*, etc.) each have additional snippetTest framework / stdlib surface needs before they flip. But the parse-error class shrinks substantially: 17 fixtures drop out of the `unsupported expression` set (43 → 26), unblocking diagnosis of the next layer of failures."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148al" }
+  tags { "parser"; "lexer"; "strings"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Support arbitrary leading `#` count in the lexer rather than hard-coding the single-hash form"
+      rationale =
+        "Apple Pkl's fixture suite (basic/rawString res25-res34) exercises 1- to 5-hash forms (`#`, `##`, `###`, `####`, `#####`). Hard-coding the single-hash case would parse only res1-res24 and surface `unsupported expression` for every multi-hash literal — and the api/* renderer fixtures use multi-hash forms heavily inside their gold output. Implementing the count once is the same code volume as the single-hash case (one loop counting leading `#`s, two loops scanning the close with the captured count) and avoids a follow-up slice that would touch the same lexer arm."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Defer the `\\<N #>(expr)` interpolation arm to a follow-up slice"
+      rationale =
+        "Raw interpolation is the higher-effort half of the feature — the segment walker has to recognise an N-hash escape inside the raw text, walk the balanced `(...)` group, route the segment through `parse_source` (same shape as the non-raw `\\(...)` case), and concatenate the parts into a `StringConcat` Expr. Doing it in this slice would gate the lexer fix behind a much larger parser change; staging the lexer + verbatim parser landing first lets the next slice focus purely on the interpolation walker without bisecting blame across two unrelated changes. The flip-blocking fixtures (basic/rawString res28-res31, api/regex, etc.) all depend on the interpolation arm; landing it as PKL-148ap (or similar) is straightforward once the lexer surface is in."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Raw heredoc indent stripping reuses `strip_heredoc_indent` rather than a dedicated path"
+      rationale =
+        "Apple Pkl's `#\"\"\"...\"\"\"#` shape leaves the leading-newline trim and the close-delimiter-indent dedent untouched — the raw flag only disables escape / interpolation interpretation, not the structural indent processing. Reusing the existing helper keeps the indent semantics identical to non-raw heredocs (basic/stringMultiline gold-match) so the raw form behaves predictably under the same source-shape rules without a per-shape divergence."
+    }
+  }
+}
+
 local pklPcfHeredocAndDynamicOrderingScenario = new Scenario {
   id = "PKL-148al"
   name = "PCF triple-quoted heredoc form plus Dynamic property-before-element projection"
@@ -5393,5 +5425,6 @@ scenarios {
   pklObjectBodyMemberHeaderDispatchScenario
   pklDeferredPropertyErrorSentinelRoutingScenario
   pklPcfHeredocAndDynamicOrderingScenario
+  pklRawStringLiteralScenario
   ...roadmap.entries
 }

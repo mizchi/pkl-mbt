@@ -277,6 +277,78 @@ fn Lexer::next_token(self : Lexer) -> Token {
     }
     return Token::new(int_token(), self.slice_from(start))
   }
+  // PKL-148an: raw string literal — `#"..."#` (single-line) or
+  // `#"""..."""#` (heredoc). Apple Pkl allows an arbitrary number
+  // of leading `#`s; the closing delimiter must carry the same
+  // count. Inside a raw string `\` escape sequences and `\(...)`
+  // interpolation are NOT interpreted (verbatim text). The
+  // `\<N hashes>(expr)` form re-enables interpolation, but that's a
+  // follow-up — the lexer simply scans until the matching close.
+  if c == '#' {
+    let mut hash_count = 0
+    while self.pos + hash_count < self.len &&
+          self.char_at(self.pos + hash_count) == '#' {
+      hash_count = hash_count + 1
+    }
+    let quote_pos = self.pos + hash_count
+    if hash_count >= 1 && quote_pos < self.len && self.char_at(quote_pos) == '"' {
+      let is_heredoc = quote_pos + 2 < self.len &&
+        self.char_at(quote_pos + 1) == '"' &&
+        self.char_at(quote_pos + 2) == '"'
+      if is_heredoc {
+        let mut p = quote_pos + 3
+        // Need to find `"""` + hash_count `#`s.
+        let needed = 3 + hash_count
+        while p + needed - 1 < self.len {
+          if self.char_at(p) == '"' &&
+            self.char_at(p + 1) == '"' &&
+            self.char_at(p + 2) == '"' {
+            let mut ok = true
+            for i = 0; i < hash_count; i = i + 1 {
+              if self.char_at(p + 3 + i) != '#' {
+                ok = false
+                break
+              }
+            }
+            if ok {
+              self.pos = p + 3 + hash_count
+              return Token::new(string_token(), self.slice_from(start))
+            }
+          }
+          p = p + 1
+        }
+        self.pos = self.len
+        return Token::new(string_token(), self.slice_from(start))
+      }
+      // Single-line raw: scan until `"` + hash_count `#`s, OR newline
+      // (which ends the literal token; Apple Pkl flags that as a
+      // lex / parse error but our recovery just stops the token).
+      let mut p = quote_pos + 1
+      let needed = 1 + hash_count
+      while p + needed - 1 < self.len {
+        let ch = self.char_at(p)
+        if ch == '"' {
+          let mut ok = true
+          for i = 0; i < hash_count; i = i + 1 {
+            if self.char_at(p + 1 + i) != '#' {
+              ok = false
+              break
+            }
+          }
+          if ok {
+            self.pos = p + 1 + hash_count
+            return Token::new(string_token(), self.slice_from(start))
+          }
+        }
+        if ch == '\n' {
+          break
+        }
+        p = p + 1
+      }
+      self.pos = p
+      return Token::new(string_token(), self.slice_from(start))
+    }
+  }
   if c == '"' {
     // PKL-128: triple-quoted heredoc (`"""..."""`). Apple Pkl strips
     // the leading newline + the closing delimiter's indentation from
