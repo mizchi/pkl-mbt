@@ -115,4 +115,4 @@ git submodule update --init --recursive
 ./scripts/upstream-parse-suite.sh
 ```
 
-CI (`.github/workflows/ci.yml`) runs the same gate on every push / PR. 175 implemented pkspec scenarios; see `SPEC.md` for the full rendered spec.
+CI (`.github/workflows/ci.yml`) runs the same gate on every push / PR. 176 implemented pkspec scenarios; see `SPEC.md` for the full rendered spec.

@@ -1896,6 +1896,32 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklPostfixTripleDotBailScenario = new Scenario {
+  id = "PKL-148aq"
+  name = "postfix expression bails on triple-dot spread after bare element"
+  description =
+    "Apple Pkl's `{ 0\\n  ...listing }` and `{ 3...IntSeq(4, 10) }` are listing-body forms where a bare element is immediately followed by the spread operator. pkl-mbt's `parse_postfix_expr` walks postfix continuations (member access, calls, subscripts, amends) after every primary expression and crosses newlines for dot-chains (`xs\\n  .toList()`). The newline-aware peek treated the first `.` of `...listing` as a member-access continuation: the loop advanced past the trivia, the member-access arm bumped `.` expecting an identifier, found another `.`, recorded an `unsupported expression` token, and bailed — the body parser's `at_triple_dot` branch never saw the spread. The fix peeks for three consecutive `.` tokens; when stacked, the postfix loop breaks unconditionally so the body parser can route the spread through its existing `parse_spread_payload` path. Three fixtures drop out of the `unsupported expression` class (23 → 20): generators/spreadSyntaxDynamic, generators/spreadSyntaxListing, generators/spreadSyntaxNoSpace. No PCF flip — those fixtures still need the for-generator-spread combo and typed spread-target inference (`res1: Listing = new { ...listing }` currently produces an Object rather than honouring the annotation, and `for (elem in nested) { ...elem }` inside a listing body still needs the listing-aware generator output)."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148ap" }
+  tags { "parser"; "postfix"; "spread"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Bail from the postfix loop entirely on triple-dot rather than just suppressing trivia consumption"
+      rationale =
+        "An earlier sketch tried to keep the postfix loop running by only suppressing the trivia-skip when triple-dot is ahead. That still left the loop's `self.at(dot())` arm active — `0` followed immediately by `...` (no whitespace, e.g. `3...IntSeq(4, 10)`) would still enter the member-access path and consume the first dot. Breaking out of the loop entirely lets the caller's `at_triple_dot` arm see the spread untouched, which is the only correct interpretation when three dots are stacked (Apple Pkl rejects `0.1.2` etc.; member access on a numeric literal isn't a real surface)."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Peek via raw token indices instead of a higher-level helper"
+      rationale =
+        "`at_triple_dot` already exists for the body parser's spread branch, but it reads from `self.pos`. The postfix loop needs to look past the trivia run to a `trivia_end` index that may differ from `self.pos`. Inlining the three-index dot check is the same shape as `at_triple_dot` but offset-based; reusing the helper would require changing its signature to take a start index, which `at_triple_dot`'s other callers don't need. The inline check is six lines and keeps the helper API untouched."
+    }
+  }
+}
+
 local pklAmendChainAndUnionContinuationScenario = new Scenario {
   id = "PKL-148ap"
   name = "amend chain plus multi-line union typealias plus listing element append"
@@ -5498,5 +5524,6 @@ scenarios {
   pklRawStringLiteralScenario
   pklRawStringInterpolationScenario
   pklAmendChainAndUnionContinuationScenario
+  pklPostfixTripleDotBailScenario
   ...roadmap.entries
 }

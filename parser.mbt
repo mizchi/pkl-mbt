@@ -1832,6 +1832,22 @@ fn Parser::parse_postfix_expr(self : Parser) -> Expr {
     } else {
       self.tokens[trivia_end].kind()
     }
+    // PKL-148aq: `next_kind == dot()` is normally a member-access
+    // continuation, but a run of three consecutive `.`s is the
+    // spread operator (`...listing`). When the dot-chain heuristic
+    // would consume `.` from a spread that follows a bare element
+    // (`{ 0\n  ...listing }` or `{ 3...IntSeq(...) }`), the inner
+    // member parser then bumps `.` looking for an identifier, finds
+    // another `.`, and surfaces `unsupported expression`. Bail out
+    // of the entire postfix loop when three dots are stacked so the
+    // caller's `at_triple_dot` arm picks up the spread.
+    let is_triple_dot = trivia_end + 2 < self.len &&
+      self.tokens[trivia_end].kind() == dot() &&
+      self.tokens[trivia_end + 1].kind() == dot() &&
+      self.tokens[trivia_end + 2].kind() == dot()
+    if is_triple_dot {
+      break
+    }
     if next_kind == dot() || next_kind == qdot() {
       // PKL-107: pull byte_offset along with self.pos so subsequent
       // position-tagged diagnostics still point at the right source
