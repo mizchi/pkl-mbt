@@ -534,7 +534,13 @@ async fn load_path(
     fail("module \{path} is not allowed by --allowed-modules")
   }
   if stack_contains(stack, path) {
-    fail("cyclic import \{path}")
+    // PKL-148bb: ignore the back-edge of a type-only import cycle so
+    // the loader still walks parsed-out class declarations for the
+    // earlier modules; the runtime EvalResult of the back-edge module
+    // is materialised as an empty `ObjectValue` (see analysis.mbt) so
+    // the value-side binding doesn't fail. Real cycles through value
+    // references resurface as a downstream lookup error.
+    return
   }
   // Skip files that have already been loaded in this run. Without this
   // guard a module that both `extends` and `import`s the same base

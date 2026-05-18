@@ -879,7 +879,25 @@ fn eval_class_default_members(
               type_name: property.type_name,
               value
             })
-          None => ()
+          None =>
+            // PKL-148bb: a typed property declared without a default
+            // (`bar: Bar?`) synthesises a null default when the type
+            // is nullable so the instance still renders the slot
+            // (`modules/recursiveModule1`: `new Foo {}` rendered
+            // `{}` instead of `{ bar = null }`).
+            match property.type_name {
+              Some(name) => {
+                let trimmed = pkl_constraint_trim(name)
+                if trimmed.has_suffix("?") {
+                  base_values.push({
+                    name: property.name,
+                    value: NullValue,
+                    source: None,
+                  })
+                }
+              }
+              None => ()
+            }
         }
       }
       for method_decl in class_binding.methods {

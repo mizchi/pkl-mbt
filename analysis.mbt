@@ -453,7 +453,15 @@ fn eval_module_path(
   stack : Array[String],
 ) -> EvalResult {
   if stack_contains(stack, path) {
-    return EvalError([diag("cyclic import \{path}")])
+    // PKL-148bb: a cyclic import where the cycle only travels through
+    // type-position references (`class Bar { foo: M1.Foo }` inside M2
+    // imported back into M1) is legal in Apple Pkl — the type info is
+    // extracted through the parallel `resolve_import_classes` walk
+    // which parses without evaluating. Return an empty module value
+    // so the value-side import binding doesn't fail; if any actual
+    // value reference closes the cycle, the downstream `Cannot find
+    // property` diagnostic will surface there. (`modules/recursiveModule1`.)
+    return EvalOk(ObjectValue([]))
   }
   match get_module_source(sources, rt, path) {
     Some(source) =>
