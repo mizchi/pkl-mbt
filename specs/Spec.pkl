@@ -1896,6 +1896,32 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklListingAmendGeneratorToleranceScenario = new Scenario {
+  id = "PKL-148y"
+  name = "listing amend body tolerates when for spread generator members"
+  description =
+    "Apple Pkl accepts `(listing) { when (cond) {...}; for (...) {...}; ...x; [N] = value }` — generator members (when / for / spread) inside a listing-amend body splice their payload into the running listing before subsequent `[N]` subscripts apply. pkl-mbt's `eval_listing_subscript_amend` only handled `@subscript$<offset>` sentinels and bailed with `object amendment expects Object` on anything else; `listings2/wrongIndex` exercises this exact shape (`when (false) {0}` followed by `[3] = \"barn owl\"`). The fix extends the per-member loop: when the member is `@when` / `@for` / `@spread` / `@element$<offset>`, evaluate the value and splice the resulting ListingValue / ListValue / SetValue elements onto the end of `result`; NullValue and other empty shapes contribute nothing. Subsequent `@subscript$<offset>` entries see the grown listing, so out-of-range diagnostics still surface against the post-generator length. +1 fixture (`listings2/wrongIndex`), 122 → 123; listings2 category 10.0% → 20.0%."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148x" }
+  tags { "evaluator"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Splice generator payloads in-order during the per-member loop instead of two-phase evaluation"
+      rationale =
+        "Apple Pkl's amend-time semantics evaluate generators and subscripts in source order; a `when` block earlier in the body can grow the listing so a later `[N]` lands in-bounds. A two-phase approach (run all generators first, then run all subscripts) would diverge from upstream when the same body mixes both shapes with cross-dependencies. The single-pass splice keeps `result` as the running listing and matches the source-order eval."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Silently swallow non-listing generator payloads instead of surfacing a diagnostic"
+      rationale =
+        "A `when (false) {0}` evaluates the false branch which produces an empty listing (or no value at all). Pushing a diagnostic for `Some(_)` payloads that aren't list-shaped would noise every fixture using `when` inside listing amend; Apple Pkl tolerates these by treating them as empty. The fix mirrors that — only `None` (genuine eval failure) propagates as a return-None."
+    }
+  }
+}
+
 local pklDynamicShapeViaSentinelsScenario = new Scenario {
   id = "PKL-148x"
   name = "Dynamic value shape via element and subscript sentinel members"
@@ -4982,5 +5008,6 @@ scenarios {
   pklClassParentTypealiasResolutionScenario
   pklListingSubscriptAmendScenario
   pklDynamicShapeViaSentinelsScenario
+  pklListingAmendGeneratorToleranceScenario
   ...roadmap.entries
 }

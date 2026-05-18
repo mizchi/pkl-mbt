@@ -10758,6 +10758,41 @@ fn eval_listing_subscript_amend(
     result.push(v)
   }
   for field in members {
+    // PKL-148y: tolerate `when` / `for` / spread generator members
+    // inside a listing-amend body (`(listing) { when (cond) { ... };
+    // [N] = value }`). Evaluate the generator; splice any
+    // ListingValue / ListValue / SetValue payload onto the end of
+    // the current `result` so subsequent `[N]` subscripts see the
+    // grown listing. NullValue and empty-listing payloads contribute
+    // nothing — matches Apple Pkl's amend-time generator semantics.
+    if field.name == "@when" ||
+      field.name == "@for" ||
+      field.name == "@spread" ||
+      field.name.has_prefix("@element$") {
+      match
+        eval_expr_with_bindings(
+          field.value,
+          bindings,
+          env,
+          class_env,
+          cache,
+          stack,
+          declarations,
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(ListingValue(extras))
+        | Some(ListValue(extras))
+        | Some(SetValue(extras)) =>
+          for v in extras {
+            result.push(v)
+          }
+        Some(NullValue) => ()
+        Some(_) => ()
+        None => return None
+      }
+      continue
+    }
     if !field.name.has_prefix("@subscript$") {
       diagnostics.push(diag("object amendment expects Object"))
       return None

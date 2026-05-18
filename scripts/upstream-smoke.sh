@@ -134,6 +134,7 @@ GOLD_FIXTURES=(
   "listings/wrongIndex"
   "generators/spreadSyntaxTyped"
   "generators/forGeneratorNestedReference2"
+  "listings2/wrongIndex"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output
