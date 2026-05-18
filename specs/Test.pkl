@@ -908,7 +908,10 @@ local cliHeredocString = new Test {
   cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_heredoc_string.pkl"
   workdir = ".."
   expectStdoutContains {
-    "greeting = \"hello\\nworld\""
+    // PKL-148al: multi-line strings now project as PCF triple-quoted
+    // heredocs at block positions (matching Apple Pkl); single-line
+    // strings keep the escape form.
+    "greeting = \"\"\""
     "flat = \"no indent here\""
   }
   timeoutSec = 120
@@ -1299,6 +1302,7 @@ local upstreamSmoke = new Test {
     "PKL-148ai"
     "PKL-148aj"
     "PKL-148ak"
+    "PKL-148al"
   }
   cmd = "./scripts/upstream-smoke.sh"
   workdir = ".."
@@ -1426,7 +1430,7 @@ local upstreamSmoke = new Test {
     "upstream eval ok: basic/letTyped (gold match)"
     "upstream json eval ok: api/jsonRenderer1.json (gold match)"
     "upstream eval ok: api/pListRenderer1.plist (gold match)"
-    "upstream-smoke: 144 gold-match fixtures passed"
+    "upstream-smoke: 145 gold-match fixtures passed"
     "upstream-smoke: 1 json gold-match fixtures passed"
     "upstream-smoke: 1 plist gold-match fixtures passed"
   }

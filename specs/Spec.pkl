@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklPcfHeredocAndDynamicOrderingScenario = new Scenario {
+  id = "PKL-148al"
+  name = "PCF triple-quoted heredoc form plus Dynamic property-before-element projection"
+  description =
+    "Apple Pkl's PCF renderer has two output conventions that pkl-mbt was missing. (1) A StringValue containing at least one `\\n` at a block position (property value, mapping entry value, listing element) renders as a triple-quoted heredoc — `lastName = \"\"\"<newline><indent>line1<newline><indent>line2<newline><indent>\"\"\"` — with content lines and the closing `\"\"\"` sitting at one consistent indent that depends on whether the heredoc is a property value (indent + 2 from the name) or a bare element (same as the element's own indent). Inline contexts (`List(\"a\\nb\")`, `Pair(\"x\\ny\", 2)`) keep the single-line `\\n`-escaped form. Empty content lines preserve the indent verbatim (Apple Pkl emits `<indent>\\n`, not a bare `\\n`). (2) A Dynamic-shape body's PCF projection groups every named property before every bare element / mapping subscript entry, regardless of source order — `barnOwl { name = \"barn owl\"; \"surfing\"; age = 42; \"fire making\" }` projects as `barnOwl { name = ...; age = ...; \"surfing\"; \"fire making\" }`, not source-order. The fix lives entirely in eval.mbt's PCF renderer: a new `render_pcf_string_heredoc(s, indent, buf)` helper plus a `string_split_newline` walker, gated by an `indent > 0 && value is StringValue(s) && s.contains(\"\\n\")` check inside `render_pcf_inline`; matching `field.value is StringValue(s) && s.contains(\"\\n\")` arms in `render_pcf_object_member` and `render_pcf_mapping_entry` so property / mapping values pick up the same heredoc form with `indent + 2`; and a partition step at the head of `render_pcf_block_body`'s ObjectValue arm that splits `visible_members` into a named bucket and an `@element$` / `@subscript$` bucket, emitting named first. +1 fixture (`api/pcfRenderer1`), 144 → 145; api category 7.4% → 8.4%."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148ak" }
+  tags { "renderer"; "pcf"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "Heredoc form keyed on `indent > 0 && StringValue contains \"\\n\"` rather than a per-call-site flag"
+      rationale =
+        "Plumbing a `block_position` bool through every render call site (PairValue, SetValue, ListValue inline elements; ListingValue / ObjectValue block elements; mapping entries; property values) would double-touch every existing render path for a single new rule. The `indent` parameter is already 0 in inline contexts (Pair / List / Set elements pass 0 down to nested values) and > 0 in block contexts (ListingValue block elements pass indent+2). Keying the heredoc decision on `indent > 0` lets `render_pcf_inline` route the new branch without a new parameter, and the property / mapping-entry sites pick up the same shape by adding a sibling arm that matches the same predicate before falling through to `render_pcf_scalar`."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Content indent argument is the value-position indent, not the heredoc body indent"
+      rationale =
+        "Apple Pkl emits property heredocs with content at name-indent + 2 (`lastName = \"\"\"` → content at 6 spaces when name is at 4) but bare-element heredocs with content at the element's own indent (the element's `\"\"\"` and content lines sit at the same column). The caller already knows which case it is — `render_pcf_object_member` has the name's indent and passes `indent + 2`; `render_pcf_inline` has the element's indent and passes `indent` verbatim. `render_pcf_string_heredoc` itself is dumb: it writes the opening `\"\"\"` inline, then a newline + indent + content for each segment, then a final newline + indent + closing `\"\"\"`. Keeping the helper indent-agnostic means the per-call-site arithmetic stays localised and easy to audit."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Property / element ordering partitioned at render-time, not at construction-time"
+      rationale =
+        "Apple Pkl's projection convention sorts properties before elements only at output; the underlying member order matters for source-order semantics (later members shadow earlier ones, the `@element$<offset>` sentinel encodes the original source byte offset so re-emit round-trips). Reshuffling at `eval_object_members` would change the stored shape and risk breaking the offset-based element-sentinel naming. Doing the partition inside `render_pcf_block_body`'s ObjectValue arm keeps the eval-side representation unchanged and matches what the renderer already does for other PCF-specific shapes (`@subscript$` decode, `@element$` strip)."
+    }
+  }
+}
+
 local pklDeferredPropertyErrorSentinelRoutingScenario = new Scenario {
   id = "PKL-148ak"
   name = "deferred property error sentinel hides from output and fires on bare identifier reads"
@@ -5360,5 +5392,6 @@ scenarios {
   pklLiteralTypeUnionAndStringAffixPredicatesScenario
   pklObjectBodyMemberHeaderDispatchScenario
   pklDeferredPropertyErrorSentinelRoutingScenario
+  pklPcfHeredocAndDynamicOrderingScenario
   ...roadmap.entries
 }

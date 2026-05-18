@@ -1,6 +1,6 @@
 # Test SPEC
 
-256 tests across 2 module(s) — 191 pending, 65 active
+257 tests across 2 module(s) — 192 pending, 65 active
 
 ## `specs/`
 
@@ -144,6 +144,13 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-148j
   - decisions: 2 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **PCF triple-quoted heredoc form plus Dynamic property-before-element projection** (minor) — verifies: PKL-148al — tags: renderer, pcf, upstream, compat
+  > Apple Pkl's PCF renderer has two output conventions that pkl-mbt was missing. (1) A StringValue containing at least one `\n` at a block position (property value, mapping entry value, listing element) renders as a triple-quoted heredoc — `lastName = """<newline><indent>line1<newline><indent>line2<newline><indent>"""` — with content lines and the closing `"""` sitting at one consistent indent that depends on whether the heredoc is a property value (indent + 2 from the name) or a bare element (same as the element's own indent). Inline contexts (`List("a\nb")`, `Pair("x\ny", 2)`) keep the single-line `\n`-escaped form. Empty content lines preserve the indent verbatim (Apple Pkl emits `<indent>\n`, not a bare `\n`). (2) A Dynamic-shape body's PCF projection groups every named property before every bare element / mapping subscript entry, regardless of source order — `barnOwl { name = "barn owl"; "surfing"; age = 42; "fire making" }` projects as `barnOwl { name = ...; age = ...; "surfing"; "fire making" }`, not source-order. The fix lives entirely in eval.mbt's PCF renderer: a new `render_pcf_string_heredoc(s, indent, buf)` helper plus a `string_split_newline` walker, gated by an `indent > 0 && value is StringValue(s) && s.contains("\n")` check inside `render_pcf_inline`; matching `field.value is StringValue(s) && s.contains("\n")` arms in `render_pcf_object_member` and `render_pcf_mapping_entry` so property / mapping values pick up the same heredoc form with `indent + 2`; and a partition step at the head of `render_pcf_block_body`'s ObjectValue arm that splits `visible_members` into a named bucket and an `@element$` / `@subscript$` bucket, emitting named first. +1 fixture (`api/pcfRenderer1`), 144 → 145; api category 7.4% → 8.4%.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-148ak
+  - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **Pair Value variant** — verifies: PKL-119a — tags: evaluator, typechecker, stdlib
@@ -1060,10 +1067,10 @@
   - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **super late binding amend lambda form class-aware object equality** [draft] — verifies: PKL-148al — tags: evaluator, stdlib, upstream, compat, next
-  > PKL-148ai added the string-literal singleton type arm and `endsWith` / `startsWith` / `contains` string constraint predicates (+1 fixture, 141 → 142; basic 53.5% → 54.7%); PKL-148aj collapsed the object-body member-header into one pass and taught `parse_inferred_new_body` to peek through arbitrary modifier prefixes so `const`-led members route to `parse_object_body` instead of being lost in `parse_listing_body` (+1 fixture, 142 → 143; basic 54.7% → 55.8%); PKL-148ak folded the `@error$` deferred-rejection prefix into the invisible-member set, hoisted the sentinel into per-field env, and added an Identifier intercept so `test.catch(() -> bad_local)` captures the deferred diagnostic against typed locals (+1 fixture, 143 → 144; basic 55.8% → 57.0%). The harder remaining pieces — all of which require non-local evaluator work — are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this, needed for `objects/super2` / `super3` / `super4`, `classes/supercallsInLet`, and `basic/moduleRef3`'s `const a = 44` override of the parent's `aa = module.a`); the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambda*` fixtures); runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`); constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13); class-aware ObjectValue tagging so `new Person {} != new Person2 {}` (needed for `objects/equality`'s c-block + composite Mapping keys in `mappings/mapping1` that PKL-148k currently sidesteps via a scalar-only duplicate-check gate — a prototype hidden `__class` marker landed in PKL-148i but was reverted after it broke 14 structural-equality unit tests; the right shape is a dedicated `ObjectValue(class_name: String?, members)` enum-shape refactor); the `pipeOperator` res11 diagnostic also needs the class-aware tag to project `pipeOperator#Person` / `new Person {}`; object-body amend chain (`(obj) { ... } { ... }` — needed for `objects/equality` a11); free-form (non-literal) amend-override rejections (`(res3) { y = expr }` against `Int(this > x)` constraints — gated today on the upstream forward-binding leak where a sibling object's `local x = 1` resolves into a later object body's identifier lookup); listing/mapping body re-eval on amend so listing `(x) {}` / `default = N` work (needed for `listings/equality`, `listings/inequality`, `mappings/equality`, `mappings/inequality`). Listing/List-method receiver-tag preservation (`list.map(...)` returns a List, `listing.map(...)` returns a Listing) is a sub-task too; today the dispatcher always re-wraps as ListingValue. Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along.
+- [ ] **super late binding amend lambda form class-aware object equality** [draft] — verifies: PKL-148am — tags: evaluator, stdlib, upstream, compat, next
+  > PKL-148ak folded the `@error$` deferred-rejection prefix into the invisible-member set, hoisted the sentinel into per-field env, and added an Identifier intercept so `test.catch(() -> bad_local)` captures the deferred diagnostic against typed locals (+1 fixture, 143 → 144; basic 55.8% → 57.0%); PKL-148al added the PCF triple-quoted heredoc form for multi-line strings at block positions and reordered Dynamic-shape projection so named properties land before bare elements / subscript entries (+1 fixture, 144 → 145; api 7.4% → 8.4%). The harder remaining pieces — all of which require non-local evaluator work — are: full Apple-Pkl `super.X` late binding (re-evaluate the parent's RHS against the amended this, needed for `objects/super2` / `super3` / `super4`, `classes/supercallsInLet`, and `basic/moduleRef3`'s `const a = 44` override of the parent's `aa = module.a`); the `(lambda) { body }` amend form for lambdas that return lambdas (used by `lambdas/amendLambda*` fixtures); runtime constraint expression eval that resolves user-defined `function` calls (`multiply(subtract(add(5,4),3),2) == z` from `classes/constraints7`); constraints firing on amend chains where the host class isn't statically known (constraints11 / 12 / 13); class-aware ObjectValue tagging so `new Person {} != new Person2 {}` (needed for `objects/equality`'s c-block + composite Mapping keys in `mappings/mapping1` that PKL-148k currently sidesteps via a scalar-only duplicate-check gate — a prototype hidden `__class` marker landed in PKL-148i but was reverted after it broke 14 structural-equality unit tests; the right shape is a dedicated `ObjectValue(class_name: String?, members)` enum-shape refactor); the `pipeOperator` res11 diagnostic also needs the class-aware tag to project `pipeOperator#Person` / `new Person {}`; object-body amend chain (`(obj) { ... } { ... }` — needed for `objects/equality` a11); free-form (non-literal) amend-override rejections (`(res3) { y = expr }` against `Int(this > x)` constraints — gated today on the upstream forward-binding leak where a sibling object's `local x = 1` resolves into a later object body's identifier lookup); listing/mapping body re-eval on amend so listing `(x) {}` / `default = N` work (needed for `listings/equality`, `listings/inequality`, `mappings/equality`, `mappings/inequality`). Listing/List-method receiver-tag preservation (`list.map(...)` returns a List, `listing.map(...)` returns a Listing) is a sub-task too; today the dispatcher always re-wraps as ListingValue. Remaining stdlib gaps (DataSize.isBinaryUnit, Duration.isBetween, jsonnet renderer module) ride along; PcfRenderer / JsonRenderer instance-method bodies (renderDocument / renderValue) plus converter dispatch (`converters { [Any] = ...; [Dog] = ... }` + regex path matching) are the next api/-shaped slice once the leverage analysis surfaces a 1-flip-per-feature angle.
   - contributes to: GOAL-PKL-PURE
-  - depends on: PKL-148ak
+  - depends on: PKL-148al
   - body: _not yet implemented_
 
 - [ ] **super method call** — verifies: PKL-117a — tags: evaluator, inheritance
@@ -1575,7 +1582,7 @@
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
-- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d, PKL-148e, PKL-148f, PKL-148g, PKL-148h, PKL-148i, PKL-148j, PKL-148k, PKL-148l, PKL-148m, PKL-148n, PKL-148o, PKL-148p, PKL-148q, PKL-148r, PKL-148s, PKL-148t, PKL-148u, PKL-148v, PKL-148w, PKL-148x, PKL-148y, PKL-148aa, PKL-148ab, PKL-148ac, PKL-148ad, PKL-148ae, PKL-148af, PKL-148ag, PKL-148ah, PKL-148ai, PKL-148aj, PKL-148ak — tags: moonbit, upstream, compatibility, contract
+- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d, PKL-148e, PKL-148f, PKL-148g, PKL-148h, PKL-148i, PKL-148j, PKL-148k, PKL-148l, PKL-148m, PKL-148n, PKL-148o, PKL-148p, PKL-148q, PKL-148r, PKL-148s, PKL-148t, PKL-148u, PKL-148v, PKL-148w, PKL-148x, PKL-148y, PKL-148aa, PKL-148ab, PKL-148ac, PKL-148ad, PKL-148ae, PKL-148af, PKL-148ag, PKL-148ah, PKL-148ai, PKL-148aj, PKL-148ak, PKL-148al — tags: moonbit, upstream, compatibility, contract
   > Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF and JSON).
   - body: `cmd` (exit 0 expected)
 
@@ -1936,7 +1943,9 @@
   - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
 - **PKL-148ak** — deferred property error sentinel hides from output and fires on bare identifier reads
   - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
-- **PKL-148al** — super late binding amend lambda form class-aware object equality
+- **PKL-148al** — PCF triple-quoted heredoc form plus Dynamic property-before-element projection
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-148am** — super late binding amend lambda form class-aware object equality
   - _No active implementation._
 - **PKL-148b** — pkl:base method surface second wave
   - test: `specs/Test.pkl` — moon unit tests

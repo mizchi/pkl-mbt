@@ -12495,9 +12495,62 @@ fn render_pcf_inline(value : Value, indent : Int, buf : StringBuilder) -> Unit {
   if pcf_is_block_value(value) {
     buf.write_string("new ")
     render_pcf_block_body(value, indent, buf)
+  } else if indent > 0 && value is StringValue(s) && s.contains("\n") {
+    // PKL-148al: block-position StringValue with at least one newline
+    // renders as a PCF triple-quoted heredoc. Apple Pkl emits the
+    // opening `"""` on the current line, content lines at the same
+    // indent as the opening for a bare element, and the closing
+    // `"""` at the same indent. inline-position contexts (indent ==
+    // 0, e.g. inside `List(...)` or `Pair(...)`) keep the
+    // single-line escape form.
+    render_pcf_string_heredoc(s, indent, buf)
   } else {
     render_pcf_scalar(value, buf)
   }
+}
+
+///|
+/// PKL-148al: PCF triple-quoted heredoc form. The body indent is the
+/// caller-supplied value (one level past the surrounding member's name).
+/// Apple Pkl preserves blank content lines as empty lines (no trailing
+/// whitespace), so an empty segment between two `Flintstone`s emits a
+/// bare newline rather than `<indent>\n`.
+fn render_pcf_string_heredoc(
+  s : String,
+  indent : Int,
+  buf : StringBuilder,
+) -> Unit {
+  buf.write_string("\"\"\"")
+  let parts = string_split_newline(s)
+  for i = 0; i < parts.length(); i = i + 1 {
+    buf.write_char('\n')
+    write_pcf_indent(buf, indent)
+    buf.write_string(parts[i])
+  }
+  buf.write_char('\n')
+  write_pcf_indent(buf, indent)
+  buf.write_string("\"\"\"")
+}
+
+///|
+/// PKL-148al: split a string on `\n` boundaries without using the
+/// stdlib `split` (which would also require a CharSet). Pure linear
+/// walk that returns the segments (empty segments preserved for
+/// consecutive newlines).
+fn string_split_newline(s : String) -> Array[String] {
+  let parts : Array[String] = []
+  let buf = StringBuilder::new()
+  for i = 0; i < s.length(); i = i + 1 {
+    let c = s[i].to_int().unsafe_to_char()
+    if c == '\n' {
+      parts.push(buf.to_string())
+      buf.reset()
+    } else {
+      buf.write_char(c)
+    }
+  }
+  parts.push(buf.to_string())
+  parts
 }
 
 ///|
@@ -12515,13 +12568,39 @@ fn render_pcf_block_body(
         buf.write_string("{}")
         return
       }
+      // PKL-148al: Apple Pkl's PCF projection of a Dynamic-shape body
+      // groups all named properties before any bare elements and
+      // mapping-style subscript entries; source-order rendering would
+      // emit `name = "barn owl"; "surfing"; age = 42` but the gold is
+      // `name = "barn owl"; age = 42; "surfing"`. Partition the
+      // visible members into (named, sentinel) buckets and emit named
+      // first, preserving each bucket's source-order. `@element$` and
+      // `@subscript$` are the dynamic-shape sentinel families; every
+      // other prefix-free name is a property.
+      let named : Array[ValueMember] = []
+      let elements : Array[ValueMember] = []
+      for field in visible {
+        if field.name.has_prefix("@element$") ||
+          field.name.has_prefix("@subscript$") {
+          elements.push(field)
+        } else {
+          named.push(field)
+        }
+      }
+      let ordered : Array[ValueMember] = []
+      for m in named {
+        ordered.push(m)
+      }
+      for m in elements {
+        ordered.push(m)
+      }
       buf.write_string("{\n")
-      for i = 0; i < visible.length(); i = i + 1 {
+      for i = 0; i < ordered.length(); i = i + 1 {
         if i > 0 {
           buf.write_char('\n')
         }
         write_pcf_indent(buf, indent + 2)
-        render_pcf_object_member(visible[i], indent + 2, buf)
+        render_pcf_object_member(ordered[i], indent + 2, buf)
       }
       buf.write_char('\n')
       write_pcf_indent(buf, indent)
@@ -12605,6 +12684,12 @@ fn render_pcf_object_member(
   if pcf_is_block_value(field.value) {
     buf.write_char(' ')
     render_pcf_block_body(field.value, indent, buf)
+  } else if field.value is StringValue(s) && s.contains("\n") {
+    // PKL-148al: property value with a multi-line string projects as
+    // a triple-quoted heredoc; opening `"""` follows the `= ` on the
+    // current line, content lines and closing live at `indent + 2`.
+    buf.write_string(" = ")
+    render_pcf_string_heredoc(s, indent + 2, buf)
   } else {
     buf.write_string(" = ")
     render_pcf_scalar(field.value, buf)
@@ -12623,6 +12708,9 @@ fn render_pcf_mapping_entry(
   if pcf_is_block_value(entry.value) {
     buf.write_char(' ')
     render_pcf_block_body(entry.value, indent, buf)
+  } else if entry.value is StringValue(s) && s.contains("\n") {
+    buf.write_string(" = ")
+    render_pcf_string_heredoc(s, indent + 2, buf)
   } else {
     buf.write_string(" = ")
     render_pcf_scalar(entry.value, buf)
