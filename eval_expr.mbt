@@ -969,6 +969,28 @@ fn eval_expr_with_bindings(
         is Some(StringValue(message)) {
         diagnostics.push(diag(message))
         None
+      } else if name == "module" {
+        // Apple Pkl exposes the current module as the identifier
+        // `module`. The value is the ObjectValue of every
+        // already-evaluated module-level binding — the snapshot lives
+        // in `cache` (populated by `eval_program` after each binding
+        // resolves). Stdlib markers (`super`, `this`, `@current_class`)
+        // are filtered out so a downstream `module.X` resolves only
+        // through the user-visible bindings, and an inline render
+        // doesn't surface them.
+        let module_members : Array[ValueMember] = []
+        for value_binding in cache {
+          if value_binding.name == "super" ||
+            value_binding.name == "this" ||
+            value_binding.name.has_prefix("@") {
+            continue
+          }
+          module_members.push({
+            name: value_binding.name,
+            value: value_binding.value,
+          })
+        }
+        Some(ObjectValue(module_members))
       } else {
         match
           resolve_binding_value(
