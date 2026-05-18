@@ -153,6 +153,7 @@ GOLD_FIXTURES=(
   "basic/localMethodUntyped"
   "basic/moduleRef1"
   "basic/moduleRef2"
+  "basic/letTyped"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output

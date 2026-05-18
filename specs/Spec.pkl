@@ -1896,6 +1896,38 @@ local intSeqValueVariantScenario = new Scenario {
   }
 }
 
+local pklLiteralTypeUnionAndStringAffixPredicatesScenario = new Scenario {
+  id = "PKL-148ai"
+  name = "string literal type union plus startsWith endsWith contains string constraints"
+  description =
+    "Apple Pkl's `\"<text>\"` is a singleton type whose only inhabitant is the literal string itself; it can appear inside a union (`Null|Boolean|\"Pigeon\"`) to narrow the acceptable set of string values. The same surface also exposes `String.startsWith(\"X\")` / `endsWith(\"X\")` / `contains(\"X\")` as constraint predicates (with `!`-prefixed negations). pkl-mbt's `eval_value_accepts_type_annotation` had no string-literal arm — the union choice `\"Pigeon\"` failed the head check, the cascade fell through to the value-mismatch path, and the `List<Null|Boolean|\"Pigeon\">` element `\"Pigeon\"` was rejected. The constraint side missed three predicates: `endsWith`, `startsWith`, `contains` (plus negations) — `String(endsWith(\"A\"))` parsed but no `pkl_string_constraint_predicate` arm produced a recogniser, so the let-typed binding `str: String(endsWith(\"A\")) = \"Pigeon\".reverse()` accepted `\"noegiP\"` and `test.catch` saw `Expected an exception, but none was thrown.` instead of the gold `Type constraint \\\\`endsWith(\\\\\"A\\\\\")\\\\` violated. Value: \\\\\"noegiP\\\\\"`. The fix has two parts. (1) `eval_value_accepts_type_annotation` checks for a leading-and-trailing `\"` on the type name; if both present, the inner text is the literal payload — a StringValue equal to the payload satisfies the singleton, anything else rejects. The PKL-148ag unresolvable gate already special-cases the `\"`-prefix head so the rejection cascade quotes the original union surface instead of `Cannot find type \\\\`\"Pigeon\"\\\\`.` (2) `ConstraintStringPredicate` gains `StringStartsWith` / `StringEndsWith` / `StringContains` plus their `Not`-prefixed twins; `pkl_string_constraint_predicate` recognises the bare and `this.`-prefixed forms with quoted-string arguments; `pkl_string_constraint_name` renders the verbatim source (`endsWith(\"A\")`) so the diagnostic lines up byte-for-byte; `pkl_string_predicate_accepts` dispatches through `value.has_prefix` / `value.has_suffix` / `value.find` for the three positive forms. +1 fixture (`basic/letTyped`), 141 → 142; basic category 53.5% → 54.7%."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148ah" }
+  tags { "evaluator"; "constraints"; "upstream"; "compat" }
+  reviewStatus = "approved"
+  severity = "minor"
+  decisions {
+    new Decision {
+      date = "2026-05-18"
+      summary = "String-literal singleton arm lives in `eval_value_accepts_type_annotation` rather than a dedicated `eval_literal_type_*` helper"
+      rationale =
+        "All other type-annotation acceptance (Int, String, Listing, user classes, generics, nullable, constrained) already routes through `eval_value_accepts_type_annotation`. Splitting literal types into a parallel helper would force every caller (cascade entry, union choice walk, etc.) to consult both — easy to forget, easy to drift. The new arm sits inside the existing cascade so the union walk in `eval_callable_argument_type_rejection_message` automatically picks it up, and the recursive shape (constraint strip → optional strip → literal head check) flows through without extra wiring."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Add `endsWith` / `startsWith` / `contains` (plus negations) as a single slice"
+      rationale =
+        "All three follow the identical surface shape (bare or `this.`-prefixed, quoted-string argument, verbatim diagnostic name) and Apple Pkl's stdlib pairs them at the same level. Splitting `endsWith` out for the immediate `basic/letTyped` flip and deferring the other two would force the cascade to grow twice in the same place, with two rounds of recogniser-and-acceptance-and-name boilerplate. Folding them into one variant family keeps the constraint cascade flat."
+    }
+    new Decision {
+      date = "2026-05-18"
+      summary = "Literal-type comparison uses byte equality on the inner payload"
+      rationale =
+        "Apple Pkl's `\"Pigeon\"` literal type matches only the exact string content (the Java implementation compares via `String.equals`). pkl-mbt's StringValue stores the raw text; `==` on MoonBit String mirrors the same semantic. Unicode normalisation, case folding, or trimming would diverge from upstream — the literal-type fixtures are precisely about exact-match. No deviation needed."
+    }
+  }
+}
+
 local pklModuleSelfRefAndAmendModuleParentFallbackScenario = new Scenario {
   id = "PKL-148ah"
   name = "module self-ref partial visibility plus amend parent member fallback"
@@ -5261,5 +5293,6 @@ scenarios {
   pklTypeRejectionWalksCollectionElementsScenario
   pklObjectBodyLocalFunctionScenario
   pklModuleSelfRefAndAmendModuleParentFallbackScenario
+  pklLiteralTypeUnionAndStringAffixPredicatesScenario
   ...roadmap.entries
 }

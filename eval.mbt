@@ -2064,6 +2064,21 @@ fn eval_value_accepts_type_annotation(
     )
     return eval_value_accepts_type_annotation(inner_name, value)
   }
+  // PKL-148ai: string-literal type annotation (`x: "Pigeon"`,
+  // `List<Null|Boolean|"Pigeon">`). The Pkl surface lets a quoted
+  // string stand in as a singleton type whose only inhabitant is the
+  // literal value itself. Match a StringValue against the unquoted
+  // payload; non-string runtimes never satisfy it.
+  if type_name.length() >= 2 &&
+    type_name.has_prefix("\"") &&
+    type_name.has_suffix("\"") {
+    let literal = String::unsafe_substring(
+      type_name,
+      start=1,
+      end=type_name.length() - 1,
+    )
+    return value is StringValue(s) && s == literal
+  }
   match (type_name, value) {
     // PKL-148e: `Any` is Apple Pkl's top type — it accepts every
     // runtime value, matching `eval_value_accepts_type_annotation`'s

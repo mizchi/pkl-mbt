@@ -1449,6 +1449,9 @@ priv enum ConstraintStringPredicate {
   StringLengthCompare(ConstraintStringLengthOp, Int)
   StringMatchesRegex(String)
   StringIsEmpty
+  StringStartsWith(String)
+  StringEndsWith(String)
+  StringContains(String)
   NotStringLengthIsBetween(Int, Int)
   NotStringLengthIsPositive
   NotStringLengthIsGreaterThan(Int)
@@ -1456,6 +1459,9 @@ priv enum ConstraintStringPredicate {
   NotStringLengthCompare(ConstraintStringLengthOp, Int)
   NotStringMatchesRegex(String)
   NotStringIsEmpty
+  NotStringStartsWith(String)
+  NotStringEndsWith(String)
+  NotStringContains(String)
 }
 
 ///|
@@ -1624,6 +1630,9 @@ fn pkl_string_constraint_predicate(text : String) -> ConstraintStringPredicate? 
       Some(StringMatchesRegex(pattern)) =>
         return Some(NotStringMatchesRegex(pattern))
       Some(StringIsEmpty) => return Some(NotStringIsEmpty)
+      Some(StringStartsWith(arg)) => return Some(NotStringStartsWith(arg))
+      Some(StringEndsWith(arg)) => return Some(NotStringEndsWith(arg))
+      Some(StringContains(arg)) => return Some(NotStringContains(arg))
       _ => return None
     }
   }
@@ -1632,6 +1641,61 @@ fn pkl_string_constraint_predicate(text : String) -> ConstraintStringPredicate? 
   // shows up without a `length.` prefix unlike `length.isPositive`).
   if trimmed == "isEmpty" || trimmed == "this.isEmpty" {
     return Some(StringIsEmpty)
+  }
+  // PKL-148ai: bare `endsWith("X")` / `startsWith("X")` / `contains("X")`
+  // (also the `this.endsWith(...)` form). The constraint name renders the
+  // argument verbatim including the quotes — gold diagnostic shape is
+  // `Type constraint `endsWith("A")` violated. Value: "noegiP"`.
+  for prefix_with_paren in ["endsWith(", "this.endsWith("] {
+    if trimmed.has_prefix(prefix_with_paren) && trimmed.has_suffix(")") {
+      let inner = String::unsafe_substring(
+        trimmed,
+        start=prefix_with_paren.length(),
+        end=trimmed.length() - 1,
+      )
+      let arg = pkl_constraint_trim(inner)
+      if arg.length() >= 2 && arg.has_prefix("\"") && arg.has_suffix("\"") {
+        return Some(
+          StringEndsWith(
+            String::unsafe_substring(arg, start=1, end=arg.length() - 1),
+          ),
+        )
+      }
+    }
+  }
+  for prefix_with_paren in ["startsWith(", "this.startsWith("] {
+    if trimmed.has_prefix(prefix_with_paren) && trimmed.has_suffix(")") {
+      let inner = String::unsafe_substring(
+        trimmed,
+        start=prefix_with_paren.length(),
+        end=trimmed.length() - 1,
+      )
+      let arg = pkl_constraint_trim(inner)
+      if arg.length() >= 2 && arg.has_prefix("\"") && arg.has_suffix("\"") {
+        return Some(
+          StringStartsWith(
+            String::unsafe_substring(arg, start=1, end=arg.length() - 1),
+          ),
+        )
+      }
+    }
+  }
+  for prefix_with_paren in ["contains(", "this.contains("] {
+    if trimmed.has_prefix(prefix_with_paren) && trimmed.has_suffix(")") {
+      let inner = String::unsafe_substring(
+        trimmed,
+        start=prefix_with_paren.length(),
+        end=trimmed.length() - 1,
+      )
+      let arg = pkl_constraint_trim(inner)
+      if arg.length() >= 2 && arg.has_prefix("\"") && arg.has_suffix("\"") {
+        return Some(
+          StringContains(
+            String::unsafe_substring(arg, start=1, end=arg.length() - 1),
+          ),
+        )
+      }
+    }
   }
   match pkl_string_length_dot_method_predicate(trimmed) {
     Some(predicate) => return Some(predicate)
@@ -1697,6 +1761,9 @@ fn pkl_string_constraint_name(predicate : ConstraintStringPredicate) -> String {
     StringLengthCompare(op, t) => "length \{pkl_string_length_op_text(op)} \{t}"
     StringMatchesRegex(pattern) => "matches(Regex(\"\{pattern}\"))"
     StringIsEmpty => "isEmpty"
+    StringStartsWith(arg) => "startsWith(\"\{arg}\")"
+    StringEndsWith(arg) => "endsWith(\"\{arg}\")"
+    StringContains(arg) => "contains(\"\{arg}\")"
     NotStringLengthIsBetween(lo, hi) => "!length.isBetween(\{lo}, \{hi})"
     NotStringLengthIsPositive => "!length.isPositive"
     NotStringLengthIsGreaterThan(t) => "!length.isGreaterThan(\{t})"
@@ -1705,6 +1772,9 @@ fn pkl_string_constraint_name(predicate : ConstraintStringPredicate) -> String {
       "!(length \{pkl_string_length_op_text(op)} \{t})"
     NotStringMatchesRegex(pattern) => "!matches(Regex(\"\{pattern}\"))"
     NotStringIsEmpty => "!isEmpty"
+    NotStringStartsWith(arg) => "!startsWith(\"\{arg}\")"
+    NotStringEndsWith(arg) => "!endsWith(\"\{arg}\")"
+    NotStringContains(arg) => "!contains(\"\{arg}\")"
   }
 }
 
@@ -1764,6 +1834,20 @@ fn pkl_string_predicate_accepts(
       }
     StringIsEmpty => len == 0
     NotStringIsEmpty => len > 0
+    StringStartsWith(arg) => value.has_prefix(arg)
+    StringEndsWith(arg) => value.has_suffix(arg)
+    StringContains(arg) =>
+      match value.find(arg) {
+        Some(_) => true
+        None => false
+      }
+    NotStringStartsWith(arg) => !value.has_prefix(arg)
+    NotStringEndsWith(arg) => !value.has_suffix(arg)
+    NotStringContains(arg) =>
+      match value.find(arg) {
+        Some(_) => false
+        None => true
+      }
   }
 }
 
