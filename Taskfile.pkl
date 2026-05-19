@@ -195,6 +195,15 @@ local coverage: Task = new {
   tools = commonTools
 }
 
+local nextTasks: Task = new {
+  name = "next-tasks"
+  description =
+    "Show the prioritised backlog for the next session: opens the umbrella tracking issue (#8) plus the live list of impact-ordered open issues. Read AGENTS.md «次に触るべきタスク» for the full triage."
+  cmd = "gh issue view 8 && echo && echo '---all open issues (impact order):' && gh issue list --state open --limit 20"
+  tools = commonTools
+  cache = false
+}
+
 local ci: Task = new {
   name = "ci"
   description = "Local CI gate for the default target"
@@ -249,6 +258,7 @@ tasks {
   specCheck
   specNext
   coverage
+  nextTasks
   ci
   releaseCheck
   preCommit
