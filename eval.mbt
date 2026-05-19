@@ -391,6 +391,10 @@ fn value_is_type(value : Value, type_name : String) -> Bool {
         ObjectValue(_) => true
         _ => false
       }
+    // PKL-148bh: `unknown` is Apple Pkl's wildcard type — accepts
+    // every runtime value (basic/newInAmendingModuleMethod's
+    // `function parrot(): unknown`).
+    "unknown" => true
     "Any" => true
     _ => false
   }

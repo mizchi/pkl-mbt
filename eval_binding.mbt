@@ -554,7 +554,11 @@ fn is_stdlib_class_name(name : String) -> Bool {
     // the enclosing module" — treat as a stdlib-accepting class name
     // so the eval-side rejection path doesn't blanket-reject every
     // signature that mentions it (types/currentModuleType*).
-    | "module" => true
+    | "module"
+    // PKL-148bh: `unknown` is Apple Pkl's "I don't care" type — same
+    // posture as `Any` for runtime rejection. Used in
+    // basic/newInAmendingModuleMethod's `function parrot(): unknown`.
+    | "unknown" => true
     _ => false
   }
 }

@@ -30,15 +30,25 @@ fn eval_expr_with_bindings(
           None
         }
       }
-    ObjectLiteral(members) =>
+    ObjectLiteral(members) => {
+      // PKL-148bh: tag the body with the current Dynamic-class marker
+      // so a bare `getClass()` inside an untyped `new { ... }` body
+      // resolves to the Dynamic mirror (matches Apple Pkl's behaviour
+      // — basic/newInAmendingModuleMethod).
+      let body_cache = copy_value_bindings(cache)
+      body_cache.push({
+        name: "@__constructing_class",
+        value: StringValue("Dynamic"),
+      })
       Some(
         ObjectValue(
           eval_object_members(
-            members, bindings, env, class_env, cache, stack, declarations, diagnostics,
-            resolve_import,
+            members, bindings, env, class_env, body_cache, stack, declarations,
+            diagnostics, resolve_import,
           ),
         ),
       )
+    }
     TypedObjectLiteral(type_name, members) => {
       let class_defaults = eval_class_default_members(
         type_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
@@ -67,6 +77,13 @@ fn eval_expr_with_bindings(
       // entry against the class's defaults.
       let body_cache = copy_value_bindings(cache)
       body_cache.push({ name: "super", value: ObjectValue(class_defaults) })
+      // PKL-148bh: stash the type currently being constructed so a
+      // bare `getClass()` inside the body resolves to this class's
+      // reflect mirror (basic/newInAmendingModuleMethod).
+      body_cache.push({
+        name: "@__constructing_class",
+        value: StringValue(type_name),
+      })
       let merged = reorder_typed_object_members_by_class_declaration(
         merge_value_members(
           class_defaults,
@@ -1527,6 +1544,23 @@ fn eval_expr_with_bindings(
             _ => None
           }
         }
+      } else if callee is Identifier("getClass") && arguments.length() == 0 &&
+        !stack_contains_binding(stack, "getClass") &&
+        find_binding(bindings, "getClass") is None &&
+        lookup_value(env, "getClass") is None &&
+        lookup_value(cache, "getClass") is None {
+        // pkl:base `getClass()` (bare, no receiver) inside an object
+        // body reads the class-being-constructed marker. Apple Pkl
+        // plumbs the implicit-receiver chain so a property body or a
+        // typed method body says `getClass().simpleName` for the
+        // surrounding type's `pkl:reflect.Class` mirror
+        // (basic/newInAmendingModuleMethod). When the marker is
+        // missing (bare module top level), fall back to "Dynamic".
+        let class_name = match lookup_value(cache, "@__constructing_class") {
+          Some(StringValue(s)) => s
+          _ => "Dynamic"
+        }
+        Some(synth_class_mirror_for_name(class_name))
       } else if callee is Identifier("TODO") &&
         !stack_contains_binding(stack, "TODO") &&
         find_binding(bindings, "TODO") is None {

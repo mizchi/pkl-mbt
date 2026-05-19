@@ -120,6 +120,9 @@ fn eval_value_accepts_type_annotation(
     // PKL-148bh: `module` is the type of the enclosing module — any
     // ObjectValue satisfies it structurally (types/currentModuleType*).
     ("module", ObjectValue(_)) => true
+    // PKL-148bh: `unknown` is Apple Pkl's wildcard return type;
+    // accept every runtime value (basic/newInAmendingModuleMethod).
+    ("unknown", _) => true
     ("Listing", ListingValue(_)) => true
     ("Mapping", MappingValue(_)) => true
     // PKL-148h: `List<T>` accepts the dedicated `ListValue`; the older
@@ -873,10 +876,27 @@ fn eval_lambda_application(
       // with the lambda parameter `s`). captured_env + parameters
       // already live in `call_cache`.
       let body_env : Array[ValueBinding] = []
+      // PKL-148bh: see `apply_function_value` — when a user-class
+      // return type wraps a bare `new { ... }` body, treat as
+      // `new T { ... }` so `getClass()` and class defaults flow.
+      let body_to_eval : Expr = match (body, return_type_name) {
+        (ObjectLiteral(members), Some(class_name)) =>
+          if class_name.contains("<") || class_name.contains("|") ||
+            class_name.contains("(") || class_name.contains("?") ||
+            class_name.contains(".") {
+            body
+          } else {
+            match lookup_class_binding(class_env, class_name) {
+              Some(_) => TypedObjectLiteral(class_name, members)
+              None => body
+            }
+          }
+        _ => body
+      }
       match
         eval_expr_with_bindings(
-          body, bindings, body_env, class_env, call_cache, stack, declarations, diagnostics,
-          resolve_import,
+          body_to_eval, bindings, body_env, class_env, call_cache, stack,
+          declarations, diagnostics, resolve_import,
         ) {
         Some(value) =>
           eval_callable_return_value(
@@ -979,10 +999,30 @@ fn apply_function_value(
       // an empty env so the env-first lookup order doesn't pick up
       // the caller's bindings.
       let body_env : Array[ValueBinding] = []
+      // PKL-148bh: when the function declares a user-class return
+      // type and the body is a bare `new { ... }` ObjectLiteral,
+      // rewrite to `new T { ... }` so the body inherits the class
+      // identity. This drives `getClass().simpleName` inside the
+      // body — basic/newInAmendingModuleMethod's typed function
+      // bodies expect the declared class name, not "Dynamic".
+      let body_to_eval : Expr = match (body, return_type_name) {
+        (ObjectLiteral(members), Some(class_name)) =>
+          if class_name.contains("<") || class_name.contains("|") ||
+            class_name.contains("(") || class_name.contains("?") ||
+            class_name.contains(".") {
+            body
+          } else {
+            match lookup_class_binding(class_env, class_name) {
+              Some(_) => TypedObjectLiteral(class_name, members)
+              None => body
+            }
+          }
+        _ => body
+      }
       match
         eval_expr_with_bindings(
-          body, bindings, body_env, class_env, call_cache, stack, declarations, diagnostics,
-          resolve_import,
+          body_to_eval, bindings, body_env, class_env, call_cache, stack,
+          declarations, diagnostics, resolve_import,
         ) {
         Some(value) =>
           eval_callable_return_value(
