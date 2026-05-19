@@ -951,6 +951,16 @@ fn eval_runtime_constraint_for_property(
       )
       if apply_diags.length() == 0 {
         probe_result = apply_result
+      } else if apply_diags[0].message.has_prefix("Expected value of type") {
+        // PKL-148bh: the apply failed because the predicate's own
+        // parameter type rejected the candidate. Apple Pkl surfaces
+        // that inner diagnostic verbatim (classes/constraints13:
+        // `Listing<Bird>` parameter rejects `Int` element via the
+        // standard "Expected value of type ..." wording). Only
+        // surface this specific shape so unrelated failures inside
+        // the predicate body (e.g. an unimplemented stdlib method)
+        // stay silent like they did before.
+        return Some(apply_diags[0].message)
       }
     }
     match probe_result {
