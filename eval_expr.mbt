@@ -846,6 +846,14 @@ fn eval_expr_with_bindings(
           // friends.
           let amend_cache = copy_value_bindings(cache)
           amend_cache.push({ name: "super", value: ObjectValue(base_members) })
+          // PKL-148bh: bind `this` to the pre-amend base inside the
+          // amend body so an inline lambda body like
+          // `y = (() -> this.x).apply() + 1` reaches the enclosing
+          // amend target's properties (objects/this2). Apple Pkl
+          // re-binds `this` at every nested amend / new layer; the
+          // base-members snapshot is a reasonable approximation for
+          // properties that don't require the not-yet-merged overrides.
+          amend_cache.push({ name: "this", value: ObjectValue(base_members) })
           // PKL-148ar: `[[ pred ]] { body }` predicate-member fires
           // against the base's Dynamic-shape entries (`@element$` for
           // bare elements, `@subscript$` for `[key]` entries). Split
@@ -1014,7 +1022,12 @@ fn eval_expr_with_bindings(
         is Some(StringValue(message)) {
         diagnostics.push(diag(message))
         None
-      } else if name == "module" {
+      } else if name == "module" ||
+        (
+          name == "this" &&
+          lookup_value(env, "this") is None &&
+          lookup_value(cache, "this") is None
+        ) {
         // Apple Pkl exposes the current module as the identifier
         // `module`. The value is the ObjectValue of every
         // already-evaluated module-level binding — the snapshot lives
@@ -1022,7 +1035,10 @@ fn eval_expr_with_bindings(
         // resolves). Stdlib markers (`super`, `this`, `@current_class`)
         // are filtered out so a downstream `module.X` resolves only
         // through the user-visible bindings, and an inline render
-        // doesn't surface them.
+        // doesn't surface them. Bare `this` at module top level (no
+        // enclosing class / object body has pushed a `this` binding)
+        // resolves to the same module ObjectValue — `types/objects/this2`
+        // exercises `res1 = (this) { x = 42 }`.
         let module_members : Array[ValueMember] = []
         // PKL-148bb: expose the import (alias, URI) Map under the bare
         // name `imports` so `reflect.Module(module).imports`
