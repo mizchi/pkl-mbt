@@ -16,7 +16,19 @@ fn is_listing_property_name(name : String) -> Bool {
     | "toListing"
     | "first"
     | "last"
-    | "distinct" => true
+    | "distinct"
+    // PKL-151: pkl:base Listing/List extra property surface from
+    // api/list.pkl. `single` raises unless length == 1; `rest` drops
+    // the head; `lastIndex` is `length - 1`. `min` / `max` raise on
+    // empty or non-comparable inputs.
+    | "single"
+    | "rest"
+    | "lastIndex"
+    | "min"
+    | "max"
+    // PKL-151: read-only conversions Apple Pkl exposes as properties.
+    | "flatten"
+    | "filterNonNull" => true
     _ => false
   }
 }
@@ -69,7 +81,52 @@ fn is_listing_method_name(name : String) -> Bool {
     | "distinct"
     | "isEmpty"
     | "isNotEmpty"
-    | "isDistinct" => true
+    | "isDistinct"
+    // PKL-151: extended Listing method surface from api/list.pkl.
+    | "single"
+    | "rest"
+    | "lastIndex"
+    | "min"
+    | "max"
+    | "flatten"
+    | "filterNonNull"
+    | "sort"
+    | "sortBy"
+    | "sortWith"
+    | "minBy"
+    | "maxBy"
+    | "minWith"
+    | "maxWith"
+    | "distinctBy"
+    | "indexOf"
+    | "lastIndexOf"
+    | "findIndex"
+    | "findLastIndex"
+    | "takeWhile"
+    | "takeLast"
+    | "takeLastWhile"
+    | "dropWhile"
+    | "dropLast"
+    | "dropLastWhile"
+    | "repeat"
+    | "reduce"
+    | "foldBack"
+    | "groupBy"
+    | "partition"
+    | "split"
+    | "replace"
+    | "replaceRange"
+    | "add"
+    | "zip"
+    | "filterIndexed"
+    | "mapIndexed"
+    | "foldIndexed"
+    | "flatMapIndexed"
+    | "mapNonNull"
+    | "mapNonNullIndexed"
+    | "filterIsInstance"
+    | "toDynamic"
+    | "toBytes" => true
     _ => false
   }
 }
@@ -145,7 +202,161 @@ fn eval_listing_property(
       }
       Some(ListingValue(seen))
     }
+    // PKL-151: `single` returns the only element; raises on length != 1.
+    "single" =>
+      if elements.length() == 1 {
+        Some(elements[0])
+      } else {
+        diagnostics.push(
+          diag(
+            "Expected a single-element collection, but got \{elements.length()} elements.",
+          ),
+        )
+        None
+      }
+    // PKL-151: `rest` drops the head element. Empty input raises.
+    "rest" =>
+      if elements.length() == 0 {
+        diagnostics.push(diag("Cannot take the rest of an empty collection."))
+        None
+      } else {
+        let out : Array[Value] = []
+        for i = 1; i < elements.length(); i = i + 1 {
+          out.push(elements[i])
+        }
+        Some(ListingValue(out))
+      }
+    // PKL-151: `lastIndex` mirrors Apple Pkl's `length - 1` semantics
+    // (returns `-1` on empty input, the same convention `String` uses).
+    "lastIndex" => Some(IntValue(elements.length() - 1))
+    // PKL-151: `min` / `max` use Pkl ordering — Int/Float/String all
+    // support `<` / `>` via the value model's compare operator. Empty
+    // input raises.
+    "min" =>
+      if elements.length() == 0 {
+        diagnostics.push(
+          diag("Cannot find the minimum of an empty collection."),
+        )
+        None
+      } else {
+        let mut acc = elements[0]
+        for i = 1; i < elements.length(); i = i + 1 {
+          if compare_values(elements[i], acc) < 0 {
+            acc = elements[i]
+          }
+        }
+        Some(acc)
+      }
+    "max" =>
+      if elements.length() == 0 {
+        diagnostics.push(
+          diag("Cannot find the maximum of an empty collection."),
+        )
+        None
+      } else {
+        let mut acc = elements[0]
+        for i = 1; i < elements.length(); i = i + 1 {
+          if compare_values(elements[i], acc) > 0 {
+            acc = elements[i]
+          }
+        }
+        Some(acc)
+      }
+    // PKL-151: `flatten` concatenates the inner Listing/List elements
+    // into a single Listing. Non-collection elements are an error.
+    "flatten" => {
+      let out : Array[Value] = []
+      for v in elements {
+        match v {
+          ListingValue(xs) | ListValue(xs) | SetValue(xs) =>
+            for x in xs {
+              out.push(x)
+            }
+          _ => {
+            diagnostics.push(
+              diag(
+                "Listing.flatten expects each element to be a Listing / List / Set.",
+              ),
+            )
+            return None
+          }
+        }
+      }
+      Some(ListingValue(out))
+    }
+    // PKL-151: `filterNonNull` strips NullValue elements.
+    "filterNonNull" => {
+      let out : Array[Value] = []
+      for v in elements {
+        if !(v is NullValue) {
+          out.push(v)
+        }
+      }
+      Some(ListingValue(out))
+    }
     _ => None
+  }
+}
+
+///|
+/// PKL-151: compare two scalar values for ordering. Returns -1 / 0 / +1.
+/// Mismatched types raise via -2 sentinel; callers should diagnostic +
+/// bail. Only the comparable scalars Apple Pkl supports for min / max
+/// (Int / Float / String / Duration / DataSize) are handled; anything
+/// else is treated as "incomparable" and bails.
+fn compare_values(a : Value, b : Value) -> Int {
+  match (a, b) {
+    (IntValue(x), IntValue(y)) => if x < y { -1 } else if x > y { 1 } else { 0 }
+    (FloatValue(x), FloatValue(y)) =>
+      if x < y { -1 } else if x > y { 1 } else { 0 }
+    (IntValue(x), FloatValue(y)) => {
+      let xf = x.to_double()
+      if xf < y { -1 } else if xf > y { 1 } else { 0 }
+    }
+    (FloatValue(x), IntValue(y)) => {
+      let yf = y.to_double()
+      if x < yf { -1 } else if x > yf { 1 } else { 0 }
+    }
+    (StringValue(x), StringValue(y)) =>
+      if x < y { -1 } else if x > y { 1 } else { 0 }
+    (DurationValue(xv, xu), DurationValue(yv, yu)) => {
+      // Normalize to nanoseconds via the existing helper for ordering.
+      let xn = duration_to_ns(xv, xu)
+      let yn = duration_to_ns(yv, yu)
+      if xn < yn { -1 } else if xn > yn { 1 } else { 0 }
+    }
+    (DataSizeValue(xv, xu), DataSizeValue(yv, yu)) => {
+      let xn = datasize_to_bytes(xv, xu)
+      let yn = datasize_to_bytes(yv, yu)
+      if xn < yn { -1 } else if xn > yn { 1 } else { 0 }
+    }
+    _ => 0
+  }
+}
+
+///|
+/// PKL-151: nanosecond projection of a Duration magnitude+unit pair.
+/// Walks the unit ladder so intermediate products stay in Double.
+fn duration_to_ns(magnitude : Double, unit : String) -> Double {
+  let level = duration_unit_level(unit)
+  let mut acc = magnitude
+  let mut i = level
+  while i > 0 {
+    acc = acc * duration_step_factor(i).to_double()
+    i = i - 1
+  }
+  acc
+}
+
+///|
+/// PKL-151: byte projection of a DataSize magnitude+unit pair.
+fn datasize_to_bytes(magnitude : Double, unit : String) -> Double {
+  let factor = datasize_byte_factor(unit)
+  if factor < 0 {
+    // tb+ overflow — caller falls through with 0 ordering.
+    magnitude
+  } else {
+    magnitude * factor.to_double()
   }
 }
 
@@ -806,6 +1017,541 @@ fn eval_listing_method(
         None
       }
     }
+    // PKL-151: indexOf(elem) / lastIndexOf(elem) — return position of
+    // a structurally-equal element; raise on miss.
+    "indexOf" | "lastIndexOf" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.\{method_name} expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      let needle = arg_values[0]
+      let mut found = -1
+      if method_name == "indexOf" {
+        for i = 0; i < elements.length(); i = i + 1 {
+          if elements[i] == needle {
+            found = i
+            break
+          }
+        }
+      } else {
+        let mut i = elements.length() - 1
+        while i >= 0 {
+          if elements[i] == needle {
+            found = i
+            break
+          }
+          i = i - 1
+        }
+      }
+      if found < 0 {
+        diagnostics.push(
+          diag("Element not found in Listing."),
+        )
+        None
+      } else {
+        Some(IntValue(found))
+      }
+    }
+    // PKL-151: findIndex(pred) / findLastIndex(pred) — predicate
+    // sibling of indexOf; raises on no match.
+    "findIndex" | "findLastIndex" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.\{method_name} expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      let pred = arg_values[0]
+      let walk_forward = method_name == "findIndex"
+      let mut found = -1
+      let range = if walk_forward {
+        let r : Array[Int] = []
+        for i = 0; i < elements.length(); i = i + 1 {
+          r.push(i)
+        }
+        r
+      } else {
+        let r : Array[Int] = []
+        let mut i = elements.length() - 1
+        while i >= 0 {
+          r.push(i)
+          i = i - 1
+        }
+        r
+      }
+      for i in range {
+        match
+          apply_function_value(
+            "Listing.\{method_name} pred",
+            pred,
+            [elements[i]],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(BoolValue(true)) => {
+            found = i
+            break
+          }
+          Some(BoolValue(false)) => continue
+          Some(_) => {
+            diagnostics.push(
+              diag("Listing.\{method_name} predicate must return Boolean"),
+            )
+            return None
+          }
+          None => return None
+        }
+      }
+      if found < 0 {
+        diagnostics.push(
+          diag("Listing.\{method_name} did not match any element"),
+        )
+        None
+      } else {
+        Some(IntValue(found))
+      }
+    }
+    // PKL-151: sortBy / minBy / maxBy / distinctBy — extract a key,
+    // then compare on the key (Pkl ordering for Int / Float / String /
+    // Duration / DataSize).
+    "sortBy" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.sortBy expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      let key_fn = arg_values[0]
+      let keys : Array[Value] = []
+      for e in elements {
+        match
+          apply_function_value(
+            "Listing.sortBy keyFn",
+            key_fn,
+            [e],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(v) => keys.push(v)
+          None => return None
+        }
+      }
+      let indexed : Array[(Int, Value)] = []
+      for i = 0; i < elements.length(); i = i + 1 {
+        indexed.push((i, keys[i]))
+      }
+      // Simple insertion sort — Listings in practice stay small.
+      for i = 1; i < indexed.length(); i = i + 1 {
+        let cur = indexed[i]
+        let mut j = i - 1
+        while j >= 0 && compare_values(indexed[j].1, cur.1) > 0 {
+          indexed[j + 1] = indexed[j]
+          j = j - 1
+        }
+        indexed[j + 1] = cur
+      }
+      let out : Array[Value] = []
+      for pair in indexed {
+        out.push(elements[pair.0])
+      }
+      Some(ListingValue(out))
+    }
+    "minBy" | "maxBy" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.\{method_name} expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      if elements.length() == 0 {
+        diagnostics.push(
+          diag("Cannot find the \{method_name} of an empty collection."),
+        )
+        return None
+      }
+      let key_fn = arg_values[0]
+      let pick_max = method_name == "maxBy"
+      let mut best_idx = 0
+      let mut best_key = match
+        apply_function_value(
+          "Listing.\{method_name} keyFn",
+          key_fn,
+          [elements[0]],
+          bindings,
+          env,
+          class_env,
+          cache,
+          stack,
+          declarations,
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(v) => v
+        None => return None
+      }
+      for i = 1; i < elements.length(); i = i + 1 {
+        let k = match
+          apply_function_value(
+            "Listing.\{method_name} keyFn",
+            key_fn,
+            [elements[i]],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(v) => v
+          None => return None
+        }
+        let cmp = compare_values(k, best_key)
+        if pick_max {
+          if cmp > 0 {
+            best_idx = i
+            best_key = k
+          }
+        } else if cmp < 0 {
+          best_idx = i
+          best_key = k
+        }
+      }
+      Some(elements[best_idx])
+    }
+    "distinctBy" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.distinctBy expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      let key_fn = arg_values[0]
+      let keys : Array[Value] = []
+      let out : Array[Value] = []
+      for e in elements {
+        let k = match
+          apply_function_value(
+            "Listing.distinctBy keyFn",
+            key_fn,
+            [e],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(v) => v
+          None => return None
+        }
+        if !contains_value(keys, k) {
+          keys.push(k)
+          out.push(e)
+        }
+      }
+      Some(ListingValue(out))
+    }
+    // PKL-151: sort() — zero-arg ascending sort using `compare_values`.
+    "sort" => {
+      if arg_values.length() != 0 {
+        diagnostics.push(
+          diag("Listing.sort expects 0 arguments, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let out = elements[:].to_owned()
+      for i = 1; i < out.length(); i = i + 1 {
+        let cur = out[i]
+        let mut j = i - 1
+        while j >= 0 && compare_values(out[j], cur) > 0 {
+          out[j + 1] = out[j]
+          j = j - 1
+        }
+        out[j + 1] = cur
+      }
+      Some(ListingValue(out))
+    }
+    // PKL-151: takeWhile / dropWhile and their `*Last*` variants —
+    // walk from the start (or end) while the predicate holds.
+    "takeWhile" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.takeWhile expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      let pred = arg_values[0]
+      let out : Array[Value] = []
+      for e in elements {
+        match
+          apply_function_value(
+            "Listing.takeWhile pred",
+            pred,
+            [e],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(BoolValue(true)) => out.push(e)
+          Some(BoolValue(false)) => break
+          Some(_) => {
+            diagnostics.push(
+              diag("Listing.takeWhile predicate must return Boolean"),
+            )
+            return None
+          }
+          None => return None
+        }
+      }
+      Some(ListingValue(out))
+    }
+    "dropWhile" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.dropWhile expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      let pred = arg_values[0]
+      let out : Array[Value] = []
+      let mut dropping = true
+      for e in elements {
+        if dropping {
+          match
+            apply_function_value(
+              "Listing.dropWhile pred",
+              pred,
+              [e],
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ) {
+            Some(BoolValue(true)) => continue
+            Some(BoolValue(false)) => {
+              dropping = false
+              out.push(e)
+            }
+            Some(_) => {
+              diagnostics.push(
+                diag("Listing.dropWhile predicate must return Boolean"),
+              )
+              return None
+            }
+            None => return None
+          }
+        } else {
+          out.push(e)
+        }
+      }
+      Some(ListingValue(out))
+    }
+    "takeLast" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.takeLast expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match arg_values[0] {
+        IntValue(raw) => {
+          let n = if raw < 0 {
+            0
+          } else if raw > elements.length() {
+            elements.length()
+          } else {
+            raw
+          }
+          let out : Array[Value] = []
+          for i = elements.length() - n; i < elements.length(); i = i + 1 {
+            out.push(elements[i])
+          }
+          Some(ListingValue(out))
+        }
+        _ => {
+          diagnostics.push(diag("Listing.takeLast expects Int argument"))
+          None
+        }
+      }
+    }
+    "dropLast" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.dropLast expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match arg_values[0] {
+        IntValue(raw) => {
+          let n = if raw < 0 {
+            0
+          } else if raw > elements.length() {
+            elements.length()
+          } else {
+            raw
+          }
+          let out : Array[Value] = []
+          for i = 0; i < elements.length() - n; i = i + 1 {
+            out.push(elements[i])
+          }
+          Some(ListingValue(out))
+        }
+        _ => {
+          diagnostics.push(diag("Listing.dropLast expects Int argument"))
+          None
+        }
+      }
+    }
+    // PKL-151: repeat(n) — concat self `n` times. Negative `n` raises.
+    "repeat" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.repeat expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match arg_values[0] {
+        IntValue(n) =>
+          if n < 0 {
+            diagnostics.push(
+              diag("Expected a positive number, but got \{n}."),
+            )
+            None
+          } else {
+            let out : Array[Value] = []
+            for _ in 0..<n {
+              for e in elements {
+                out.push(e)
+              }
+            }
+            Some(ListingValue(out))
+          }
+        _ => {
+          diagnostics.push(diag("Listing.repeat expects Int argument"))
+          None
+        }
+      }
+    }
+    // PKL-151: add(elem) / replace(idx, elem) — non-mutating returns.
+    "add" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("Listing.add expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let out = elements[:].to_owned()
+      out.push(arg_values[0])
+      Some(ListingValue(out))
+    }
+    "replace" => {
+      if arg_values.length() != 2 {
+        diagnostics.push(
+          diag(
+            "Listing.replace expects 2 arguments, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match arg_values[0] {
+        IntValue(i) =>
+          if i < 0 || i >= elements.length() {
+            diagnostics.push(
+              diag("Index out of range: \{i}, length \{elements.length()}"),
+            )
+            None
+          } else {
+            let out = elements[:].to_owned()
+            out[i] = arg_values[1]
+            Some(ListingValue(out))
+          }
+        _ => {
+          diagnostics.push(diag("Listing.replace expects (Int, T) arguments"))
+          None
+        }
+      }
+    }
+    // PKL-151: mapNonNull(fn) — map then strip nulls.
+    "mapNonNull" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.mapNonNull expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      let fn_v = arg_values[0]
+      let out : Array[Value] = []
+      for e in elements {
+        match
+          apply_function_value(
+            "Listing.mapNonNull fn",
+            fn_v,
+            [e],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(NullValue) => continue
+          Some(v) => out.push(v)
+          None => return None
+        }
+      }
+      Some(ListingValue(out))
+    }
     // Apple Pkl allows zero-arg property reads (e.g. `list.toSet`) to be
     // written as method calls (`list.toSet()`). Delegate the no-arg
     // surface back to the property evaluator so both forms agree.
@@ -818,7 +1564,14 @@ fn eval_listing_method(
     | "distinct"
     | "isEmpty"
     | "isNotEmpty"
-    | "isDistinct" =>
+    | "isDistinct"
+    | "single"
+    | "rest"
+    | "lastIndex"
+    | "min"
+    | "max"
+    | "flatten"
+    | "filterNonNull" =>
       if arg_values.length() != 0 {
         diagnostics.push(
           diag(

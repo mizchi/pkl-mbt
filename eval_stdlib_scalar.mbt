@@ -877,7 +877,13 @@ fn eval_int_method(
         return None
       }
       if n < 0 || n > 0x10FFFF {
-        diagnostics.push(diag("Int.toChar code point out of range: \{n}"))
+        // PKL-150: match Apple Pkl's wording — "Decimal `N` is not a
+        // valid Unicode code point." with a comma-grouped magnitude.
+        diagnostics.push(
+          diag(
+            "Decimal `\{format_int_with_commas(n)}` is not a valid Unicode code point.",
+          ),
+        )
         return None
       }
       let buf = StringBuilder::new()
@@ -942,9 +948,12 @@ fn eval_int_method(
       match arg_values[0] {
         IntValue(radix) =>
           if radix < 2 || radix > 36 {
+            // PKL-150: match Apple Pkl's wording — the parameter is
+            // declared `Int(this.isBetween(2, 36))` so the violation
+            // surfaces through the constraint message verbatim.
             diagnostics.push(
               diag(
-                "Expected a value greater than `1` and less than `37`, but got \{radix}.",
+                "Type constraint `this.isBetween(2, 36)` violated. Value: \{radix}",
               ),
             )
             None
@@ -972,9 +981,11 @@ fn eval_int_method(
       match arg_values[0] {
         IntValue(decimals) =>
           if decimals < 0 || decimals > 20 {
+            // PKL-150: Apple Pkl's `toFixed(decimals: Int(this.isBetween(0, 20)))`
+            // surfaces a constraint-violation message verbatim.
             diagnostics.push(
               diag(
-                "Expected a value greater than `-1` and less than `21`, but got \{decimals}.",
+                "Type constraint `this.isBetween(0, 20)` violated. Value: \{decimals}",
               ),
             )
             None
@@ -1111,6 +1122,38 @@ fn format_fixed_decimal(n : Int, decimals : Int) -> String {
     }
   }
   buf.to_string()
+}
+
+///|
+/// PKL-150: format an Int with Apple Pkl-style "," thousand-grouping
+/// (e.g. `1,114,112`). Negative sign is preserved.
+fn format_int_with_commas(n : Int) -> String {
+  let negative = n < 0
+  let magnitude = if negative { 0 - n } else { n }
+  let raw = "\{magnitude}"
+  if raw.length() <= 3 {
+    return if negative { "-\{raw}" } else { raw }
+  }
+  let buf = StringBuilder::new()
+  let len = raw.length()
+  let first_group = len % 3
+  let mut i = 0
+  if first_group > 0 {
+    buf.write_string(String::unsafe_substring(raw, start=0, end=first_group))
+    i = first_group
+  }
+  while i < len {
+    if buf.to_string().length() > 0 {
+      buf.write_char(',')
+    }
+    buf.write_string(String::unsafe_substring(raw, start=i, end=i + 3))
+    i = i + 3
+  }
+  if negative {
+    "-" + buf.to_string()
+  } else {
+    buf.to_string()
+  }
 }
 
 ///|
