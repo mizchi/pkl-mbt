@@ -161,10 +161,59 @@ fn synthesize_default_for_type(
   match type_name {
     None => None
     Some(raw) => {
-      let name = trim_spaces(raw)
+      let mut name = trim_spaces(raw)
+      // Strip a wrapping `( ... )` introduced by nested union grouping
+      // (`*("a"|*"b")|"c"`). Without unwrap the inner union split sees
+      // the whole `("a"|*"b")` as one choice and treats it as an
+      // unknown class name.
+      while name.has_prefix("(") && name.has_suffix(")") {
+        let mut depth = 0
+        let mut wraps_whole = true
+        for i = 0; i < name.length(); i = i + 1 {
+          let c = name[i].to_int().unsafe_to_char()
+          if c == '(' {
+            depth = depth + 1
+          } else if c == ')' {
+            depth = depth - 1
+            if depth == 0 && i < name.length() - 1 {
+              wraps_whole = false
+              break
+            }
+          }
+        }
+        if wraps_whole && depth == 0 {
+          name = trim_spaces(
+            String::unsafe_substring(name, start=1, end=name.length() - 1),
+          )
+        } else {
+          break
+        }
+      }
       // Nullable types (`T?`) default to null.
       if name.has_suffix("?") || name == "Null" || name == "Nothing" {
         return Some(NullValue)
+      }
+      // `A|B|*C|D` — any union choice carrying a leading `*` is the
+      // default branch. Walk every top-level union choice (a single
+      // string with no `|` falls through as a one-element array). Must
+      // run BEFORE the string-literal arm so `"foo"|*"bar"` isn't
+      // mistaken for one giant quoted literal.
+      let choices = split_top_level_union_choices(name)
+      if choices.length() > 1 {
+        for choice in choices {
+          let trimmed = trim_spaces(choice)
+          if trimmed.has_prefix("*") {
+            let starred = trim_spaces(
+              String::unsafe_substring(
+                trimmed, start=1, end=trimmed.length(),
+              ),
+            )
+            return synthesize_default_for_type(
+              Some(starred), bindings, env, class_env, cache, declarations,
+              diagnostics, resolve_import,
+            )
+          }
+        }
       }
       // String literal type `"foo"` defaults to the literal text.
       if name.length() >= 2 && name[0] == '"' && name[name.length() - 1] == '"' {
@@ -175,16 +224,10 @@ fn synthesize_default_for_type(
         )
         return Some(StringValue(inner))
       }
-      // `*A|B|...` union with a default branch picks the starred type.
       if name.has_prefix("*") {
         let rest = String::unsafe_substring(name, start=1, end=name.length())
-        let pipe = rest.find("|")
-        let head = match pipe {
-          Some(idx) => String::unsafe_substring(rest, start=0, end=idx)
-          None => rest
-        }
         return synthesize_default_for_type(
-          Some(trim_spaces(head)),
+          Some(trim_spaces(rest)),
           bindings,
           env,
           class_env,
@@ -192,6 +235,17 @@ fn synthesize_default_for_type(
           declarations,
           diagnostics,
           resolve_import,
+        )
+      }
+      // Typealias dereference — `bar: Bar` where
+      // `typealias Bar = "foo"|*"bar"` should pick up the starred
+      // default through the resolved alias body, not the alias name.
+      let aliases = eval_type_alias_bindings(declarations)
+      let resolved = eval_resolved_type_alias(name, aliases)
+      if resolved != name {
+        return synthesize_default_for_type(
+          Some(resolved), bindings, env, class_env, cache, declarations,
+          diagnostics, resolve_import,
         )
       }
       // Structural collections fall back to their empty form. Set/Map

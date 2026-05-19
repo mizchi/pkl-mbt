@@ -160,9 +160,32 @@ fn resolve_binding_value(
                   Some(_) => TypedObjectLiteral(class_name, members)
                   None =>
                     if class_name.contains(".") || class_name.contains("<") ||
-                      class_name.contains("|") || class_name.contains("(") ||
-                      class_name.contains("?") {
+                      class_name.contains("(") || class_name.contains("?") {
                       binding.value
+                    } else if class_name.contains("|") {
+                      // PKL-148bh: union annotation (`*Foo | Baz`)
+                      // — pick the starred branch and route through
+                      // its class. Falls back to ObjectLiteral when
+                      // no starred branch resolves to a user class.
+                      let mut starred_class : String? = None
+                      for choice in split_top_level_union_choices(class_name) {
+                        let t = trim_spaces(choice)
+                        if t.has_prefix("*") {
+                          let head = trim_spaces(
+                            String::unsafe_substring(
+                              t, start=1, end=t.length(),
+                            ),
+                          )
+                          if lookup_class_binding(class_env, head) is Some(_) {
+                            starred_class = Some(head)
+                            break
+                          }
+                        }
+                      }
+                      match starred_class {
+                        Some(name) => TypedObjectLiteral(name, members)
+                        None => binding.value
+                      }
                     } else if lookup_value(env, class_name) is Some(
                       ObjectValue(_),
                     ) ||
