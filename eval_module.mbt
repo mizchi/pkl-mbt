@@ -344,6 +344,20 @@ fn eval_program(
     class_env,
     resolve_import_classes,
   )
+  // PKL-148bb: stash the module's import list as a hidden cache entry
+  // so `reflect.Module(module).imports` can recover the (alias, URI)
+  // pairs as a `Map`. The Identifier("module") handler picks this up
+  // and surfaces it as a regular property on the module ObjectValue.
+  if program.imports.length() > 0 {
+    let entries : Array[ValueEntry] = []
+    for decl in program.imports {
+      entries.push({
+        key: StringValue(decl.import_name),
+        value: StringValue(decl.uri),
+      })
+    }
+    cache.push({ name: "@__module_imports", value: MapValue(entries) })
+  }
   // PKL-140: `extends "parent.pkl"` exposes the parent module's class
   // declarations as bare-name lookups in the child (Apple Pkl treats
   // extends as inheritance, not a namespaced import). Pull the parent

@@ -404,6 +404,7 @@ fn builtin_stdlib_source(uri : String) -> String? {
         #|  reflectee = name
         #|  hidden __kind = "Module"
         #|  modifiers = Set()
+        #|  imports = if (name is Object) name.imports else Map()
         #|}
         #|TypeAlias = (name) -> new {
         #|  reflectee = name

@@ -1024,6 +1024,22 @@ fn eval_expr_with_bindings(
         // through the user-visible bindings, and an inline render
         // doesn't surface them.
         let module_members : Array[ValueMember] = []
+        // PKL-148bb: expose the import (alias, URI) Map under the bare
+        // name `imports` so `reflect.Module(module).imports`
+        // (`api/reflect5`) recovers Apple Pkl's
+        // `Map("reflect", "pkl:reflect", ...)` shape. The Map was
+        // stashed at `eval_program` time under the hidden
+        // `@__module_imports` cache key; promote it to a visible
+        // member of the synthesised module ObjectValue.
+        match lookup_value(cache, "@__module_imports") {
+          Some(map_value) =>
+            module_members.push({
+              name: "imports",
+              value: map_value,
+              source: None,
+            })
+          None => ()
+        }
         for value_binding in cache {
           if value_binding.name == "super" ||
             value_binding.name == "this" ||
