@@ -807,8 +807,14 @@ fn eval_expr_with_bindings(
             )
             None
           }
-        (Some(ListingValue(_)), Some(_)) | (Some(ListValue(_)), Some(_)) => {
-          diagnostics.push(diag("listing index expects Int"))
+        (Some(ListingValue(_)), Some(key_value))
+        | (Some(ListValue(_)), Some(key_value)) => {
+          // PKL-148bb: align with Apple Pkl wording so `test.catch`
+          // snapshots in `listings/listing2.res8` round-trip.
+          let actual = eval_value_type_name(key_value)
+          diagnostics.push(
+            diag("Expected key of type `Int`, but got type `\{actual}`."),
+          )
           None
         }
         (Some(MappingValue(entries)), Some(key_value)) =>
