@@ -211,11 +211,26 @@ fn semver_value(
     None => NullValue
   }
   ObjectValue([
-    { name: "major", value: IntValue(major.to_int64()), source: None },
-    { name: "minor", value: IntValue(minor.to_int64()), source: None },
-    { name: "patch", value: IntValue(patch.to_int64()), source: None },
-    { name: "preRelease", value: pre_value, source: None },
-    { name: "build", value: build_value, source: None },
+    {
+      name: "major",
+      value: IntValue(major.to_int64()),
+      source: None,
+      annotations: [],
+    },
+    {
+      name: "minor",
+      value: IntValue(minor.to_int64()),
+      source: None,
+      annotations: [],
+    },
+    {
+      name: "patch",
+      value: IntValue(patch.to_int64()),
+      source: None,
+      annotations: [],
+    },
+    { name: "preRelease", value: pre_value, source: None, annotations: [] },
+    { name: "build", value: build_value, source: None, annotations: [] },
   ])
 }
 

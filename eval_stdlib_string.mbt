@@ -398,6 +398,33 @@ fn eval_string_method(
         }
       }
     }
+    "replaceAllMapped" => {
+      if arg_values.length() != 2 {
+        diagnostics.push(
+          diag(
+            "String.replaceAllMapped expects 2 arguments, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match (arg_values[0], arg_values[1]) {
+        (RegexValue(pattern), FunctionValue(_, _, _, _, _) as mapper) =>
+          match compile_regex_pattern(pattern, diagnostics) {
+            Some(re) =>
+              regex_replace_all_mapped(
+                re, s, mapper, bindings, env, class_env, cache, stack, declarations,
+                diagnostics, resolve_import,
+              )
+            None => None
+          }
+        _ => {
+          diagnostics.push(
+            diag("String.replaceAllMapped expects (Regex, Function) arguments"),
+          )
+          None
+        }
+      }
+    }
     "take" => {
       if arg_values.length() != 1 {
         diagnostics.push(
@@ -908,6 +935,126 @@ fn trim_string(s : String, lead : Bool, trail : Bool) -> String {
 ///|
 fn is_pkl_whitespace(c : Char) -> Bool {
   c == ' ' || c == '\t' || c == '\n' || c == '\r'
+}
+
+///|
+fn regex_match_to_value(
+  re : @regexp.Regexp,
+  match_result : @regexp.MatchResult,
+) -> Value {
+  let groups : Array[Value] = []
+  for i = 0; i <= re.group_count(); i = i + 1 {
+    match match_result.get(i) {
+      Some(view) =>
+        groups.push(
+          ObjectValue([
+            {
+              name: "value",
+              value: StringValue(view.to_owned()),
+              source: None,
+              annotations: [],
+            },
+          ]),
+        )
+      None => groups.push(NullValue)
+    }
+  }
+  let matched = match match_result.get(0) {
+    Some(view) => view.to_owned()
+    None => ""
+  }
+  ObjectValue([
+    {
+      name: "value",
+      value: StringValue(matched),
+      source: None,
+      annotations: [],
+    },
+    {
+      name: "groups",
+      value: ListingValue(groups),
+      source: None,
+      annotations: [],
+    },
+  ])
+}
+
+///|
+fn regex_replace_all_mapped(
+  re : @regexp.Regexp,
+  input : String,
+  mapper : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let buf = StringBuilder::new()
+  let mut rest = input
+  while rest.length() > 0 {
+    match re.match_(rest) {
+      Some(match_result) =>
+        match match_result.get(0) {
+          Some(view) => {
+            let matched_text = view.to_owned()
+            buf.write_string(match_result.before().to_owned())
+            match
+              apply_function_value(
+                "String.replaceAllMapped mapper",
+                mapper,
+                [regex_match_to_value(re, match_result)],
+                bindings,
+                env,
+                class_env,
+                cache,
+                stack,
+                declarations,
+                diagnostics,
+                resolve_import,
+              ) {
+              Some(StringValue(replacement)) => buf.write_string(replacement)
+              Some(_) => {
+                diagnostics.push(
+                  diag("String.replaceAllMapped mapper must return String"),
+                )
+                return None
+              }
+              None => return None
+            }
+            let after = match_result.after().to_owned()
+            if matched_text.length() == 0 && after.length() == rest.length() {
+              if rest.length() >= 1 {
+                buf.write_string(String::unsafe_substring(rest, start=0, end=1))
+              }
+              if rest.length() <= 1 {
+                rest = ""
+              } else {
+                rest = String::unsafe_substring(
+                  rest,
+                  start=1,
+                  end=rest.length(),
+                )
+              }
+            } else {
+              rest = after
+            }
+          }
+          None => {
+            buf.write_string(rest)
+            rest = ""
+          }
+        }
+      None => {
+        buf.write_string(rest)
+        rest = ""
+      }
+    }
+  }
+  Some(StringValue(buf.to_string()))
 }
 
 ///|

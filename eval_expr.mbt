@@ -574,6 +574,17 @@ fn eval_expr_with_bindings(
           resolve_import,
         )
       } else {
+        match target_expr {
+          Identifier(ns_name) => {
+            let qualified_class_name = ns_name + "." + member_name
+            match lookup_class_binding(class_env, qualified_class_name) {
+              Some(_) =>
+                return Some(synth_class_mirror_for_name(qualified_class_name))
+              None => ()
+            }
+          }
+          _ => ()
+        }
         match
           eval_expr_with_bindings(
             target_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
@@ -1318,6 +1329,7 @@ fn eval_expr_with_bindings(
               name: "imports",
               value: map_value,
               source: None,
+              annotations: [],
             })
           None => ()
         }
@@ -1331,6 +1343,7 @@ fn eval_expr_with_bindings(
             name: value_binding.name,
             value: value_binding.value,
             source: None,
+            annotations: [],
           })
         }
         Some(ObjectValue(module_members))
@@ -2077,7 +2090,9 @@ fn eval_expr_with_bindings(
               method_name == "toDecimalUnit" ||
               method_name == "toBytes" ||
               method_name == "isSubclassOf" ||
-              method_name == "parse" {
+              method_name == "parse" ||
+              method_name == "renderValue" ||
+              method_name == "renderDocument" {
               match
                 eval_expr_with_bindings(
                   target_expr, bindings, env, class_env, cache, stack, declarations,
@@ -2090,7 +2105,17 @@ fn eval_expr_with_bindings(
                 // so we check that nested inside the ObjectValue arm
                 // before falling through to other lookups.
                 Some(ObjectValue(receiver_members)) =>
-                  if method_name == "parse" &&
+                  if (
+                      method_name == "renderValue" ||
+                      method_name == "renderDocument"
+                    ) &&
+                    renderer_format_from_members(receiver_members)
+                    is Some(format) {
+                    eval_value_renderer_method(
+                      format, method_name, arguments, bindings, env, class_env, cache,
+                      stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else if method_name == "parse" &&
                     reflect_kind(receiver_members) is Some("JsonParser") {
                     // PKL-144 / PKL-145: `<json.Parser>.parse(source)`
                     // routes through `@json.parse` and projects the
@@ -3774,6 +3799,7 @@ fn merge_for_generator_members(
         i.to_string(),
         value: value_member.value,
         source: value_member.source,
+        annotations: value_member.annotations,
       })
     } else {
       prepared.push(value_member)
@@ -3869,7 +3895,12 @@ fn replace_member_value_by_bare_name(
 ) -> Bool {
   for i = 0; i < members.length(); i = i + 1 {
     if strip_member_visibility_prefix(members[i].name) == name {
-      members[i] = { name: members[i].name, value, source: None }
+      members[i] = {
+        name: members[i].name,
+        value,
+        source: None,
+        annotations: members[i].annotations,
+      }
       return true
     }
   }
@@ -3957,6 +3988,53 @@ fn reeval_class_defaults_after_constructor_overrides(
     }
   }
   current
+}
+
+///|
+fn eval_value_renderer_method(
+  format : String,
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  if arguments.length() != 1 {
+    diagnostics.push(
+      diag(
+        "ValueRenderer.\{method_name} expects 1 argument, got \{arguments.length()}",
+      ),
+    )
+    return None
+  }
+  match
+    eval_expr_with_bindings(
+      arguments[0],
+      bindings,
+      env,
+      class_env,
+      cache,
+      stack,
+      declarations,
+      diagnostics,
+      resolve_import,
+    ) {
+    Some(value) =>
+      match format {
+        "pcf" => Some(StringValue(render_value(value)))
+        "json" => Some(StringValue(render_value_as_json(value)))
+        "yaml" => Some(StringValue(render_value_as_yaml(value)))
+        "properties" => Some(StringValue(render_value_as_properties(value)))
+        "plist" => Some(StringValue(render_value_as_plist(value)))
+        _ => None
+      }
+    None => None
+  }
 }
 
 ///|
@@ -4201,6 +4279,10 @@ fn merge_objects_with_late_binding(
           name: bm.name,
           value: new_val,
           source: over_member.source,
+          annotations: append_annotations(
+            bm.annotations,
+            over_member.annotations,
+          ),
         })
       }
       None => merged.push(bm)
@@ -4260,6 +4342,7 @@ fn merge_objects_with_late_binding(
                 name: m.name,
                 value: new_val,
                 source: m.source,
+                annotations: m.annotations,
               })
               reeval_done = true
             }
@@ -4367,6 +4450,7 @@ fn eval_object_members_with_options(
       type_name: field.type_name,
       value: field.value,
       exported: true,
+      annotations: field.annotations,
       abstract_slot: false,
     })
   }
@@ -4411,10 +4495,11 @@ fn eval_object_members_with_options(
                 values.push({
                   name: field.name,
                   value: ObjectValue([
-                    { name: "@key", value: k, source: None },
-                    { name: "@value", value: v, source: None },
+                    { name: "@key", value: k, source: None, annotations: [] },
+                    { name: "@value", value: v, source: None, annotations: [] },
                   ]),
                   source: None,
+                  annotations: [],
                 })
               _ => ()
             }
@@ -4436,7 +4521,13 @@ fn eval_object_members_with_options(
           diagnostics,
           resolve_import,
         ) {
-        Some(v) => values.push({ name: field.name, value: v, source: None })
+        Some(v) =>
+          values.push({
+            name: field.name,
+            value: v,
+            source: None,
+            annotations: field.annotations,
+          })
         None => ()
       }
       continue
@@ -4566,6 +4657,7 @@ fn eval_object_members_with_options(
                   name: "@element$spread" + field.name + "$" + i.to_string(),
                   value: elements[i],
                   source: None,
+                  annotations: [],
                 })
               }
             MappingValue(entries) | MapValue(entries) =>
@@ -4573,10 +4665,21 @@ fn eval_object_members_with_options(
                 values.push({
                   name: "@subscript$spread" + field.name + "$" + i.to_string(),
                   value: ObjectValue([
-                    { name: "@key", value: entries[i].key, source: None },
-                    { name: "@value", value: entries[i].value, source: None },
+                    {
+                      name: "@key",
+                      value: entries[i].key,
+                      source: None,
+                      annotations: [],
+                    },
+                    {
+                      name: "@value",
+                      value: entries[i].value,
+                      source: None,
+                      annotations: [],
+                    },
                   ]),
                   source: None,
+                  annotations: [],
                 })
               }
             // PKL-148bb: Apple Pkl silently drops non-collection
@@ -4596,7 +4699,12 @@ fn eval_object_members_with_options(
           match structural_reject {
             Some(message) => {
               property_diagnostics.push(diag(message))
-              values.push({ name: field.name, value, source: Some(field.value) })
+              values.push({
+                name: field.name,
+                value,
+                source: Some(field.value),
+                annotations: field.annotations,
+              })
             }
             None =>
               if pkl_constrained_type_annotation_value_is_valid(
@@ -4608,6 +4716,7 @@ fn eval_object_members_with_options(
                   name: field.name,
                   value,
                   source: Some(field.value),
+                  annotations: field.annotations,
                 })
               }
           }
@@ -4633,12 +4742,18 @@ fn eval_object_members_with_options(
         }
       }
       if !already_present {
-        values.push({ name: field.name, value: NullValue, source: None })
+        values.push({
+          name: field.name,
+          value: NullValue,
+          source: None,
+          annotations: field.annotations,
+        })
       }
       values.push({
         name: error_member_name(field.name),
         value: StringValue(property_diagnostics[0].message),
         source: None,
+        annotations: [],
       })
     }
   }

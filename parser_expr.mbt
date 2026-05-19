@@ -106,8 +106,6 @@ fn Parser::parse_comparison_expr(self : Parser) -> Expr {
       Some(GreaterOrEqual)
     } else if self.at(is_kw()) {
       Some(Is)
-    } else if self.at(as_kw()) {
-      Some(As)
     } else {
       None
     }
@@ -116,7 +114,7 @@ fn Parser::parse_comparison_expr(self : Parser) -> Expr {
         self.builder.start_node_at(checkpoint, binary_expr())
         ignore(self.bump())
         let right = match actual_op {
-          Is | As => self.parse_type_operand_expr()
+          Is => self.parse_type_operand_expr()
           _ => self.parse_add_expr()
         }
         self.builder.finish_node()
@@ -253,7 +251,7 @@ fn Parser::parse_mul_expr(self : Parser) -> Expr {
 ///|
 fn Parser::parse_power_expr(self : Parser) -> Expr {
   let checkpoint = self.builder.checkpoint()
-  let left = self.parse_unary_expr()
+  let left = self.parse_cast_expr()
   self.skip_whitespace()
   if self.at(pow()) {
     self.builder.start_node_at(checkpoint, binary_expr())
@@ -264,6 +262,23 @@ fn Parser::parse_power_expr(self : Parser) -> Expr {
   } else {
     left
   }
+}
+
+///|
+fn Parser::parse_cast_expr(self : Parser) -> Expr {
+  let checkpoint = self.builder.checkpoint()
+  let mut left = self.parse_unary_expr()
+  while ({
+          self.skip_whitespace()
+          self.at(as_kw())
+        }) {
+    self.builder.start_node_at(checkpoint, binary_expr())
+    ignore(self.bump())
+    let right = self.parse_type_operand_expr()
+    self.builder.finish_node()
+    left = BinaryExpr(As, left, right)
+  }
+  left
 }
 
 ///|

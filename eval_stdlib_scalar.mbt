@@ -378,6 +378,7 @@ fn eval_typed_method_dispatch(
                   name: hidden_member_name("__class"),
                   value: StringValue(class_name),
                   source: None,
+                  annotations: [],
                 },
               ]
               for m in receiver_members {

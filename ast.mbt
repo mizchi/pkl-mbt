@@ -108,6 +108,7 @@ pub(all) struct ObjectMember {
   name : String
   type_name : String?
   value : Expr
+  annotations : Array[Annotation]
 } derive(Eq, Debug)
 
 ///|
@@ -140,6 +141,7 @@ pub(all) struct Binding {
   type_name : String?
   value : Expr
   exported : Bool
+  annotations : Array[Annotation]
   // PKL-140: True when the property was declared without a default
   // (`foo: Int?` / `external minInt: Int`). The evaluator skips
   // these — Apple Pkl's stdlib uses the form for host-bound slots
@@ -216,6 +218,7 @@ pub(all) struct ClassProperty {
   name : String
   type_name : String?
   value : Expr?
+  annotations : Array[Annotation]
 } derive(Eq, Debug)
 
 ///|

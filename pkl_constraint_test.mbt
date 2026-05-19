@@ -134,7 +134,12 @@ test "evaluate and typecheck Pkl constrained type annotation predicates" {
     eval_source("value: Int(isBetween(0, 10)) = 3") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "value", value: IntValue(3), source: None },
+        ValueMember::{
+          name: "value",
+          value: IntValue(3),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -560,7 +565,12 @@ test "typecheck Pkl null-safe invocation chains" {
     eval_source("value = null?.f()") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "value", value: NullValue, source: None },
+        ValueMember::{
+          name: "value",
+          value: NullValue,
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -591,10 +601,17 @@ test "evaluate and typecheck Pkl object amendments" {
               name: "name",
               value: StringValue("hawk"),
               source: None,
+              annotations: [],
             },
-            ValueMember::{ name: "age", value: IntValue(2), source: None },
+            ValueMember::{
+              name: "age",
+              value: IntValue(2),
+              source: None,
+              annotations: [],
+            },
           ]),
           source: None,
+          annotations: [],
         },
         ValueMember::{
           name: "bird",
@@ -603,15 +620,23 @@ test "evaluate and typecheck Pkl object amendments" {
               name: "name",
               value: StringValue("hawk"),
               source: None,
+              annotations: [],
             },
-            ValueMember::{ name: "age", value: IntValue(3), source: None },
+            ValueMember::{
+              name: "age",
+              value: IntValue(3),
+              source: None,
+              annotations: [],
+            },
             ValueMember::{
               name: "wing",
               value: StringValue("wide"),
               source: None,
+              annotations: [],
             },
           ]),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -637,8 +662,18 @@ test "analysis session resolves module amends and extends" {
     session.eval_path("amended.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "name", value: StringValue("hawk"), source: None },
-        ValueMember::{ name: "age", value: IntValue(3), source: None },
+        ValueMember::{
+          name: "name",
+          value: StringValue("hawk"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "age",
+          value: IntValue(3),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -646,9 +681,24 @@ test "analysis session resolves module amends and extends" {
     session.eval_path("extended.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "name", value: StringValue("hawk"), source: None },
-        ValueMember::{ name: "age", value: IntValue(2), source: None },
-        ValueMember::{ name: "wing", value: StringValue("wide"), source: None },
+        ValueMember::{
+          name: "name",
+          value: StringValue("hawk"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "age",
+          value: IntValue(2),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "wing",
+          value: StringValue("wide"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -745,13 +795,48 @@ test "construct Pkl Duration literals from Int magnitudes" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: DurationValue(1, "ns"), source: None },
-        ValueMember::{ name: "b", value: DurationValue(2, "us"), source: None },
-        ValueMember::{ name: "c", value: DurationValue(3, "ms"), source: None },
-        ValueMember::{ name: "d", value: DurationValue(4, "s"), source: None },
-        ValueMember::{ name: "e", value: DurationValue(5, "min"), source: None },
-        ValueMember::{ name: "f", value: DurationValue(6, "h"), source: None },
-        ValueMember::{ name: "g", value: DurationValue(7, "d"), source: None },
+        ValueMember::{
+          name: "a",
+          value: DurationValue(1, "ns"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "b",
+          value: DurationValue(2, "us"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "c",
+          value: DurationValue(3, "ms"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "d",
+          value: DurationValue(4, "s"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "e",
+          value: DurationValue(5, "min"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "f",
+          value: DurationValue(6, "h"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "g",
+          value: DurationValue(7, "d"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -767,20 +852,71 @@ test "construct Pkl DataSize literals from Int magnitudes" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: DataSizeValue(1, "b"), source: None },
-        ValueMember::{ name: "b", value: DataSizeValue(2, "kb"), source: None },
-        ValueMember::{ name: "c", value: DataSizeValue(3, "kib"), source: None },
-        ValueMember::{ name: "d", value: DataSizeValue(4, "mb"), source: None },
-        ValueMember::{ name: "e", value: DataSizeValue(5, "mib"), source: None },
-        ValueMember::{ name: "f", value: DataSizeValue(6, "gb"), source: None },
-        ValueMember::{ name: "g", value: DataSizeValue(7, "gib"), source: None },
-        ValueMember::{ name: "h", value: DataSizeValue(8, "tb"), source: None },
-        ValueMember::{ name: "i", value: DataSizeValue(9, "tib"), source: None },
-        ValueMember::{ name: "j", value: DataSizeValue(10, "pb"), source: None },
+        ValueMember::{
+          name: "a",
+          value: DataSizeValue(1, "b"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "b",
+          value: DataSizeValue(2, "kb"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "c",
+          value: DataSizeValue(3, "kib"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "d",
+          value: DataSizeValue(4, "mb"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "e",
+          value: DataSizeValue(5, "mib"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "f",
+          value: DataSizeValue(6, "gb"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "g",
+          value: DataSizeValue(7, "gib"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "h",
+          value: DataSizeValue(8, "tb"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "i",
+          value: DataSizeValue(9, "tib"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "j",
+          value: DataSizeValue(10, "pb"),
+          source: None,
+          annotations: [],
+        },
         ValueMember::{
           name: "k",
           value: DataSizeValue(11, "pib"),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -795,7 +931,12 @@ test "Pkl Duration addition keeps the larger unit when units match" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: DurationValue(6, "s"), source: None },
+        ValueMember::{
+          name: "a",
+          value: DurationValue(6, "s"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -812,7 +953,12 @@ test "Pkl Duration mixed-unit addition normalizes to the smaller unit" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: DurationValue(182, "s"), source: None },
+        ValueMember::{
+          name: "a",
+          value: DurationValue(182, "s"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -826,8 +972,18 @@ test "Pkl Duration subtraction works for same and mixed units" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: DurationValue(3, "s"), source: None },
-        ValueMember::{ name: "b", value: DurationValue(150, "s"), source: None },
+        ValueMember::{
+          name: "a",
+          value: DurationValue(3, "s"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "b",
+          value: DurationValue(150, "s"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -843,12 +999,42 @@ test "Pkl Duration comparison normalizes to the base unit" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "lt", value: BoolValue(true), source: None },
-        ValueMember::{ name: "le", value: BoolValue(true), source: None },
-        ValueMember::{ name: "gt", value: BoolValue(true), source: None },
-        ValueMember::{ name: "ge", value: BoolValue(true), source: None },
-        ValueMember::{ name: "eq", value: BoolValue(true), source: None },
-        ValueMember::{ name: "ne", value: BoolValue(true), source: None },
+        ValueMember::{
+          name: "lt",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "le",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "gt",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "ge",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "eq",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "ne",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -870,14 +1056,30 @@ test "Pkl DataSize arithmetic and comparison normalize to the smaller unit" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: DataSizeValue(5, "kb"), source: None },
+        ValueMember::{
+          name: "a",
+          value: DataSizeValue(5, "kb"),
+          source: None,
+          annotations: [],
+        },
         ValueMember::{
           name: "b",
           value: DataSizeValue(900, "kb"),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "c", value: BoolValue(true), source: None },
-        ValueMember::{ name: "d", value: BoolValue(true), source: None },
+        ValueMember::{
+          name: "c",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "d",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -891,11 +1093,17 @@ test "Pkl Duration unary negation flips the magnitude" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: DurationValue(-4, "s"), source: None },
+        ValueMember::{
+          name: "a",
+          value: DurationValue(-4, "s"),
+          source: None,
+          annotations: [],
+        },
         ValueMember::{
           name: "b",
           value: DurationValue(-2, "min"),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -912,10 +1120,30 @@ test "Pkl Duration value and unit accessors" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "v", value: IntValue(3), source: None },
-        ValueMember::{ name: "u", value: StringValue("min"), source: None },
-        ValueMember::{ name: "m", value: IntValue(2), source: None },
-        ValueMember::{ name: "un", value: StringValue("kb"), source: None },
+        ValueMember::{
+          name: "v",
+          value: IntValue(3),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "u",
+          value: StringValue("min"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "m",
+          value: IntValue(2),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "un",
+          value: StringValue("kb"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -931,16 +1159,23 @@ test "Pkl Duration toUnit normalizes to the requested unit" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: DurationValue(60, "s"), source: None },
+        ValueMember::{
+          name: "a",
+          value: DurationValue(60, "s"),
+          source: None,
+          annotations: [],
+        },
         ValueMember::{
           name: "b",
           value: DurationValue(60, "min"),
           source: None,
+          annotations: [],
         },
         ValueMember::{
           name: "c",
           value: DataSizeValue(1024, "b"),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -957,10 +1192,30 @@ test "Pkl Duration and DataSize isBetween compare by normalized magnitude" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: BoolValue(true), source: None },
-        ValueMember::{ name: "b", value: BoolValue(false), source: None },
-        ValueMember::{ name: "c", value: BoolValue(true), source: None },
-        ValueMember::{ name: "d", value: BoolValue(false), source: None },
+        ValueMember::{
+          name: "a",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "b",
+          value: BoolValue(false),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "c",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "d",
+          value: BoolValue(false),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -980,23 +1235,56 @@ test "Pkl Duration isoString renders ISO 8601 time fragments" {
           name: "a",
           value: StringValue("PT0.000000001S"),
           source: None,
+          annotations: [],
         },
         ValueMember::{
           name: "b",
           value: StringValue("PT0.0000022S"),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "c", value: StringValue("PT0.003S"), source: None },
-        ValueMember::{ name: "d", value: StringValue("PT4.4S"), source: None },
-        ValueMember::{ name: "e", value: StringValue("PT5M"), source: None },
-        ValueMember::{ name: "f", value: StringValue("PT6H36M"), source: None },
-        ValueMember::{ name: "g", value: StringValue("PT168H"), source: None },
+        ValueMember::{
+          name: "c",
+          value: StringValue("PT0.003S"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "d",
+          value: StringValue("PT4.4S"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "e",
+          value: StringValue("PT5M"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "f",
+          value: StringValue("PT6H36M"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "g",
+          value: StringValue("PT168H"),
+          source: None,
+          annotations: [],
+        },
         ValueMember::{
           name: "h",
           value: StringValue("-PT10.001S"),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "i", value: StringValue("-PT3H6M"), source: None },
+        ValueMember::{
+          name: "i",
+          value: StringValue("-PT3H6M"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1018,6 +1306,7 @@ test "Pkl module.catch captures Duration isoString non-finite diagnostics" {
             "Cannot convert duration `NaN.s` to ISO 8601 duration.",
           ),
           source: None,
+          annotations: [],
         },
         ValueMember::{
           name: "b",
@@ -1025,6 +1314,7 @@ test "Pkl module.catch captures Duration isoString non-finite diagnostics" {
             "Cannot convert duration `Infinity.s` to ISO 8601 duration.",
           ),
           source: None,
+          annotations: [],
         },
         ValueMember::{
           name: "c",
@@ -1032,6 +1322,7 @@ test "Pkl module.catch captures Duration isoString non-finite diagnostics" {
             "Cannot convert duration `-Infinity.s` to ISO 8601 duration.",
           ),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -1051,13 +1342,19 @@ test "Pkl module.catch captures diagnostics when catch is inherited" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "catch", value: NullValue, source: None },
+        ValueMember::{
+          name: "catch",
+          value: NullValue,
+          source: None,
+          annotations: [],
+        },
         ValueMember::{
           name: "a",
           value: StringValue(
             "Cannot convert duration `NaN.s` to ISO 8601 duration.",
           ),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -1102,15 +1399,41 @@ test "Pkl DataSize unit family helpers and conversions" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: BoolValue(true), source: None },
-        ValueMember::{ name: "b", value: BoolValue(false), source: None },
-        ValueMember::{ name: "c", value: BoolValue(true), source: None },
-        ValueMember::{ name: "d", value: BoolValue(false), source: None },
-        ValueMember::{ name: "e", value: DataSizeValue(1, "kib"), source: None },
+        ValueMember::{
+          name: "a",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "b",
+          value: BoolValue(false),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "c",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "d",
+          value: BoolValue(false),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "e",
+          value: DataSizeValue(1, "kib"),
+          source: None,
+          annotations: [],
+        },
         ValueMember::{
           name: "f",
           value: DataSizeValue(1.024, "kb"),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -1120,9 +1443,24 @@ test "Pkl DataSize unit family helpers and conversions" {
 ///|
 test "render Pkl Duration and DataSize values as PCF literals" {
   let value : Value = ObjectValue([
-    ValueMember::{ name: "wait", value: DurationValue(5, "min"), source: None },
-    ValueMember::{ name: "size", value: DataSizeValue(3, "kib"), source: None },
-    ValueMember::{ name: "neg", value: DurationValue(-2, "s"), source: None },
+    ValueMember::{
+      name: "wait",
+      value: DurationValue(5, "min"),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "size",
+      value: DataSizeValue(3, "kib"),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "neg",
+      value: DurationValue(-2, "s"),
+      source: None,
+      annotations: [],
+    },
   ])
   inspect(
     render_value(value),
@@ -1142,8 +1480,18 @@ test "construct Pkl Regex values from a pattern string" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: RegexValue("a+"), source: None },
-        ValueMember::{ name: "b", value: RegexValue("^foo$"), source: None },
+        ValueMember::{
+          name: "a",
+          value: RegexValue("a+"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "b",
+          value: RegexValue("^foo$"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1157,7 +1505,12 @@ test "Pkl Regex pattern property returns the source pattern" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "p", value: StringValue("[0-9]+"), source: None },
+        ValueMember::{
+          name: "p",
+          value: StringValue("[0-9]+"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1173,9 +1526,24 @@ test "Pkl Regex matches checks the entire input" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: BoolValue(true), source: None },
-        ValueMember::{ name: "b", value: BoolValue(false), source: None },
-        ValueMember::{ name: "c", value: BoolValue(true), source: None },
+        ValueMember::{
+          name: "a",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "b",
+          value: BoolValue(false),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "c",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1191,8 +1559,18 @@ test "Pkl Regex find returns the first match or null" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: StringValue("123"), source: None },
-        ValueMember::{ name: "b", value: NullValue, source: None },
+        ValueMember::{
+          name: "a",
+          value: StringValue("123"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "b",
+          value: NullValue,
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1216,8 +1594,14 @@ test "Pkl Regex findAll returns all non-overlapping matches" {
             StringValue("456"),
           ]),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "b", value: ListingValue([]), source: None },
+        ValueMember::{
+          name: "b",
+          value: ListingValue([]),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1233,8 +1617,18 @@ test "Pkl Regex replace substitutes the first match" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: StringValue("abcXde3"), source: None },
-        ValueMember::{ name: "b", value: StringValue("abc"), source: None },
+        ValueMember::{
+          name: "a",
+          value: StringValue("abcXde3"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "b",
+          value: StringValue("abc"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1254,8 +1648,14 @@ test "Pkl Regex replaceAll substitutes every non-overlapping match" {
           name: "a",
           value: StringValue("abcXdeXfX"),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "b", value: StringValue("abc"), source: None },
+        ValueMember::{
+          name: "b",
+          value: StringValue("abc"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1264,8 +1664,18 @@ test "Pkl Regex replaceAll substitutes every non-overlapping match" {
 ///|
 test "render Pkl Regex values as Regex(\"...\") PCF literals" {
   let value : Value = ObjectValue([
-    ValueMember::{ name: "digits", value: RegexValue("[0-9]+"), source: None },
-    ValueMember::{ name: "anchored", value: RegexValue("^foo$"), source: None },
+    ValueMember::{
+      name: "digits",
+      value: RegexValue("[0-9]+"),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "anchored",
+      value: RegexValue("^foo$"),
+      source: None,
+      annotations: [],
+    },
   ])
   inspect(
     render_value(value),
@@ -1284,7 +1694,12 @@ test "Pkl String constraint length comparison accepts in-range values" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "name", value: StringValue("hawk"), source: None },
+        ValueMember::{
+          name: "name",
+          value: StringValue("hawk"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1318,7 +1733,12 @@ test "Pkl String constraint length.isBetween accepts and rejects" {
     accepting.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "name", value: StringValue("hi"), source: None },
+        ValueMember::{
+          name: "name",
+          value: StringValue("hi"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1350,7 +1770,12 @@ test "Pkl String constraint matches(Regex(...)) accepts and rejects" {
     accepting.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "id", value: StringValue("hawk"), source: None },
+        ValueMember::{
+          name: "id",
+          value: StringValue("hawk"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1424,6 +1849,7 @@ test "Pkl Listing element constraint accepts a Listing of valid Ints" {
           name: "xs",
           value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -1522,6 +1948,7 @@ test "Pkl Bytes constructor wraps a Listing of byte values" {
           name: "data",
           value: BytesValue(b"\x41\x42\x43"),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -1538,8 +1965,18 @@ test "Pkl Bytes length and base64 properties" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "n", value: IntValue(3), source: None },
-        ValueMember::{ name: "b", value: StringValue("QUJD"), source: None },
+        ValueMember::{
+          name: "n",
+          value: IntValue(3),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "b",
+          value: StringValue("QUJD"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1555,8 +1992,18 @@ test "Pkl Bytes getOrNull returns the byte at an index or null" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "in_bound", value: IntValue(66), source: None },
-        ValueMember::{ name: "out_bound", value: NullValue, source: None },
+        ValueMember::{
+          name: "in_bound",
+          value: IntValue(66),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "out_bound",
+          value: NullValue,
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1574,6 +2021,7 @@ test "Pkl Bytes toList returns the underlying ints" {
           name: "xs",
           value: ListValue([IntValue(1), IntValue(2), IntValue(3)]),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -1592,6 +2040,7 @@ test "Pkl Bytes.fromBase64 decodes a base64 string" {
           name: "data",
           value: BytesValue(b"\x41\x42\x43"),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -1610,6 +2059,7 @@ test "Pkl String.toBytes encodes the string as UTF-8 bytes" {
           name: "data",
           value: BytesValue(b"\x41\x42\x43"),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -1623,6 +2073,7 @@ test "render Pkl Bytes values as Bytes(new Listing { ... }) PCF literals" {
       name: "data",
       value: BytesValue(b"\x41\x42\x43"),
       source: None,
+      annotations: [],
     },
   ])
   inspect(
@@ -1641,7 +2092,12 @@ test "Pkl shebang preamble at module start is consumed as trivia (PKL-148p)" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "foo", value: IntValue(1), source: None },
+        ValueMember::{
+          name: "foo",
+          value: IntValue(1),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )

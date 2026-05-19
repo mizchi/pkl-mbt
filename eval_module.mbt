@@ -23,7 +23,7 @@ fn imported_class_parent_name(
   import_name : String,
   parent_name : String,
 ) -> String {
-  if parent_name.find(".") is Some(_) {
+  if parent_name.find(".") is Some(_) || is_stdlib_class_name(parent_name) {
     parent_name
   } else {
     "\{import_name}.\{parent_name}"
@@ -370,7 +370,12 @@ fn late_bind_module_parent_members(
       Some(v) => v
       None => value_member.value
     }
-    rebound.push({ name: value_member.name, value, source: value_member.source })
+    rebound.push({
+      name: value_member.name,
+      value,
+      source: value_member.source,
+      annotations: value_member.annotations,
+    })
   }
   rebound
 }
@@ -692,7 +697,13 @@ fn eval_program(
           diagnostics,
           resolve_import,
         ) {
-        Some(value) => members.push({ name: binding.name, value, source: None })
+        Some(value) =>
+          members.push({
+            name: binding.name,
+            value,
+            source: None,
+            annotations: binding.annotations,
+          })
         None => ()
       }
       continue
@@ -777,6 +788,7 @@ fn eval_program(
               name: binding.name,
               value,
               source: Some(binding.value),
+              annotations: binding.annotations,
             })
           }
         }
@@ -819,6 +831,7 @@ fn eval_program(
                   name: hidden_member_name(function_decl.name),
                   value,
                   source: None,
+                  annotations: [],
                 })
               None => ()
             }
@@ -834,6 +847,7 @@ fn eval_program(
         name: hidden_member_name(module_metadata_name()),
         value: StringValue(name),
         source: None,
+        annotations: [],
       })
     None => ()
   }
@@ -843,6 +857,7 @@ fn eval_program(
         name: hidden_member_name(module_metadata_super_name()),
         value: ObjectValue(module_parent_members),
         source: None,
+        annotations: [],
       })
     None => ()
   }
@@ -895,7 +910,30 @@ fn eval_program(
     Some(value) => {
       let converters = collect_path_converters(value)
       let class_converters = collect_class_converters(value)
+      let property_transformers = collect_convert_property_transformers(
+        value,
+        bindings,
+        env,
+        class_env,
+        cache,
+        program.declarations,
+        diagnostics,
+        resolve_import,
+      )
+      let renderer_value = collect_output_renderer(value)
       let mut current = value
+      current = apply_convert_property_transformers(
+        current,
+        renderer_value,
+        property_transformers,
+        bindings,
+        env,
+        class_env,
+        cache,
+        program.declarations,
+        diagnostics,
+        resolve_import,
+      )
       if converters.length() > 0 {
         current = apply_path_converters(
           current,
@@ -1055,6 +1093,547 @@ fn collect_class_converters(value : Value) -> Array[(String, Value)] {
 }
 
 ///|
+priv struct ConvertPropertyTransformer {
+  class_name : String
+  value : Value
+}
+
+///|
+fn collect_output_renderer(value : Value) -> Value? {
+  match value {
+    ObjectValue(members) =>
+      for entry in members {
+        if entry.name == "output" {
+          match entry.value {
+            ObjectValue(output_members) =>
+              for output_member in output_members {
+                if output_member.name == "renderer" {
+                  return Some(output_member.value)
+                }
+              }
+            _ => ()
+          }
+        }
+      }
+    _ => ()
+  }
+  None
+}
+
+///|
+fn collect_convert_property_transformers(
+  value : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Array[ConvertPropertyTransformer] {
+  let transformers : Array[ConvertPropertyTransformer] = []
+  match value {
+    ObjectValue(members) =>
+      for entry in members {
+        if entry.name == "output" {
+          match entry.value {
+            ObjectValue(output_members) =>
+              for output_member in output_members {
+                if output_member.name == "renderer" {
+                  match output_member.value {
+                    ObjectValue(renderer_members) =>
+                      for renderer_member in renderer_members {
+                        if renderer_member.name == "convertPropertyTransformers" {
+                          match renderer_member.value {
+                            MappingValue(entries) =>
+                              for entry in entries {
+                                match class_name_from_mirror_value(entry.key) {
+                                  Some(class_name) =>
+                                    transformers.push({
+                                      class_name,
+                                      value: instantiate_convert_property_value(
+                                        class_name,
+                                        entry.value,
+                                        bindings,
+                                        env,
+                                        class_env,
+                                        cache,
+                                        declarations,
+                                        diagnostics,
+                                        resolve_import,
+                                      ),
+                                    })
+                                  None => ()
+                                }
+                              }
+                            _ => ()
+                          }
+                        }
+                      }
+                    _ => ()
+                  }
+                }
+              }
+            _ => ()
+          }
+        }
+      }
+    _ => ()
+  }
+  transformers
+}
+
+///|
+fn class_name_from_mirror_value(value : Value) -> String? {
+  match value {
+    ObjectValue(members) =>
+      match lookup_member(members, "name") {
+        Some(StringValue(name)) => Some(class_binding_name_from_mirror(name))
+        _ =>
+          match lookup_member(members, "reflectee") {
+            Some(StringValue(name)) =>
+              Some(class_binding_name_from_mirror(name))
+            _ => None
+          }
+      }
+    _ => None
+  }
+}
+
+///|
+fn class_binding_name_from_mirror(name : String) -> String {
+  let hash = name.find("#")
+  match hash {
+    Some(idx) =>
+      String::unsafe_substring(name, start=idx + 1, end=name.length())
+    None => name
+  }
+}
+
+///|
+fn instantiate_convert_property_value(
+  class_name : String,
+  mixin_value : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  match mixin_value {
+    ObjectValue(members) => {
+      let defaults = eval_class_default_members(
+        class_name,
+        bindings,
+        env,
+        class_env,
+        cache,
+        [],
+        declarations,
+        diagnostics,
+        resolve_import,
+      )
+      ObjectValue(
+        tag_object_with_class(
+          merge_value_members(defaults, members),
+          class_name,
+        ),
+      )
+    }
+    _ => mixin_value
+  }
+}
+
+///|
+fn apply_convert_property_transformers(
+  value : Value,
+  renderer_value : Value?,
+  transformers : Array[ConvertPropertyTransformer],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  transform_convert_property_value(
+    value,
+    renderer_value_or_default(renderer_value),
+    transformers,
+    bindings,
+    env,
+    class_env,
+    cache,
+    declarations,
+    diagnostics,
+    resolve_import,
+  )
+}
+
+///|
+fn renderer_value_or_default(renderer_value : Value?) -> Value {
+  match renderer_value {
+    Some(value) => value
+    None => ObjectValue(tag_object_with_class([], "PcfRenderer"))
+  }
+}
+
+///|
+fn transform_convert_property_value(
+  value : Value,
+  renderer_value : Value,
+  transformers : Array[ConvertPropertyTransformer],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  match value {
+    ObjectValue(members) => {
+      let next : Array[ValueMember] = []
+      for field in members {
+        let child = transform_convert_property_value(
+          field.value,
+          renderer_value,
+          transformers,
+          bindings,
+          env,
+          class_env,
+          cache,
+          declarations,
+          diagnostics,
+          resolve_import,
+        )
+        next.push(
+          apply_convert_property_annotations_to_member(
+            field, child, renderer_value, transformers, bindings, env, class_env,
+            cache, declarations, diagnostics, resolve_import,
+          ),
+        )
+      }
+      ObjectValue(next)
+    }
+    ListingValue(elements) => {
+      let next : Array[Value] = []
+      for element in elements {
+        next.push(
+          transform_convert_property_value(
+            element, renderer_value, transformers, bindings, env, class_env, cache,
+            declarations, diagnostics, resolve_import,
+          ),
+        )
+      }
+      ListingValue(next)
+    }
+    ListValue(elements) => {
+      let next : Array[Value] = []
+      for element in elements {
+        next.push(
+          transform_convert_property_value(
+            element, renderer_value, transformers, bindings, env, class_env, cache,
+            declarations, diagnostics, resolve_import,
+          ),
+        )
+      }
+      ListValue(next)
+    }
+    SetValue(elements) => {
+      let next : Array[Value] = []
+      for element in elements {
+        next.push(
+          transform_convert_property_value(
+            element, renderer_value, transformers, bindings, env, class_env, cache,
+            declarations, diagnostics, resolve_import,
+          ),
+        )
+      }
+      SetValue(next)
+    }
+    MapValue(entries) => {
+      let next : Array[ValueEntry] = []
+      for entry in entries {
+        next.push({
+          key: entry.key,
+          value: transform_convert_property_value(
+            entry.value,
+            renderer_value,
+            transformers,
+            bindings,
+            env,
+            class_env,
+            cache,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ),
+        })
+      }
+      MapValue(next)
+    }
+    MappingValue(entries) => {
+      let next : Array[ValueEntry] = []
+      for entry in entries {
+        next.push({
+          key: entry.key,
+          value: transform_convert_property_value(
+            entry.value,
+            renderer_value,
+            transformers,
+            bindings,
+            env,
+            class_env,
+            cache,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ),
+        })
+      }
+      MappingValue(next)
+    }
+    PairValue(first, second) =>
+      PairValue(
+        transform_convert_property_value(
+          first, renderer_value, transformers, bindings, env, class_env, cache, declarations,
+          diagnostics, resolve_import,
+        ),
+        transform_convert_property_value(
+          second, renderer_value, transformers, bindings, env, class_env, cache,
+          declarations, diagnostics, resolve_import,
+        ),
+      )
+    _ => value
+  }
+}
+
+///|
+fn apply_convert_property_annotations_to_member(
+  field : ValueMember,
+  value : Value,
+  renderer_value : Value,
+  transformers : Array[ConvertPropertyTransformer],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> ValueMember {
+  let mut name = field.name
+  let mut current = value
+  for annotation in field.annotations {
+    match
+      apply_single_convert_property_annotation(
+        annotation, name, current, renderer_value, transformers, bindings, env, class_env,
+        cache, declarations, diagnostics, resolve_import,
+      ) {
+      Some((next_name, next_value)) => {
+        name = next_name
+        current = next_value
+      }
+      None => ()
+    }
+  }
+  { name, value: current, source: field.source, annotations: [] }
+}
+
+///|
+fn apply_single_convert_property_annotation(
+  annotation : Annotation,
+  property_name : String,
+  property_value : Value,
+  renderer_value : Value,
+  transformers : Array[ConvertPropertyTransformer],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> (String, Value)? {
+  let class_name = class_binding_name_from_mirror(annotation.class_name)
+  let matching_transformer = pick_convert_property_transformer(
+    class_name, transformers, class_env,
+  )
+  let annotation_value = match
+    eval_annotation_instance(
+      annotation, bindings, env, class_env, cache, declarations, diagnostics, resolve_import,
+    ) {
+    Some(value) => value
+    None => return None
+  }
+  let transformer_value = match matching_transformer {
+    Some(transformer) =>
+      merge_convert_property_values(annotation_value, transformer)
+    None => annotation_value
+  }
+  let render_fn = match transformer_value {
+    ObjectValue(members) => lookup_member(members, "render")
+    _ => None
+  }
+  match render_fn {
+    Some(fn_value) =>
+      match
+        apply_convert_property_render_function(
+          fn_value,
+          PairValue(StringValue(property_name), property_value),
+          renderer_value,
+          transformer_value,
+          bindings,
+          class_env,
+          cache,
+          declarations,
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(PairValue(StringValue(next_name), next_value)) =>
+          Some((next_name, next_value))
+        _ => None
+      }
+    None => None
+  }
+}
+
+///|
+fn merge_convert_property_values(base : Value, mixin_value : Value) -> Value {
+  match (base, mixin_value) {
+    (ObjectValue(base_members), ObjectValue(mixin_members)) =>
+      ObjectValue(merge_value_members(base_members, mixin_members))
+    _ => mixin_value
+  }
+}
+
+///|
+fn eval_annotation_instance(
+  annotation : Annotation,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let source = match annotation.body_kind {
+    BraceBody =>
+      "__annotation = new " +
+      annotation.class_name +
+      " {" +
+      annotation.body_text +
+      "}"
+    NoBody => "__annotation = new " + annotation.class_name + " {}"
+    ParenBody => return None
+  }
+  let parsed = parse_source(source)
+  for binding in parsed.program.bindings {
+    if binding.name == "__annotation" {
+      return eval_expr_with_bindings(
+        binding.value,
+        bindings,
+        env,
+        class_env,
+        cache,
+        [],
+        declarations,
+        diagnostics,
+        resolve_import,
+      )
+    }
+  }
+  None
+}
+
+///|
+fn pick_convert_property_transformer(
+  class_name : String,
+  transformers : Array[ConvertPropertyTransformer],
+  class_env : Array[ClassBinding],
+) -> Value? {
+  let chain = class_chain_for_tag(class_name, class_env)
+  for ancestor in chain {
+    for transformer in transformers {
+      if name_matches_class_tag(transformer.class_name, ancestor) {
+        return Some(transformer.value)
+      }
+    }
+  }
+  None
+}
+
+///|
+fn apply_convert_property_render_function(
+  fn_value : Value,
+  property : Value,
+  renderer_value : Value,
+  outer_value : Value,
+  bindings : Array[Binding],
+  class_env : Array[ClassBinding],
+  caller_cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match fn_value {
+    FunctionValue(parameters, body, _return_type_name, captured_env, _) => {
+      if parameters.length() != 2 {
+        diagnostics.push(diag("ConvertProperty.render expects 2 arguments"))
+        return None
+      }
+      let call_cache = copy_value_bindings(captured_env)
+      push_object_members_as_bindings(call_cache, outer_value)
+      call_cache.push({ name: "outer", value: outer_value })
+      match lookup_value(call_cache, "@__module_name") {
+        Some(_) => ()
+        None =>
+          match lookup_value(caller_cache, "@__module_name") {
+            Some(v) => call_cache.push({ name: "@__module_name", value: v })
+            None => ()
+          }
+      }
+      call_cache.push({ name: parameters[0].name, value: property })
+      call_cache.push({ name: parameters[1].name, value: renderer_value })
+      eval_expr_with_bindings(
+        body,
+        bindings,
+        [],
+        class_env,
+        call_cache,
+        [],
+        declarations,
+        diagnostics,
+        resolve_import,
+      )
+    }
+    _ => None
+  }
+}
+
+///|
+fn push_object_members_as_bindings(
+  bindings : Array[ValueBinding],
+  value : Value,
+) -> Unit {
+  match value {
+    ObjectValue(members) =>
+      for value_member in members {
+        if is_invisible_member_name(value_member.name) {
+          continue
+        }
+        bindings.push({ name: value_member.name, value: value_member.value })
+      }
+    _ => ()
+  }
+}
+
+///|
 /// PKL-152: walk the rendered tree and rewrite any ObjectValue whose
 /// class matches a converter key. `Any` matches every ObjectValue
 /// (except the module mirror itself); explicit class entries match
@@ -1091,6 +1670,7 @@ fn apply_class_converters(
             resolve_import,
           ),
           source: field.source,
+          annotations: field.annotations,
         })
       }
       ObjectValue(next)
@@ -1129,6 +1709,7 @@ fn walk_class_converter(
             resolve_import,
           ),
           source: field.source,
+          annotations: field.annotations,
         })
       }
       ObjectValue(next)
@@ -1437,6 +2018,7 @@ fn rewrite_walk(
                 resolve_import,
               ),
               source: None,
+              annotations: field.annotations,
             })
           } else {
             next.push(field)

@@ -26,6 +26,9 @@ fn escape_string(value : String) -> String {
 
 ///|
 fn pcf_is_block_value(value : Value) -> Bool {
+  if render_directive_text(value) is Some(_) {
+    return false
+  }
   match value {
     ObjectValue(_) | ListingValue(_) | MappingValue(_) => true
     // PKL-148h: `ListValue` renders through the `List(...)` constructor
@@ -200,7 +203,10 @@ fn render_pcf_inline(value : Value, indent : Int, buf : StringBuilder) -> Unit {
     // single-line escape form.
     render_pcf_string_heredoc(s, indent, buf)
   } else {
-    render_pcf_scalar_with_indent(value, indent, buf)
+    match render_directive_text(value) {
+      Some(text) => buf.write_string(text)
+      None => render_pcf_scalar_with_indent(value, indent, buf)
+    }
   }
 }
 
@@ -411,6 +417,14 @@ fn render_pcf_object_member(
     return
   }
   buf.write_string(field.name)
+  match render_directive_text(field.value) {
+    Some(text) => {
+      buf.write_char(' ')
+      buf.write_string(text)
+      return
+    }
+    None => ()
+  }
   if pcf_is_block_value(field.value) {
     buf.write_char(' ')
     render_pcf_block_body(field.value, indent, buf)

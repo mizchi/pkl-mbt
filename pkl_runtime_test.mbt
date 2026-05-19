@@ -198,6 +198,7 @@ test "PKL-125: YAML literal block scalar clips with single trailing newline" {
       name: "p",
       value: StringValue("line one\nline two\n"),
       source: None,
+      annotations: [],
     },
   ])
   inspect(
@@ -214,7 +215,12 @@ test "PKL-125: YAML literal block scalar clips with single trailing newline" {
 ///|
 test "PKL-125: YAML literal block scalar strips with no trailing newline" {
   let v : Value = ObjectValue([
-    ValueMember::{ name: "p", value: StringValue("alpha\nbeta"), source: None },
+    ValueMember::{
+      name: "p",
+      value: StringValue("alpha\nbeta"),
+      source: None,
+      annotations: [],
+    },
   ])
   inspect(
     render_value_as_yaml(v),
@@ -234,6 +240,7 @@ test "PKL-125: YAML literal block scalar keeps with multi trailing newlines" {
       name: "p",
       value: StringValue("alpha\nbeta\n\n\n"),
       source: None,
+      annotations: [],
     },
   ])
   // The source string has 3 trailing newlines; the natural newline
@@ -259,6 +266,7 @@ test "PKL-125: YAML falls back to double-quote when a line leads with space" {
       name: "p",
       value: StringValue("first\n  cannot block\nlast"),
       source: None,
+      annotations: [],
     },
   ])
   inspect(
@@ -277,6 +285,7 @@ test "PKL-125: YAML block scalar in a sequence item indents to column 2" {
       name: "items",
       value: ListingValue([StringValue("a\nb"), StringValue("single")]),
       source: None,
+      annotations: [],
     },
   ])
   inspect(
