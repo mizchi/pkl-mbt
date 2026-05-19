@@ -201,6 +201,22 @@ test "PKL-119a: user-defined class Pair shadows the builtin generic" {
 }
 
 ///|
+test "PKL-119a: user-defined class Pair evaluates through local class binding" {
+  guard
+    eval_source(
+      "class Pair<A, B> { first: A; second: B }\np = new Pair { first = 1; second = \"hi\" }",
+    )
+    is EvalOk(value)
+  else {
+    panic()
+  }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("p {"), content="true")
+  inspect(rendered.contains("first = 1"), content="true")
+  inspect(rendered.contains("second = \"hi\""), content="true")
+}
+
+///|
 test "PKL-126a: plist renderer emits XML 1.0 prolog and Apple DOCTYPE" {
   guard eval_source("name = \"pigeon\"\nage = 42") is EvalOk(value) else {
     panic()

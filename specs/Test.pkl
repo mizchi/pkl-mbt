@@ -1021,8 +1021,7 @@ local cliPkspecPolish = new Test {
   cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_pkspec_polish.pkl"
   workdir = ".."
   expectStdoutContains {
-    "doubled {"
-    "\"ALPHA\""
+    "doubled = List(\"ALPHA\", \"BETA\", \"GAMMA\")"
     "selfRef {"
     "ctorList = List(1, 2, 3)"
     "ctorEmpty = List()"
@@ -1049,7 +1048,7 @@ local cliNewBodyInference = new Test {
     "obj {"
     "listingLen = 3"
     "mappingLen = 2"
-    "emptyChained {}"
+    "emptyChained = List()"
     "emptyMapKeys {}"
   }
   timeoutSec = 120

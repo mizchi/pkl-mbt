@@ -57,7 +57,8 @@ fn eval_expr_with_bindings(
       // instantiated through `new` — they're built via constructor
       // functions or literal forms. `Listing` / `Mapping` / `Dynamic`
       // / `Object` are the genuine `new`-instantiable bases.
-      if is_external_only_class_name(type_name) {
+      if is_external_only_class_name(type_name) &&
+        !(lookup_class_binding(class_env, type_name) is Some(_)) {
         diagnostics.push(
           diag(
             "Cannot instantiate, or amend an instance of, external class `\{type_name}`.",
