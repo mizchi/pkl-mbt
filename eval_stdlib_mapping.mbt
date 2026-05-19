@@ -62,6 +62,83 @@ fn value_to_string_for_join(v : Value) -> String {
     BoolValue(false) => "false"
     StringValue(s) => s
     NullValue => "null"
+    // PKL-148bh: container values render through the compact inline
+    // form (one line, `;`-separated, leading `new <Class>`) so string
+    // interpolation produces `new Listing { 1; 2; 3 }` rather than the
+    // multi-line PCF block. `Dynamic` ObjectValues already carry the
+    // `__class` tag for the Dynamic case; non-tagged Objects render
+    // bare `new { ... }` for now (universal user-class tagging is
+    // deferred — `basic/string` accepts the bare form for both
+    // `Dynamic` and a user class in current gold).
+    ObjectValue(members) => {
+      let buf = StringBuilder::new()
+      let class_name = match find_object_class_tag(members) {
+        Some(name) => name
+        None => ""
+      }
+      buf.write_string("new ")
+      if class_name != "" {
+        buf.write_string(class_name)
+        buf.write_char(' ')
+      }
+      let visible = visible_members(members)
+      if visible.length() == 0 {
+        buf.write_string("{}")
+      } else {
+        buf.write_string("{ ")
+        for i = 0; i < visible.length(); i = i + 1 {
+          if i > 0 {
+            buf.write_string("; ")
+          }
+          buf.write_string(visible[i].name)
+          buf.write_string(" = ")
+          render_pcf_scalar(visible[i].value, buf)
+        }
+        buf.write_string(" }")
+      }
+      buf.to_string()
+    }
+    ListingValue(elements) => {
+      let buf = StringBuilder::new()
+      buf.write_string("new Listing")
+      if elements.length() == 0 {
+        buf.write_string(" {}")
+      } else {
+        buf.write_string(" { ")
+        for i = 0; i < elements.length(); i = i + 1 {
+          if i > 0 {
+            buf.write_string("; ")
+          }
+          render_pcf_scalar(elements[i], buf)
+        }
+        buf.write_string(" }")
+      }
+      buf.to_string()
+    }
+    MappingValue(entries) => {
+      let buf = StringBuilder::new()
+      buf.write_string("new Mapping")
+      if entries.length() == 0 {
+        buf.write_string(" {}")
+      } else {
+        buf.write_string(" { ")
+        for i = 0; i < entries.length(); i = i + 1 {
+          if i > 0 {
+            buf.write_string("; ")
+          }
+          buf.write_char('[')
+          render_pcf_scalar(entries[i].key, buf)
+          buf.write_string("] = ")
+          render_pcf_scalar(entries[i].value, buf)
+        }
+        buf.write_string(" }")
+      }
+      buf.to_string()
+    }
+    // Apple Pkl renders function values as `new FunctionN {}` in
+    // toString / interpolation contexts (N = arity).
+    FunctionValue(parameters, _, _, _, _) =>
+      "new Function\{parameters.length()} {}"
     _ => {
       let buf = StringBuilder::new()
       render_pcf_inline(v, 0, buf)

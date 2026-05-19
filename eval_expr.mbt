@@ -836,9 +836,11 @@ fn eval_expr_with_bindings(
             let c = s[index].to_int().unsafe_to_char()
             Some(StringValue(c.to_string()))
           } else {
+            let buf = StringBuilder::new()
+            render_pcf_scalar(StringValue(s), buf)
             diagnostics.push(
               diag(
-                "Character index `\{index}` is out of range `0`..`\{s.length() - 1}`.",
+                "Character index `\{index}` is out of range `0`..`\{s.length() - 1}`. String: \{buf.to_string()}",
               ),
             )
             None
