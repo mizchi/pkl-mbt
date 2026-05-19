@@ -148,13 +148,30 @@ fn resolve_binding_value(
             // `new TheClass2 { ... }` (TypedObjectLiteral) so the
             // class's `hidden` / default machinery runs. Without this
             // the unprefixed `requiredLength` would leak into the
-            // rendered output (`listings/listing6` fixture).
+            // rendered output (`listings/listing6` fixture). When the
+            // annotation names an in-scope module-shaped value
+            // (`res1: someModule = new { foo = "..." }`), promote the
+            // RHS to `AmendExpr(Identifier(someModule), members)` so
+            // the module's own defaults flow through.
             let rewritten_value : Expr = match
               (binding.value, binding.type_name) {
               (ObjectLiteral(members), Some(class_name)) =>
                 match lookup_class_binding(class_env, class_name) {
                   Some(_) => TypedObjectLiteral(class_name, members)
-                  None => binding.value
+                  None =>
+                    if class_name.contains(".") || class_name.contains("<") ||
+                      class_name.contains("|") || class_name.contains("(") ||
+                      class_name.contains("?") {
+                      binding.value
+                    } else if lookup_value(env, class_name) is Some(
+                      ObjectValue(_),
+                    ) ||
+                      lookup_value(cache, class_name) is Some(ObjectValue(_)) ||
+                      find_binding(bindings, class_name) is Some(_) {
+                      AmendExpr(Identifier(class_name), members)
+                    } else {
+                      binding.value
+                    }
                 }
               _ => binding.value
             }
