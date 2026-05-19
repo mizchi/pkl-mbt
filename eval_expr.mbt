@@ -43,8 +43,8 @@ fn eval_expr_with_bindings(
       Some(
         ObjectValue(
           eval_object_members(
-            members, bindings, env, class_env, body_cache, stack, declarations,
-            diagnostics, resolve_import,
+            members, bindings, env, class_env, body_cache, stack, declarations, diagnostics,
+            resolve_import,
           ),
         ),
       )
@@ -194,8 +194,8 @@ fn eval_expr_with_bindings(
           class_defaults,
           rename_overrides_for_hidden_class_properties(
             eval_object_members(
-              members, body_bindings, env, class_env, body_cache, stack,
-              declarations, diagnostics, resolve_import,
+              members, body_bindings, env, class_env, body_cache, stack, declarations,
+              diagnostics, resolve_import,
             ),
             type_name,
             class_env,
@@ -310,14 +310,19 @@ fn eval_expr_with_bindings(
             if idx_args.length() >= 1 {
               match
                 eval_expr_with_bindings(
-                  idx_args[0], bindings, env, class_env, cache, stack, declarations,
-                  diagnostics, resolve_import,
+                  idx_args[0],
+                  bindings,
+                  env,
+                  class_env,
+                  cache,
+                  stack,
+                  declarations,
+                  diagnostics,
+                  resolve_import,
                 ) {
                 Some(IntValue(idx)) => {
                   diagnostics.push(
-                    diag(
-                      "Element index `\{idx}` is out of range `0`..`-1`.",
-                    ),
+                    diag("Element index `\{idx}` is out of range `0`..`-1`."),
                   )
                   return None
                 }
@@ -1077,16 +1082,8 @@ fn eval_expr_with_bindings(
             diagnostics, resolve_import,
           )
           let merged = merge_objects_with_late_binding(
-            modified_base,
-            evaluated_regular,
-            bindings,
-            env,
-            class_env,
-            amend_cache,
-            stack,
-            declarations,
-            diagnostics,
-            resolve_import,
+            modified_base, evaluated_regular, bindings, env, class_env, amend_cache,
+            stack, declarations, diagnostics, resolve_import,
           )
           // Fire class-property constraints against amend bodies that
           // target a typed receiver (`(counter) { y = 0 }` where
@@ -1305,7 +1302,8 @@ fn eval_expr_with_bindings(
           }
           module_members.push({
             name: value_binding.name,
-            value: value_binding.value, source: None
+            value: value_binding.value,
+            source: None,
           })
         }
         Some(ObjectValue(module_members))
@@ -1755,8 +1753,15 @@ fn eval_expr_with_bindings(
         // `"abc'def''ghi"` becomes `'abc'\''def'\'\''ghi'`.
         match
           eval_expr_with_bindings(
-            arguments[0], bindings, env, class_env, cache, stack, declarations,
-            diagnostics, resolve_import,
+            arguments[0],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
           ) {
           Some(StringValue(s)) => {
             let pieces : Array[String] = []
@@ -1791,7 +1796,8 @@ fn eval_expr_with_bindings(
           }
           None => None
         }
-      } else if callee is Identifier("getClass") && arguments.length() == 0 &&
+      } else if callee is Identifier("getClass") &&
+        arguments.length() == 0 &&
         !stack_contains_binding(stack, "getClass") &&
         find_binding(bindings, "getClass") is None &&
         lookup_value(env, "getClass") is None &&
@@ -1816,9 +1822,7 @@ fn eval_expr_with_bindings(
           _ => ""
         }
         if module_name.length() > 0 && !is_stdlib_class_name(class_name) {
-          Some(
-            synth_class_mirror_for_qualified(class_name, Some(module_name)),
-          )
+          Some(synth_class_mirror_for_qualified(class_name, Some(module_name)))
         } else {
           Some(synth_class_mirror_for_name(class_name))
         }
@@ -2001,18 +2005,15 @@ fn eval_expr_with_bindings(
                 // mirror when the class is non-stdlib.
                 Some(value) => {
                   let bare = eval_value_type_name(value)
-                  let module_name = match lookup_value(
-                    cache, "@__module_name",
-                  ) {
+                  let module_name = match
+                    lookup_value(cache, "@__module_name") {
                     Some(StringValue(s)) => s
                     _ => ""
                   }
-                  if module_name.length() > 0 &&
-                    !is_stdlib_class_name(bare) {
-                    Some(synth_class_mirror_for_qualified(
-                      bare,
-                      Some(module_name),
-                    ))
+                  if module_name.length() > 0 && !is_stdlib_class_name(bare) {
+                    Some(
+                      synth_class_mirror_for_qualified(bare, Some(module_name)),
+                    )
                   } else {
                     Some(synth_class_mirror_for_value(value))
                   }
@@ -2035,6 +2036,8 @@ fn eval_expr_with_bindings(
               is_map_method_name(method_name) ||
               is_typed_method_name(method_name) ||
               method_name == "toUnit" ||
+              method_name == "toBinaryUnit" ||
+              method_name == "toDecimalUnit" ||
               method_name == "toBytes" ||
               method_name == "isSubclassOf" ||
               method_name == "parse" {
@@ -2230,9 +2233,8 @@ fn eval_expr_with_bindings(
                     // `toDynamic` apply to every user-class ObjectValue
                     // receiver. Argument count is validated per arm.
                     eval_typed_method_dispatch(
-                      receiver_members, method_name, arguments, bindings, env,
-                      class_env, cache, stack, declarations, diagnostics,
-                      resolve_import,
+                      receiver_members, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
                     )
                   } else {
                     // Method call against an ObjectValue receiver that
@@ -2272,9 +2274,8 @@ fn eval_expr_with_bindings(
                     // when the receiver was a List, but a Listing
                     // receiver stays a Listing — pass `false`.
                     eval_list_or_listing_method(
-                      false, elements, method_name, arguments, bindings, env,
-                      class_env, cache, stack, declarations, diagnostics,
-                      resolve_import,
+                      false, elements, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
                     )
                   } else {
                     eval_callable_call(
@@ -2285,9 +2286,8 @@ fn eval_expr_with_bindings(
                 Some(ListValue(elements)) =>
                   if is_listing_method_name(method_name) {
                     eval_list_or_listing_method(
-                      true, elements, method_name, arguments, bindings, env,
-                      class_env, cache, stack, declarations, diagnostics,
-                      resolve_import,
+                      true, elements, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
                     )
                   } else {
                     eval_callable_call(
@@ -2448,6 +2448,8 @@ fn eval_expr_with_bindings(
               is_map_method_name(method_name) ||
               is_typed_method_name(method_name) ||
               method_name == "toUnit" ||
+              method_name == "toBinaryUnit" ||
+              method_name == "toDecimalUnit" ||
               method_name == "toBytes" {
               match
                 eval_expr_with_bindings(
@@ -2467,9 +2469,8 @@ fn eval_expr_with_bindings(
                     // when the receiver was a List, but a Listing
                     // receiver stays a Listing — pass `false`.
                     eval_list_or_listing_method(
-                      false, elements, method_name, arguments, bindings, env,
-                      class_env, cache, stack, declarations, diagnostics,
-                      resolve_import,
+                      false, elements, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
                     )
                   } else {
                     eval_callable_call(
@@ -2480,9 +2481,8 @@ fn eval_expr_with_bindings(
                 Some(ListValue(elements)) =>
                   if is_listing_method_name(method_name) {
                     eval_list_or_listing_method(
-                      true, elements, method_name, arguments, bindings, env,
-                      class_env, cache, stack, declarations, diagnostics,
-                      resolve_import,
+                      true, elements, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
                     )
                   } else {
                     eval_callable_call(
@@ -2740,13 +2740,10 @@ fn eval_expr_with_bindings(
                     if lookup_class_binding(class_env, base_for_user_check)
                       is Some(_) {
                       true
-                    } else if
-                      lookup_value(env, base_for_user_check) is Some(
-                        ObjectValue(_),
-                      ) ||
-                      lookup_value(cache, base_for_user_check) is Some(
-                        ObjectValue(_),
-                      ) {
+                    } else if lookup_value(env, base_for_user_check)
+                      is Some(ObjectValue(_)) ||
+                      lookup_value(cache, base_for_user_check)
+                      is Some(ObjectValue(_)) {
                       // PKL-148bh: `x is someModule` where `someModule`
                       // is an imported module value — treat any
                       // ObjectValue as matching, because module amends
@@ -2769,9 +2766,8 @@ fn eval_expr_with_bindings(
                   // else ...` must reject Dog / User / Env instances
                   // even though they're ObjectValues.
                   if base_for_user_check == "module" {
-                    let module_name = match lookup_value(
-                      cache, "@__module_name",
-                    ) {
+                    let module_name = match
+                      lookup_value(cache, "@__module_name") {
                       Some(StringValue(s)) => s
                       _ => ""
                     }
@@ -2786,7 +2782,7 @@ fn eval_expr_with_bindings(
                     return Some(
                       BoolValue(
                         class_tag == "module" ||
-                          (module_name.length() > 0 && class_tag == module_name),
+                        (module_name.length() > 0 && class_tag == module_name),
                       ),
                     )
                   }
@@ -2803,9 +2799,12 @@ fn eval_expr_with_bindings(
                   // class-property constraint cascade uses.
                   match pkl_constrained_type_constraint_text(type_name) {
                     Some(constraint_text) => {
-                      let parts = pkl_split_constraint_arguments(constraint_text)
+                      let parts = pkl_split_constraint_arguments(
+                        constraint_text,
+                      )
                       for part in parts {
-                        let pred_expr = match parse_constraint_expression(part) {
+                        let pred_expr = match
+                          parse_constraint_expression(part) {
                           Some(e) => e
                           None => continue
                         }
@@ -3488,8 +3487,8 @@ fn eval_expr_with_bindings(
           Some(value) =>
             buf.write_string(
               dispatch_value_to_string(
-                value, bindings, env, class_env, cache, stack, declarations,
-                diagnostics, resolve_import,
+                value, bindings, env, class_env, cache, stack, declarations, diagnostics,
+                resolve_import,
               ),
             )
           None => ok = false
@@ -3531,8 +3530,7 @@ fn dispatch_value_to_string(
       // fallback renders the full `new { simpleName=...; ... }` shape.
       match lookup_member(members, hidden_member_name("__kind")) {
         Some(StringValue("Class")) | Some(StringValue("TypeAlias")) =>
-          match
-            lookup_member(members, hidden_member_name("__qualified_name")) {
+          match lookup_member(members, hidden_member_name("__qualified_name")) {
             Some(StringValue(s)) => return s
             _ =>
               match lookup_member(members, "name") {
@@ -3559,8 +3557,8 @@ fn dispatch_value_to_string(
                   Some(body) =>
                     match
                       eval_expr_with_bindings(
-                        body, bindings, env, class_env, method_cache, stack,
-                        declarations, method_diags, resolve_import,
+                        body, bindings, env, class_env, method_cache, stack, declarations,
+                        method_diags, resolve_import,
                       ) {
                       Some(StringValue(s)) => return s
                       _ => ()
@@ -3917,8 +3915,8 @@ fn merge_objects_with_late_binding(
           (ObjectValue(inner_base), ObjectValue(inner_over)) =>
             ObjectValue(
               merge_objects_with_late_binding(
-                inner_base, inner_over, bindings, env, class_env, cache, stack,
-                declarations, diagnostics, resolve_import,
+                inner_base, inner_over, bindings, env, class_env, cache, stack, declarations,
+                diagnostics, resolve_import,
               ),
             )
           (_, ov) => ov
@@ -3978,8 +3976,8 @@ fn merge_objects_with_late_binding(
         if needs {
           match
             eval_expr_with_bindings(
-              src, bindings, local_env, class_env, cache, stack, declarations,
-              diagnostics, resolve_import,
+              src, bindings, local_env, class_env, cache, stack, declarations, diagnostics,
+              resolve_import,
             ) {
             Some(new_val) => {
               final_members.push({
@@ -4093,7 +4091,7 @@ fn eval_object_members_with_options(
       type_name: field.type_name,
       value: field.value,
       exported: true,
-      abstract_slot: false
+      abstract_slot: false,
     })
   }
   let values : Array[ValueMember] = []
@@ -4139,7 +4137,8 @@ fn eval_object_members_with_options(
                   value: ObjectValue([
                     { name: "@key", value: k, source: None },
                     { name: "@value", value: v, source: None },
-                  ]), source: None
+                  ]),
+                  source: None,
                 })
               _ => ()
             }
@@ -4252,15 +4251,8 @@ fn eval_object_members_with_options(
     }
     match
       eval_expr_with_bindings(
-        field_value,
-        local_bindings,
-        local_env,
-        class_env,
-        cache,
-        stack,
-        declarations,
-        property_diagnostics,
-        resolve_import,
+        field_value, local_bindings, local_env, class_env, cache, stack, declarations,
+        property_diagnostics, resolve_import,
       ) {
       Some(raw_value) => {
         let value = coerce_value_to_annotated_type(raw_value, field.type_name)
@@ -4296,7 +4288,8 @@ fn eval_object_members_with_options(
               for i = 0; i < elements.length(); i = i + 1 {
                 values.push({
                   name: "@element$spread" + field.name + "$" + i.to_string(),
-                  value: elements[i], source: None
+                  value: elements[i],
+                  source: None,
                 })
               }
             MappingValue(entries) | MapValue(entries) =>
@@ -4306,7 +4299,8 @@ fn eval_object_members_with_options(
                   value: ObjectValue([
                     { name: "@key", value: entries[i].key, source: None },
                     { name: "@value", value: entries[i].value, source: None },
-                  ]), source: None
+                  ]),
+                  source: None,
                 })
               }
             // PKL-148bb: Apple Pkl silently drops non-collection
@@ -4326,11 +4320,7 @@ fn eval_object_members_with_options(
           match structural_reject {
             Some(message) => {
               property_diagnostics.push(diag(message))
-              values.push({
-                name: field.name,
-                value,
-                source: Some(field.value),
-              })
+              values.push({ name: field.name, value, source: Some(field.value) })
             }
             None =>
               if pkl_constrained_type_annotation_value_is_valid(
@@ -4371,7 +4361,8 @@ fn eval_object_members_with_options(
       }
       values.push({
         name: error_member_name(field.name),
-        value: StringValue(property_diagnostics[0].message), source: None
+        value: StringValue(property_diagnostics[0].message),
+        source: None,
       })
     }
   }

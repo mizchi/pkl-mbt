@@ -308,27 +308,63 @@ fn compare_values(a : Value, b : Value) -> Int {
   match (a, b) {
     (IntValue(x), IntValue(y)) => if x < y { -1 } else if x > y { 1 } else { 0 }
     (FloatValue(x), FloatValue(y)) =>
-      if x < y { -1 } else if x > y { 1 } else { 0 }
+      if x < y {
+        -1
+      } else if x > y {
+        1
+      } else {
+        0
+      }
     (IntValue(x), FloatValue(y)) => {
       let xf = x.to_double()
-      if xf < y { -1 } else if xf > y { 1 } else { 0 }
+      if xf < y {
+        -1
+      } else if xf > y {
+        1
+      } else {
+        0
+      }
     }
     (FloatValue(x), IntValue(y)) => {
       let yf = y.to_double()
-      if x < yf { -1 } else if x > yf { 1 } else { 0 }
+      if x < yf {
+        -1
+      } else if x > yf {
+        1
+      } else {
+        0
+      }
     }
     (StringValue(x), StringValue(y)) =>
-      if x < y { -1 } else if x > y { 1 } else { 0 }
+      if x < y {
+        -1
+      } else if x > y {
+        1
+      } else {
+        0
+      }
     (DurationValue(xv, xu), DurationValue(yv, yu)) => {
       // Normalize to nanoseconds via the existing helper for ordering.
       let xn = duration_to_ns(xv, xu)
       let yn = duration_to_ns(yv, yu)
-      if xn < yn { -1 } else if xn > yn { 1 } else { 0 }
+      if xn < yn {
+        -1
+      } else if xn > yn {
+        1
+      } else {
+        0
+      }
     }
     (DataSizeValue(xv, xu), DataSizeValue(yv, yu)) => {
       let xn = datasize_to_bytes(xv, xu)
       let yn = datasize_to_bytes(yv, yu)
-      if xn < yn { -1 } else if xn > yn { 1 } else { 0 }
+      if xn < yn {
+        -1
+      } else if xn > yn {
+        1
+      } else {
+        0
+      }
     }
     _ => 0
   }
@@ -352,11 +388,10 @@ fn duration_to_ns(magnitude : Double, unit : String) -> Double {
 /// PKL-151: byte projection of a DataSize magnitude+unit pair.
 fn datasize_to_bytes(magnitude : Double, unit : String) -> Double {
   let factor = datasize_byte_factor(unit)
-  if factor < 0 {
-    // tb+ overflow — caller falls through with 0 ordering.
+  if factor < 0.0 {
     magnitude
   } else {
-    magnitude * factor.to_double()
+    magnitude * factor
   }
 }
 
@@ -381,8 +416,8 @@ fn eval_list_or_listing_method(
   resolve_import : (String) -> EvalResult?,
 ) -> Value? {
   let result = eval_listing_method(
-    elements, method_name, arguments, bindings, env, class_env, cache, stack,
-    declarations, diagnostics, resolve_import,
+    elements, method_name, arguments, bindings, env, class_env, cache, stack, declarations,
+    diagnostics, resolve_import,
   )
   if receiver_is_list {
     match result {
@@ -1052,9 +1087,7 @@ fn eval_listing_method(
         }
       }
       if found < 0 {
-        diagnostics.push(
-          diag("Element not found in Listing."),
-        )
+        diagnostics.push(diag("Element not found in Listing."))
         None
       } else {
         Some(IntValue(found.to_int64()))
@@ -1133,9 +1166,7 @@ fn eval_listing_method(
     "sortBy" => {
       if arg_values.length() != 1 {
         diagnostics.push(
-          diag(
-            "Listing.sortBy expects 1 argument, got \{arg_values.length()}",
-          ),
+          diag("Listing.sortBy expects 1 argument, got \{arg_values.length()}"),
         )
         return None
       }
@@ -1457,18 +1488,14 @@ fn eval_listing_method(
     "repeat" => {
       if arg_values.length() != 1 {
         diagnostics.push(
-          diag(
-            "Listing.repeat expects 1 argument, got \{arg_values.length()}",
-          ),
+          diag("Listing.repeat expects 1 argument, got \{arg_values.length()}"),
         )
         return None
       }
       match arg_values[0] {
         IntValue(n) =>
           if n < 0L {
-            diagnostics.push(
-              diag("Expected a positive number, but got \{n}."),
-            )
+            diagnostics.push(diag("Expected a positive number, but got \{n}."))
             None
           } else {
             let out : Array[Value] = []

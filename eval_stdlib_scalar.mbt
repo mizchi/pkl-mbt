@@ -223,8 +223,15 @@ fn eval_typed_method_dispatch(
         return None
       }
       let name_value = eval_expr_with_bindings(
-        arguments[0], bindings, env, class_env, cache, stack, declarations,
-        diagnostics, resolve_import,
+        arguments[0],
+        bindings,
+        env,
+        class_env,
+        cache,
+        stack,
+        declarations,
+        diagnostics,
+        resolve_import,
       )
       match name_value {
         Some(StringValue(name)) => {
@@ -353,8 +360,15 @@ fn eval_typed_method_dispatch(
       // element members (a Typed receiver can't hold them).
       match
         eval_expr_with_bindings(
-          arguments[0], bindings, env, class_env, cache, stack, declarations,
-          diagnostics, resolve_import,
+          arguments[0],
+          bindings,
+          env,
+          class_env,
+          cache,
+          stack,
+          declarations,
+          diagnostics,
+          resolve_import,
         ) {
         Some(ObjectValue(class_mirror)) =>
           match lookup_member(class_mirror, "simpleName") {
@@ -378,9 +392,7 @@ fn eval_typed_method_dispatch(
               Some(ObjectValue(stamped))
             }
             _ => {
-              diagnostics.push(
-                diag("toTyped expects a Class mirror argument"),
-              )
+              diagnostics.push(diag("toTyped expects a Class mirror argument"))
               None
             }
           }
@@ -485,22 +497,63 @@ fn duration_step_factor(level : Int) -> Int {
 }
 
 ///|
-/// Factor from a DataSize unit to bytes. Values up to `gib` (≈ 1.07e9)
-/// fit in Int32; `tb` and beyond overflow and return -1 so callers can
-/// detect the gap and skip mixed-unit arithmetic. This is the
-/// documented PKL-082 ceiling — promoting larger units to lossless
-/// arithmetic needs Int64 in the value model.
-fn datasize_byte_factor(unit : String) -> Int {
+/// Factor from a DataSize unit to bytes. Stored as Double so `tb` / `pb`
+/// and their binary siblings can participate in `toUnit` and comparisons
+/// without overflowing MoonBit's Int.
+fn datasize_byte_factor(unit : String) -> Double {
   match unit {
-    "b" => 1
-    "kb" => 1000
-    "kib" => 1024
-    "mb" => 1_000_000
-    "mib" => 1_048_576
-    "gb" => 1_000_000_000
-    "gib" => 1_073_741_824
-    "tb" | "tib" | "pb" | "pib" => -1
-    _ => -1
+    "b" => 1.0
+    "kb" => 1000.0
+    "kib" => 1024.0
+    "mb" => 1_000_000.0
+    "mib" => 1_048_576.0
+    "gb" => 1_000_000_000.0
+    "gib" => 1_073_741_824.0
+    "tb" => 1_000_000_000_000.0
+    "tib" => 1_099_511_627_776.0
+    "pb" => 1_000_000_000_000_000.0
+    "pib" => 1_125_899_906_842_624.0
+    _ => -1.0
+  }
+}
+
+///|
+fn is_datasize_binary_unit(unit : String) -> Bool {
+  match unit {
+    "b" | "kib" | "mib" | "gib" | "tib" | "pib" => true
+    _ => false
+  }
+}
+
+///|
+fn is_datasize_decimal_unit(unit : String) -> Bool {
+  match unit {
+    "b" | "kb" | "mb" | "gb" | "tb" | "pb" => true
+    _ => false
+  }
+}
+
+///|
+fn datasize_binary_unit_for(unit : String) -> String {
+  match unit {
+    "kb" | "kib" => "kib"
+    "mb" | "mib" => "mib"
+    "gb" | "gib" => "gib"
+    "tb" | "tib" => "tib"
+    "pb" | "pib" => "pib"
+    _ => "b"
+  }
+}
+
+///|
+fn datasize_decimal_unit_for(unit : String) -> String {
+  match unit {
+    "kb" | "kib" => "kb"
+    "mb" | "mib" => "mb"
+    "gb" | "gib" => "gb"
+    "tb" | "tib" => "tb"
+    "pb" | "pib" => "pb"
+    _ => "b"
   }
 }
 
@@ -522,13 +575,7 @@ fn smaller_duration_unit(a : String, b : String) -> String {
 fn smaller_datasize_unit(a : String, b : String) -> String {
   let fa = datasize_byte_factor(a)
   let fb = datasize_byte_factor(b)
-  if fa < 0 || fb < 0 {
-    // tb / tib / pb / pib do not participate in mixed-unit arithmetic in
-    // this slice; pick `a` deterministically so callers see a stable
-    // result without a panic. Mixed-unit ops involving these will hit
-    // the overflow-guarded path below.
-    a
-  } else if fa <= fb {
+  if fa <= fb {
     a
   } else {
     b
@@ -562,10 +609,99 @@ fn duration_in_unit(
 }
 
 ///|
-/// Convert `magnitude` from `from_unit` to `to_unit` for DataSize. Both
-/// units must fit in the Int32 byte-factor range (`b`..`gib`); callers
-/// that mix `tb`+ units guard against the -1 sentinel from
-/// `datasize_byte_factor` first.
+fn duration_literal_text(magnitude : Double, unit : String) -> String {
+  "\{magnitude}.\{unit}"
+}
+
+///|
+fn left_pad_9_digits(value : Int64) -> String {
+  let raw = value.to_string()
+  let buf = StringBuilder::new()
+  let mut i = raw.length()
+  while i < 9 {
+    buf.write_char('0')
+    i = i + 1
+  }
+  buf.write_string(raw)
+  buf.to_string()
+}
+
+///|
+fn trim_trailing_zeroes(text : String) -> String {
+  let mut end = text.length()
+  while end > 0 && text[end - 1].to_int().unsafe_to_char() == '0' {
+    end = end - 1
+  }
+  String::unsafe_substring(text, start=0, end~)
+}
+
+///|
+fn duration_second_component_text(seconds_ns : Int64) -> String {
+  let ns_per_second = 1_000_000_000L
+  let seconds = seconds_ns / ns_per_second
+  let fractional = seconds_ns % ns_per_second
+  if fractional == 0L {
+    seconds.to_string()
+  } else {
+    seconds.to_string() +
+    "." +
+    trim_trailing_zeroes(left_pad_9_digits(fractional))
+  }
+}
+
+///|
+fn duration_iso_string(
+  magnitude : Double,
+  unit : String,
+  diagnostics : Array[Diagnostic],
+) -> String? {
+  if magnitude.is_nan() || magnitude.is_inf() {
+    diagnostics.push(
+      diag(
+        "Cannot convert duration `\{duration_literal_text(magnitude, unit)}` to ISO 8601 duration.",
+      ),
+    )
+    return None
+  }
+  let seconds = duration_in_unit(magnitude, unit, "s")
+  let negative = seconds < 0.0
+  let abs_seconds = if negative { 0.0 - seconds } else { seconds }
+  if abs_seconds > 9_000_000_000_000_000_000.0 {
+    if negative {
+      return Some("-PT9223372036854775807H7M8S")
+    }
+    return Some("PT9223372036854775807H7M8S")
+  }
+  let total_ns = (duration_in_unit(abs_seconds, "s", "ns") + 0.5).to_int64()
+  let ns_per_second = 1_000_000_000L
+  let ns_per_minute = 60L * ns_per_second
+  let ns_per_hour = 60L * ns_per_minute
+  let hours = total_ns / ns_per_hour
+  let after_hours = total_ns % ns_per_hour
+  let minutes = after_hours / ns_per_minute
+  let seconds_ns = after_hours % ns_per_minute
+  let buf = StringBuilder::new()
+  if negative {
+    buf.write_char('-')
+  }
+  buf.write_string("PT")
+  if hours > 0L {
+    buf.write_string(hours.to_string())
+    buf.write_char('H')
+  }
+  if minutes > 0L {
+    buf.write_string(minutes.to_string())
+    buf.write_char('M')
+  }
+  if seconds_ns > 0L || (hours == 0L && minutes == 0L) {
+    buf.write_string(duration_second_component_text(seconds_ns))
+    buf.write_char('S')
+  }
+  Some(buf.to_string())
+}
+
+///|
+/// Convert `magnitude` from `from_unit` to `to_unit` for DataSize.
 fn datasize_in_unit(
   magnitude : Double,
   from_unit : String,
@@ -573,15 +709,13 @@ fn datasize_in_unit(
 ) -> Double {
   let from_f = datasize_byte_factor(from_unit)
   let to_f = datasize_byte_factor(to_unit)
-  if from_f < 0 || to_f < 0 {
+  if from_f < 0.0 || to_f < 0.0 {
     return magnitude
   }
   if from_f == to_f {
     magnitude
-  } else if from_f > to_f {
-    magnitude * (from_f / to_f).to_double()
   } else {
-    magnitude / (to_f / from_f).to_double()
+    magnitude * from_f / to_f
   }
 }
 
@@ -961,6 +1095,11 @@ fn eval_duration_property(
 ) -> Value? {
   match name {
     "value" => Some(magnitude_as_value(magnitude))
+    "isoString" =>
+      match duration_iso_string(magnitude, unit, diagnostics) {
+        Some(text) => Some(StringValue(text))
+        None => None
+      }
     "unit" => Some(StringValue(unit))
     "isPositive" => Some(BoolValue(magnitude >= 0.0))
     _ => {
@@ -983,6 +1122,16 @@ fn eval_datasize_property(
     "value" => Some(magnitude_as_value(magnitude))
     "unit" => Some(StringValue(unit))
     "isPositive" => Some(BoolValue(magnitude >= 0.0))
+    "isBinaryUnit" => Some(BoolValue(is_datasize_binary_unit(unit)))
+    "isDecimalUnit" => Some(BoolValue(is_datasize_decimal_unit(unit)))
+    "toBinaryUnit" => {
+      let target = datasize_binary_unit_for(unit)
+      Some(DataSizeValue(datasize_in_unit(magnitude, unit, target), target))
+    }
+    "toDecimalUnit" => {
+      let target = datasize_decimal_unit_for(unit)
+      Some(DataSizeValue(datasize_in_unit(magnitude, unit, target), target))
+    }
     _ => {
       diagnostics.push(
         diag("Cannot find property `\{name}` in object of type `DataSize`."),
@@ -1196,9 +1345,7 @@ fn eval_int_method(
     "toFixed" => {
       if arg_values.length() != 1 {
         diagnostics.push(
-          diag(
-            "Int.toFixed expects 1 argument, got \{arg_values.length()}",
-          ),
+          diag("Int.toFixed expects 1 argument, got \{arg_values.length()}"),
         )
         return None
       }
@@ -1227,9 +1374,7 @@ fn eval_int_method(
     "toDuration" => {
       if arg_values.length() != 1 {
         diagnostics.push(
-          diag(
-            "Int.toDuration expects 1 argument, got \{arg_values.length()}",
-          ),
+          diag("Int.toDuration expects 1 argument, got \{arg_values.length()}"),
         )
         return None
       }
@@ -1238,9 +1383,7 @@ fn eval_int_method(
           if is_duration_unit_name(unit) {
             Some(DurationValue(n.to_double(), unit))
           } else {
-            diagnostics.push(
-              diag("Invalid Duration unit: \"\{unit}\"."),
-            )
+            diagnostics.push(diag("Invalid Duration unit: \"\{unit}\"."))
             None
           }
         _ => {
@@ -1252,9 +1395,7 @@ fn eval_int_method(
     "toDataSize" => {
       if arg_values.length() != 1 {
         diagnostics.push(
-          diag(
-            "Int.toDataSize expects 1 argument, got \{arg_values.length()}",
-          ),
+          diag("Int.toDataSize expects 1 argument, got \{arg_values.length()}"),
         )
         return None
       }
@@ -1263,9 +1404,7 @@ fn eval_int_method(
           if is_datasize_unit_name(unit) {
             Some(DataSizeValue(n.to_double(), unit))
           } else {
-            diagnostics.push(
-              diag("Invalid DataSize unit: \"\{unit}\"."),
-            )
+            diagnostics.push(diag("Invalid DataSize unit: \"\{unit}\"."))
             None
           }
         _ => {
@@ -1591,6 +1730,32 @@ fn eval_duration_method(
     return None
   }
   match method_name {
+    "isBetween" => {
+      if arg_values.length() != 2 {
+        diagnostics.push(
+          diag(
+            "Duration.isBetween expects 2 arguments, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match (arg_values[0], arg_values[1]) {
+        (DurationValue(lower, lower_unit), DurationValue(upper, upper_unit)) => {
+          let value_in_ns = duration_in_unit(magnitude, unit, "ns")
+          let lower_in_ns = duration_in_unit(lower, lower_unit, "ns")
+          let upper_in_ns = duration_in_unit(upper, upper_unit, "ns")
+          Some(
+            BoolValue(value_in_ns >= lower_in_ns && value_in_ns <= upper_in_ns),
+          )
+        }
+        _ => {
+          diagnostics.push(
+            diag("Duration.isBetween expects Duration arguments"),
+          )
+          None
+        }
+      }
+    }
     "toUnit" =>
       if arg_values.length() == 1 {
         match arg_values[0] {
@@ -1602,7 +1767,7 @@ fn eval_duration_method(
             } else {
               diagnostics.push(
                 diag(
-                  "Duration.toUnit expects one of ns/us/ms/s/min/h/d, got \{target}",
+                  "Expected value of type `\"ns\"|\"us\"|\"ms\"|\"s\"|\"min\"|\"h\"|\"d\"`, but got `\"\{target}\"`.",
                 ),
               )
               None
@@ -1658,6 +1823,35 @@ fn eval_datasize_method(
     return None
   }
   match method_name {
+    "isBetween" => {
+      if arg_values.length() != 2 {
+        diagnostics.push(
+          diag(
+            "DataSize.isBetween expects 2 arguments, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match (arg_values[0], arg_values[1]) {
+        (DataSizeValue(lower, lower_unit), DataSizeValue(upper, upper_unit)) => {
+          let value_in_bytes = datasize_in_unit(magnitude, unit, "b")
+          let lower_in_bytes = datasize_in_unit(lower, lower_unit, "b")
+          let upper_in_bytes = datasize_in_unit(upper, upper_unit, "b")
+          Some(
+            BoolValue(
+              value_in_bytes >= lower_in_bytes &&
+              value_in_bytes <= upper_in_bytes,
+            ),
+          )
+        }
+        _ => {
+          diagnostics.push(
+            diag("DataSize.isBetween expects DataSize arguments"),
+          )
+          None
+        }
+      }
+    }
     "toUnit" =>
       if arg_values.length() == 1 {
         match arg_values[0] {
@@ -1669,7 +1863,7 @@ fn eval_datasize_method(
             } else {
               diagnostics.push(
                 diag(
-                  "DataSize.toUnit expects one of b/kb/kib/mb/mib/gb/gib/tb/tib/pb/pib, got \{target}",
+                  "Expected value of type `\"b\"|\"kb\"|\"kib\"|\"mb\"|\"mib\"|\"gb\"|\"gib\"|\"tb\"|\"tib\"|\"pb\"|\"pib\"`, but got `\"\{target}\"`.",
                 ),
               )
               None
@@ -1681,6 +1875,18 @@ fn eval_datasize_method(
         }
       } else {
         diagnostics.push(diag("DataSize.toUnit expects exactly one argument"))
+        None
+      }
+    "toBinaryUnit" | "toDecimalUnit" =>
+      if arg_values.length() == 0 {
+        let target = if method_name == "toBinaryUnit" {
+          datasize_binary_unit_for(unit)
+        } else {
+          datasize_decimal_unit_for(unit)
+        }
+        Some(DataSizeValue(datasize_in_unit(magnitude, unit, target), target))
+      } else {
+        diagnostics.push(diag("DataSize.\{method_name} takes no arguments"))
         None
       }
     _ => {

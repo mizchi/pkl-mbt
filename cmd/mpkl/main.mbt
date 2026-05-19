@@ -264,7 +264,7 @@ fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
         match pklproject_alias_to_uri(project_text, dep_name) {
           Some(remote_uri) =>
             match resolve_package_uri_to_cache(remote_uri, rest) {
-              Some(local) => return Some(local)
+              Some(cached_path) => return Some(cached_path)
               None => ()
             }
           None => ()
@@ -281,7 +281,7 @@ fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
     match package_metadata_alias_to_uri(current, dep_name) {
       Some(remote_uri) =>
         match resolve_package_uri_to_cache(remote_uri, rest) {
-          Some(local) => return Some(local)
+          Some(cached_path) => return Some(cached_path)
           None => ()
         }
       None => ()
@@ -356,10 +356,9 @@ fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
                           // pre-extracted package directory.
                           match uri_str {
                             Some(remote_uri) =>
-                              match resolve_package_uri_to_cache(
-                                  remote_uri, rest,
-                                ) {
-                                Some(local) => return Some(local)
+                              match
+                                resolve_package_uri_to_cache(remote_uri, rest) {
+                                Some(cached_path) => return Some(cached_path)
                                 None => ()
                               }
                             None => ()
@@ -474,11 +473,15 @@ fn package_metadata_alias_to_uri(
 /// (`["x" + y"]` etc.) fall through to None. That covers the snippet
 /// fixtures and any project that writes dependency entries in the
 /// standard form.
-fn pklproject_alias_to_uri(text : String, alias : String) -> String? {
-  let opener = "[\"" + alias + "\"]"
+fn pklproject_alias_to_uri(text : String, dep_alias : String) -> String? {
+  let opener = "[\"" + dep_alias + "\"]"
   let mut search_from = 0
   while search_from < text.length() {
-    let tail = String::unsafe_substring(text, start=search_from, end=text.length())
+    let tail = String::unsafe_substring(
+      text,
+      start=search_from,
+      end=text.length(),
+    )
     let open_idx = match tail.find(opener) {
       Some(idx) => idx
       None => return None
@@ -582,7 +585,8 @@ fn resolve_package_uri_to_cache(uri : String, rest : String) -> String? {
   // Drop the host. The body has shape `<host>/<name>@<version>[/<path>]`;
   // we only care about the `<name>@<version>` tail and any extra path.
   let after_host = match body.find("/") {
-    Some(idx) => String::unsafe_substring(body, start=idx + 1, end=body.length())
+    Some(idx) =>
+      String::unsafe_substring(body, start=idx + 1, end=body.length())
     None => return None
   }
   // Split at the first `/` after the `@` so `name@version[/sub/Bird.pkl]`
@@ -593,7 +597,9 @@ fn resolve_package_uri_to_cache(uri : String, rest : String) -> String? {
     None => return None
   }
   let after_at = String::unsafe_substring(
-    after_host, start=at_idx + 1, end=after_host.length(),
+    after_host,
+    start=at_idx + 1,
+    end=after_host.length(),
   )
   let (version, extra) = match after_at.find("/") {
     Some(idx) =>
@@ -616,11 +622,7 @@ fn resolve_package_uri_to_cache(uri : String, rest : String) -> String? {
   } else {
     extra + "/" + rest
   }
-  let relative = if suffix == "" {
-    pkg_dir
-  } else {
-    pkg_dir + "/" + suffix
-  }
+  let relative = if suffix == "" { pkg_dir } else { pkg_dir + "/" + suffix }
   for cache_dir in @pkl.sandbox_package_caches() {
     let base = if cache_dir.has_suffix("/") {
       cache_dir
@@ -743,16 +745,14 @@ fn normalize_path_segments(path : String) -> String {
   let mut start = if leading_slash { 1 } else { 0 }
   let mut i = start
   while i < body.length() {
-    if body.unsafe_charcode_at(i) == 47 {
+    if body[i].to_int().unsafe_to_char() == '/' {
       raw_segments.push(String::unsafe_substring(body, start~, end=i))
       start = i + 1
     }
     i = i + 1
   }
   if start <= body.length() {
-    raw_segments.push(
-      String::unsafe_substring(body, start~, end=body.length()),
-    )
+    raw_segments.push(String::unsafe_substring(body, start~, end=body.length()))
   }
   let resolved : Array[String] = []
   for seg in raw_segments {
@@ -975,7 +975,10 @@ async fn load_path(
     // diagnostic if the resolved candidate isn't a file (matches the
     // upstream behaviour when the import names a directory).
     match resolve_package_uri_to_cache(path, "") {
-      Some(local) => @fs.read_file_to_string(local) catch { _ => "" }
+      Some(cached_path) =>
+        @fs.read_file_to_string(cached_path) catch {
+          _ => ""
+        }
       None => {
         diagnose_package_uri(path)
         ""
