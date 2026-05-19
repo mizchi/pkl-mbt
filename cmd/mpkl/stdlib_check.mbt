@@ -279,19 +279,19 @@ let stdlib_probes : Array[StdlibProbe] = [
     source: "import \"pkl:yaml\" as yaml\nv = (new yaml.Parser {}).parse(\"items:\\n  - 1\\n  - 2\\nnested:\\n  inner: hello\\n\").nested.inner",
     expect: "v = \"hello\"",
   },
-  // pkl:xml — Renderer class shell only (no rendering yet).
+  // pkl:xml — Renderer class surface.
   {
     group: "pkl:xml",
     name: "Renderer class instantiable",
     source: "import \"pkl:xml\" as xml\nr = new xml.Renderer { rootElementName = \"config\" }\nv = r.rootElementName",
     expect: "v = \"config\"",
   },
-  // pkl:protobuf — Renderer class shell only.
+  // pkl:protobuf — Renderer class surface.
   {
     group: "pkl:protobuf",
     name: "Renderer class instantiable",
-    source: "import \"pkl:protobuf\" as proto\nr = new proto.Renderer {}",
-    expect: "r {}",
+    source: "import \"pkl:protobuf\" as proto\nr = new proto.Renderer {}\nv = r.indent",
+    expect: "v = \"  \"",
   },
 ]
 

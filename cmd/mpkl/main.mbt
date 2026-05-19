@@ -4,7 +4,7 @@ fn usage() -> Unit {
     "usage: pkl <parse|check|eval|test|format|analyze|codegen|stdlib> [args]",
   )
   println(
-    "       pkl eval [-f|--format pcf|json|yaml|properties|plist|xml] <file.pkl>",
+    "       pkl eval [-f|--format pcf|json|yaml|properties|plist|textproto|xml] <file.pkl>",
   )
   println("       pkl test <file.pkl>")
   println("       pkl format <file.pkl>")
@@ -1177,6 +1177,7 @@ async fn main {
     format != "yaml" &&
     format != "properties" &&
     format != "plist" &&
+    format != "textproto" &&
     format != "xml" {
     fail("unsupported format: \{format}")
   }
@@ -1329,6 +1330,19 @@ async fn main {
                 String::unsafe_substring(plist, start=0, end=plist.length() - 1)
               } else {
                 plist
+              }
+              println(trimmed)
+            }
+            "textproto" => {
+              let textproto = @pkl.render_value_as_textproto(value)
+              let trimmed = if textproto.has_suffix("\n") {
+                String::unsafe_substring(
+                  textproto,
+                  start=0,
+                  end=textproto.length() - 1,
+                )
+              } else {
+                textproto
               }
               println(trimmed)
             }
@@ -1609,8 +1623,8 @@ fn run_pkl_examples_test(
 /// JsonRenderer { ... } }` block and map the renderer's class name
 /// onto the existing CLI format string. Returns `None` when the
 /// module has no `output.renderer` clause, or when the renderer's
-/// class doesn't match a renderer pkl-mbt knows about (plist / xml /
-/// protobuf / pkl-binary land with PKL-126). The format is read from
+/// class doesn't match a renderer pkl-mbt knows about (pkl-binary is
+/// still outside the text renderer set). The format is read from
 /// the parsed AST rather than the eval result because the eval
 /// collapses the renderer class to a plain ObjectValue without
 /// retaining the source class.
@@ -1661,7 +1675,14 @@ fn renderer_format_from_class(class_name : String) -> String? {
     "PcfRenderer" => Some("pcf")
     "PListRenderer" => Some("plist")
     "XmlRenderer" => Some("xml")
-    "Renderer" => if raw == "xml.Renderer" { Some("xml") } else { None }
+    "Renderer" =>
+      if raw == "xml.Renderer" {
+        Some("xml")
+      } else if raw == "protobuf.Renderer" {
+        Some("textproto")
+      } else {
+        None
+      }
     _ => None
   }
 }

@@ -3675,7 +3675,7 @@ local plistRendererScenario = new Scenario {
       date = "2026-05-16"
       summary = "Split PKL-126 into plist / xml / protobuf sub-slices instead of bundling all three"
       rationale =
-        "Apple Pkl's three remaining renderers have very different lifts: plist is structural XML (a few hundred lines, one slice), XML element-tree rendering needs `xml.Element` / `xml.Inline` annotation routing on top of the same XML primitives, and protobuf needs a `.proto` schema parser plus wire encoding. Bundling them into a single slice would either push protobuf onto the critical path of the smaller renderers or land a partial implementation. Splitting into PKL-126a / PKL-126b / PKL-126c lets each renderer land alongside its own fixture and upstream gold-match promotion without the others blocking."
+        "Apple Pkl's three remaining renderers have different lifts: plist is structural XML (a few hundred lines, one slice), XML element-tree rendering needs `xml.Element` / `xml.Inline` annotation routing on top of the same XML primitives, and protobuf is a text-format renderer with annotation / converter interaction. Bundling them into a single slice would either push the harder renderer details onto the critical path of the smaller renderers or land a partial implementation. Splitting into PKL-126a / PKL-126b / PKL-126c lets each renderer land alongside its own fixture and upstream gold-match promotion without the others blocking."
     }
     new Decision {
       date = "2026-05-16"
@@ -3702,6 +3702,32 @@ local xmlRendererScenario = new Scenario {
       summary = "Promote only byte-matching XML fixtures"
       rationale =
         "The XML renderer surface is larger than the structural document emitter: annotation converters, `xml.Comment`, `xml.CData`, validation errors, attributes, and inline HTML formatting all need additional evaluator identity or diagnostic plumbing. Promoting only the two fixtures that byte-match keeps the regression gate honest while still unblocking the practical `output.renderer = new xml.Renderer {}` path and the `xml.Element` rename path."
+    }
+  }
+}
+
+local protobufTextRendererScenario = new Scenario {
+  id = "PKL-126c"
+  name = "protobuf text renderer"
+  description =
+    "The protobuf renderer emits Protocol Buffers text format (`textproto`), matching Apple Pkl's current experimental `pkl:protobuf.Renderer` surface. The CLI accepts `-f textproto`, and `output { renderer = new protobuf.Renderer { ... } }` is detected from the AST like the JSON / YAML / plist / XML renderer drivers. Scalar properties render as `name: value`; nested typed objects render as `name: { ... }`; Listing / List / Set values become repeated fields; Mapping / Map values become repeated `{ key: ..., value: ... }` messages; Duration projects to `{ seconds: ..., nanos: ... }`; `RenderDirective` values write their text verbatim; `indent` controls nested indentation. `protobuf.Property { name = ... }` is handled through the convert-property pass so field rename annotations survive before text rendering. The upstream `api/protobuf3.txtpb` fixture now byte-matches its `.txtpb` gold file and is pinned by `scripts/upstream-smoke.sh`'s `TEXTPROTO_GOLD_FIXTURES` list. Remaining protobuf parity gaps are type-annotation-driven oneof/subtype field naming, top-level invalid-type diagnostics, unsupported DataSize / Bytes diagnostics, and binary protobuf output if upstream ever exposes it."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-124"; "PKL-126a"; "PKL-126b"; "PKL-153" }
+  tags { "renderer"; "protobuf"; "textproto"; "cli" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-20"
+      summary = "Implement textproto, not binary protobuf"
+      rationale =
+        "Apple Pkl's `pkl:protobuf` stdlib says the renderer currently supports only Protocol Buffers text format. Earlier planning assumed a `.proto` schema parser plus binary wire encoder, but that is not on the upstream renderer surface exercised by LanguageSnippetTests. Shipping textproto first gives users the actual `pkl eval -f textproto` behaviour and promotes a byte-matching upstream fixture without inventing a schema-loading contract."
+    }
+    new Decision {
+      date = "2026-05-20"
+      summary = "Handle `protobuf.Property` in the convert-property pass"
+      rationale =
+        "The existing convert-property machinery clears annotations after it rewrites rendered members. `protobuf.Property` therefore has to rename the member before the textproto renderer runs; checking the annotation inside the renderer would be too late once the post-eval pass has stripped it. A narrow `@protobuf.Property { name = ... }` fast path in `eval_module` keeps the behaviour scoped to the protobuf stdlib annotation while preserving the generic transformer path for user-defined annotations."
     }
   }
 }
@@ -5658,6 +5684,7 @@ scenarios {
   rendererStdlibModulesScenario
   plistRendererScenario
   xmlRendererScenario
+  protobufTextRendererScenario
   pairValueVariantScenario
   intSeqValueVariantScenario
   intSeqEqualityScenario

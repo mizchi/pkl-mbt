@@ -1,0 +1,19 @@
+class Endpoint {
+  host: String = "localhost"
+  port: Int = 8080
+}
+
+class Service {
+  name: String = "api"
+  secure: Boolean = true
+  endpoint: Endpoint = new {}
+  aliases: Listing<String> = new {
+    "primary"
+    "internal"
+  }
+  metadata: Mapping<String, Int> = new {
+    ["weight"] = 10
+  }
+}
+
+service = new Service {}

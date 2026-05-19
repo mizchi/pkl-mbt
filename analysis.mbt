@@ -380,8 +380,9 @@ fn builtin_stdlib_source(uri : String) -> String? {
         #|  useMapping: Boolean = false
         #|  hidden __kind: String = "JsonParser"
         #|}
-        #|class Property {
+        #|class Property extends ConvertProperty {
         #|  name: String
+        #|  render = (prop, _) -> Pair(name, prop.value)
         #|}
       Some(source)
     }
@@ -406,10 +407,9 @@ fn builtin_stdlib_source(uri : String) -> String? {
     }
     "pkl:xml" => {
       // PKL-124: the `pkl:xml` module exposes the renderer under its
-      // own qualified name `xml.Renderer`. The underlying renderer
-      // implementation lands with PKL-126; right now the class shape
-      // exists only so `import "pkl:xml" as xml; new xml.Renderer
-      // { ... }` parses and typechecks.
+      // own qualified name `xml.Renderer`. The class shape is also
+      // consumed by the AST-driven renderer detection and XML helper
+      // constructors.
       let source =
         #|class Renderer {
         #|  indent: String = "  "
@@ -440,11 +440,13 @@ fn builtin_stdlib_source(uri : String) -> String? {
     }
     "pkl:protobuf" => {
       // PKL-124: protobuf renderer surface lives in the `pkl:protobuf`
-      // module under the qualified `protobuf.Renderer` name. Same
-      // shape as `pkl:xml` — class declaration only; the wire-format
-      // emitter is deferred to PKL-126.
+      // module under the qualified `protobuf.Renderer` name.
       let source =
         #|class Renderer {
+        #|  indent: String = "  "
+        #|}
+        #|class Property {
+        #|  name: String
         #|}
       Some(source)
     }

@@ -460,6 +460,9 @@ fn renderer_format_for_class_name(class_name : String) -> String? {
     Some("plist")
   } else if class_name == "xml.Renderer" || class_name.has_suffix("XmlRenderer") {
     Some("xml")
+  } else if class_name == "protobuf.Renderer" ||
+    class_name.has_suffix("ProtobufRenderer") {
+    Some("textproto")
   } else {
     None
   }
