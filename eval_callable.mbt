@@ -103,6 +103,25 @@ fn eval_value_accepts_type_annotation(
     )
     return value is StringValue(s) && s == literal
   }
+  if type_name == "BaseValueRenderer" || type_name == "ValueRenderer" {
+    return match value {
+      ObjectValue(members) => renderer_format_from_members(members) is Some(_)
+      _ => false
+    }
+  }
+  if renderer_format_for_class_name(type_name) is Some(_) {
+    return match value {
+      ObjectValue(members) => object_class_tag_matches(members, type_name)
+      _ => false
+    }
+  }
+  if type_name == "RenderDirective" {
+    return match value {
+      ObjectValue(members) =>
+        object_class_tag_matches(members, "RenderDirective")
+      _ => false
+    }
+  }
   match (type_name, value) {
     // PKL-148e: `Any` is Apple Pkl's top type — it accepts every
     // runtime value, matching `eval_value_accepts_type_annotation`'s

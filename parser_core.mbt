@@ -835,6 +835,7 @@ fn Parser::parse(self : Parser) -> ParseResult {
               type_name: binding.type_name,
               value: binding.value,
               exported: binding.exported,
+              annotations: binding.annotations,
               abstract_slot: binding.abstract_slot,
             })
           } else {

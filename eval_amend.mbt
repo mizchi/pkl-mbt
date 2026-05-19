@@ -415,7 +415,12 @@ fn apply_predicate_members_to_object(
                     let updated : Array[ValueMember] = []
                     for p in pair_members {
                       if p.name == "@value" {
-                        updated.push({ name: "@value", value: v, source: None })
+                        updated.push({
+                          name: "@value",
+                          value: v,
+                          source: None,
+                          annotations: [],
+                        })
                       } else {
                         updated.push(p)
                       }
@@ -424,12 +429,18 @@ fn apply_predicate_members_to_object(
                       name: target_member.name,
                       value: ObjectValue(updated),
                       source: None,
+                      annotations: target_member.annotations,
                     }
                   }
                   _ => ()
                 }
               } else {
-                result[i] = { name: target_member.name, value: v, source: None }
+                result[i] = {
+                  name: target_member.name,
+                  value: v,
+                  source: None,
+                  annotations: target_member.annotations,
+                }
               }
             None => ()
           }
@@ -489,6 +500,7 @@ fn eval_listing_subscript_amend(
       type_name: field.type_name,
       value: field.value,
       exported: true,
+      annotations: field.annotations,
       abstract_slot: false,
     })
   }
@@ -747,6 +759,7 @@ fn eval_mapping_amend(
       type_name: field.type_name,
       value: field.value,
       exported: true,
+      annotations: field.annotations,
       abstract_slot: false,
     })
   }
@@ -938,6 +951,7 @@ fn eval_class_default_members(
               name: property.name,
               type_name: property.type_name,
               value,
+              annotations: property.annotations,
             })
           None =>
             // PKL-148bb: a typed property declared without a default
@@ -960,7 +974,12 @@ fn eval_class_default_members(
                 resolve_import,
               ) {
               Some(value) =>
-                base_values.push({ name: property.name, value, source: None })
+                base_values.push({
+                  name: property.name,
+                  value,
+                  source: None,
+                  annotations: property.annotations,
+                })
               None => ()
             }
         }
@@ -1063,6 +1082,7 @@ fn eval_class_default_members(
       name: value_member.name,
       value: value_member.value,
       source: None,
+      annotations: value_member.annotations,
     })
   }
   stripped

@@ -419,7 +419,12 @@ fn tag_object_with_class(
     }
   }
   let tagged : Array[ValueMember] = [
-    { name: tag_name, value: StringValue(class_name), source: None },
+    {
+      name: tag_name,
+      value: StringValue(class_name),
+      source: None,
+      annotations: [],
+    },
   ]
   for m in members {
     tagged.push(m)
@@ -439,6 +444,59 @@ fn find_object_class_tag(members : Array[ValueMember]) -> String? {
     }
   }
   None
+}
+
+///|
+fn renderer_format_for_class_name(class_name : String) -> String? {
+  if class_name.has_suffix("PcfRenderer") {
+    Some("pcf")
+  } else if class_name.has_suffix("JsonRenderer") {
+    Some("json")
+  } else if class_name.has_suffix("YamlRenderer") {
+    Some("yaml")
+  } else if class_name.has_suffix("PropertiesRenderer") {
+    Some("properties")
+  } else if class_name.has_suffix("PListRenderer") {
+    Some("plist")
+  } else {
+    None
+  }
+}
+
+///|
+fn renderer_format_from_members(members : Array[ValueMember]) -> String? {
+  match find_object_class_tag(members) {
+    Some(class_name) => renderer_format_for_class_name(class_name)
+    None => None
+  }
+}
+
+///|
+fn object_class_tag_matches(
+  members : Array[ValueMember],
+  expected : String,
+) -> Bool {
+  match find_object_class_tag(members) {
+    Some(class_name) =>
+      class_name == expected || class_name.has_suffix(".\{expected}")
+    None => false
+  }
+}
+
+///|
+fn render_directive_text(value : Value) -> String? {
+  match value {
+    ObjectValue(members) =>
+      if object_class_tag_matches(members, "RenderDirective") {
+        match lookup_member(members, "text") {
+          Some(StringValue(text)) => Some(text)
+          _ => None
+        }
+      } else {
+        None
+      }
+    _ => None
+  }
 }
 
 ///|
@@ -530,20 +588,33 @@ fn synth_type_alias_mirror_for_qualified(
       name: hidden_member_name("__kind"),
       value: StringValue("TypeAlias"),
       source: None,
+      annotations: [],
     },
     {
       name: hidden_member_name("reflectee"),
       value: StringValue(name),
       source: None,
+      annotations: [],
     },
-    { name: "simpleName", value: StringValue(name), source: None },
-    { name: "name", value: StringValue(qualified), source: None },
+    {
+      name: "simpleName",
+      value: StringValue(name),
+      source: None,
+      annotations: [],
+    },
+    {
+      name: "name",
+      value: StringValue(qualified),
+      source: None,
+      annotations: [],
+    },
     {
       name: hidden_member_name("__qualified_name"),
       value: StringValue(qualified),
       source: None,
+      annotations: [],
     },
-    { name: "modifiers", value: SetValue([]), source: None },
+    { name: "modifiers", value: SetValue([]), source: None, annotations: [] },
   ])
 }
 
@@ -571,25 +642,38 @@ fn synth_class_mirror_for_qualified(
       name: hidden_member_name("__kind"),
       value: StringValue("Class"),
       source: None,
+      annotations: [],
     },
     {
       name: hidden_member_name("reflectee"),
       value: StringValue(name),
       source: None,
+      annotations: [],
     },
-    { name: "simpleName", value: StringValue(name), source: None },
-    { name: "name", value: StringValue(qualified), source: None },
+    {
+      name: "simpleName",
+      value: StringValue(name),
+      source: None,
+      annotations: [],
+    },
+    {
+      name: "name",
+      value: StringValue(qualified),
+      source: None,
+      annotations: [],
+    },
     {
       name: hidden_member_name("__qualified_name"),
       value: StringValue(qualified),
       source: None,
+      annotations: [],
     },
     // PKL-148bb: reflect.Class / reflect.TypeAlias both expose a
     // `modifiers : Set<String>` slot (annotation / visibility keywords
     // declared on the type). pkl-mbt doesn't surface modifier text
     // through the AST yet, so default to an empty Set — `types/modifiersForTypes`
     // and other `.modifiers` consumers see the expected empty Set form.
-    { name: "modifiers", value: SetValue([]), source: None },
+    { name: "modifiers", value: SetValue([]), source: None, annotations: [] },
   ])
 }
 
@@ -642,6 +726,15 @@ fn is_stdlib_class_name(name : String) -> Bool {
     | "Function3"
     | "Function4"
     | "Function5"
+    | "BaseValueRenderer"
+    | "ValueRenderer"
+    | "PcfRenderer"
+    | "JsonRenderer"
+    | "YamlRenderer"
+    | "PropertiesRenderer"
+    | "PListRenderer"
+    | "ConvertProperty"
+    | "RenderDirective"
     // PKL-148bh: `module` is Apple Pkl's annotation for "the type of
     // the enclosing module" — treat as a stdlib-accepting class name
     // so the eval-side rejection path doesn't blanket-reject every

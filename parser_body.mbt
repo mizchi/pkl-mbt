@@ -407,7 +407,12 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
       // matches; tightening the required-spread null check is a
       // follow-up).
       let payload = self.parse_spread_payload()
-      members.push({ name: "@spread", type_name: None, value: payload })
+      members.push({
+        name: "@spread",
+        type_name: None,
+        value: payload,
+        annotations: [],
+      })
     } else if self.at(lbracket()) {
       // PKL-148ar: detect the predicate-member shape `[[ pred ]] { body }`
       // or `[[ pred ]] = value` first. Two consecutive `[` open a
@@ -445,6 +450,7 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
           value: CallExpr(Identifier("@__predicate_entry"), [
             pred_expr, body_expr,
           ]),
+          annotations: [],
         })
       } else {
         // PKL-148w: `(x) { [3] = "barn owl" }` style subscript-amend
@@ -472,6 +478,7 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
             name: "@subscript$" + offset.to_string(),
             type_name: None,
             value: CallExpr(Identifier("@__index_entry"), [key_expr, value_expr]),
+            annotations: [],
           })
         } else if self.at(lbrace()) {
           // `[key] { ... }` — amend the entry at `key` with the given
@@ -482,6 +489,7 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
             name: "@subscript$" + offset.to_string(),
             type_name: None,
             value: CallExpr(Identifier("@__index_entry"), [key_expr, body]),
+            annotations: [],
           })
         } else {
           self.skip_unknown_member()
@@ -515,7 +523,12 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
             LocalMember | VisibleMember | HiddenMember =>
               local_member_name(decl.name)
           }
-          members.push({ name: stored_name, type_name: None, value: lambda })
+          members.push({
+            name: stored_name,
+            type_name: None,
+            value: lambda,
+            annotations: [],
+          })
         }
         None => ()
       }
@@ -531,6 +544,7 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
             name: stored_name,
             type_name: field.type_name,
             value: field.value,
+            annotations: field.annotations,
           })
         }
         None => ()
@@ -597,6 +611,7 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
                 name: "@element$" + offset.to_string(),
                 type_name: None,
                 value: expr,
+                annotations: [],
               })
             }
         }
@@ -825,6 +840,7 @@ fn Parser::parse_when_member(self : Parser) -> ObjectMember? {
       ObjectLiteral(then_members),
       ObjectLiteral(else_members),
     ),
+    annotations: [],
   })
 }
 
@@ -923,11 +939,13 @@ fn Parser::parse_for_member(self : Parser) -> ObjectMember? {
     name: "@for",
     type_name: None,
     value: ForGenerator(var1, var2, source, body_members),
+    annotations: [],
   })
 }
 
 ///|
 fn Parser::parse_object_member(self : Parser) -> ObjectMember? {
+  let annotations = self.take_pending_annotations()
   self.builder.start_node(object_member())
   if !self.at(identifier()) {
     self.skip_unknown_member()
@@ -973,6 +991,6 @@ fn Parser::parse_object_member(self : Parser) -> ObjectMember? {
   if name == "" {
     None
   } else {
-    Some({ name, type_name, value })
+    Some({ name, type_name, value, annotations })
   }
 }

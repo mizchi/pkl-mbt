@@ -105,6 +105,7 @@ pub(all) struct Binding {
   type_name : String?
   value : Expr
   exported : Bool
+  annotations : Array[Annotation]
   abstract_slot : Bool
 } derive(Eq, @debug.Debug)
 
@@ -130,6 +131,7 @@ pub(all) struct ClassProperty {
   name : String
   type_name : String?
   value : Expr?
+  annotations : Array[Annotation]
 } derive(Eq, @debug.Debug)
 
 pub(all) enum CodegenTarget {
@@ -229,6 +231,7 @@ pub(all) struct ObjectMember {
   name : String
   type_name : String?
   value : Expr
+  annotations : Array[Annotation]
 } derive(Eq, @debug.Debug)
 
 pub(all) struct ParseResult {
@@ -345,6 +348,7 @@ pub(all) struct ValueEntry {
 pub(all) struct ValueMember {
   name : String
   value : Value
+  annotations : Array[Annotation]
   source : Expr?
 } derive(@debug.Debug)
 

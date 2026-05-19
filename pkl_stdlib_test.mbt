@@ -4,13 +4,29 @@ test "Int.toChar() projects a Unicode code point to a String" {
     eval_source("a = 65\nA = a.toChar()\nz = 122\nlowercase_z = z.toChar()") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: IntValue(65), source: None },
-        ValueMember::{ name: "A", value: StringValue("A"), source: None },
-        ValueMember::{ name: "z", value: IntValue(122), source: None },
+        ValueMember::{
+          name: "a",
+          value: IntValue(65),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "A",
+          value: StringValue("A"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "z",
+          value: IntValue(122),
+          source: None,
+          annotations: [],
+        },
         ValueMember::{
           name: "lowercase_z",
           value: StringValue("z"),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -29,11 +45,13 @@ test "Int builtins compose with String / Listing pipelines" {
           name: "xs",
           value: ListingValue([IntValue(10), IntValue(255), IntValue(16)]),
           source: None,
+          annotations: [],
         },
         ValueMember::{
           name: "hex_csv",
           value: StringValue("a,ff,10"),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -54,14 +72,26 @@ test "pkl:math exposes Int range constants" {
           name: "max32",
           value: IntValue(2147483647),
           source: None,
+          annotations: [],
         },
         ValueMember::{
           name: "min32",
           value: IntValue(-2147483648),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "max", value: IntValue(2147483647), source: None },
-        ValueMember::{ name: "min", value: IntValue(-2147483648), source: None },
+        ValueMember::{
+          name: "max",
+          value: IntValue(2147483647),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "min",
+          value: IntValue(-2147483648),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -77,12 +107,42 @@ test "pkl:math exposes Int abs, min, max functions" {
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "abs_neg", value: IntValue(7), source: None },
-        ValueMember::{ name: "abs_pos", value: IntValue(4), source: None },
-        ValueMember::{ name: "mn", value: IntValue(3), source: None },
-        ValueMember::{ name: "mx", value: IntValue(8), source: None },
-        ValueMember::{ name: "mn_eq", value: IntValue(5), source: None },
-        ValueMember::{ name: "mx_eq", value: IntValue(5), source: None },
+        ValueMember::{
+          name: "abs_neg",
+          value: IntValue(7),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "abs_pos",
+          value: IntValue(4),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "mn",
+          value: IntValue(3),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "mx",
+          value: IntValue(8),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "mn_eq",
+          value: IntValue(5),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "mx_eq",
+          value: IntValue(5),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -180,7 +240,12 @@ test "generic class declaration parses without error" {
     box_value ==
     Some(
       ObjectValue([
-        ValueMember::{ name: "value", value: IntValue(5), source: None },
+        ValueMember::{
+          name: "value",
+          value: IntValue(5),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -253,7 +318,12 @@ test "Float literal evaluates as FloatValue" {
     eval_source("res = 3.14") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "res", value: FloatValue(3.14), source: None },
+        ValueMember::{
+          name: "res",
+          value: FloatValue(3.14),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -279,7 +349,12 @@ test "Float comparison accepts Int / Float mix" {
     eval_source("res = 1.5 < 2") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "res", value: BoolValue(true), source: None },
+        ValueMember::{
+          name: "res",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -369,7 +444,12 @@ test "Float annotation accepts Float value" {
     eval_source("res: Float = 3.14") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "res", value: FloatValue(3.14), source: None },
+        ValueMember::{
+          name: "res",
+          value: FloatValue(3.14),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -381,8 +461,18 @@ test "Number annotation accepts Int and Float" {
     eval_source("a: Number = 5\nb: Number = 2.5") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: IntValue(5), source: None },
-        ValueMember::{ name: "b", value: FloatValue(2.5), source: None },
+        ValueMember::{
+          name: "a",
+          value: IntValue(5),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "b",
+          value: FloatValue(2.5),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -394,7 +484,12 @@ test "Float constraint predicate accepts in-range Float" {
     eval_source("res: Float(isPositive) = 1.5") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "res", value: FloatValue(1.5), source: None },
+        ValueMember::{
+          name: "res",
+          value: FloatValue(1.5),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -418,7 +513,12 @@ test "Float isBetween accepts inclusive endpoints" {
     eval_source("res: Float(isBetween(0, 10)) = 5.5") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "res", value: FloatValue(5.5), source: None },
+        ValueMember::{
+          name: "res",
+          value: FloatValue(5.5),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -430,7 +530,12 @@ test "PKL-112: Float isBetween accepts Float thresholds in range" {
     eval_source("res: Float(isBetween(0.5, 1.5)) = 1.0") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "res", value: FloatValue(1.0), source: None },
+        ValueMember::{
+          name: "res",
+          value: FloatValue(1.0),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -456,7 +561,12 @@ test "PKL-112: Float isGreaterThan accepts Float threshold" {
     eval_source("res: Float(isGreaterThan(0.5)) = 0.75") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "res", value: FloatValue(0.75), source: None },
+        ValueMember::{
+          name: "res",
+          value: FloatValue(0.75),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -522,7 +632,12 @@ test "PKL-114: is Int evaluates to true for Int value" {
     eval_source("res = 5 is Int") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "res", value: BoolValue(true), source: None },
+        ValueMember::{
+          name: "res",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -534,7 +649,12 @@ test "PKL-114: is Float evaluates to true for Float value" {
     eval_source("res = 1.5 is Float") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "res", value: BoolValue(true), source: None },
+        ValueMember::{
+          name: "res",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -546,7 +666,12 @@ test "PKL-114: is Int evaluates to false for String value" {
     eval_source("res = \"x\" is Int") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "res", value: BoolValue(false), source: None },
+        ValueMember::{
+          name: "res",
+          value: BoolValue(false),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -558,9 +683,24 @@ test "PKL-114: is Number evaluates to true for Int and Float values" {
     eval_source("a = 5 is Number\nb = 1.5 is Number\nc = \"x\" is Number") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "a", value: BoolValue(true), source: None },
-        ValueMember::{ name: "b", value: BoolValue(true), source: None },
-        ValueMember::{ name: "c", value: BoolValue(false), source: None },
+        ValueMember::{
+          name: "a",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "b",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "c",
+          value: BoolValue(false),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -574,7 +714,12 @@ test "PKL-114: is guard branches on runtime type" {
     ) ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "res", value: IntValue(6), source: None },
+        ValueMember::{
+          name: "res",
+          value: IntValue(6),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -584,7 +729,12 @@ test "PKL-114: is guard branches on runtime type" {
     ) ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "res", value: IntValue(0), source: None },
+        ValueMember::{
+          name: "res",
+          value: IntValue(0),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -775,11 +925,13 @@ test "PKL-148h: Listing.toList() projects to a ListValue" {
           name: "xs",
           value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
           source: None,
+          annotations: [],
         },
         ValueMember::{
           name: "ys",
           value: ListValue([IntValue(1), IntValue(2), IntValue(3)]),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -1436,6 +1588,96 @@ test "PKL-128d: multiple annotations stack on a single declaration" {
   inspect(decl.annotations.length(), content="2")
   inspect(decl.annotations[0].class_name, content="Deprecated")
   inspect(decl.annotations[1].class_name, content="Since")
+}
+
+///|
+test "PKL-153: class property annotations are captured in source order" {
+  let parsed = parse_source(
+    "class Box {\n  @First\n  @Second { value = 1 }\n  item: Int = 1\n}",
+  )
+  inspect(parsed.diagnostics.length(), content="0")
+  guard parsed.program.declarations[0] is ClassDeclaration(decl) else {
+    panic()
+  }
+  inspect(decl.properties[0].annotations.length(), content="2")
+  inspect(decl.properties[0].annotations[0].class_name, content="First")
+  inspect(decl.properties[0].annotations[1].class_name, content="Second")
+}
+
+///|
+test "PKL-153: ConvertProperty annotations transform rendered class properties" {
+  let source =
+    #|class Twice extends ConvertProperty {
+    #|  render = (prop, _) -> Pair(prop.key, prop.value as Number * 2)
+    #|}
+    #|class Box {
+    #|  @Twice
+    #|  count: Int = 4
+    #|}
+    #|output {
+    #|  value = new Box {}
+    #|  renderer = new PcfRenderer {}
+    #|}
+  guard eval_source(source) is EvalOk(ObjectValue(members)) else { panic() }
+  let mut output_value : Value? = None
+  for m in members {
+    if m.name == "output" {
+      output_value = Some(m.value)
+    }
+  }
+  guard output_value is Some(ObjectValue(output_members)) else { panic() }
+  let mut projected_value : Value? = None
+  for m in output_members {
+    if m.name == "value" {
+      projected_value = Some(m.value)
+    }
+  }
+  guard projected_value is Some(ObjectValue(value_members)) else { panic() }
+  inspect(render_value(ObjectValue(value_members)), content="count = 8")
+}
+
+///|
+test "PKL-153: ConvertProperty render method is callable on annotation instance" {
+  let source =
+    #|class MultiplyValue extends ConvertProperty {
+    #|  factor: Number
+    #|  render = (prop, _) -> Pair(prop.key, prop.value as Number * factor)
+    #|}
+    #|m = new MultiplyValue { factor = 2 }
+    #|x = m.render(Pair("k", 4), new PcfRenderer {}).second
+  guard eval_source(source) is EvalOk(ObjectValue(members)) else { panic() }
+  let mut x : Value? = None
+  for entry in members {
+    if entry.name == "x" {
+      x = Some(entry.value)
+    }
+  }
+  guard x is Some(IntValue(result)) else { panic() }
+  inspect(result, content="8")
+}
+
+///|
+test "PKL-153: PcfRenderer renders RenderDirective text raw" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "bar = new RenderDirective { text = \"= \\\"b\\\" // bar\" }",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let mut class_tag = ""
+  guard value is ObjectValue(members) else { panic() }
+  for entry in members {
+    if entry.name == "bar" {
+      guard entry.value is ObjectValue(bar_members) else { panic() }
+      for bar_entry in bar_members {
+        if bar_entry.name == "@hidden$__class" {
+          guard bar_entry.value is StringValue(tag) else { panic() }
+          class_tag = tag
+        }
+      }
+    }
+  }
+  inspect(class_tag, content="RenderDirective")
+  inspect(render_value(value), content="bar = \"b\" // bar")
 }
 
 ///|

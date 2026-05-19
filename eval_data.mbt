@@ -118,7 +118,12 @@ fn json_to_value(j : Json, use_mapping : Bool) -> Value {
       } else {
         let members : Array[ValueMember] = []
         for k, v in map {
-          members.push({ name: k, value: json_to_value(v, false), source: None })
+          members.push({
+            name: k,
+            value: json_to_value(v, false),
+            source: None,
+            annotations: [],
+          })
         }
         ObjectValue(members)
       }
@@ -185,7 +190,12 @@ fn yaml_to_value(y : @yaml.Yaml, use_mapping : Bool) -> Value {
       } else {
         let members : Array[ValueMember] = []
         for k, v in map {
-          members.push({ name: k, value: yaml_to_value(v, false), source: None })
+          members.push({
+            name: k,
+            value: yaml_to_value(v, false),
+            source: None,
+            annotations: [],
+          })
         }
         ObjectValue(members)
       }

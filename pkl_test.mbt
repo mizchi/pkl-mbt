@@ -47,8 +47,18 @@ test "evaluate object literal from top-level module properties" {
     eval_source("module demo\nname = \"hawk\"\nage = 2") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "name", value: StringValue("hawk"), source: None },
-        ValueMember::{ name: "age", value: IntValue(2), source: None },
+        ValueMember::{
+          name: "name",
+          value: StringValue("hawk"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "age",
+          value: IntValue(2),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -110,9 +120,15 @@ test "evaluate pkl test catch for upstream constraint fixtures" {
         ValueMember::{
           name: "res1",
           value: ObjectValue([
-            ValueMember::{ name: "a", value: IntValue(6), source: None },
+            ValueMember::{
+              name: "a",
+              value: IntValue(6),
+              source: None,
+              annotations: [],
+            },
           ]),
           source: None,
+          annotations: [],
         },
         ValueMember::{
           name: "res2",
@@ -120,6 +136,7 @@ test "evaluate pkl test catch for upstream constraint fixtures" {
             "Type constraint `isGreaterThan(5)` violated. Value: 5",
           ),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -361,8 +378,18 @@ test "render JSON strings with escapes and control characters" {
 ///|
 test "render Pkl module bindings as JSON object" {
   let value : Value = ObjectValue([
-    ValueMember::{ name: "name", value: StringValue("pigeon"), source: None },
-    ValueMember::{ name: "age", value: IntValue(30), source: None },
+    ValueMember::{
+      name: "name",
+      value: StringValue("pigeon"),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "age",
+      value: IntValue(30),
+      source: None,
+      annotations: [],
+    },
   ])
   inspect(
     render_value_as_json(value),
@@ -430,11 +457,17 @@ test "JSON Mapping keys coerce non-string values to strings" {
 ///|
 test "render nested Pkl objects and arrays as JSON" {
   let value : Value = ObjectValue([
-    ValueMember::{ name: "name", value: StringValue("pigeon"), source: None },
+    ValueMember::{
+      name: "name",
+      value: StringValue("pigeon"),
+      source: None,
+      annotations: [],
+    },
     ValueMember::{
       name: "friends",
       value: ListingValue([StringValue("barn owl"), StringValue("parrot")]),
       source: None,
+      annotations: [],
     },
     ValueMember::{
       name: "address",
@@ -443,10 +476,17 @@ test "render nested Pkl objects and arrays as JSON" {
           name: "street",
           value: StringValue("Norton St."),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "zip", value: IntValue(12345), source: None },
+        ValueMember::{
+          name: "zip",
+          value: IntValue(12345),
+          source: None,
+          annotations: [],
+        },
       ]),
       source: None,
+      annotations: [],
     },
   ])
   inspect(
@@ -473,16 +513,42 @@ test "render empty composites as JSON" {
   // identically regardless of whether it originated as Object, Listing, or
   // Mapping.
   let value : Value = ObjectValue([
-    ValueMember::{ name: "a3", value: ListingValue([]), source: None },
-    ValueMember::{ name: "b2", value: MappingValue([]), source: None },
-    ValueMember::{ name: "b3", value: ObjectValue([]), source: None },
+    ValueMember::{
+      name: "a3",
+      value: ListingValue([]),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "b2",
+      value: MappingValue([]),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "b3",
+      value: ObjectValue([]),
+      source: None,
+      annotations: [],
+    },
     ValueMember::{
       name: "nested",
       value: ObjectValue([
-        ValueMember::{ name: "a3", value: ListingValue([]), source: None },
-        ValueMember::{ name: "b2", value: MappingValue([]), source: None },
+        ValueMember::{
+          name: "a3",
+          value: ListingValue([]),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "b2",
+          value: MappingValue([]),
+          source: None,
+          annotations: [],
+        },
       ]),
       source: None,
+      annotations: [],
     },
   ])
   inspect(
@@ -576,8 +642,18 @@ test "render YAML strings with quoting and escapes" {
 ///|
 test "render Pkl module bindings as YAML mapping" {
   let value : Value = ObjectValue([
-    ValueMember::{ name: "name", value: StringValue("pigeon"), source: None },
-    ValueMember::{ name: "age", value: IntValue(30), source: None },
+    ValueMember::{
+      name: "name",
+      value: StringValue("pigeon"),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "age",
+      value: IntValue(30),
+      source: None,
+      annotations: [],
+    },
   ])
   inspect(
     render_value_as_yaml(value),
@@ -641,11 +717,17 @@ test "YAML Mapping keys coerce non-string values to strings" {
 ///|
 test "render nested Pkl objects and arrays as YAML" {
   let value : Value = ObjectValue([
-    ValueMember::{ name: "name", value: StringValue("pigeon"), source: None },
+    ValueMember::{
+      name: "name",
+      value: StringValue("pigeon"),
+      source: None,
+      annotations: [],
+    },
     ValueMember::{
       name: "friends",
       value: ListingValue([StringValue("barn owl"), StringValue("parrot")]),
       source: None,
+      annotations: [],
     },
     ValueMember::{
       name: "address",
@@ -654,10 +736,17 @@ test "render nested Pkl objects and arrays as YAML" {
           name: "street",
           value: StringValue("Norton St."),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "zip", value: IntValue(12345), source: None },
+        ValueMember::{
+          name: "zip",
+          value: IntValue(12345),
+          source: None,
+          annotations: [],
+        },
       ]),
       source: None,
+      annotations: [],
     },
   ])
   inspect(
@@ -688,6 +777,7 @@ test "render YAML sequence of mappings and nested sequences" {
         ListingValue([StringValue("elf owl"), StringValue("albatross")]),
       ]),
       source: None,
+      annotations: [],
     },
     ValueMember::{
       name: "nestedFriends2",
@@ -697,6 +787,7 @@ test "render YAML sequence of mappings and nested sequences" {
             name: "name",
             value: StringValue("barn owl"),
             source: None,
+            annotations: [],
           },
         ]),
         ObjectValue([
@@ -704,10 +795,12 @@ test "render YAML sequence of mappings and nested sequences" {
             name: "name",
             value: StringValue("parrot"),
             source: None,
+            annotations: [],
           },
         ]),
       ]),
       source: None,
+      annotations: [],
     },
   ])
   inspect(
@@ -730,12 +823,32 @@ test "render YAML sequence of mappings and nested sequences" {
 test "render YAML sequence of multi-member mappings" {
   let value : Value = ListingValue([
     ObjectValue([
-      ValueMember::{ name: "name", value: StringValue("alice"), source: None },
-      ValueMember::{ name: "age", value: IntValue(30), source: None },
+      ValueMember::{
+        name: "name",
+        value: StringValue("alice"),
+        source: None,
+        annotations: [],
+      },
+      ValueMember::{
+        name: "age",
+        value: IntValue(30),
+        source: None,
+        annotations: [],
+      },
     ]),
     ObjectValue([
-      ValueMember::{ name: "name", value: StringValue("bob"), source: None },
-      ValueMember::{ name: "age", value: IntValue(25), source: None },
+      ValueMember::{
+        name: "name",
+        value: StringValue("bob"),
+        source: None,
+        annotations: [],
+      },
+      ValueMember::{
+        name: "age",
+        value: IntValue(25),
+        source: None,
+        annotations: [],
+      },
     ]),
   ])
   inspect(
@@ -753,16 +866,42 @@ test "render YAML sequence of multi-member mappings" {
 ///|
 test "render empty composites as YAML" {
   let value : Value = ObjectValue([
-    ValueMember::{ name: "a3", value: ListingValue([]), source: None },
-    ValueMember::{ name: "b2", value: MappingValue([]), source: None },
-    ValueMember::{ name: "b3", value: ObjectValue([]), source: None },
+    ValueMember::{
+      name: "a3",
+      value: ListingValue([]),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "b2",
+      value: MappingValue([]),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "b3",
+      value: ObjectValue([]),
+      source: None,
+      annotations: [],
+    },
     ValueMember::{
       name: "nested",
       value: ObjectValue([
-        ValueMember::{ name: "a3", value: ListingValue([]), source: None },
-        ValueMember::{ name: "b2", value: MappingValue([]), source: None },
+        ValueMember::{
+          name: "a3",
+          value: ListingValue([]),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "b2",
+          value: MappingValue([]),
+          source: None,
+          annotations: [],
+        },
       ]),
       source: None,
+      annotations: [],
     },
   ])
   inspect(
@@ -808,8 +947,14 @@ test "Listing.length and isEmpty are properties" {
           name: "xs",
           value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "len", value: IntValue(3), source: None },
+        ValueMember::{
+          name: "len",
+          value: IntValue(3),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -817,8 +962,18 @@ test "Listing.length and isEmpty are properties" {
     eval_source("xs = new Listing {}\nempty = xs.isEmpty") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "xs", value: ListingValue([]), source: None },
-        ValueMember::{ name: "empty", value: BoolValue(true), source: None },
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([]),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "empty",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -830,8 +985,14 @@ test "Listing.length and isEmpty are properties" {
           name: "xs",
           value: ListingValue([IntValue(1)]),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "empty", value: BoolValue(false), source: None },
+        ValueMember::{
+          name: "empty",
+          value: BoolValue(false),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -847,9 +1008,20 @@ test "Listing.first / last / distinct properties" {
           name: "xs",
           value: ListingValue([IntValue(10), IntValue(20), IntValue(30)]),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "f", value: IntValue(10), source: None },
-        ValueMember::{ name: "l", value: IntValue(30), source: None },
+        ValueMember::{
+          name: "f",
+          value: IntValue(10),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "l",
+          value: IntValue(30),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -867,11 +1039,13 @@ test "Listing.first / last / distinct properties" {
             IntValue(1),
           ]),
           source: None,
+          annotations: [],
         },
         ValueMember::{
           name: "d",
           value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -890,9 +1064,20 @@ test "Listing.contains and reverse methods" {
           name: "xs",
           value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "has", value: BoolValue(true), source: None },
-        ValueMember::{ name: "missing", value: BoolValue(false), source: None },
+        ValueMember::{
+          name: "has",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "missing",
+          value: BoolValue(false),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -904,11 +1089,13 @@ test "Listing.contains and reverse methods" {
           name: "xs",
           value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
           source: None,
+          annotations: [],
         },
         ValueMember::{
           name: "r",
           value: ListingValue([IntValue(3), IntValue(2), IntValue(1)]),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -933,16 +1120,19 @@ test "Listing.take and drop methods" {
             IntValue(5),
           ]),
           source: None,
+          annotations: [],
         },
         ValueMember::{
           name: "t",
           value: ListingValue([IntValue(1), IntValue(2)]),
           source: None,
+          annotations: [],
         },
         ValueMember::{
           name: "d",
           value: ListingValue([IntValue(4), IntValue(5)]),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -956,13 +1146,20 @@ test "Listing.take and drop methods" {
           name: "xs",
           value: ListingValue([IntValue(1), IntValue(2)]),
           source: None,
+          annotations: [],
         },
         ValueMember::{
           name: "t",
           value: ListingValue([IntValue(1), IntValue(2)]),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "d", value: ListingValue([]), source: None },
+        ValueMember::{
+          name: "d",
+          value: ListingValue([]),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -982,8 +1179,14 @@ test "Listing.join method" {
             StringValue("c"),
           ]),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "j", value: StringValue("a, b, c"), source: None },
+        ValueMember::{
+          name: "j",
+          value: StringValue("a, b, c"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -995,8 +1198,14 @@ test "Listing.join method" {
           name: "xs",
           value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "j", value: StringValue("1-2-3"), source: None },
+        ValueMember::{
+          name: "j",
+          value: StringValue("1-2-3"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1004,8 +1213,18 @@ test "Listing.join method" {
     eval_source("xs = new Listing {}\nj = xs.join(\"-\")") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "xs", value: ListingValue([]), source: None },
-        ValueMember::{ name: "j", value: StringValue(""), source: None },
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([]),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "j",
+          value: StringValue(""),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1021,11 +1240,13 @@ test "Listing.map applies a callable to each element" {
           name: "xs",
           value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
           source: None,
+          annotations: [],
         },
         ValueMember::{
           name: "ys",
           value: ListingValue([IntValue(10), IntValue(20), IntValue(30)]),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -1050,11 +1271,13 @@ test "Listing.filter keeps elements that pass the predicate" {
             IntValue(5),
           ]),
           source: None,
+          annotations: [],
         },
         ValueMember::{
           name: "ys",
           value: ListingValue([IntValue(3), IntValue(4), IntValue(5)]),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -1078,8 +1301,14 @@ test "Listing.fold reduces to a single accumulated value" {
             IntValue(4),
           ]),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "sum", value: IntValue(10), source: None },
+        ValueMember::{
+          name: "sum",
+          value: IntValue(10),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1087,8 +1316,18 @@ test "Listing.fold reduces to a single accumulated value" {
     eval_source("xs = new Listing {}\nsum = xs.fold(42, (acc, x) -> acc + x)") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "xs", value: ListingValue([]), source: None },
-        ValueMember::{ name: "sum", value: IntValue(42), source: None },
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([]),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "sum",
+          value: IntValue(42),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1114,8 +1353,14 @@ test "Listing builtins compose through higher-order callable chains" {
             IntValue(5),
           ]),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "result", value: IntValue(54), source: None },
+        ValueMember::{
+          name: "result",
+          value: IntValue(54),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1136,9 +1381,20 @@ test "Mapping.length and isEmpty are properties" {
             ValueEntry::{ key: StringValue("b"), value: IntValue(2) },
           ]),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "len", value: IntValue(2), source: None },
-        ValueMember::{ name: "empty", value: BoolValue(false), source: None },
+        ValueMember::{
+          name: "len",
+          value: IntValue(2),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "empty",
+          value: BoolValue(false),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1146,9 +1402,24 @@ test "Mapping.length and isEmpty are properties" {
     eval_source("m = new Mapping {}\nempty = m.isEmpty\nlen = m.length") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "m", value: MappingValue([]), source: None },
-        ValueMember::{ name: "empty", value: BoolValue(true), source: None },
-        ValueMember::{ name: "len", value: IntValue(0), source: None },
+        ValueMember::{
+          name: "m",
+          value: MappingValue([]),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "empty",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "len",
+          value: IntValue(0),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1174,6 +1445,7 @@ test "Mapping.keys and values project to Listings" {
             ValueEntry::{ key: StringValue("c"), value: IntValue(3) },
           ]),
           source: None,
+          annotations: [],
         },
         ValueMember::{
           name: "ks",
@@ -1183,11 +1455,13 @@ test "Mapping.keys and values project to Listings" {
             StringValue("c"),
           ]),
           source: None,
+          annotations: [],
         },
         ValueMember::{
           name: "vs",
           value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -1209,11 +1483,32 @@ test "Mapping.containsKey and getOrNull methods" {
             ValueEntry::{ key: StringValue("b"), value: IntValue(2) },
           ]),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "has", value: BoolValue(true), source: None },
-        ValueMember::{ name: "missing", value: BoolValue(false), source: None },
-        ValueMember::{ name: "val", value: IntValue(2), source: None },
-        ValueMember::{ name: "none", value: NullValue, source: None },
+        ValueMember::{
+          name: "has",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "missing",
+          value: BoolValue(false),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "val",
+          value: IntValue(2),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "none",
+          value: NullValue,
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1236,8 +1531,14 @@ test "Mapping.fold reduces with (acc, key, value) callback" {
             ValueEntry::{ key: StringValue("c"), value: IntValue(3) },
           ]),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "sum", value: IntValue(6), source: None },
+        ValueMember::{
+          name: "sum",
+          value: IntValue(6),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1245,8 +1546,18 @@ test "Mapping.fold reduces with (acc, key, value) callback" {
     eval_source("m = new Mapping {}\nsum = m.fold(42, (acc, k, v) -> acc + v)") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "m", value: MappingValue([]), source: None },
-        ValueMember::{ name: "sum", value: IntValue(42), source: None },
+        ValueMember::{
+          name: "m",
+          value: MappingValue([]),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "sum",
+          value: IntValue(42),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1268,8 +1579,14 @@ test "Mapping builtins chain through Listing pipelines" {
             ValueEntry::{ key: StringValue("c"), value: IntValue(3) },
           ]),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "result", value: IntValue(5), source: None },
+        ValueMember::{
+          name: "result",
+          value: IntValue(5),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1281,9 +1598,24 @@ test "String.length and isEmpty are properties" {
     eval_source("s = \"hello\"\nlen = s.length\nempty = s.isEmpty") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "s", value: StringValue("hello"), source: None },
-        ValueMember::{ name: "len", value: IntValue(5), source: None },
-        ValueMember::{ name: "empty", value: BoolValue(false), source: None },
+        ValueMember::{
+          name: "s",
+          value: StringValue("hello"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "len",
+          value: IntValue(5),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "empty",
+          value: BoolValue(false),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1291,9 +1623,24 @@ test "String.length and isEmpty are properties" {
     eval_source("s = \"\"\nlen = s.length\nempty = s.isEmpty") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "s", value: StringValue(""), source: None },
-        ValueMember::{ name: "len", value: IntValue(0), source: None },
-        ValueMember::{ name: "empty", value: BoolValue(true), source: None },
+        ValueMember::{
+          name: "s",
+          value: StringValue(""),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "len",
+          value: IntValue(0),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "empty",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1305,9 +1652,24 @@ test "String case-conversion methods" {
     eval_source("s = \"Hello\"\nup = s.toUpperCase()\ndown = s.toLowerCase()") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "s", value: StringValue("Hello"), source: None },
-        ValueMember::{ name: "up", value: StringValue("HELLO"), source: None },
-        ValueMember::{ name: "down", value: StringValue("hello"), source: None },
+        ValueMember::{
+          name: "s",
+          value: StringValue("Hello"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "up",
+          value: StringValue("HELLO"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "down",
+          value: StringValue("hello"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1325,10 +1687,26 @@ test "String search predicates" {
           name: "s",
           value: StringValue("hello world"),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "has", value: BoolValue(true), source: None },
-        ValueMember::{ name: "start", value: BoolValue(true), source: None },
-        ValueMember::{ name: "end", value: BoolValue(true), source: None },
+        ValueMember::{
+          name: "has",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "start",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "end",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1338,14 +1716,30 @@ test "String search predicates" {
     ) ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "s", value: StringValue("hello"), source: None },
-        ValueMember::{ name: "missing", value: BoolValue(false), source: None },
+        ValueMember::{
+          name: "s",
+          value: StringValue("hello"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "missing",
+          value: BoolValue(false),
+          source: None,
+          annotations: [],
+        },
         ValueMember::{
           name: "bad_start",
           value: BoolValue(false),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "bad_end", value: BoolValue(false), source: None },
+        ValueMember::{
+          name: "bad_end",
+          value: BoolValue(false),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1365,8 +1759,14 @@ test "String.indexOf returns position or raises on miss" {
           name: "s",
           value: StringValue("hello world"),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "at", value: IntValue(6), source: None },
+        ValueMember::{
+          name: "at",
+          value: IntValue(6),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1383,12 +1783,23 @@ test "String.replaceAll and replaceFirst" {
     ) ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "s", value: StringValue("banana"), source: None },
-        ValueMember::{ name: "all", value: StringValue("bonono"), source: None },
+        ValueMember::{
+          name: "s",
+          value: StringValue("banana"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "all",
+          value: StringValue("bonono"),
+          source: None,
+          annotations: [],
+        },
         ValueMember::{
           name: "first",
           value: StringValue("bonana"),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -1403,11 +1814,36 @@ test "String.take and drop substring methods" {
     ) ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "s", value: StringValue("hello"), source: None },
-        ValueMember::{ name: "t", value: StringValue("he"), source: None },
-        ValueMember::{ name: "d", value: StringValue("llo"), source: None },
-        ValueMember::{ name: "t0", value: StringValue(""), source: None },
-        ValueMember::{ name: "d0", value: StringValue("hello"), source: None },
+        ValueMember::{
+          name: "s",
+          value: StringValue("hello"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "t",
+          value: StringValue("he"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "d",
+          value: StringValue("llo"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "t0",
+          value: StringValue(""),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "d0",
+          value: StringValue("hello"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1416,9 +1852,24 @@ test "String.take and drop substring methods" {
     eval_source("s = \"ab\"\nt = s.take(99)\nd = s.drop(99)") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "s", value: StringValue("ab"), source: None },
-        ValueMember::{ name: "t", value: StringValue("ab"), source: None },
-        ValueMember::{ name: "d", value: StringValue(""), source: None },
+        ValueMember::{
+          name: "s",
+          value: StringValue("ab"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "t",
+          value: StringValue("ab"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "d",
+          value: StringValue(""),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1430,7 +1881,12 @@ test "String.split projects to a Listing" {
     eval_source("s = \"a,b,c\"\nparts = s.split(\",\")") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "s", value: StringValue("a,b,c"), source: None },
+        ValueMember::{
+          name: "s",
+          value: StringValue("a,b,c"),
+          source: None,
+          annotations: [],
+        },
         ValueMember::{
           name: "parts",
           value: ListingValue([
@@ -1439,6 +1895,7 @@ test "String.split projects to a Listing" {
             StringValue("c"),
           ]),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -1448,11 +1905,17 @@ test "String.split projects to a Listing" {
     eval_source("s = \"abc\"\nparts = s.split(\",\")") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "s", value: StringValue("abc"), source: None },
+        ValueMember::{
+          name: "s",
+          value: StringValue("abc"),
+          source: None,
+          annotations: [],
+        },
         ValueMember::{
           name: "parts",
           value: ListingValue([StringValue("abc")]),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -1467,9 +1930,24 @@ test "String.padStart and padEnd reach a target width" {
     ) ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "s", value: StringValue("7"), source: None },
-        ValueMember::{ name: "left", value: StringValue("007"), source: None },
-        ValueMember::{ name: "right", value: StringValue("7xx"), source: None },
+        ValueMember::{
+          name: "s",
+          value: StringValue("7"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "left",
+          value: StringValue("007"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "right",
+          value: StringValue("7xx"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1480,9 +1958,24 @@ test "String.padStart and padEnd reach a target width" {
     ) ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "s", value: StringValue("abcd"), source: None },
-        ValueMember::{ name: "left", value: StringValue("abcd"), source: None },
-        ValueMember::{ name: "right", value: StringValue("abcd"), source: None },
+        ValueMember::{
+          name: "s",
+          value: StringValue("abcd"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "left",
+          value: StringValue("abcd"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "right",
+          value: StringValue("abcd"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1501,11 +1994,13 @@ test "String builtins compose through Listing pipelines" {
           name: "s",
           value: StringValue("alpha,beta,gamma,delta"),
           source: None,
+          annotations: [],
         },
         ValueMember::{
           name: "result",
           value: StringValue("ALPHA;GAMMA;DELTA"),
           source: None,
+          annotations: [],
         },
       ]),
     ),
@@ -1520,12 +2015,42 @@ test "Int.abs, isEven, and isOdd are properties" {
     ) ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "n", value: IntValue(-7), source: None },
-        ValueMember::{ name: "p", value: IntValue(4), source: None },
-        ValueMember::{ name: "abs_n", value: IntValue(7), source: None },
-        ValueMember::{ name: "abs_p", value: IntValue(4), source: None },
-        ValueMember::{ name: "odd", value: BoolValue(true), source: None },
-        ValueMember::{ name: "even", value: BoolValue(true), source: None },
+        ValueMember::{
+          name: "n",
+          value: IntValue(-7),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "p",
+          value: IntValue(4),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "abs_n",
+          value: IntValue(7),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "abs_p",
+          value: IntValue(4),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "odd",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "even",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1533,9 +2058,24 @@ test "Int.abs, isEven, and isOdd are properties" {
     eval_source("zero = 0\nev = zero.isEven\nod = zero.isOdd") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "zero", value: IntValue(0), source: None },
-        ValueMember::{ name: "ev", value: BoolValue(true), source: None },
-        ValueMember::{ name: "od", value: BoolValue(false), source: None },
+        ValueMember::{
+          name: "zero",
+          value: IntValue(0),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "ev",
+          value: BoolValue(true),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "od",
+          value: BoolValue(false),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1549,15 +2089,36 @@ test "Int.toString() and toString(radix) methods" {
     ) ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "n", value: IntValue(255), source: None },
-        ValueMember::{ name: "dec", value: StringValue("255"), source: None },
-        ValueMember::{ name: "hex", value: StringValue("ff"), source: None },
+        ValueMember::{
+          name: "n",
+          value: IntValue(255),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "dec",
+          value: StringValue("255"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "hex",
+          value: StringValue("ff"),
+          source: None,
+          annotations: [],
+        },
         ValueMember::{
           name: "bin",
           value: StringValue("11111111"),
           source: None,
+          annotations: [],
         },
-        ValueMember::{ name: "oct", value: StringValue("377"), source: None },
+        ValueMember::{
+          name: "oct",
+          value: StringValue("377"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1566,9 +2127,24 @@ test "Int.toString() and toString(radix) methods" {
     eval_source("n = -42\ndec = n.toString()\nhex = n.toString(16)") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "n", value: IntValue(-42), source: None },
-        ValueMember::{ name: "dec", value: StringValue("-42"), source: None },
-        ValueMember::{ name: "hex", value: StringValue("-2a"), source: None },
+        ValueMember::{
+          name: "n",
+          value: IntValue(-42),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "dec",
+          value: StringValue("-42"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "hex",
+          value: StringValue("-2a"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )
@@ -1579,10 +2155,30 @@ test "Int.toString() and toString(radix) methods" {
     ) ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "n", value: IntValue(0), source: None },
-        ValueMember::{ name: "dec", value: StringValue("0"), source: None },
-        ValueMember::{ name: "hex", value: StringValue("0"), source: None },
-        ValueMember::{ name: "bin", value: StringValue("0"), source: None },
+        ValueMember::{
+          name: "n",
+          value: IntValue(0),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "dec",
+          value: StringValue("0"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "hex",
+          value: StringValue("0"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "bin",
+          value: StringValue("0"),
+          source: None,
+          annotations: [],
+        },
       ]),
     ),
   )

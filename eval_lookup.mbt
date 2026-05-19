@@ -50,8 +50,18 @@ fn reflect_class_properties(
             }
             result.push(
               ObjectValue([
-                { name: "name", value: StringValue(prop.name), source: None },
-                { name: "typeName", value: type_value, source: None },
+                {
+                  name: "name",
+                  value: StringValue(prop.name),
+                  source: None,
+                  annotations: [],
+                },
+                {
+                  name: "typeName",
+                  value: type_value,
+                  source: None,
+                  annotations: [],
+                },
               ]),
             )
           }
@@ -90,12 +100,23 @@ fn reflect_class_methods(
             }
             result.push(
               ObjectValue([
-                { name: "name", value: StringValue(fn_decl.name), source: None },
-                { name: "returnTypeName", value: return_value, source: None },
+                {
+                  name: "name",
+                  value: StringValue(fn_decl.name),
+                  source: None,
+                  annotations: [],
+                },
+                {
+                  name: "returnTypeName",
+                  value: return_value,
+                  source: None,
+                  annotations: [],
+                },
                 {
                   name: "parameterTypeNames",
                   value: ListingValue(parameter_types),
                   source: None,
+                  annotations: [],
                 },
               ]),
             )
@@ -123,11 +144,17 @@ fn reflect_class_supertype(
           match class_decl.parent_name {
             Some(parent) =>
               return ObjectValue([
-                { name: "reflectee", value: StringValue(parent), source: None },
+                {
+                  name: "reflectee",
+                  value: StringValue(parent),
+                  source: None,
+                  annotations: [],
+                },
                 {
                   name: hidden_member_name("__kind"),
                   value: StringValue("Class"),
                   source: None,
+                  annotations: [],
                 },
               ])
             None => return NullValue
@@ -155,11 +182,13 @@ fn reflect_module_classes(declarations : Array[Declaration]) -> Value {
               name: "reflectee",
               value: StringValue(class_decl.name),
               source: None,
+              annotations: [],
             },
             {
               name: hidden_member_name("__kind"),
               value: StringValue("Class"),
               source: None,
+              annotations: [],
             },
           ]),
         )
@@ -368,6 +397,7 @@ fn collect_class_default_bindings(
               type_name: property.type_name,
               value,
               exported: true,
+              annotations: property.annotations,
               abstract_slot: false,
             })
           None => ()
@@ -529,6 +559,7 @@ fn rename_overrides_for_hidden_class_properties(
         name: hidden_member_name(value_member.name),
         value: value_member.value,
         source: None,
+        annotations: value_member.annotations,
       })
     } else {
       renamed.push(value_member)
@@ -558,7 +589,7 @@ fn merge_value_members(
     // name; without this fallback the renderer would emit both the base
     // `@hidden$x` (filtered out) and the override `x` (visible) for
     // `hidden f: () -> Int` properties on classes like `lambdaConstraints1`.
-    let exact = find_member_exact(overrides, value_member.name)
+    let exact = find_value_member_exact(overrides, value_member.name)
     let resolved = if exact is Some(_) {
       exact
     } else if is_hidden_member_name(value_member.name) {
@@ -567,7 +598,7 @@ fn merge_value_members(
         start=hidden_member_prefix.length(),
         end=value_member.name.length(),
       )
-      find_member_exact(overrides, bare)
+      find_value_member_exact(overrides, bare)
     } else {
       None
     }
@@ -575,8 +606,12 @@ fn merge_value_members(
       Some(value) =>
         merged.push({
           name: value_member.name,
-          value: deep_merge_amend_value(value_member.value, value),
+          value: deep_merge_amend_value(value_member.value, value.value),
           source: None,
+          annotations: append_annotations(
+            value_member.annotations,
+            value.annotations,
+          ),
         })
       None => merged.push(value_member)
     }
@@ -691,6 +726,7 @@ fn all_eval_bindings(program : Program) -> Array[Binding] {
                 function_decl.return_type_name,
               ),
               exported: false,
+              annotations: function_decl.annotations,
               abstract_slot: false,
             })
           None => ()

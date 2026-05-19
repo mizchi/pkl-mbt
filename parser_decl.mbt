@@ -76,12 +76,21 @@ fn Parser::parse_let_decl(self : Parser) -> Binding? {
   if name == "" {
     None
   } else {
-    Some({ name, type_name, value, exported: false, abstract_slot: false })
+    let annotations = self.take_pending_annotations()
+    Some({
+      name,
+      type_name,
+      value,
+      exported: false,
+      annotations,
+      abstract_slot: false,
+    })
   }
 }
 
 ///|
 fn Parser::parse_local_decl(self : Parser) -> Binding? {
+  let annotations = self.take_pending_annotations()
   self.builder.start_node(let_decl())
   ignore(self.expect(local_kw(), "local"))
   // Apple Pkl accepts modifier keywords after `local` (`local const x`,
@@ -119,7 +128,14 @@ fn Parser::parse_local_decl(self : Parser) -> Binding? {
   if name == "" {
     None
   } else {
-    Some({ name, type_name, value, exported: false, abstract_slot: false })
+    Some({
+      name,
+      type_name,
+      value,
+      exported: false,
+      annotations,
+      abstract_slot: false,
+    })
   }
 }
 
@@ -444,6 +460,7 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
                 name: local_member_name(property.name),
                 type_name: property.type_name,
                 value: property.value,
+                annotations: property.annotations,
               })
             } else {
               properties.push(property)
@@ -480,6 +497,7 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
 
 ///|
 fn Parser::parse_class_property_decl(self : Parser) -> ClassProperty? {
+  let annotations = self.take_pending_annotations()
   // PKL-145: drain the `hidden` modifier from the pending list that
   // `skip_member_header` populated, then prefix the stored name with
   // `hidden_member_prefix` so renderers skip the property (same
@@ -515,7 +533,7 @@ fn Parser::parse_class_property_decl(self : Parser) -> ClassProperty? {
     None
   } else {
     let name = if hidden { hidden_member_name(raw_name) } else { raw_name }
-    Some({ name, type_name, value })
+    Some({ name, type_name, value, annotations })
   }
 }
 
@@ -739,6 +757,7 @@ fn Parser::parse_function_decl(self : Parser) -> FunctionDecl? {
 
 ///|
 fn Parser::parse_property_decl(self : Parser) -> Binding? {
+  let annotations = self.take_pending_annotations()
   self.builder.start_node(property_decl())
   if !self.at(identifier()) {
     self.skip_unknown_member()
@@ -796,6 +815,6 @@ fn Parser::parse_property_decl(self : Parser) -> Binding? {
   if name == "" {
     None
   } else {
-    Some({ name, type_name, value, exported: true, abstract_slot })
+    Some({ name, type_name, value, exported: true, annotations, abstract_slot })
   }
 }

@@ -92,13 +92,14 @@ pub(all) enum Value {
 pub(all) struct ValueMember {
   name : String
   value : Value
+  annotations : Array[Annotation]
   // PKL-148bb: original right-hand expression captured at eval time so an
   // amend overlay can re-evaluate the slot when a sibling it references
   // gets overridden (late binding — `x = y; y = 3` then `(base) { y = 4 }`
   // must propagate the new `y` into `x`). `None` for slots whose value
   // was never produced from a user-source Expr (synthetic sentinels,
   // method-built ObjectValue, etc.). Excluded from equality so existing
-  // test fixtures that compare `ValueMember::{ name, value, source: None }`
+  // test fixtures that compare `ValueMember::{ name, value, source: None, annotations: [] }`
   // against an evaluator output (which now carries the captured Expr)
   // still match — the user-visible state is the (name, value) pair.
   source : Expr?
@@ -107,6 +108,21 @@ pub(all) struct ValueMember {
 ///|
 impl Eq for ValueMember with equal(a, b) {
   a.name == b.name && a.value == b.value
+}
+
+///|
+fn append_annotations(
+  left : Array[Annotation],
+  right : Array[Annotation],
+) -> Array[Annotation] {
+  let out : Array[Annotation] = []
+  for item in left {
+    out.push(item)
+  }
+  for item in right {
+    out.push(item)
+  }
+  out
 }
 
 ///|
@@ -187,7 +203,7 @@ pub fn eval_source(source : String) -> EvalResult {
   // PKL-118: strip the hidden-prefixed function members the evaluator
   // adds for cross-module dispatch. `eval_source` is the test-facing
   // entry point and the existing tests assert on visible-binding
-  // equality (`ValueMember::{ name: "result", value: IntValue(3), source: None }`);
+  // equality (`ValueMember::{ name: "result", value: IntValue(3), source: None, annotations: [] }`);
   // surfacing the synthetic function entries here would force every
   // test that declares a `function` to expand its expected ObjectValue
   // even though the user-visible render still hides them. The CLI's
@@ -212,14 +228,20 @@ fn strip_invisible_recursive(value : Value) -> Value {
   match value {
     ObjectValue(members) => {
       let kept : Array[ValueMember] = []
+      let preserve_class_tag = match find_object_class_tag(members) {
+        Some("RenderDirective") => true
+        _ => false
+      }
       for m in members {
-        if is_invisible_member_name(m.name) {
+        if is_invisible_member_name(m.name) &&
+          !(preserve_class_tag && m.name == class_tag_member_name()) {
           continue
         }
         kept.push({
           name: m.name,
           value: strip_invisible_recursive(m.value),
           source: m.source,
+          annotations: m.annotations,
         })
       }
       ObjectValue(kept)
