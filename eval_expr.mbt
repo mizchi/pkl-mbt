@@ -753,6 +753,8 @@ fn eval_expr_with_bindings(
               Some(DurationValue(d, member_name))
             } else if is_datasize_unit_name(member_name) {
               Some(DataSizeValue(d, member_name))
+            } else if is_float_property_name(member_name) {
+              eval_float_property(d, member_name, diagnostics)
             } else {
               diagnostics.push(
                 diag(
@@ -2709,7 +2711,8 @@ fn eval_expr_with_bindings(
       )
       match (op, inner) {
         (Negate, Some(IntValue(value))) => Some(IntValue(0 - value))
-        (Negate, Some(FloatValue(value))) => Some(FloatValue(0.0 - value))
+        (Negate, Some(FloatValue(value))) =>
+          Some(FloatValue(negate_float(value)))
         (Negate, Some(DurationValue(value, unit))) =>
           Some(DurationValue(0 - value, unit))
         (Negate, Some(DataSizeValue(value, unit))) =>

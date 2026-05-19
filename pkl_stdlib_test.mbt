@@ -556,6 +556,58 @@ test "PKL-112: Float isBetween with Float thresholds rejects out-of-range" {
 }
 
 ///|
+test "PKL-150: Float stdlib property and conversion surface" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:test"
+      #|nan = NaN.isNaN
+      #|finite = 42.123.isFinite
+      #|infinite = Infinity.isInfinite
+      #|between = 3.3.isBetween(2.2, 4.4)
+      #|nonzero = (-3.3).isNonZero
+      #|duration = 3.21.toDuration("min")
+      #|dataSize = (-99.999).toDataSize("gib")
+      #|sign = (-2.34).sign
+      #|abs = (-2.34).abs
+      #|ceil = (-2.34).ceil
+      #|floor = (-2.34).floor
+      #|round = (-2.9).round()
+      #|truncate = (-2.9).truncate()
+      #|int = (-2.9).toInt()
+      #|float = (-2.9).toFloat()
+      #|fixedText = 1.23456789.toFixed(4)
+      #|badFixed = test.catch(() -> 1.23.toFixed(21))
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = render_value(value)
+  inspect(rendered.contains("nan = true"), content="true")
+  inspect(rendered.contains("finite = true"), content="true")
+  inspect(rendered.contains("infinite = true"), content="true")
+  inspect(rendered.contains("between = true"), content="true")
+  inspect(rendered.contains("nonzero = true"), content="true")
+  inspect(rendered.contains("duration = 3.21.min"), content="true")
+  inspect(rendered.contains("dataSize = -99.999.gib"), content="true")
+  inspect(rendered.contains("sign = -1.0"), content="true")
+  inspect(rendered.contains("abs = 2.34"), content="true")
+  inspect(rendered.contains("ceil = -2.0"), content="true")
+  inspect(rendered.contains("floor = -3.0"), content="true")
+  inspect(rendered.contains("round = -3.0"), content="true")
+  inspect(rendered.contains("truncate = -2.0"), content="true")
+  inspect(rendered.contains("int = -2"), content="true")
+  inspect(rendered.contains("float = -2.9"), content="true")
+  inspect(rendered.contains("fixedText = \"1.2346\""), content="true")
+  inspect(
+    rendered.contains(
+      "badFixed = \"Type constraint `this.isBetween(0, 20)` violated. Value: 21\"",
+    ),
+    content="true",
+  )
+}
+
+///|
 test "PKL-112: Float isGreaterThan accepts Float threshold" {
   assert_true(
     eval_source("res: Float(isGreaterThan(0.5)) = 0.75") ==
