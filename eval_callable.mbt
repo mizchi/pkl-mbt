@@ -1532,6 +1532,25 @@ fn eval_callable_call(
           if callee is SafeMemberAccess(_, _) {
             return Some(NullValue)
           }
+        Some(ObjectValue(members)) =>
+          if method_name == "toString" && arguments.length() == 0 {
+            // PKL-148bh: `Class.toString()` / `TypeAlias.toString()` on
+            // a reflect mirror returns the module-qualified name
+            // stashed via `@__qualified_name`. The fallback when the
+            // marker is absent (mirror was built without a known
+            // module) is the mirror's `name` field, which already
+            // carries the simple name (types/modifiersForTypes).
+            let qualified = match
+              lookup_member(members, hidden_member_name("__qualified_name")) {
+              Some(StringValue(s)) => s
+              _ =>
+                match lookup_member(members, "name") {
+                  Some(StringValue(s)) => s
+                  _ => ""
+                }
+            }
+            return Some(StringValue(qualified))
+          }
         _ => ()
       }
     None => ()

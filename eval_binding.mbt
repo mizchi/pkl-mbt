@@ -83,6 +83,16 @@ fn capture_value_bindings(
 ) -> Array[ValueBinding] {
   let captured = copy_value_bindings(env)
   for binding in cache {
+    // PKL-148bh: skip the `@__module_name` marker only — it's pure
+    // plumbing for reflect mirror toString, never read inside a user
+    // function body, and leaking it changed captured_env's length
+    // which the unit suite asserts against. Other `@__` markers
+    // (`@__module_imports`, `@__constructing_class`, `@__index_entry`,
+    // etc.) must propagate so the lambda body's reflect / interpolation
+    // path still sees them.
+    if binding.name == "@__module_name" {
+      continue
+    }
     captured.push(binding)
   }
   captured
@@ -464,6 +474,23 @@ fn synth_class_mirror_for_value(value : Value) -> Value {
 /// dispatch routes to the alias surface (`.simpleName`, `.name`,
 /// `.modifiers`, `.toString()`).
 fn synth_type_alias_mirror_for_name(name : String) -> Value {
+  synth_type_alias_mirror_for_qualified(name, None)
+}
+
+///|
+/// PKL-148bh: TypeAlias mirror with a module-qualified `name` /
+/// toString. When `module_name` is Some, the mirror's `name` and the
+/// toString-style projection use `<module>#<simple>` (matching
+/// Apple Pkl's reflect output). When None, falls back to the bare
+/// simple name.
+fn synth_type_alias_mirror_for_qualified(
+  name : String,
+  module_name : String?,
+) -> Value {
+  let qualified = match module_name {
+    Some(m) => "\{m}#\{name}"
+    None => name
+  }
   ObjectValue([
     {
       name: hidden_member_name("__kind"),
@@ -476,18 +503,45 @@ fn synth_type_alias_mirror_for_name(name : String) -> Value {
       source: None,
     },
     { name: "simpleName", value: StringValue(name), source: None },
-    { name: "name", value: StringValue(name), source: None },
+    { name: "name", value: StringValue(qualified), source: None },
+    {
+      name: hidden_member_name("__qualified_name"),
+      value: StringValue(qualified),
+      source: None,
+    },
     { name: "modifiers", value: SetValue([]), source: None },
   ])
 }
 
 ///|
 fn synth_class_mirror_for_name(name : String) -> Value {
+  synth_class_mirror_for_qualified(name, None)
+}
+
+///|
+/// PKL-148bh: Class mirror with optional module qualifier. When
+/// `module_name` is Some, the mirror's `name` field carries the
+/// `<module>#<simple>` form Apple Pkl uses for reflect.Class.toString
+/// on a user-declared class; stdlib class mirrors keep the bare
+/// simpleName for now.
+fn synth_class_mirror_for_qualified(
+  name : String,
+  module_name : String?,
+) -> Value {
+  let qualified = match module_name {
+    Some(m) => "\{m}#\{name}"
+    None => name
+  }
   ObjectValue([
     { name: hidden_member_name("__kind"), value: StringValue("Class"), source: None },
     { name: hidden_member_name("reflectee"), value: StringValue(name), source: None },
     { name: "simpleName", value: StringValue(name), source: None },
-    { name: "name", value: StringValue(name), source: None },
+    { name: "name", value: StringValue(qualified), source: None },
+    {
+      name: hidden_member_name("__qualified_name"),
+      value: StringValue(qualified),
+      source: None,
+    },
     // PKL-148bb: reflect.Class / reflect.TypeAlias both expose a
     // `modifiers : Set<String>` slot (annotation / visibility keywords
     // declared on the type). pkl-mbt doesn't surface modifier text

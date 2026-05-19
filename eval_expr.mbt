@@ -1126,13 +1126,22 @@ fn eval_expr_with_bindings(
             resolve_import,
           ) {
           Some(value) => Some(value)
-          None =>
+          None => {
+            // PKL-148bh: when the source declared `module Foo`, the
+            // qualified name `Foo#Bar` is what Apple Pkl returns from
+            // Class.toString / TypeAlias.toString. The marker was
+            // stashed at eval_program time.
+            let module_name = match lookup_value(cache, "@__module_name") {
+              Some(StringValue(s)) => Some(s)
+              _ => None
+            }
             // PKL-148d: a bare class name (`Person`) used as a value
             // projects to a `pkl:reflect.Class` mirror. This unlocks
             // `Person.foo` / `Person.bar()` failure paths that snippetTest
             // captures via `test.catch(...)`, plus future Class-arg APIs.
             match lookup_class_binding(class_env, name) {
-              Some(_) => Some(synth_class_mirror_for_name(name))
+              Some(_) =>
+                Some(synth_class_mirror_for_qualified(name, module_name))
               None =>
                 // PKL-148e: stdlib type names (`Int` / `Float` / `String`
                 // / ...) also project to a Class mirror so equality and
@@ -1153,13 +1162,16 @@ fn eval_expr_with_bindings(
                     }
                   }
                   if has_alias {
-                    Some(synth_type_alias_mirror_for_name(name))
+                    Some(
+                      synth_type_alias_mirror_for_qualified(name, module_name),
+                    )
                   } else {
                     diagnostics.push(diag("Cannot find property `\{name}`."))
                     None
                   }
                 }
             }
+          }
         }
       }
     CallExpr(callee, arguments) =>

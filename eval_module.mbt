@@ -358,6 +358,16 @@ fn eval_program(
     }
     cache.push({ name: "@__module_imports", value: MapValue(entries) })
   }
+  // PKL-148bh: stash the declared module name (`module Foo` header)
+  // so reflect mirrors can build the `<module>#<simple>` qualified
+  // form Apple Pkl uses for Class.toString / TypeAlias.toString.
+  // When no explicit header is present, leave the marker unset so
+  // the bare simple-name is used.
+  match program.module_name {
+    Some(name) =>
+      cache.push({ name: "@__module_name", value: StringValue(name) })
+    None => ()
+  }
   // PKL-140: `extends "parent.pkl"` exposes the parent module's class
   // declarations as bare-name lookups in the child (Apple Pkl treats
   // extends as inheritance, not a namespaced import). Pull the parent

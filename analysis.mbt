@@ -478,6 +478,27 @@ fn typecheck_module_path(
 }
 
 ///|
+/// PKL-148bh: derive a module name from a file path the same way Apple
+/// Pkl does — strip the parent directories and the trailing `.pkl`
+/// extension, return `None` for paths that don't end in `.pkl` (the
+/// reflect mirror falls back to the bare simple name).
+fn derive_module_name_from_path(path : String) -> String? {
+  let basename = match path.rev_find("/") {
+    Some(idx) => String::unsafe_substring(path, start=idx + 1, end=path.length())
+    None => path
+  }
+  if basename.has_suffix(".pkl") {
+    Some(
+      String::unsafe_substring(basename, start=0, end=basename.length() - 4),
+    )
+  } else if basename == "" {
+    None
+  } else {
+    Some(basename)
+  }
+}
+
+///|
 fn eval_module_path(
   sources : @ripple.Input[String, String],
   rt : @ripple.Runtime,
@@ -497,8 +518,9 @@ fn eval_module_path(
   }
   match get_module_source(sources, rt, path) {
     Some(source) =>
-      eval_source_with_import_details(
+      eval_source_with_import_details_named(
         source,
+        derive_module_name_from_path(path),
         fn(uri) {
           let resolved = resolve_import_path(path, uri)
           Some(eval_module_path(sources, rt, resolved, push_stack(stack, path)))

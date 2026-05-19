@@ -416,14 +416,49 @@ fn eval_source_with_import_details(
   resolve_import : (String) -> EvalResult?,
   resolve_import_classes : (String) -> Array[ClassExport]?,
 ) -> EvalResult {
+  eval_source_with_import_details_named(
+    source, None, resolve_import, resolve_import_classes,
+  )
+}
+
+///|
+/// PKL-148bh: extended form accepting a fallback module name (derived
+/// from the file path when the source omits an explicit
+/// `module X` header). Threaded through `eval_program` so reflect
+/// mirrors can build the `<module>#<simple>` qualified shape Apple
+/// Pkl prints from Class.toString / TypeAlias.toString.
+fn eval_source_with_import_details_named(
+  source : String,
+  fallback_module_name : String?,
+  resolve_import : (String) -> EvalResult?,
+  resolve_import_classes : (String) -> Array[ClassExport]?,
+) -> EvalResult {
   let parsed = parse_source(source)
   let diagnostics = parsed.diagnostics
   if diagnostics.length() > 0 {
     return EvalError(diagnostics)
   }
+  let program = parsed.program
+  let effective_name = match program.module_name {
+    Some(_) => program.module_name
+    None => fallback_module_name
+  }
+  let promoted_program : Program = if effective_name == program.module_name {
+    program
+  } else {
+    {
+      module_name: effective_name,
+      module_relation: program.module_relation,
+      imports: program.imports,
+      declarations: program.declarations,
+      bindings: program.bindings,
+      body: program.body,
+      module_annotations: program.module_annotations,
+    }
+  }
   match
     eval_program(
-      parsed.program,
+      promoted_program,
       diagnostics,
       resolve_import,
       resolve_import_classes,
