@@ -1794,17 +1794,34 @@ fn eval_expr_with_bindings(
                         )
                     }
                   }
-                Some(ListingValue(elements)) | Some(ListValue(elements)) =>
+                Some(ListingValue(elements)) =>
                   if is_listing_method_name(method_name) {
                     // PKL-148h: List and Listing share the method
                     // surface (`.filter`, `.map`, `.length`, ...). The
                     // dispatcher's element-walking logic is identical;
                     // the receiver type only re-emerges at `.toList()` /
                     // `.toListing()` (each tags its result with the
-                    // matching variant).
-                    eval_listing_method(
-                      elements, method_name, arguments, bindings, env, class_env,
-                      cache, stack, declarations, diagnostics, resolve_import,
+                    // matching variant). PKL-148bb: the helper lifts
+                    // collection-shaped results back to `ListValue`
+                    // when the receiver was a List, but a Listing
+                    // receiver stays a Listing — pass `false`.
+                    eval_list_or_listing_method(
+                      false, elements, method_name, arguments, bindings, env,
+                      class_env, cache, stack, declarations, diagnostics,
+                      resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                Some(ListValue(elements)) =>
+                  if is_listing_method_name(method_name) {
+                    eval_list_or_listing_method(
+                      true, elements, method_name, arguments, bindings, env,
+                      class_env, cache, stack, declarations, diagnostics,
+                      resolve_import,
                     )
                   } else {
                     eval_callable_call(
@@ -1971,17 +1988,34 @@ fn eval_expr_with_bindings(
                   diagnostics, resolve_import,
                 ) {
                 Some(NullValue) => Some(NullValue)
-                Some(ListingValue(elements)) | Some(ListValue(elements)) =>
+                Some(ListingValue(elements)) =>
                   if is_listing_method_name(method_name) {
                     // PKL-148h: List and Listing share the method
                     // surface (`.filter`, `.map`, `.length`, ...). The
                     // dispatcher's element-walking logic is identical;
                     // the receiver type only re-emerges at `.toList()` /
                     // `.toListing()` (each tags its result with the
-                    // matching variant).
-                    eval_listing_method(
-                      elements, method_name, arguments, bindings, env, class_env,
-                      cache, stack, declarations, diagnostics, resolve_import,
+                    // matching variant). PKL-148bb: the helper lifts
+                    // collection-shaped results back to `ListValue`
+                    // when the receiver was a List, but a Listing
+                    // receiver stays a Listing — pass `false`.
+                    eval_list_or_listing_method(
+                      false, elements, method_name, arguments, bindings, env,
+                      class_env, cache, stack, declarations, diagnostics,
+                      resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                Some(ListValue(elements)) =>
+                  if is_listing_method_name(method_name) {
+                    eval_list_or_listing_method(
+                      true, elements, method_name, arguments, bindings, env,
+                      class_env, cache, stack, declarations, diagnostics,
+                      resolve_import,
                     )
                   } else {
                     eval_callable_call(

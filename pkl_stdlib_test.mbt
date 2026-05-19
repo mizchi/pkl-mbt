@@ -987,12 +987,12 @@ test "PKL-139: dot-chain across newlines" {
     is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  // PKL-148h: `.toList()` projects through ListValue, but the shared
-  // listing-method dispatcher always re-wraps `.map`'s result as a
-  // Listing — the receiver-variant-preserving thread is out of scope
-  // for this slice. Tracked separately under "list method receiver
-  // tagging".
-  guard members[1].value is ListingValue(items) else { panic() }
+  // PKL-148bb: `.toList()` lifts the chain to `ListValue`, and the
+  // shared listing-method dispatcher now preserves the receiver shape
+  // through `.map` (`eval_list_or_listing_method`), so `.map(...)` on
+  // a `ListValue` keeps the `ListValue` wrapper. Apple Pkl renders the
+  // chained result through `List(2, 3, 4)`.
+  guard members[1].value is ListValue(items) else { panic() }
   inspect(items.length(), content="3")
 }
 

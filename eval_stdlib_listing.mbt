@@ -150,6 +150,40 @@ fn eval_listing_property(
 }
 
 ///|
+/// PKL-148bb: a List receiver should keep its `List(...)` constructor
+/// shape across method calls that preserve the collection shape
+/// (`.map`, `.filter`, `.reverse`, etc.). The shared dispatcher
+/// (`eval_listing_method`) emits `ListingValue` uniformly; wrap the
+/// returned value to lift it back to `ListValue` for List receivers.
+fn eval_list_or_listing_method(
+  receiver_is_list : Bool,
+  elements : Array[Value],
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let result = eval_listing_method(
+    elements, method_name, arguments, bindings, env, class_env, cache, stack,
+    declarations, diagnostics, resolve_import,
+  )
+  if receiver_is_list {
+    match result {
+      Some(ListingValue(xs)) => Some(ListValue(xs))
+      other => other
+    }
+  } else {
+    result
+  }
+}
+
+///|
 fn eval_listing_method(
   elements : Array[Value],
   method_name : String,
