@@ -238,6 +238,24 @@ fn lookup_member(members : Array[ValueMember], name : String) -> Value? {
 }
 
 ///|
+fn lookup_value_member(
+  members : Array[ValueMember],
+  name : String,
+) -> ValueMember? {
+  let hidden_prefixed = hidden_member_name(name)
+  let local_prefixed = local_member_name(name)
+  let mut found : ValueMember? = None
+  for field in members {
+    if field.name == name ||
+      field.name == hidden_prefixed ||
+      field.name == local_prefixed {
+      found = Some(field)
+    }
+  }
+  found
+}
+
+///|
 /// PKL-148j: bare-name-only lookup for external member access on an
 /// ObjectValue (`foo.x` where `foo` is bound to an ObjectValue).
 /// Apple Pkl hides `local` members from outside-of-body access — `foo`

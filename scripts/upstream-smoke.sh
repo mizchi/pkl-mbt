@@ -140,6 +140,7 @@ GOLD_FIXTURES=(
   "basic/localMethodOverride2"
   "basic/localMethodTyped4"
   "modules/supercalls2"
+  "modules/supercalls3"
   "modules/amendModule4"
   "modules/extendModule1"
   "projects/project7/spacesInImport"

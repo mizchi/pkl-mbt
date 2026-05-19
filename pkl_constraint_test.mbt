@@ -662,6 +662,80 @@ test "analysis session resolves module amends and extends" {
 }
 
 ///|
+test "Pkl module-level extends dispatches super through parent chain" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "supercalls1.pkl",
+    (
+      #|open module supercalls1
+      #|
+      #|prefix = ""
+      #|function say(msg) = prefix + msg
+      #|function sameMethod() = 1
+      #|sameProp = "a"
+    ),
+  )
+  session.set_source(
+    "supercalls2.pkl",
+    (
+      #|open module supercalls2
+      #|
+      #|extends "supercalls1.pkl"
+      #|
+      #|hidden pigeon = super.say("Pigeon")
+      #|function barnOwl() = super.say("Barn Owl")
+      #|function say2(msg) = super.say(msg) + super.say(msg)
+      #|function sameMethod() = 2 + super.sameMethod()
+      #|sameProp = super.sameProp + "b"
+    ),
+  )
+  session.set_source(
+    "supercalls3.pkl",
+    (
+      #|module supercalls3
+      #|
+      #|extends "supercalls2.pkl"
+      #|
+      #|import "pkl:test"
+      #|
+      #|hidden pigeonBarnOwl = super.pigeon + super.barnOwl()
+      #|function barnOwlPigeon() = super.barnOwl() + super.pigeon
+      #|hidden parrot = super.say("Parrot")
+      #|function other() = super.other()
+      #|function sameMethod() = 3 + super.sameMethod()
+      #|sameProp = super.sameProp + "c"
+      #|
+      #|prefix = "Oh "
+      #|
+      #|res1 = pigeon
+      #|res2 = barnOwl()
+      #|res3 = say2("Parrot")
+      #|res4 = pigeonBarnOwl
+      #|res5 = barnOwlPigeon()
+      #|res6 = parrot
+      #|res7 = test.catch(() -> other())
+      #|res8 = sameMethod()
+    ),
+  )
+  guard session.eval_path("supercalls3.pkl") is EvalOk(value) else { panic() }
+  inspect(
+    render_value(value),
+    content=(
+      #|prefix = "Oh "
+      #|sameProp = "abc"
+      #|res1 = "Oh Pigeon"
+      #|res2 = "Oh Barn Owl"
+      #|res3 = "Oh ParrotOh Parrot"
+      #|res4 = "Oh PigeonOh Barn Owl"
+      #|res5 = "Oh Barn OwlOh Pigeon"
+      #|res6 = "Oh Parrot"
+      #|res7 = "Cannot find method `other` in module `supercalls2`."
+      #|res8 = 6
+    ),
+  )
+}
+
+///|
 test "construct Pkl Duration literals from Int magnitudes" {
   let session = AnalysisSession::new()
   session.set_source(

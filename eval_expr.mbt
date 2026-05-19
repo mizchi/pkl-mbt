@@ -528,7 +528,29 @@ fn eval_expr_with_bindings(
       // snapshot pushed as `super = ObjectValue(parent_members)` by
       // `eval_program` so `module.X` resolves through the merged
       // module surface instead of returning None.
-      if target_expr is Identifier("module") {
+      if target_expr is Identifier("super") &&
+        lookup_value(cache, "@current_class") is None &&
+        module_super_members_from_cache(cache) is Some(parent_members) {
+        match
+          resolve_module_parent_member_value(
+            member_name,
+            parent_members,
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(value) => Some(value)
+          None => {
+            diagnostics.push(diag("Cannot find property `\{member_name}`."))
+            None
+          }
+        }
+      } else if target_expr is Identifier("module") {
         match
           resolve_binding_value(
             member_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
