@@ -3171,7 +3171,13 @@ fn eval_expr_with_bindings(
             part, bindings, env, class_env, cache, stack, declarations, diagnostics,
             resolve_import,
           ) {
-          Some(value) => buf.write_string(value_to_string_for_join(value))
+          Some(value) =>
+            buf.write_string(
+              dispatch_value_to_string(
+                value, bindings, env, class_env, cache, stack, declarations,
+                diagnostics, resolve_import,
+              ),
+            )
           None => ok = false
         }
       }
@@ -3181,6 +3187,67 @@ fn eval_expr_with_bindings(
         None
       }
     }
+  }
+}
+
+///|
+/// PKL-148bh: render a value to string for interpolation contexts.
+/// Apple Pkl's `"\(<value>)"` calls the value's `toString()`
+/// method when the class declares one, otherwise falls back to the
+/// canonical PCF compact form. This helper checks for a
+/// user-declared `toString` on the value's class tag and dispatches
+/// through `eval_class_method_call`; on miss it falls back to
+/// `value_to_string_for_join`.
+fn dispatch_value_to_string(
+  value : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> String {
+  match value {
+    ObjectValue(members) =>
+      match find_object_class_tag(members) {
+        Some(class_name) =>
+          if class_name != "Dynamic" &&
+            lookup_class_method(class_env, class_name, "toString") is Some(_) {
+            let method_cache = copy_value_bindings(cache)
+            push_receiver_method_bindings(method_cache, members)
+            push_sibling_class_methods(
+              method_cache, class_name, class_env, env, cache,
+            )
+            push_super_dispatch_marker(method_cache, class_name)
+            let method_diags : Array[Diagnostic] = []
+            match lookup_class_method(class_env, class_name, "toString") {
+              Some(method_decl) =>
+                match method_decl.body {
+                  Some(body) =>
+                    match
+                      eval_expr_with_bindings(
+                        body, bindings, env, class_env, method_cache, stack,
+                        declarations, method_diags, resolve_import,
+                      ) {
+                      Some(StringValue(s)) => return s
+                      _ => ()
+                    }
+                  None => ()
+                }
+              None => ()
+            }
+            for d in method_diags {
+              diagnostics.push(d)
+            }
+            value_to_string_for_join(value)
+          } else {
+            value_to_string_for_join(value)
+          }
+        None => value_to_string_for_join(value)
+      }
+    _ => value_to_string_for_join(value)
   }
 }
 
