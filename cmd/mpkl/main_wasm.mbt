@@ -25,9 +25,12 @@ fn main {
   ignore(@sys.exit)
   let _http_ref : @http.Response? = None
   ignore(_http_ref)
+  ignore(@zlib.crc32(b""))
   ignore(@async.now)
+  ignore(@utf8.decode(b""[:]) catch { _ => "" })
   let _json_path_ref : @json.JsonPath? = None
   ignore(_json_path_ref)
+  ignore(@crypto.sha256(b""))
   println(
     "mpkl CLI is not available on wasm / wasm-gc targets — embed the `mizchi/pkl` library instead.",
   )

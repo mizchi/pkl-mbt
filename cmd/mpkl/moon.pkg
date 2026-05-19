@@ -1,8 +1,11 @@
 import {
   "mizchi/pkl" @pkl,
   "mizchi/x/http" @http,
+  "mizchi/zlib" @zlib,
   "moonbitlang/async",
+  "moonbitlang/core/encoding/utf8" @utf8,
   "moonbitlang/core/json" @json,
+  "moonbitlang/x/crypto" @crypto,
   "moonbitlang/x/fs" @fs,
   "moonbitlang/x/sys" @sys,
 }
@@ -21,6 +24,8 @@ options(
     "stdlib_check.mbt": [ "native", "js" ],
     "fetch_native.mbt": [ "native" ],
     "fetch_js.mbt": [ "js" ],
+    "package_download.mbt": [ "native", "js" ],
+    "package_download_wbtest.mbt": [ "native" ],
     "main_wasm.mbt": [ "wasm", "wasm-gc" ],
   },
 )

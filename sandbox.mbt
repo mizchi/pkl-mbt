@@ -23,13 +23,11 @@ priv struct SandboxConfig {
   mut props : Map[String, String]
   mut allowed_modules : Array[String]
   mut module_paths : Array[String]
-  // PKL-150 (#258): pre-extracted package cache roots. A directory
-  // looks like `<dir>/<name>@<version>/package/<files>` — this is the
-  // layout `pkl download-package` produces and the one Apple ships
-  // alongside their snippet fixtures (`pkl-commons-test/src/main/files/packages`).
-  // Real network download + DEFLATE + SHA-256 is deferred; this lets
-  // any caller that has already-extracted packages (CI fixtures, an
-  // air-gapped registry mirror) resolve `package://` URIs.
+  // PKL-150 (#258): package cache roots. The CLI can fill this cache
+  // itself from registry metadata + zipballs; embedded callers may
+  // still provide pre-extracted roots. A directory looks like
+  // `<dir>/<path>/<name>@<version>/package/<files>`, with metadata in
+  // the package root sibling (`<name>@<version>.json`).
   mut package_caches : Array[String]
   // PKL-148r: triple-dot import resolutions cached by the CLI's load
   // step (FS-based) so the IO-free analysis layer can map the same

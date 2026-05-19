@@ -820,11 +820,11 @@
   - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
-- [ ] **package registry probe and structured diagnostic** — verifies: PKL-129b1 — tags: cli, parser, imports, sandbox, pkf-pkspec
-  > The CLI accepts `package://<authority>/<path>@<version>[#<fragment>]` URIs and reports a structured diagnostic naming the package URI, the metadata URL (derived by direct scheme rewrite + drop the fragment), the optional fragment, and the `packageZipUrl` pulled out of the metadata JSON. The fetch path follows up to five 301 / 302 / 303 / 307 / 308 redirects so the `pkg.pkl-lang.org → CDN` hop the registry serves doesn't break the probe. `parse_package_uri` validates the shape (rejects authority-only URIs); `package_metadata_url` performs the rewrite; `extract_package_zip_url` substring-scans the metadata body for the `packageZipUrl` string (no full JSON parser stood up — the field is a simple unescaped URL string). On metadata fetch failure or missing field the diagnostic still surfaces the parsed pieces plus the workaround: download the zip manually (or with `pkl download-package`) and pass `--module-path <dir>`. The CLI exits with status 1 in either case. Full zipball download + DEFLATE unpack + cache + checksum verification land with PKL-129b2.
+- [ ] **package registry download and cache** — verifies: PKL-129b1 — tags: cli, parser, imports, sandbox, pkf-pkspec
+  > The CLI accepts `package://<authority>/<path>@<version>[#<fragment>]` and `projectpackage://...` URIs, resolves them through the package registry metadata URL (direct scheme rewrite + drop the fragment), downloads `packageZipUrl` with `mizchi/x/http`, verifies `packageZipChecksums.sha256` with `moonbitlang/x/crypto`, and unpacks ZIP method 0/8 entries with `mizchi/zlib` into the package cache. `--package-cache` roots are still honored; when omitted the CLI uses `$PKL_MBT_PACKAGE_CACHE`, `$XDG_CACHE_HOME/pkl-mbt/package-2`, or `$HOME/.cache/pkl-mbt/package-2`. Cache layout is `<cache>/<path>/<name>@<version>/package/<files>` plus a `<name>@<version>.json` metadata sibling for dependency alias lookup. Metadata fetch failures remain structured and do not fall through to filesystem lookup.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-129
-  - decisions: 3 entry(ies)
+  - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **parse Pkl call lambda and operator expressions** — verifies: PKL-018 — tags: parser
@@ -1533,12 +1533,12 @@
   > The native CLI evaluates a fixture that declares `output { renderer = new JsonRenderer {} }` without passing `-f`. The CLI reads the renderer class from the parsed AST, switches the format to `json`, strips the `output` block from the rendered envelope, and prints the JSON projection of the module's other properties.
   - body: `cmd` (exit 0 expected)
 
-- [x] **cli package registry probe** — verifies: PKL-129b1 — tags: moonbit, cli, imports, pkf-pkspec, contract
-  > The native CLI follows redirects to `pkg.pkl-lang.org`'s CDN, fetches the metadata JSON, and extracts the `packageZipUrl` field. Hits the real Apple Pkl registry (same approach as `cli https URI import`); the assertion only pins the zip-url line, so registry path changes that keep the same package alive still pass.
+- [x] **cli package registry download** — verifies: PKL-129b1 — tags: moonbit, cli, imports, pkf-pkspec, contract
+  > The native CLI follows redirects to `pkg.pkl-lang.org`, fetches package metadata, downloads the package zip with `mizchi/x/http`, verifies the SHA-256 checksum, inflates the zip with `mizchi/zlib`, caches the package under `--package-cache`, then parses the requested fragment from the cache.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli package uri offline diagnostic** — verifies: PKL-129b1 — tags: moonbit, cli, imports, sandbox, contract
-  > The native CLI parses a `package://` URI structurally even when the network is unreachable. The fixture uses an unresolvable authority `invalid.example.test` so the metadata fetch fails predictably; the diagnostic still surfaces the parsed `package URI`, `metadata URL`, `fragment`, plus the manual-workaround block. Pins the structural parse + diagnostic format independently of any live registry.
+  > The native CLI parses a `package://` URI structurally and attempts the registry metadata fetch. The fixture uses an unresolvable authority `invalid.example.test` so the metadata fetch fails predictably; the diagnostic names the failed metadata URL and the original package URI instead of falling through to filesystem lookup.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli pair value** — verifies: PKL-119a — tags: moonbit, cli, evaluator, typechecker, stdlib, contract
@@ -1946,8 +1946,8 @@
   - test: `specs/Test.pkl` — cli annotation capture
 - **PKL-129** — URI imports via https with mizchi/x/http
   - test: `specs/Test.pkl` — cli https URI import
-- **PKL-129b1** — package registry probe and structured diagnostic
-  - test: `specs/Test.pkl` — cli package registry probe
+- **PKL-129b1** — package registry download and cache
+  - test: `specs/Test.pkl` — cli package registry download
   - test: `specs/Test.pkl` — cli package uri offline diagnostic
 - **PKL-131** — pkl codegen bridge to MoonBit
   - test: `specs/Test.pkl` — cli codegen moonbit
