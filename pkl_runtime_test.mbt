@@ -1400,7 +1400,8 @@ test "PKL-146: pkl:yaml.Parser.parse surfaces YAML parse errors as diagnostics" 
   match session.eval_path("main.pkl") {
     EvalError(diagnostics) => {
       let messages = diagnostics.iter().map(fn(d) { d.message }).collect()
-      inspect(messages[0].has_prefix("yaml.Parser.parse: "), content="true")
+      // PKL-148bb: matches Apple Pkl's fixed wording.
+      inspect(messages[0], content="Error parsing YAML document.")
     }
     EvalOk(_) =>
       // Some YAML implementations forgive the mis-indented input;
@@ -1483,7 +1484,8 @@ test "PKL-144: pkl:json.Parser.parse surfaces parse errors as diagnostics" {
   )
   guard session.eval_path("main.pkl") is EvalError(diagnostics) else { panic() }
   let messages = diagnostics.iter().map(fn(d) { d.message }).collect()
-  inspect(messages[0].has_prefix("json.Parser.parse: "), content="true")
+  // PKL-148bb: matches Apple Pkl's fixed wording.
+  inspect(messages[0], content="Error parsing JSON document.")
 }
 
 ///|

@@ -1638,9 +1638,18 @@ fn eval_expr_with_bindings(
                             let parsed = @json.parse(source_text[:])
                             Some(json_to_value(parsed, use_mapping))
                           } catch {
-                            err => {
+                            // PKL-148bb: Apple Pkl's `json.Parser.parse`
+                            // surfaces a single fixed diagnostic for
+                            // every parse failure (`Error parsing JSON
+                            // document.`) rather than the underlying
+                            // tokenizer error. Match that wording so
+                            // `api/jsonParser1`'s `test.catch` snapshots
+                            // line up; the moonbit @json error remains
+                            // available for non-snippet contexts via
+                            // the `_` binding below.
+                            _ => {
                               diagnostics.push(
-                                diag("json.Parser.parse: \{err}"),
+                                diag("Error parsing JSON document."),
                               )
                               None
                             }
@@ -1696,9 +1705,10 @@ fn eval_expr_with_bindings(
                               Some(yaml_to_value(docs[0], use_mapping))
                             }
                           } catch {
-                            err => {
+                            // PKL-148bb: match Apple Pkl's fixed wording.
+                            _ => {
                               diagnostics.push(
-                                diag("yaml.Parser.parse: \{err}"),
+                                diag("Error parsing YAML document."),
                               )
                               None
                             }
