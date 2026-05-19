@@ -50,6 +50,105 @@ fn eval_expr_with_bindings(
       )
     }
     TypedObjectLiteral(type_name, members) => {
+      // PKL-152: Apple Pkl's stdlib scalar / collection-constructor
+      // classes (`Int`, `Float`, `Bool`, `String`, `List`, `Set`,
+      // `Map`, `Pair`, `IntSeq`, `Bytes`, `Duration`, `DataSize`,
+      // `Regex`, `Function`, `Class`, `TypeAlias`) can't be
+      // instantiated through `new` — they're built via constructor
+      // functions or literal forms. `Listing` / `Mapping` / `Dynamic`
+      // / `Object` are the genuine `new`-instantiable bases.
+      if is_external_only_class_name(type_name) {
+        diagnostics.push(
+          diag(
+            "Cannot instantiate, or amend an instance of, external class `\{type_name}`.",
+          ),
+        )
+        return None
+      }
+      // PKL-152: abstract classes ship the `abstract` modifier on
+      // their declaration. Apple Pkl rejects `new <abstract>` with a
+      // dedicated diagnostic. The `ValueRenderer` base on
+      // `mappings/wrongParent` is the upstream sentinel for this.
+      if is_abstract_class_name(type_name) {
+        diagnostics.push(
+          diag("Cannot instantiate abstract class `\{type_name}`."),
+        )
+        return None
+      }
+      // PKL-152: a user-class or stdlib non-listing target rejects a
+      // bare-element body (`new Person { "pigeon" }`). The element
+      // payload is the `@element$<offset>` sentinel; if any member
+      // starts with that prefix and the type isn't Listing / List, the
+      // body is malformed. Mapping rejects the same way with the
+      // dedicated `Object of type \`Mapping\` cannot have an element.`
+      // wording. Person-style classes report the qualified name.
+      if type_name != "Listing" && type_name != "List" {
+        let mut element_seen = false
+        for m in members {
+          if m.name.has_prefix("@element$") {
+            element_seen = true
+            break
+          }
+        }
+        if element_seen {
+          let label = if type_name == "Mapping" {
+            "Mapping"
+          } else if is_stdlib_class_name(type_name) {
+            type_name
+          } else {
+            let module_name = match lookup_value(cache, "@__module_name") {
+              Some(StringValue(s)) => s
+              _ => ""
+            }
+            if module_name.length() > 0 {
+              "\{module_name}#\{type_name}"
+            } else {
+              type_name
+            }
+          }
+          diagnostics.push(
+            diag("Object of type `\{label}` cannot have an element."),
+          )
+          return None
+        }
+      }
+      // PKL-152: same shape for bracket subscript entries on a
+      // non-Listing / non-Mapping target — `new Person { ["pigeon"] =
+      // true }` raises "Object of type `<module>#Person` cannot have
+      // an entry."
+      if type_name != "Listing" &&
+        type_name != "List" &&
+        type_name != "Mapping" &&
+        type_name != "Map" &&
+        type_name != "Dynamic" &&
+        type_name != "Object" {
+        let mut entry_seen = false
+        for m in members {
+          if m.name.has_prefix("@subscript$") {
+            entry_seen = true
+            break
+          }
+        }
+        if entry_seen {
+          let label = if is_stdlib_class_name(type_name) {
+            type_name
+          } else {
+            let module_name = match lookup_value(cache, "@__module_name") {
+              Some(StringValue(s)) => s
+              _ => ""
+            }
+            if module_name.length() > 0 {
+              "\{module_name}#\{type_name}"
+            } else {
+              type_name
+            }
+          }
+          diagnostics.push(
+            diag("Object of type `\{label}` cannot have an entry."),
+          )
+          return None
+        }
+      }
       let class_defaults = eval_class_default_members(
         type_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
         resolve_import,
@@ -194,6 +293,34 @@ fn eval_expr_with_bindings(
       }
     }
     ListingLiteral(elements) => {
+      // PKL-152: a Listing body that picked up a bracket-key entry
+      // (`new Listing { [0] = true }`) carries a synthetic call to
+      // `@__listing_index_entry`. Pure construction can't index into
+      // a non-existent element, so raise Apple Pkl's "Element index
+      // out of range" diagnostic immediately.
+      for element in elements {
+        match element {
+          CallExpr(Identifier("@__listing_index_entry"), idx_args) =>
+            if idx_args.length() >= 1 {
+              match
+                eval_expr_with_bindings(
+                  idx_args[0], bindings, env, class_env, cache, stack, declarations,
+                  diagnostics, resolve_import,
+                ) {
+                Some(IntValue(idx)) => {
+                  diagnostics.push(
+                    diag(
+                      "Element index `\{idx}` is out of range `0`..`-1`.",
+                    ),
+                  )
+                  return None
+                }
+                _ => ()
+              }
+            }
+          _ => ()
+        }
+      }
       let values : Array[Value] = []
       for element in elements {
         // PKL-136: a `WhenSpread(inner)` element wraps a ConditionalExpr
@@ -235,6 +362,22 @@ fn eval_expr_with_bindings(
       Some(ListingValue(values))
     }
     MappingLiteral(entries) => {
+      // PKL-152: a Mapping body that picked up a bare-expression
+      // element (`new Mapping { "pigeon" }`) carries an `@element$`
+      // sentinel key. Raise Apple Pkl's "cannot have an element"
+      // wording before the entries get rendered.
+      for entry in entries {
+        match entry.key {
+          Identifier(name) =>
+            if name.has_prefix("@element$") {
+              diagnostics.push(
+                diag("Object of type `Mapping` cannot have an element."),
+              )
+              return None
+            }
+          _ => ()
+        }
+      }
       let values : Array[ValueEntry] = []
       let mut duplicate_emitted = false
       for entry in entries {
@@ -1019,7 +1162,7 @@ fn eval_expr_with_bindings(
             Some(ObjectValue(merged))
           }
         }
-        Some(ListingValue(elements)) | Some(ListValue(elements)) =>
+        Some(ListingValue(elements)) =>
           // PKL-148w: `(listing) { [N] = newValue }` replaces element
           // N. Out-of-range indices surface Apple Pkl's wording
           // (`Element index \`<n>\` is out of range \`0\`..\`<upper>\`.`).
@@ -1030,6 +1173,32 @@ fn eval_expr_with_bindings(
             elements, members, bindings, env, class_env, cache, stack, declarations,
             diagnostics, resolve_import,
           )
+        // PKL-152: amending a List / Set / Map is rejected with the
+        // external-class wording (mappings/listings/listings2 wrongParent).
+        Some(ListValue(_)) => {
+          diagnostics.push(
+            diag(
+              "Cannot instantiate, or amend an instance of, external class `List`.",
+            ),
+          )
+          None
+        }
+        Some(SetValue(_)) => {
+          diagnostics.push(
+            diag(
+              "Cannot instantiate, or amend an instance of, external class `Set`.",
+            ),
+          )
+          None
+        }
+        Some(MapValue(_)) => {
+          diagnostics.push(
+            diag(
+              "Cannot instantiate, or amend an instance of, external class `Map`.",
+            ),
+          )
+          None
+        }
         Some(MappingValue(entries)) =>
           // PKL-148av: `(mapping) { [key] = value }` upserts the entry,
           // and `(mapping) { [key] { body } }` amends an existing entry.
@@ -1039,8 +1208,17 @@ fn eval_expr_with_bindings(
             entries, members, bindings, env, class_env, cache, stack, declarations,
             diagnostics, resolve_import,
           )
-        Some(_) => {
-          diagnostics.push(diag("object amendment expects Object"))
+        Some(other_value) => {
+          // PKL-152: Apple Pkl's `(5) { ... }` raises
+          // "Cannot instantiate, or amend an instance of, external
+          // class `Int`." — same wording for any scalar / collection
+          // (List / Set / Map / etc.) the user tried to amend in place.
+          let type_name = eval_value_type_name(other_value)
+          diagnostics.push(
+            diag(
+              "Cannot instantiate, or amend an instance of, external class `\{type_name}`.",
+            ),
+          )
           None
         }
         None => None

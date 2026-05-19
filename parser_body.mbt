@@ -47,9 +47,32 @@ fn Parser::parse_listing_body(self : Parser) -> Expr {
       // existing spread-flatten path picks it up.
       let payload = self.parse_spread_payload()
       items.push({ kind: ElementItem, name: "", value: WhenSpread(payload) })
-    } else if self.at(lbracket()) ||
-      self.at_property_decl() ||
-      is_decl_text(self.peek().text()) {
+    } else if self.at(lbracket()) {
+      // PKL-152: a bracket-key entry inside `new Listing { ... }` only
+      // makes sense as an amendment (`(listing) { [0] = value }`).
+      // Pure construction can't index into a non-existent element, so
+      // capture the bracket entry as a poison element that the
+      // ListingLiteral evaluator turns into the
+      // `Element index ... out of range ...` diagnostic.
+      ignore(self.bump())
+      self.skip_whitespace()
+      let key_expr = self.parse_expr()
+      self.skip_whitespace()
+      ignore(self.expect(rbracket(), "]"))
+      self.skip_whitespace()
+      if self.at(eq()) {
+        ignore(self.bump())
+        self.skip_whitespace()
+        let _ = self.parse_expr()
+      } else if self.at(lbrace()) {
+        let _ = self.parse_object_body()
+      }
+      items.push({
+        kind: ElementItem,
+        name: "",
+        value: CallExpr(Identifier("@__listing_index_entry"), [key_expr]),
+      })
+    } else if self.at_property_decl() || is_decl_text(self.peek().text()) {
       self.skip_unknown_member()
     } else {
       items.push({ kind: ElementItem, name: "", value: self.parse_expr() })
@@ -229,8 +252,40 @@ fn Parser::parse_mapping_body(self : Parser) -> Expr {
           ))
         None => ()
       }
-    } else {
+    } else if self.at_property_decl() {
+      // PKL-148av: `default = X` style property assignment on a
+      // Mapping body — Apple Pkl honours `default` (and silently
+      // drops unknown property names on the gold fixtures). Skip
+      // through so the surrounding mapping eval keeps its current
+      // shape; this matches the pre-PKL-152 behaviour.
       self.skip_unknown_member()
+    } else {
+      // PKL-152: a bare expression at Mapping-body position is illegal
+      // (`new Mapping { "pigeon" }`). Capture it as an `@element$`
+      // sentinel — the MappingLiteral evaluator raises Apple Pkl's
+      // "Object of type `Mapping` cannot have an element." diagnostic
+      // when one is present. Falls back to `skip_unknown_member` for
+      // tokens that don't look like an expression start so existing
+      // tolerant fixtures keep parsing.
+      let kind = self.peek_kind()
+      let is_value_start = kind == int_token() ||
+        kind == float_token() ||
+        kind == string_token() ||
+        kind == true_kw() ||
+        kind == false_kw() ||
+        kind == null_kw() ||
+        kind == lparen() ||
+        kind == new_kw()
+      if is_value_start {
+        let offset = self.current_offset()
+        let bare_expr = self.parse_expr()
+        entries.push({
+          key: Identifier("@element$" + offset.to_string()),
+          value: bare_expr,
+        })
+      } else {
+        self.skip_unknown_member()
+      }
     }
     self.consume_separators()
   }

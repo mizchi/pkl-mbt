@@ -646,3 +646,62 @@ fn is_stdlib_class_name(name : String) -> Bool {
     _ => false
   }
 }
+
+///|
+/// PKL-152: stdlib classes that Apple Pkl forbids `new`-instantiating
+/// or in-place amending. List / Set / Map / Pair / IntSeq are built
+/// via constructor functions; the scalar / primitive classes (Int /
+/// Float / Bool / String / Bytes / Duration / DataSize / Regex /
+/// Function / Class / TypeAlias / Module / Annotation / Resource)
+/// have literal or reflection-only construction surfaces. The
+/// `new`-instantiable bases (Listing / Mapping / Dynamic / Object /
+/// Typed) and the typing aliases (Number / Any / Null / module /
+/// unknown plus the UInt* / Int* widths) are intentionally absent.
+fn is_external_only_class_name(name : String) -> Bool {
+  match name {
+    "Int"
+    | "Float"
+    | "Number"
+    | "String"
+    | "Boolean"
+    | "Bool"
+    | "Null"
+    | "Bytes"
+    | "Duration"
+    | "DataSize"
+    | "Regex"
+    | "Set"
+    | "Map"
+    | "List"
+    | "Pair"
+    | "IntSeq"
+    | "Class"
+    | "TypeAlias"
+    | "Module"
+    | "Annotation"
+    | "Resource"
+    | "Function"
+    | "Function0"
+    | "Function1"
+    | "Function2"
+    | "Function3"
+    | "Function4"
+    | "Function5" => true
+    _ => false
+  }
+}
+
+///|
+/// PKL-152: Apple Pkl marks `ValueRenderer` (and a handful of other
+/// base classes) as `abstract`; instantiating them via `new` raises
+/// "Cannot instantiate abstract class `X`.". The stdlib doesn't get
+/// parsed through our regular ClassDeclaration path, so the abstract
+/// set is hard-coded here. User-declared abstract classes route
+/// through `is_abstract_user_class_name` once class-modifier
+/// extraction lands.
+fn is_abstract_class_name(name : String) -> Bool {
+  match name {
+    "ValueRenderer" | "FileRenderer" | "Renderer" => true
+    _ => false
+  }
+}
