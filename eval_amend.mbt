@@ -46,13 +46,12 @@ fn function_type_arity(type_name : String) -> Int? {
   }
   // Skip whitespace after `)` and require `->`.
   let mut k = close + 1
-  while k < trimmed.length() &&
-        trimmed[k].to_int().unsafe_to_char() == ' ' {
+  while k < trimmed.length() && trimmed[k].to_int().unsafe_to_char() == ' ' {
     k = k + 1
   }
   if k + 1 >= trimmed.length() ||
-     trimmed[k].to_int().unsafe_to_char() != '-' ||
-     trimmed[k + 1].to_int().unsafe_to_char() != '>' {
+    trimmed[k].to_int().unsafe_to_char() != '-' ||
+    trimmed[k + 1].to_int().unsafe_to_char() != '>' {
     return None
   }
   let inner = String::unsafe_substring(trimmed, start=1, end=close)
@@ -423,7 +422,8 @@ fn apply_predicate_members_to_object(
                     }
                     result[i] = {
                       name: target_member.name,
-                      value: ObjectValue(updated), source: None
+                      value: ObjectValue(updated),
+                      source: None,
                     }
                   }
                   _ => ()
@@ -489,7 +489,7 @@ fn eval_listing_subscript_amend(
       type_name: field.type_name,
       value: field.value,
       exported: true,
-      abstract_slot: false
+      abstract_slot: false,
     })
   }
   let bindings = augmented_bindings
@@ -747,7 +747,7 @@ fn eval_mapping_amend(
       type_name: field.type_name,
       value: field.value,
       exported: true,
-      abstract_slot: false
+      abstract_slot: false,
     })
   }
   let bindings = augmented_bindings
@@ -937,7 +937,7 @@ fn eval_class_default_members(
             defaults.push({
               name: property.name,
               type_name: property.type_name,
-              value
+              value,
             })
           None =>
             // PKL-148bb: a typed property declared without a default
@@ -960,11 +960,7 @@ fn eval_class_default_members(
                 resolve_import,
               ) {
               Some(value) =>
-                base_values.push({
-                  name: property.name,
-                  value,
-                  source: None,
-                })
+                base_values.push({ name: property.name, value, source: None })
               None => ()
             }
         }
@@ -1021,7 +1017,7 @@ fn eval_class_default_members(
       } else {
         defaults_cache.push({
           name: value_member.name,
-          value: value_member.value
+          value: value_member.value,
         })
       }
     }

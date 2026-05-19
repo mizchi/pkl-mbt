@@ -109,13 +109,17 @@ test "evaluate pkl test catch for upstream constraint fixtures" {
       ObjectValue([
         ValueMember::{
           name: "res1",
-          value: ObjectValue([ValueMember::{ name: "a", value: IntValue(6), source: None }]), source: None
+          value: ObjectValue([
+            ValueMember::{ name: "a", value: IntValue(6), source: None },
+          ]),
+          source: None,
         },
         ValueMember::{
           name: "res2",
           value: StringValue(
             "Type constraint `isGreaterThan(5)` violated. Value: 5",
-          ), source: None
+          ),
+          source: None,
         },
       ]),
     ),
@@ -429,14 +433,20 @@ test "render nested Pkl objects and arrays as JSON" {
     ValueMember::{ name: "name", value: StringValue("pigeon"), source: None },
     ValueMember::{
       name: "friends",
-      value: ListingValue([StringValue("barn owl"), StringValue("parrot")]), source: None
+      value: ListingValue([StringValue("barn owl"), StringValue("parrot")]),
+      source: None,
     },
     ValueMember::{
       name: "address",
       value: ObjectValue([
-        ValueMember::{ name: "street", value: StringValue("Norton St."), source: None },
+        ValueMember::{
+          name: "street",
+          value: StringValue("Norton St."),
+          source: None,
+        },
         ValueMember::{ name: "zip", value: IntValue(12345), source: None },
-      ]), source: None
+      ]),
+      source: None,
     },
   ])
   inspect(
@@ -471,7 +481,8 @@ test "render empty composites as JSON" {
       value: ObjectValue([
         ValueMember::{ name: "a3", value: ListingValue([]), source: None },
         ValueMember::{ name: "b2", value: MappingValue([]), source: None },
-      ]), source: None
+      ]),
+      source: None,
     },
   ])
   inspect(
@@ -633,14 +644,20 @@ test "render nested Pkl objects and arrays as YAML" {
     ValueMember::{ name: "name", value: StringValue("pigeon"), source: None },
     ValueMember::{
       name: "friends",
-      value: ListingValue([StringValue("barn owl"), StringValue("parrot")]), source: None
+      value: ListingValue([StringValue("barn owl"), StringValue("parrot")]),
+      source: None,
     },
     ValueMember::{
       name: "address",
       value: ObjectValue([
-        ValueMember::{ name: "street", value: StringValue("Norton St."), source: None },
+        ValueMember::{
+          name: "street",
+          value: StringValue("Norton St."),
+          source: None,
+        },
         ValueMember::{ name: "zip", value: IntValue(12345), source: None },
-      ]), source: None
+      ]),
+      source: None,
     },
   ])
   inspect(
@@ -669,18 +686,28 @@ test "render YAML sequence of mappings and nested sequences" {
       value: ListingValue([
         ListingValue([StringValue("barn owl"), StringValue("parrot")]),
         ListingValue([StringValue("elf owl"), StringValue("albatross")]),
-      ]), source: None
+      ]),
+      source: None,
     },
     ValueMember::{
       name: "nestedFriends2",
       value: ListingValue([
         ObjectValue([
-          ValueMember::{ name: "name", value: StringValue("barn owl"), source: None },
+          ValueMember::{
+            name: "name",
+            value: StringValue("barn owl"),
+            source: None,
+          },
         ]),
         ObjectValue([
-          ValueMember::{ name: "name", value: StringValue("parrot"), source: None },
+          ValueMember::{
+            name: "name",
+            value: StringValue("parrot"),
+            source: None,
+          },
         ]),
-      ]), source: None
+      ]),
+      source: None,
     },
   ])
   inspect(
@@ -734,7 +761,8 @@ test "render empty composites as YAML" {
       value: ObjectValue([
         ValueMember::{ name: "a3", value: ListingValue([]), source: None },
         ValueMember::{ name: "b2", value: MappingValue([]), source: None },
-      ]), source: None
+      ]),
+      source: None,
     },
   ])
   inspect(
@@ -778,7 +806,8 @@ test "Listing.length and isEmpty are properties" {
       ObjectValue([
         ValueMember::{
           name: "xs",
-          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]), source: None
+          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+          source: None,
         },
         ValueMember::{ name: "len", value: IntValue(3), source: None },
       ]),
@@ -797,7 +826,11 @@ test "Listing.length and isEmpty are properties" {
     eval_source("xs = new Listing { 1 }\nempty = xs.isEmpty") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "xs", value: ListingValue([IntValue(1)]), source: None },
+        ValueMember::{
+          name: "xs",
+          value: ListingValue([IntValue(1)]),
+          source: None,
+        },
         ValueMember::{ name: "empty", value: BoolValue(false), source: None },
       ]),
     ),
@@ -812,7 +845,8 @@ test "Listing.first / last / distinct properties" {
       ObjectValue([
         ValueMember::{
           name: "xs",
-          value: ListingValue([IntValue(10), IntValue(20), IntValue(30)]), source: None
+          value: ListingValue([IntValue(10), IntValue(20), IntValue(30)]),
+          source: None,
         },
         ValueMember::{ name: "f", value: IntValue(10), source: None },
         ValueMember::{ name: "l", value: IntValue(30), source: None },
@@ -831,11 +865,13 @@ test "Listing.first / last / distinct properties" {
             IntValue(2),
             IntValue(3),
             IntValue(1),
-          ]), source: None
+          ]),
+          source: None,
         },
         ValueMember::{
           name: "d",
-          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]), source: None
+          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+          source: None,
         },
       ]),
     ),
@@ -852,7 +888,8 @@ test "Listing.contains and reverse methods" {
       ObjectValue([
         ValueMember::{
           name: "xs",
-          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]), source: None
+          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+          source: None,
         },
         ValueMember::{ name: "has", value: BoolValue(true), source: None },
         ValueMember::{ name: "missing", value: BoolValue(false), source: None },
@@ -865,11 +902,13 @@ test "Listing.contains and reverse methods" {
       ObjectValue([
         ValueMember::{
           name: "xs",
-          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]), source: None
+          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+          source: None,
         },
         ValueMember::{
           name: "r",
-          value: ListingValue([IntValue(3), IntValue(2), IntValue(1)]), source: None
+          value: ListingValue([IntValue(3), IntValue(2), IntValue(1)]),
+          source: None,
         },
       ]),
     ),
@@ -892,15 +931,18 @@ test "Listing.take and drop methods" {
             IntValue(3),
             IntValue(4),
             IntValue(5),
-          ]), source: None
+          ]),
+          source: None,
         },
         ValueMember::{
           name: "t",
-          value: ListingValue([IntValue(1), IntValue(2)]), source: None
+          value: ListingValue([IntValue(1), IntValue(2)]),
+          source: None,
         },
         ValueMember::{
           name: "d",
-          value: ListingValue([IntValue(4), IntValue(5)]), source: None
+          value: ListingValue([IntValue(4), IntValue(5)]),
+          source: None,
         },
       ]),
     ),
@@ -912,11 +954,13 @@ test "Listing.take and drop methods" {
       ObjectValue([
         ValueMember::{
           name: "xs",
-          value: ListingValue([IntValue(1), IntValue(2)]), source: None
+          value: ListingValue([IntValue(1), IntValue(2)]),
+          source: None,
         },
         ValueMember::{
           name: "t",
-          value: ListingValue([IntValue(1), IntValue(2)]), source: None
+          value: ListingValue([IntValue(1), IntValue(2)]),
+          source: None,
         },
         ValueMember::{ name: "d", value: ListingValue([]), source: None },
       ]),
@@ -936,7 +980,8 @@ test "Listing.join method" {
             StringValue("a"),
             StringValue("b"),
             StringValue("c"),
-          ]), source: None
+          ]),
+          source: None,
         },
         ValueMember::{ name: "j", value: StringValue("a, b, c"), source: None },
       ]),
@@ -948,7 +993,8 @@ test "Listing.join method" {
       ObjectValue([
         ValueMember::{
           name: "xs",
-          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]), source: None
+          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+          source: None,
         },
         ValueMember::{ name: "j", value: StringValue("1-2-3"), source: None },
       ]),
@@ -973,11 +1019,13 @@ test "Listing.map applies a callable to each element" {
       ObjectValue([
         ValueMember::{
           name: "xs",
-          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]), source: None
+          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+          source: None,
         },
         ValueMember::{
           name: "ys",
-          value: ListingValue([IntValue(10), IntValue(20), IntValue(30)]), source: None
+          value: ListingValue([IntValue(10), IntValue(20), IntValue(30)]),
+          source: None,
         },
       ]),
     ),
@@ -1000,11 +1048,13 @@ test "Listing.filter keeps elements that pass the predicate" {
             IntValue(3),
             IntValue(4),
             IntValue(5),
-          ]), source: None
+          ]),
+          source: None,
         },
         ValueMember::{
           name: "ys",
-          value: ListingValue([IntValue(3), IntValue(4), IntValue(5)]), source: None
+          value: ListingValue([IntValue(3), IntValue(4), IntValue(5)]),
+          source: None,
         },
       ]),
     ),
@@ -1026,7 +1076,8 @@ test "Listing.fold reduces to a single accumulated value" {
             IntValue(2),
             IntValue(3),
             IntValue(4),
-          ]), source: None
+          ]),
+          source: None,
         },
         ValueMember::{ name: "sum", value: IntValue(10), source: None },
       ]),
@@ -1061,7 +1112,8 @@ test "Listing builtins compose through higher-order callable chains" {
             IntValue(3),
             IntValue(4),
             IntValue(5),
-          ]), source: None
+          ]),
+          source: None,
         },
         ValueMember::{ name: "result", value: IntValue(54), source: None },
       ]),
@@ -1082,7 +1134,8 @@ test "Mapping.length and isEmpty are properties" {
           value: MappingValue([
             ValueEntry::{ key: StringValue("a"), value: IntValue(1) },
             ValueEntry::{ key: StringValue("b"), value: IntValue(2) },
-          ]), source: None
+          ]),
+          source: None,
         },
         ValueMember::{ name: "len", value: IntValue(2), source: None },
         ValueMember::{ name: "empty", value: BoolValue(false), source: None },
@@ -1119,7 +1172,8 @@ test "Mapping.keys and values project to Listings" {
             ValueEntry::{ key: StringValue("a"), value: IntValue(1) },
             ValueEntry::{ key: StringValue("b"), value: IntValue(2) },
             ValueEntry::{ key: StringValue("c"), value: IntValue(3) },
-          ]), source: None
+          ]),
+          source: None,
         },
         ValueMember::{
           name: "ks",
@@ -1127,11 +1181,13 @@ test "Mapping.keys and values project to Listings" {
             StringValue("a"),
             StringValue("b"),
             StringValue("c"),
-          ]), source: None
+          ]),
+          source: None,
         },
         ValueMember::{
           name: "vs",
-          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]), source: None
+          value: ListingValue([IntValue(1), IntValue(2), IntValue(3)]),
+          source: None,
         },
       ]),
     ),
@@ -1151,7 +1207,8 @@ test "Mapping.containsKey and getOrNull methods" {
           value: MappingValue([
             ValueEntry::{ key: StringValue("a"), value: IntValue(1) },
             ValueEntry::{ key: StringValue("b"), value: IntValue(2) },
-          ]), source: None
+          ]),
+          source: None,
         },
         ValueMember::{ name: "has", value: BoolValue(true), source: None },
         ValueMember::{ name: "missing", value: BoolValue(false), source: None },
@@ -1177,7 +1234,8 @@ test "Mapping.fold reduces with (acc, key, value) callback" {
             ValueEntry::{ key: StringValue("a"), value: IntValue(1) },
             ValueEntry::{ key: StringValue("b"), value: IntValue(2) },
             ValueEntry::{ key: StringValue("c"), value: IntValue(3) },
-          ]), source: None
+          ]),
+          source: None,
         },
         ValueMember::{ name: "sum", value: IntValue(6), source: None },
       ]),
@@ -1208,7 +1266,8 @@ test "Mapping builtins chain through Listing pipelines" {
             ValueEntry::{ key: StringValue("a"), value: IntValue(1) },
             ValueEntry::{ key: StringValue("b"), value: IntValue(2) },
             ValueEntry::{ key: StringValue("c"), value: IntValue(3) },
-          ]), source: None
+          ]),
+          source: None,
         },
         ValueMember::{ name: "result", value: IntValue(5), source: None },
       ]),
@@ -1262,7 +1321,11 @@ test "String search predicates" {
     ) ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "s", value: StringValue("hello world"), source: None },
+        ValueMember::{
+          name: "s",
+          value: StringValue("hello world"),
+          source: None,
+        },
         ValueMember::{ name: "has", value: BoolValue(true), source: None },
         ValueMember::{ name: "start", value: BoolValue(true), source: None },
         ValueMember::{ name: "end", value: BoolValue(true), source: None },
@@ -1277,7 +1340,11 @@ test "String search predicates" {
       ObjectValue([
         ValueMember::{ name: "s", value: StringValue("hello"), source: None },
         ValueMember::{ name: "missing", value: BoolValue(false), source: None },
-        ValueMember::{ name: "bad_start", value: BoolValue(false), source: None },
+        ValueMember::{
+          name: "bad_start",
+          value: BoolValue(false),
+          source: None,
+        },
         ValueMember::{ name: "bad_end", value: BoolValue(false), source: None },
       ]),
     ),
@@ -1291,20 +1358,20 @@ test "String search predicates" {
 /// `lastIndexOfOrNull` return Null.
 test "String.indexOf returns position or raises on miss" {
   assert_true(
-    eval_source(
-      "s = \"hello world\"\nat = s.indexOf(\"world\")",
-    ) ==
+    eval_source("s = \"hello world\"\nat = s.indexOf(\"world\")") ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "s", value: StringValue("hello world"), source: None },
+        ValueMember::{
+          name: "s",
+          value: StringValue("hello world"),
+          source: None,
+        },
         ValueMember::{ name: "at", value: IntValue(6), source: None },
       ]),
     ),
   )
   // Missing substring raises.
-  let outcome = eval_source(
-    "s = \"hello world\"\nmissing = s.indexOf(\"xyz\")",
-  )
+  let outcome = eval_source("s = \"hello world\"\nmissing = s.indexOf(\"xyz\")")
   assert_true(outcome is EvalError(_))
 }
 
@@ -1318,7 +1385,11 @@ test "String.replaceAll and replaceFirst" {
       ObjectValue([
         ValueMember::{ name: "s", value: StringValue("banana"), source: None },
         ValueMember::{ name: "all", value: StringValue("bonono"), source: None },
-        ValueMember::{ name: "first", value: StringValue("bonana"), source: None },
+        ValueMember::{
+          name: "first",
+          value: StringValue("bonana"),
+          source: None,
+        },
       ]),
     ),
   )
@@ -1366,7 +1437,8 @@ test "String.split projects to a Listing" {
             StringValue("a"),
             StringValue("b"),
             StringValue("c"),
-          ]), source: None
+          ]),
+          source: None,
         },
       ]),
     ),
@@ -1379,7 +1451,8 @@ test "String.split projects to a Listing" {
         ValueMember::{ name: "s", value: StringValue("abc"), source: None },
         ValueMember::{
           name: "parts",
-          value: ListingValue([StringValue("abc")]), source: None
+          value: ListingValue([StringValue("abc")]),
+          source: None,
         },
       ]),
     ),
@@ -1424,8 +1497,16 @@ test "String builtins compose through Listing pipelines" {
     ) ==
     EvalOk(
       ObjectValue([
-        ValueMember::{ name: "s", value: StringValue("alpha,beta,gamma,delta"), source: None },
-        ValueMember::{ name: "result", value: StringValue("ALPHA;GAMMA;DELTA"), source: None },
+        ValueMember::{
+          name: "s",
+          value: StringValue("alpha,beta,gamma,delta"),
+          source: None,
+        },
+        ValueMember::{
+          name: "result",
+          value: StringValue("ALPHA;GAMMA;DELTA"),
+          source: None,
+        },
       ]),
     ),
   )
@@ -1471,7 +1552,11 @@ test "Int.toString() and toString(radix) methods" {
         ValueMember::{ name: "n", value: IntValue(255), source: None },
         ValueMember::{ name: "dec", value: StringValue("255"), source: None },
         ValueMember::{ name: "hex", value: StringValue("ff"), source: None },
-        ValueMember::{ name: "bin", value: StringValue("11111111"), source: None },
+        ValueMember::{
+          name: "bin",
+          value: StringValue("11111111"),
+          source: None,
+        },
         ValueMember::{ name: "oct", value: StringValue("377"), source: None },
       ]),
     ),

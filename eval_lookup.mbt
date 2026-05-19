@@ -94,7 +94,8 @@ fn reflect_class_methods(
                 { name: "returnTypeName", value: return_value, source: None },
                 {
                   name: "parameterTypeNames",
-                  value: ListingValue(parameter_types), source: None
+                  value: ListingValue(parameter_types),
+                  source: None,
                 },
               ]),
             )
@@ -125,7 +126,8 @@ fn reflect_class_supertype(
                 { name: "reflectee", value: StringValue(parent), source: None },
                 {
                   name: hidden_member_name("__kind"),
-                  value: StringValue("Class"), source: None
+                  value: StringValue("Class"),
+                  source: None,
                 },
               ])
             None => return NullValue
@@ -149,8 +151,16 @@ fn reflect_module_classes(declarations : Array[Declaration]) -> Value {
       ClassDeclaration(class_decl) =>
         result.push(
           ObjectValue([
-            { name: "reflectee", value: StringValue(class_decl.name), source: None },
-            { name: hidden_member_name("__kind"), value: StringValue("Class"), source: None },
+            {
+              name: "reflectee",
+              value: StringValue(class_decl.name),
+              source: None,
+            },
+            {
+              name: hidden_member_name("__kind"),
+              value: StringValue("Class"),
+              source: None,
+            },
           ]),
         )
       _ => ()
@@ -347,8 +357,7 @@ fn collect_class_default_bindings(
   match lookup_class_binding(class_env, type_name) {
     Some(class_binding) => {
       match class_binding.parent_name {
-        Some(parent) =>
-          collect_class_default_bindings(out, parent, class_env)
+        Some(parent) => collect_class_default_bindings(out, parent, class_env)
         None => ()
       }
       for property in class_binding.properties {
@@ -518,7 +527,8 @@ fn rename_overrides_for_hidden_class_properties(
     if hidden_hit {
       renamed.push({
         name: hidden_member_name(value_member.name),
-        value: value_member.value, source: None
+        value: value_member.value,
+        source: None,
       })
     } else {
       renamed.push(value_member)
@@ -565,7 +575,8 @@ fn merge_value_members(
       Some(value) =>
         merged.push({
           name: value_member.name,
-          value: deep_merge_amend_value(value_member.value, value), source: None
+          value: deep_merge_amend_value(value_member.value, value),
+          source: None,
         })
       None => merged.push(value_member)
     }
@@ -680,7 +691,7 @@ fn all_eval_bindings(program : Program) -> Array[Binding] {
                 function_decl.return_type_name,
               ),
               exported: false,
-              abstract_slot: false
+              abstract_slot: false,
             })
           None => ()
         }

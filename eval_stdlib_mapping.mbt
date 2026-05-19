@@ -901,7 +901,9 @@ fn eval_map_method(
     "every" | "any" | "none" => {
       if arg_values.length() != 1 {
         diagnostics.push(
-          diag("Map.\{method_name} expects 1 argument, got \{arg_values.length()}"),
+          diag(
+            "Map.\{method_name} expects 1 argument, got \{arg_values.length()}",
+          ),
         )
         return None
       }

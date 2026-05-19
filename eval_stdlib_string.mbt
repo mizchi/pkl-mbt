@@ -312,7 +312,11 @@ fn eval_string_method(
           for m in matches {
             consumed = consumed + m.length()
           }
-          Some(BoolValue(consumed > 0 && s.has_suffix(matches[matches.length() - 1])))
+          Some(
+            BoolValue(
+              consumed > 0 && s.has_suffix(matches[matches.length() - 1]),
+            ),
+          )
         },
       )
     "indexOf" =>
@@ -472,7 +476,11 @@ fn eval_string_method(
                   if rest.length() <= 1 {
                     rest = ""
                   } else {
-                    rest = String::unsafe_substring(rest, start=1, end=rest.length())
+                    rest = String::unsafe_substring(
+                      rest,
+                      start=1,
+                      end=rest.length(),
+                    )
                   }
                 } else {
                   rest = after
@@ -537,9 +545,7 @@ fn eval_string_method(
     "matches" => {
       if arg_values.length() != 1 {
         diagnostics.push(
-          diag(
-            "String.matches expects 1 argument, got \{arg_values.length()}",
-          ),
+          diag("String.matches expects 1 argument, got \{arg_values.length()}"),
         )
         return None
       }
@@ -585,18 +591,14 @@ fn eval_string_method(
     "repeat" => {
       if arg_values.length() != 1 {
         diagnostics.push(
-          diag(
-            "String.repeat expects 1 argument, got \{arg_values.length()}",
-          ),
+          diag("String.repeat expects 1 argument, got \{arg_values.length()}"),
         )
         return None
       }
       match arg_values[0] {
         IntValue(n) => {
           if n < 0L {
-            diagnostics.push(
-              diag("Expected a positive number, but got \{n}."),
-            )
+            diagnostics.push(diag("Expected a positive number, but got \{n}."))
             return None
           }
           let buf = StringBuilder::new()
@@ -638,9 +640,7 @@ fn eval_string_method(
     "trimEnd" => {
       if arg_values.length() != 0 {
         diagnostics.push(
-          diag(
-            "String.trimEnd expects 0 arguments, got \{arg_values.length()}",
-          ),
+          diag("String.trimEnd expects 0 arguments, got \{arg_values.length()}"),
         )
         return None
       }
@@ -661,9 +661,7 @@ fn eval_string_method(
       match parse_pkl_boolean(s) {
         Some(b) => Some(BoolValue(b))
         None => {
-          diagnostics.push(
-            diag("Cannot parse string as Boolean: \"\{s}\"."),
-          )
+          diagnostics.push(diag("Cannot parse string as Boolean: \"\{s}\"."))
           None
         }
       }
@@ -694,9 +692,7 @@ fn eval_string_method(
       match parse_pkl_int(s) {
         Some(i) => Some(IntValue(i))
         None => {
-          diagnostics.push(
-            diag("Cannot parse string as Int: \"\{s}\"."),
-          )
+          diagnostics.push(diag("Cannot parse string as Int: \"\{s}\"."))
           None
         }
       }
@@ -718,18 +714,14 @@ fn eval_string_method(
     "toFloat" => {
       if arg_values.length() != 0 {
         diagnostics.push(
-          diag(
-            "String.toFloat expects 0 arguments, got \{arg_values.length()}",
-          ),
+          diag("String.toFloat expects 0 arguments, got \{arg_values.length()}"),
         )
         return None
       }
       match parse_pkl_float(s) {
         Some(d) => Some(FloatValue(d))
         None => {
-          diagnostics.push(
-            diag("Cannot parse string as Float: \"\{s}\"."),
-          )
+          diagnostics.push(diag("Cannot parse string as Float: \"\{s}\"."))
           None
         }
       }
@@ -766,13 +758,13 @@ fn eval_string_method(
           let end = end64.to_int()
           if start64 < 0L || end > s.length() || start > end {
             diagnostics.push(
-              diag("Index out of range: start=\{start64}, end=\{end64}, length=\{s.length()}"),
+              diag(
+                "Index out of range: start=\{start64}, end=\{end64}, length=\{s.length()}",
+              ),
             )
             None
           } else {
-            Some(
-              StringValue(String::unsafe_substring(s, start~, end~)),
-            )
+            Some(StringValue(String::unsafe_substring(s, start~, end~)))
           }
         }
         _ => {
@@ -799,9 +791,7 @@ fn eval_string_method(
           if start64 < 0L || end > s.length() || start > end {
             Some(NullValue)
           } else {
-            Some(
-              StringValue(String::unsafe_substring(s, start~, end~)),
-            )
+            Some(StringValue(String::unsafe_substring(s, start~, end~)))
           }
         }
         _ => {
@@ -829,11 +819,7 @@ fn eval_string_method(
           if i64 < 0L || i >= s.length() {
             Some(NullValue)
           } else {
-            Some(
-              StringValue(
-                String::unsafe_substring(s, start=i, end=i + 1),
-              ),
-            )
+            Some(StringValue(String::unsafe_substring(s, start=i, end=i + 1)))
           }
         }
         _ => {
@@ -963,7 +949,7 @@ fn parse_pkl_int(s : String) -> Int64? {
   if head is Some('_') {
     return None
   }
-  try Some(@string.parse_int64(cleaned[:])) catch {
+  Some(@string.parse_int64(cleaned[:])) catch {
     _ => None
   }
 }
@@ -989,7 +975,7 @@ fn parse_pkl_float(s : String) -> Double? {
   if head is Some('_') {
     return None
   }
-  try Some(@string.parse_double(cleaned[:])) catch {
+  Some(@string.parse_double(cleaned[:])) catch {
     _ => None
   }
 }
@@ -1023,4 +1009,3 @@ fn one_string_or_regex_arg(
     }
   }
 }
-

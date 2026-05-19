@@ -882,8 +882,10 @@ fn eval_lambda_application(
       // `new T { ... }` so `getClass()` and class defaults flow.
       let body_to_eval : Expr = match (body, return_type_name) {
         (ObjectLiteral(members), Some(class_name)) =>
-          if class_name.contains("<") || class_name.contains("|") ||
-            class_name.contains("(") || class_name.contains("?") ||
+          if class_name.contains("<") ||
+            class_name.contains("|") ||
+            class_name.contains("(") ||
+            class_name.contains("?") ||
             class_name.contains(".") {
             body
           } else {
@@ -896,8 +898,8 @@ fn eval_lambda_application(
       }
       match
         eval_expr_with_bindings(
-          body_to_eval, bindings, body_env, class_env, call_cache, stack,
-          declarations, diagnostics, resolve_import,
+          body_to_eval, bindings, body_env, class_env, call_cache, stack, declarations,
+          diagnostics, resolve_import,
         ) {
         Some(value) =>
           eval_callable_return_value(
@@ -1019,8 +1021,10 @@ fn apply_function_value(
       // bodies expect the declared class name, not "Dynamic".
       let body_to_eval : Expr = match (body, return_type_name) {
         (ObjectLiteral(members), Some(class_name)) =>
-          if class_name.contains("<") || class_name.contains("|") ||
-            class_name.contains("(") || class_name.contains("?") ||
+          if class_name.contains("<") ||
+            class_name.contains("|") ||
+            class_name.contains("(") ||
+            class_name.contains("?") ||
             class_name.contains(".") {
             body
           } else {
@@ -1033,8 +1037,8 @@ fn apply_function_value(
       }
       match
         eval_expr_with_bindings(
-          body_to_eval, bindings, body_env, class_env, call_cache, stack,
-          declarations, diagnostics, resolve_import,
+          body_to_eval, bindings, body_env, class_env, call_cache, stack, declarations,
+          diagnostics, resolve_import,
         ) {
         Some(value) =>
           eval_callable_return_value(

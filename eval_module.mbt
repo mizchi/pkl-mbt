@@ -10,7 +10,7 @@ fn collect_class_bindings(
           name: class_decl.name,
           parent_name: class_decl.parent_name,
           properties: class_decl.properties,
-          methods: class_decl.methods
+          methods: class_decl.methods,
         })
       FunctionDeclaration(_) | TypeAliasDeclaration(_) => ()
     }
@@ -49,7 +49,7 @@ fn add_imported_class_bindings(
             name: "\{decl.import_name}.\{class_export.name}",
             parent_name,
             properties: class_export.properties,
-            methods: class_export.methods
+            methods: class_export.methods,
           })
         }
       None => ()
@@ -67,7 +67,7 @@ fn class_exports_from_parse_result(parsed : ParseResult) -> Array[ClassExport] {
           name: class_decl.name,
           parent_name: class_decl.parent_name,
           properties: class_decl.properties,
-          methods: class_decl.methods
+          methods: class_decl.methods,
         })
       FunctionDeclaration(_) | TypeAliasDeclaration(_) => ()
     }
@@ -650,7 +650,7 @@ fn eval_program(
               name: class_export.name,
               parent_name: class_export.parent_name,
               properties: class_export.properties,
-              methods: class_export.methods
+              methods: class_export.methods,
             })
           }
         None => ()
@@ -817,7 +817,8 @@ fn eval_program(
               Some(value) =>
                 members.push({
                   name: hidden_member_name(function_decl.name),
-                  value, source: None
+                  value,
+                  source: None,
                 })
               None => ()
             }
@@ -1027,8 +1028,7 @@ fn collect_class_converters(value : Value) -> Array[(String, Value)] {
                                   ObjectValue(class_mirror_members) =>
                                     match
                                       lookup_member(
-                                        class_mirror_members,
-                                        "name",
+                                        class_mirror_members, "name",
                                       ) {
                                       Some(StringValue(name)) =>
                                         converters.push((name, entry.value))
@@ -1080,8 +1080,15 @@ fn apply_class_converters(
         next.push({
           name: field.name,
           value: walk_class_converter(
-            field.value, converters, bindings, env, class_env, cache, declarations,
-            diagnostics, resolve_import,
+            field.value,
+            converters,
+            bindings,
+            env,
+            class_env,
+            cache,
+            declarations,
+            diagnostics,
+            resolve_import,
           ),
           source: field.source,
         })
@@ -1111,8 +1118,15 @@ fn walk_class_converter(
         next.push({
           name: field.name,
           value: walk_class_converter(
-            field.value, converters, bindings, env, class_env, cache, declarations,
-            diagnostics, resolve_import,
+            field.value,
+            converters,
+            bindings,
+            env,
+            class_env,
+            cache,
+            declarations,
+            diagnostics,
+            resolve_import,
           ),
           source: field.source,
         })
@@ -1161,7 +1175,14 @@ fn walk_class_converter(
         next.push({
           key: e.key,
           value: walk_class_converter(
-            e.value, converters, bindings, env, class_env, cache, declarations, diagnostics,
+            e.value,
+            converters,
+            bindings,
+            env,
+            class_env,
+            cache,
+            declarations,
+            diagnostics,
             resolve_import,
           ),
         })
@@ -1329,8 +1350,7 @@ fn name_matches_class_tag(name : String, tag : String) -> Bool {
   }
   let hash2 = tag.find("#")
   let tag_simple = match hash2 {
-    Some(idx) =>
-      String::unsafe_substring(tag, start=idx + 1, end=tag.length())
+    Some(idx) => String::unsafe_substring(tag, start=idx + 1, end=tag.length())
     None => tag
   }
   name_simple == tag_simple
@@ -1415,7 +1435,8 @@ fn rewrite_walk(
                 declarations,
                 diagnostics,
                 resolve_import,
-              ), source: None
+              ),
+              source: None,
             })
           } else {
             next.push(field)

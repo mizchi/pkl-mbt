@@ -13,6 +13,8 @@ pub fn configure_sandbox_allowed_modules(Array[String]) -> Unit
 
 pub fn configure_sandbox_module_paths(Array[String]) -> Unit
 
+pub fn configure_sandbox_package_caches(Array[String]) -> Unit
+
 pub fn configure_sandbox_props(Map[String, String]) -> Unit
 
 pub fn eval_source(String) -> EvalResult
@@ -40,6 +42,8 @@ pub fn render_value_as_yaml(Value) -> String
 pub fn sandbox_is_module_allowed(String) -> Bool
 
 pub fn sandbox_module_paths() -> Array[String]
+
+pub fn sandbox_package_caches() -> Array[String]
 
 pub fn typecheck_source(String) -> TypecheckResult
 
@@ -150,7 +154,7 @@ pub(all) enum EvalResult {
 } derive(Eq, @debug.Debug)
 
 pub(all) enum Expr {
-  IntLiteral(Int)
+  IntLiteral(Int64)
   FloatLiteral(Double)
   BoolLiteral(Bool)
   StringLiteral(String)
@@ -167,6 +171,7 @@ pub(all) enum Expr {
   AmendExpr(Expr, Array[ObjectMember])
   CallExpr(Expr, Array[Expr])
   LambdaExpr(Array[FunctionParameter], Expr, String?)
+  LetExpr(String, String?, Expr, Expr)
   NonNullExpr(Expr)
   UnaryExpr(UnaryOp, Expr)
   BinaryExpr(BinaryOp, Expr, Expr)
@@ -307,7 +312,7 @@ pub(all) struct UnsupportedSyntax {
 } derive(Eq, @debug.Debug)
 
 pub(all) enum Value {
-  IntValue(Int)
+  IntValue(Int64)
   FloatValue(Double)
   BoolValue(Bool)
   StringValue(String)
@@ -317,7 +322,7 @@ pub(all) enum Value {
   ListValue(Array[Value])
   MappingValue(Array[ValueEntry])
   PairValue(Value, Value)
-  IntSeqValue(Int, Int, Int)
+  IntSeqValue(Int64, Int64, Int64)
   SetValue(Array[Value])
   MapValue(Array[ValueEntry])
   FunctionValue(Array[FunctionParameter], Expr, String?, Array[ValueBinding], Int)
