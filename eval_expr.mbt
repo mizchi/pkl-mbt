@@ -2407,7 +2407,26 @@ fn eval_expr_with_bindings(
                     None => type_name
                   }
                   let user_class_match = if value is ObjectValue(_) {
-                    lookup_class_binding(class_env, base_for_user_check) is Some(_)
+                    if lookup_class_binding(class_env, base_for_user_check)
+                      is Some(_) {
+                      true
+                    } else if
+                      lookup_value(env, base_for_user_check) is Some(
+                        ObjectValue(_),
+                      ) ||
+                      lookup_value(cache, base_for_user_check) is Some(
+                        ObjectValue(_),
+                      ) {
+                      // PKL-148bh: `x is someModule` where `someModule`
+                      // is an imported module value — treat any
+                      // ObjectValue as matching, because module amends
+                      // can't currently carry per-instance class
+                      // identity beyond the structural shape
+                      // (types/moduleType).
+                      true
+                    } else {
+                      false
+                    }
                   } else {
                     false
                   }
