@@ -119,7 +119,14 @@ fn is_int_property_name(name : String) -> Bool {
     | "isNaN"
     | "isInfinite"
     | "sign"
-    | "inv" => true
+    | "inv"
+    // PKL-150: Int.ceil / .floor / .round / .truncate are no-ops on
+    // an integer (they round to the nearest Int, which is `self`).
+    // Apple Pkl projects them as both property reads and `()` calls.
+    | "ceil"
+    | "floor"
+    | "round"
+    | "truncate" => true
     _ => false
   }
 }
@@ -133,6 +140,20 @@ fn is_int_method_name(name : String) -> Bool {
     | "toChar"
     | "toFloat"
     | "isBetween"
+    // PKL-150: Int method surface — radix-string / fixed-decimal /
+    // `toInt()` (no-op) / `toDuration(unit)` / `toDataSize(unit)` /
+    // bitwise binary methods.
+    | "toInt"
+    | "toRadixString"
+    | "toFixed"
+    | "toDuration"
+    | "toDataSize"
+    | "shl"
+    | "shr"
+    | "ushr"
+    | "and"
+    | "or"
+    | "xor"
     // No-arg property surface also accessible as `(N).method()`.
     | "abs"
     | "isEven"
@@ -143,7 +164,11 @@ fn is_int_method_name(name : String) -> Bool {
     | "isNaN"
     | "isInfinite"
     | "sign"
-    | "inv" => true
+    | "inv"
+    | "ceil"
+    | "floor"
+    | "round"
+    | "truncate" => true
     _ => false
   }
 }
@@ -647,6 +672,8 @@ fn eval_int_property(
         Some(IntValue(0))
       }
     "inv" => Some(IntValue(n.lnot()))
+    // PKL-150: rounding / truncation are no-ops on Int.
+    "ceil" | "floor" | "round" | "truncate" => Some(IntValue(n))
     _ => {
       diagnostics.push(
         diag("Cannot find property `\{name}` in object of type `Int`."),
@@ -892,6 +919,154 @@ fn eval_int_method(
         diagnostics.push(diag("Int.toFloat takes no arguments"))
         None
       }
+    // PKL-150: Int.toInt() — Apple Pkl projects it for symmetry with
+    // Float.toInt(); on Int it's the identity.
+    "toInt" =>
+      if arg_values.length() == 0 {
+        Some(IntValue(n))
+      } else {
+        diagnostics.push(diag("Int.toInt takes no arguments"))
+        None
+      }
+    // PKL-150: Int.toRadixString(radix) — base 2-36, raises out of
+    // range. Negative inputs render with a leading "-".
+    "toRadixString" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Int.toRadixString expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match arg_values[0] {
+        IntValue(radix) =>
+          if radix < 2 || radix > 36 {
+            diagnostics.push(
+              diag(
+                "Expected a value greater than `1` and less than `37`, but got \{radix}.",
+              ),
+            )
+            None
+          } else {
+            Some(StringValue(int_to_string_radix(n, radix)))
+          }
+        _ => {
+          diagnostics.push(diag("Int.toRadixString expects Int argument"))
+          None
+        }
+      }
+    }
+    // PKL-150: Int.toFixed(decimals) — fixed-point string with the
+    // exact requested number of trailing zeros. 0..20 is the Apple Pkl
+    // accepted range; outside raises.
+    "toFixed" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Int.toFixed expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match arg_values[0] {
+        IntValue(decimals) =>
+          if decimals < 0 || decimals > 20 {
+            diagnostics.push(
+              diag(
+                "Expected a value greater than `-1` and less than `21`, but got \{decimals}.",
+              ),
+            )
+            None
+          } else {
+            Some(StringValue(format_fixed_decimal(n, decimals)))
+          }
+        _ => {
+          diagnostics.push(diag("Int.toFixed expects Int argument"))
+          None
+        }
+      }
+    }
+    // PKL-150: Int.toDuration(unit) / .toDataSize(unit) — wraps the
+    // magnitude as a Duration / DataSize with the supplied unit.
+    "toDuration" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Int.toDuration expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match arg_values[0] {
+        StringValue(unit) =>
+          if is_duration_unit_name(unit) {
+            Some(DurationValue(n.to_double(), unit))
+          } else {
+            diagnostics.push(
+              diag("Invalid Duration unit: \"\{unit}\"."),
+            )
+            None
+          }
+        _ => {
+          diagnostics.push(diag("Int.toDuration expects String argument"))
+          None
+        }
+      }
+    }
+    "toDataSize" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Int.toDataSize expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match arg_values[0] {
+        StringValue(unit) =>
+          if is_datasize_unit_name(unit) {
+            Some(DataSizeValue(n.to_double(), unit))
+          } else {
+            diagnostics.push(
+              diag("Invalid DataSize unit: \"\{unit}\"."),
+            )
+            None
+          }
+        _ => {
+          diagnostics.push(diag("Int.toDataSize expects String argument"))
+          None
+        }
+      }
+    }
+    // PKL-150: bitwise binary Int methods (Apple Pkl spells `shl` /
+    // `shr` / `ushr` / `and` / `or` / `xor` as methods, not operators).
+    "shl" | "shr" | "ushr" | "and" | "or" | "xor" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Int.\{method_name} expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match arg_values[0] {
+        IntValue(m) =>
+          match method_name {
+            "shl" => Some(IntValue(n << m))
+            "shr" => Some(IntValue(n >> m))
+            "ushr" => Some(IntValue((n.reinterpret_as_uint() >> m).reinterpret_as_int()))
+            "and" => Some(IntValue(n.land(m)))
+            "or" => Some(IntValue(n.lor(m)))
+            "xor" => Some(IntValue(n.lxor(m)))
+            _ => None
+          }
+        _ => {
+          diagnostics.push(diag("Int.\{method_name} expects Int argument"))
+          None
+        }
+      }
+    }
     // No-arg property surface accessible as `(N).abs()` / `.isEven()`
     // / `.sign()` / etc.
     "abs"
@@ -903,7 +1078,11 @@ fn eval_int_method(
     | "isNaN"
     | "isInfinite"
     | "sign"
-    | "inv" =>
+    | "inv"
+    | "ceil"
+    | "floor"
+    | "round"
+    | "truncate" =>
       if arg_values.length() != 0 {
         diagnostics.push(
           diag(
@@ -916,6 +1095,22 @@ fn eval_int_method(
       }
     _ => None
   }
+}
+
+///|
+/// PKL-150: format `n` as a fixed-point string with exactly
+/// `decimals` digits after the dot. `decimals == 0` omits the dot
+/// entirely. Negative inputs get a leading "-".
+fn format_fixed_decimal(n : Int, decimals : Int) -> String {
+  let buf = StringBuilder::new()
+  buf.write_string("\{n}")
+  if decimals > 0 {
+    buf.write_char('.')
+    for _ in 0..<decimals {
+      buf.write_char('0')
+    }
+  }
+  buf.to_string()
 }
 
 ///|
