@@ -38,7 +38,7 @@
 
 ## 現在の開発状況
 
-- 上流の Apple Pkl LanguageSnippetTests に対する gold-match: **219 / 391 (56.0%)**。確認は `pkf run coverage` で。
+- 上流の Apple Pkl LanguageSnippetTests に対する gold-match: **221 / 391 (56.5%)**。確認は `pkf run coverage` で。
 - カテゴリ別の内訳と最終更新は `README.md` の「Per-category PCF gold-match」表が source of truth。
 
 ## 次に触るべきタスク
@@ -49,12 +49,10 @@ GitHub Issues に「user impact 順」で並んでいる。次セッションは
 
 個別 issue (impact 大きい順):
 
+- [#6 XML / Protobuf renderer bodies](https://github.com/mizchi/pkl-mbt/issues/6) — 型 surface は通るが render body が無い、残りの Tier 1。
 - [#2 convertPropertyTransformers (annotation converters)](https://github.com/mizchi/pkl-mbt/issues/2) — api/* renderer 系の最大ブロッカー、AST extension が前提。
-- [#3 Module-level amends + super dispatch](https://github.com/mizchi/pkl-mbt/issues/3) — `extends "base.pkl"` + `super.X`、modules/supercalls3 がリプロ。
 - [#4 Lazy local evaluation](https://github.com/mizchi/pkl-mbt/issues/4) — `local x` 未使用時の eager 評価が basic/let を含む長尾を塞いでる。
 - [#5 DataSize / Duration stdlib surface](https://github.com/mizchi/pkl-mbt/issues/5) — isBinaryUnit / isBetween / convertTo、api/dataSize と api/duration の DIFF の主因。
-- [#6 XML / Protobuf renderer bodies](https://github.com/mizchi/pkl-mbt/issues/6) — 型 surface は通るが render body が無い。
-- [#7 package:// download + DEFLATE + SHA-256](https://github.com/mizchi/pkl-mbt/issues/7) — local cache の続き、フル `pkl download-package` 代替。
 
 ## 次セッションを始めるときの定型手順
 
