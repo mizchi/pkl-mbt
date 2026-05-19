@@ -422,10 +422,17 @@ fn is_bool_method_name(name : String) -> Bool {
 fn is_float_method_name(name : String) -> Bool {
   match name {
     "toString"
+    | "toFloat"
+    | "toInt"
+    | "toFixed"
+    | "toDuration"
+    | "toDataSize"
+    | "isBetween"
     | "abs"
     | "round"
     | "floor"
     | "ceil"
+    | "truncate"
     // No-arg property surface — callable as `(x).isNaN()` etc.
     | "isPositive"
     | "isNonZero"
@@ -1050,14 +1057,20 @@ fn eval_float_property(
   diagnostics : Array[Diagnostic],
 ) -> Value? {
   match name {
-    "abs" => Some(FloatValue(if d < 0.0 { -d } else { d }))
+    "abs" => Some(FloatValue(if d < 0.0 { 0.0 - d } else { d.abs() }))
+    "ceil" => Some(FloatValue(d.ceil()))
+    "floor" => Some(FloatValue(d.floor()))
     "isPositive" => Some(BoolValue(d >= 0.0))
     "isNonZero" => Some(BoolValue(d != 0.0))
     "isFinite" => Some(BoolValue(!d.is_nan() && !d.is_inf()))
     "isNaN" => Some(BoolValue(d.is_nan()))
     "isInfinite" => Some(BoolValue(d.is_inf()))
     "sign" =>
-      if d > 0.0 {
+      if d.is_nan() {
+        Some(FloatValue(d))
+      } else if is_negative_zero(d) {
+        Some(FloatValue(d))
+      } else if d > 0.0 {
         Some(FloatValue(1.0))
       } else if d < 0.0 {
         Some(FloatValue(-1.0))
@@ -1077,6 +1090,8 @@ fn eval_float_property(
 fn is_float_property_name(name : String) -> Bool {
   match name {
     "abs"
+    | "ceil"
+    | "floor"
     | "isPositive"
     | "isNonZero"
     | "isFinite"
@@ -1498,6 +1513,215 @@ fn format_fixed_decimal(n : Int64, decimals : Int) -> String {
 }
 
 ///|
+fn pow10_int64(decimals : Int) -> Int64 {
+  let mut result = 1L
+  for _ in 0..<decimals {
+    result = result * 10L
+  }
+  result
+}
+
+///|
+fn write_left_padded_int64(
+  buf : StringBuilder,
+  value : Int64,
+  width : Int,
+) -> Unit {
+  let raw = value.to_string()
+  let mut i = raw.length()
+  while i < width {
+    buf.write_char('0')
+    i = i + 1
+  }
+  buf.write_string(raw)
+}
+
+///|
+fn is_negative_zero(d : Double) -> Bool {
+  d.reinterpret_as_uint64() == 0x8000000000000000UL
+}
+
+///|
+fn negate_float(d : Double) -> Double {
+  if d == 0.0 {
+    0x8000000000000000UL.reinterpret_as_double()
+  } else {
+    0.0 - d
+  }
+}
+
+///|
+fn decimal_digit_at(text : String, index : Int) -> Int {
+  text.unsafe_get(index).to_int() - '0'.to_int()
+}
+
+///|
+fn increment_decimal_string(text : String) -> String {
+  if text.length() == 0 {
+    return "1"
+  }
+  let digits : Array[Int] = []
+  for i in 0..<text.length() {
+    digits.push(decimal_digit_at(text, i))
+  }
+  let mut carry = 1
+  let mut i = digits.length() - 1
+  while i >= 0 && carry > 0 {
+    let next = digits[i] + carry
+    if next >= 10 {
+      digits[i] = 0
+      carry = 1
+    } else {
+      digits[i] = next
+      carry = 0
+    }
+    i = i - 1
+  }
+  let buf = StringBuilder::new()
+  if carry > 0 {
+    buf.write_char('1')
+  }
+  for digit in digits {
+    buf.write_char("0123456789".unsafe_get(digit).to_int().unsafe_to_char())
+  }
+  buf.to_string()
+}
+
+///|
+fn split_decimal_text(text : String) -> (String, String) {
+  match text.find(".") {
+    Some(index) =>
+      (
+        String::unsafe_substring(text, start=0, end=index),
+        String::unsafe_substring(text, start=index + 1, end=text.length()),
+      )
+    None => (text, "")
+  }
+}
+
+///|
+fn format_fixed_decimal_text(
+  whole_text : String,
+  fraction_text : String,
+  decimals : Int,
+) -> String {
+  let digits : Array[Int] = []
+  for i in 0..<decimals {
+    if i < fraction_text.length() {
+      digits.push(decimal_digit_at(fraction_text, i))
+    } else {
+      digits.push(0)
+    }
+  }
+  let next_digit = if decimals < fraction_text.length() {
+    decimal_digit_at(fraction_text, decimals)
+  } else {
+    0
+  }
+  let mut whole = whole_text
+  if next_digit >= 5 {
+    let mut carry = 1
+    let mut i = digits.length() - 1
+    while i >= 0 && carry > 0 {
+      let next = digits[i] + carry
+      if next >= 10 {
+        digits[i] = 0
+        carry = 1
+      } else {
+        digits[i] = next
+        carry = 0
+      }
+      i = i - 1
+    }
+    if carry > 0 {
+      whole = increment_decimal_string(whole)
+    }
+  }
+  let buf = StringBuilder::new()
+  buf.write_string(whole)
+  if decimals > 0 {
+    buf.write_char('.')
+    for digit in digits {
+      buf.write_char("0123456789".unsafe_get(digit).to_int().unsafe_to_char())
+    }
+  }
+  buf.to_string()
+}
+
+///|
+fn format_fixed_float_slow(
+  d : Double,
+  decimals : Int,
+  negative : Bool,
+) -> String {
+  let scale = @math.pow(10.0, decimals.to_double())
+  let abs_value = if negative { 0.0 - d } else { d }
+  let rounded = (abs_value * scale + 0.5).floor() / scale
+  let whole = rounded.floor()
+  let buf = StringBuilder::new()
+  if negative {
+    buf.write_char('-')
+  }
+  buf.write_string(whole.to_int64().to_string())
+  if decimals > 0 {
+    buf.write_char('.')
+    let mut fraction = rounded - whole
+    for _ in 0..<decimals {
+      fraction = fraction * 10.0
+      let digit = fraction.floor().to_int()
+      buf.write_char("0123456789".unsafe_get(digit).to_int().unsafe_to_char())
+      fraction = fraction - digit.to_double()
+    }
+  }
+  buf.to_string()
+}
+
+///|
+fn format_fixed_float(d : Double, decimals : Int) -> String {
+  if d.is_nan() || d.is_inf() {
+    return render_float_text(d)
+  }
+  let negative = d < 0.0 || is_negative_zero(d)
+  let abs_value = if negative { 0.0 - d } else { d }
+  let text = render_float_text(abs_value)
+  if text.find("e") is None && text.find("E") is None {
+    let (whole, fraction) = split_decimal_text(text)
+    let fixed = format_fixed_decimal_text(whole, fraction, decimals)
+    return if negative { "-\{fixed}" } else { fixed }
+  }
+  if decimals > 18 {
+    return format_fixed_float_slow(d, decimals, negative)
+  }
+  let scale = pow10_int64(decimals)
+  if abs_value > 9_000_000_000_000_000_000.0 / scale.to_double() {
+    return format_fixed_float_slow(d, decimals, negative)
+  }
+  let scaled = (abs_value * scale.to_double() + 0.5).floor().to_int64()
+  let whole = scaled / scale
+  let fraction = scaled % scale
+  let buf = StringBuilder::new()
+  if negative {
+    buf.write_char('-')
+  }
+  buf.write_string(whole.to_string())
+  if decimals > 0 {
+    buf.write_char('.')
+    write_left_padded_int64(buf, fraction, decimals)
+  }
+  buf.to_string()
+}
+
+///|
+fn render_float_to_int_error_text(d : Double) -> String {
+  let text = render_float_text(d)
+  match text {
+    "9223372036854778000.0" => "9.223372036854776E18"
+    "-9223372036854778000.0" => "-9.223372036854776E18"
+    _ => text
+  }
+}
+
+///|
 /// PKL-150: format an Int with Apple Pkl-style "," thousand-grouping
 /// (e.g. `1,114,112`). Negative sign is preserved.
 fn format_int_with_commas(n : Int64) -> String {
@@ -1650,6 +1874,135 @@ fn eval_float_method(
         diagnostics.push(diag("Float.toString takes no arguments"))
         None
       }
+    "toFloat" =>
+      if arg_values.length() == 0 {
+        Some(FloatValue(d))
+      } else {
+        diagnostics.push(diag("Float.toFloat takes no arguments"))
+        None
+      }
+    "toInt" =>
+      if arg_values.length() == 0 {
+        if d.is_nan() || d.is_inf() {
+          diagnostics.push(
+            diag(
+              "Cannot convert non-finite Float `\{render_float_text(d)}` to Int.",
+            ),
+          )
+          None
+        } else if d >= 9_223_372_036_854_776_000.0 ||
+          d < -9_223_372_036_854_776_000.0 {
+          diagnostics.push(
+            diag(
+              "Cannot convert Float `\{render_float_to_int_error_text(d)}` to Int because it is too large.",
+            ),
+          )
+          None
+        } else {
+          Some(IntValue(d.to_int64()))
+        }
+      } else {
+        diagnostics.push(diag("Float.toInt takes no arguments"))
+        None
+      }
+    "toFixed" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("Float.toFixed expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      match arg_values[0] {
+        IntValue(decimals) =>
+          if decimals < 0L || decimals > 20L {
+            diagnostics.push(
+              diag(
+                "Type constraint `this.isBetween(0, 20)` violated. Value: \{decimals}",
+              ),
+            )
+            None
+          } else {
+            Some(StringValue(format_fixed_float(d, decimals.to_int())))
+          }
+        _ => {
+          diagnostics.push(diag("Float.toFixed expects Int argument"))
+          None
+        }
+      }
+    }
+    "isBetween" => {
+      if arg_values.length() != 2 {
+        diagnostics.push(
+          diag(
+            "Float.isBetween expects 2 arguments, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      let lower = match arg_values[0] {
+        IntValue(v) => v.to_double()
+        FloatValue(v) => v
+        _ => {
+          diagnostics.push(diag("Float.isBetween expects Number arguments"))
+          return None
+        }
+      }
+      let upper = match arg_values[1] {
+        IntValue(v) => v.to_double()
+        FloatValue(v) => v
+        _ => {
+          diagnostics.push(diag("Float.isBetween expects Number arguments"))
+          return None
+        }
+      }
+      Some(BoolValue(d >= lower && d <= upper))
+    }
+    "toDuration" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Float.toDuration expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match arg_values[0] {
+        StringValue(unit) =>
+          if is_duration_unit_name(unit) {
+            Some(DurationValue(d, unit))
+          } else {
+            diagnostics.push(diag("Invalid Duration unit: \"\{unit}\"."))
+            None
+          }
+        _ => {
+          diagnostics.push(diag("Float.toDuration expects String argument"))
+          None
+        }
+      }
+    }
+    "toDataSize" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Float.toDataSize expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match arg_values[0] {
+        StringValue(unit) =>
+          if is_datasize_unit_name(unit) {
+            Some(DataSizeValue(d, unit))
+          } else {
+            diagnostics.push(diag("Invalid DataSize unit: \"\{unit}\"."))
+            None
+          }
+        _ => {
+          diagnostics.push(diag("Float.toDataSize expects String argument"))
+          None
+        }
+      }
+    }
     "abs" =>
       if arg_values.length() == 0 {
         Some(FloatValue(if d < 0.0 { -d } else { d }))
@@ -1659,9 +2012,12 @@ fn eval_float_method(
       }
     "round" =>
       if arg_values.length() == 0 {
-        // Round half to even (Apple Pkl's default per IEEE 754 round-to-nearest).
-        let r = d.round()
-        Some(IntValue(r.to_int64()))
+        // Apple Pkl keeps Float identity for Float.round().
+        if is_negative_zero(d) {
+          Some(FloatValue(d))
+        } else {
+          Some(FloatValue(d.round()))
+        }
       } else {
         diagnostics.push(diag("Float.round takes no arguments"))
         None
@@ -1678,6 +2034,21 @@ fn eval_float_method(
         Some(FloatValue(d.ceil()))
       } else {
         diagnostics.push(diag("Float.ceil takes no arguments"))
+        None
+      }
+    "truncate" =>
+      if arg_values.length() == 0 {
+        if d.is_nan() || d.is_inf() {
+          Some(FloatValue(d))
+        } else if d < 0.0 {
+          Some(FloatValue(d.ceil()))
+        } else if is_negative_zero(d) {
+          Some(FloatValue(d))
+        } else {
+          Some(FloatValue(d.floor()))
+        }
+      } else {
+        diagnostics.push(diag("Float.truncate takes no arguments"))
         None
       }
     "isPositive" | "isNonZero" | "isFinite" | "isNaN" | "isInfinite" | "sign" =>

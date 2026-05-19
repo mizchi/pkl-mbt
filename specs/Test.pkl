@@ -1439,7 +1439,7 @@ local upstreamSmoke = new Test {
     "upstream eval ok: mappings2/inequality (gold match)"
     "upstream json eval ok: api/jsonRenderer1.json (gold match)"
     "upstream eval ok: api/pListRenderer1.plist (gold match)"
-    "upstream-smoke: 163 gold-match fixtures passed"
+    "upstream-smoke: 166 gold-match fixtures passed"
     "upstream-smoke: 1 json gold-match fixtures passed"
     "upstream-smoke: 1 plist gold-match fixtures passed"
   }

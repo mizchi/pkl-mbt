@@ -47,6 +47,9 @@ fn write_pcf_indent(buf : StringBuilder, indent : Int) -> Unit {
 
 ///|
 fn render_float_text(d : Double) -> String {
+  if is_negative_zero(d) {
+    return "-0.0"
+  }
   // PKL-092: render a Float deterministically. Apple Pkl emits Doubles in
   // the shortest round-trip form (`1.5`, `12.3`, `1.0` — never `1`), so
   // we anchor on `Double::to_string()` and append `.0` when the result
