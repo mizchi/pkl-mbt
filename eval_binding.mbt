@@ -34,11 +34,32 @@ fn typed_object_class_name_for_expr(
       } else {
         match find_binding(bindings, name) {
           Some(binding) =>
-            typed_object_class_name_for_expr(
-              binding.value,
-              bindings,
-              push_binding_stack(stack, name),
-            )
+            // PKL-148bh: `local a: A = new {}` keeps the binding's
+            // value as an ObjectLiteral (the binding-eval rewrite
+            // only fires at value time, not at AST construction).
+            // Honour the binding annotation directly when its value
+            // is a bare ObjectLiteral so a downstream `a.method()`
+            // dispatches against class A's method table.
+            match (binding.value, binding.type_name) {
+              (ObjectLiteral(_), Some(class_name)) =>
+                if class_name.contains("<") || class_name.contains("|") ||
+                  class_name.contains("(") || class_name.contains("?") ||
+                  class_name.contains(".") {
+                  typed_object_class_name_for_expr(
+                    binding.value,
+                    bindings,
+                    push_binding_stack(stack, name),
+                  )
+                } else {
+                  Some(class_name)
+                }
+              _ =>
+                typed_object_class_name_for_expr(
+                  binding.value,
+                  bindings,
+                  push_binding_stack(stack, name),
+                )
+            }
           None => None
         }
       }

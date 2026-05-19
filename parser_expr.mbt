@@ -369,7 +369,16 @@ fn Parser::parse_postfix_expr(self : Parser) -> Expr {
         }
         if self.at(comma()) {
           ignore(self.bump())
-          self.skip_whitespace()
+          self.skip_trivia()
+          // PKL-148bh: trailing comma before `)` is accepted by Apple
+          // Pkl (`parser/methodTrailingCommas` exercises every form
+          // including multi-line bodies). Without this exit the next
+          // iteration would call `parse_expr` on `)`, push an
+          // UnsupportedExpr / placeholder argument, and the arity
+          // check would reject the call.
+          if self.at(rparen()) {
+            break
+          }
         } else {
           break
         }
