@@ -406,12 +406,71 @@ fn resolve_import_path(from : String, uri : String) -> String {
     return uri
   }
   if uri.has_prefix("/") || uri.find(":") is Some(_) {
-    return uri
+    return normalize_path_segments(uri)
   }
-  match from.rev_find("/") {
+  let combined = match from.rev_find("/") {
     Some(idx) => String::unsafe_substring(from, start=0, end=idx + 1) + uri
     None => uri
   }
+  // PKL-152: collapse `..` / `.` so cycle-detection paths match.
+  normalize_path_segments(combined)
+}
+
+///|
+/// PKL-152: collapse `..` / `.` segments. See analysis.mbt's twin —
+/// the CLI has its own resolver for FS-aware loading, so we duplicate
+/// the normalizer here rather than depending on the `mizchi/pkl`
+/// surface that the analysis layer reaches into.
+fn normalize_path_segments(path : String) -> String {
+  let scheme_end = match path.find("://") {
+    Some(idx) => idx + 3
+    None => 0
+  }
+  let head = String::unsafe_substring(path, start=0, end=scheme_end)
+  let body = String::unsafe_substring(path, start=scheme_end, end=path.length())
+  let leading_slash = body.has_prefix("/")
+  let raw_segments : Array[String] = []
+  let mut start = if leading_slash { 1 } else { 0 }
+  let mut i = start
+  while i < body.length() {
+    if body.unsafe_charcode_at(i) == 47 {
+      raw_segments.push(String::unsafe_substring(body, start~, end=i))
+      start = i + 1
+    }
+    i = i + 1
+  }
+  if start <= body.length() {
+    raw_segments.push(
+      String::unsafe_substring(body, start~, end=body.length()),
+    )
+  }
+  let resolved : Array[String] = []
+  for seg in raw_segments {
+    if seg == "" || seg == "." {
+      continue
+    }
+    if seg == ".." {
+      if resolved.length() > 0 && resolved[resolved.length() - 1] != ".." {
+        let _ = resolved.pop()
+      } else if !leading_slash {
+        resolved.push("..")
+      }
+      continue
+    }
+    resolved.push(seg)
+  }
+  let buf = StringBuilder::new()
+  buf.write_string(head)
+  if leading_slash {
+    buf.write_char('/')
+  }
+  for k = 0; k < resolved.length(); k = k + 1 {
+    if k > 0 {
+      buf.write_char('/')
+    }
+    buf.write_string(resolved[k])
+  }
+  buf.to_string()
 }
 
 ///|
