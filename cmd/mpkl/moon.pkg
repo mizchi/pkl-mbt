@@ -24,6 +24,7 @@ options(
     "stdlib_check.mbt": [ "native", "js" ],
     "fetch_native.mbt": [ "native" ],
     "fetch_js.mbt": [ "js" ],
+    "package_download.mbt": [ "native", "js" ],
     "package_download_wbtest.mbt": [ "native" ],
     "main_wasm.mbt": [ "wasm", "wasm-gc" ],
   },
