@@ -137,151 +137,169 @@ fn resolve_binding_value(
     None => ()
   }
   match lookup_value(cache, name) {
-    Some(value) => Some(value)
-    None =>
-      match find_binding(bindings, name) {
-        Some(binding) =>
-          if stack_contains_binding(stack, name) {
-            // PKL-148t: when a property's RHS self-references the
-            // same name but a sibling module-level function shares
-            // it (`function qux(...) = ...` beside `qux = qux(...)`),
-            // Apple Pkl resolves the RHS occurrence through the
-            // function namespace first. Try the function-shaped
-            // binding before surfacing the cycle diagnostic — only
-            // when the currently-resolving binding is itself NOT a
-            // function (otherwise the fallback would short-circuit
-            // back to the same binding).
-            let cyclic_is_function = match binding.value {
-              LambdaExpr(_, _, _) => true
-              _ => false
-            }
-            if !cyclic_is_function {
-              match find_function_binding(bindings, name) {
-                Some(fn_binding) =>
-                  return eval_expr_with_bindings(
-                    fn_binding.value,
-                    bindings,
-                    env,
-                    class_env,
-                    cache,
-                    stack,
-                    declarations,
-                    diagnostics,
-                    resolve_import,
-                  )
-                None => ()
-              }
-            }
-            diagnostics.push(diag("cyclic property reference \{name}"))
-            None
-          } else {
-            // PKL-148bg: when the binding annotation names a user class
-            // (`local base: TheClass2 = new { requiredLength = 5 }`),
-            // rewrite a bare `new { ... }` (ObjectLiteral) to
-            // `new TheClass2 { ... }` (TypedObjectLiteral) so the
-            // class's `hidden` / default machinery runs. Without this
-            // the unprefixed `requiredLength` would leak into the
-            // rendered output (`listings/listing6` fixture). When the
-            // annotation names an in-scope module-shaped value
-            // (`res1: someModule = new { foo = "..." }`), promote the
-            // RHS to `AmendExpr(Identifier(someModule), members)` so
-            // the module's own defaults flow through.
-            let rewritten_value : Expr = match
-              (binding.value, binding.type_name) {
-              (ObjectLiteral(members), Some(class_name)) =>
-                match lookup_class_binding(class_env, class_name) {
-                  Some(_) => TypedObjectLiteral(class_name, members)
-                  None =>
-                    if class_name.contains(".") ||
-                      class_name.contains("<") ||
-                      class_name.contains("(") ||
-                      class_name.contains("?") {
-                      binding.value
-                    } else if class_name.contains("|") {
-                      // PKL-148bh: union annotation (`*Foo | Baz`)
-                      // — pick the starred branch and route through
-                      // its class. Falls back to ObjectLiteral when
-                      // no starred branch resolves to a user class.
-                      let mut starred_class : String? = None
-                      for choice in split_top_level_union_choices(class_name) {
-                        let t = trim_spaces(choice)
-                        if t.has_prefix("*") {
-                          let head = trim_spaces(
-                            String::unsafe_substring(t, start=1, end=t.length()),
-                          )
-                          if lookup_class_binding(class_env, head) is Some(_) {
-                            starred_class = Some(head)
-                            break
-                          }
-                        }
-                      }
-                      match starred_class {
-                        Some(name) => TypedObjectLiteral(name, members)
-                        None => binding.value
-                      }
-                    } else if lookup_value(env, class_name)
-                      is Some(ObjectValue(_)) ||
-                      lookup_value(cache, class_name) is Some(ObjectValue(_)) ||
-                      find_binding(bindings, class_name) is Some(_) {
-                      AmendExpr(Identifier(class_name), members)
-                    } else {
-                      binding.value
-                    }
-                }
-              _ => binding.value
-            }
-            match
-              eval_expr_with_bindings(
-                rewritten_value,
+    Some(value) => return Some(value)
+    None => ()
+  }
+  match lookup_value(cache, hidden_member_name(name)) {
+    Some(value) => return Some(value)
+    None => ()
+  }
+  match lookup_value(cache, local_member_name(name)) {
+    Some(value) => return Some(value)
+    None => ()
+  }
+  match find_binding(bindings, name) {
+    Some(binding) =>
+      if stack_contains_binding(stack, name) {
+        // PKL-148t: when a property's RHS self-references the
+        // same name but a sibling module-level function shares
+        // it (`function qux(...) = ...` beside `qux = qux(...)`),
+        // Apple Pkl resolves the RHS occurrence through the
+        // function namespace first. Try the function-shaped
+        // binding before surfacing the cycle diagnostic — only
+        // when the currently-resolving binding is itself NOT a
+        // function (otherwise the fallback would short-circuit
+        // back to the same binding).
+        let cyclic_is_function = match binding.value {
+          LambdaExpr(_, _, _) => true
+          _ => false
+        }
+        if !cyclic_is_function {
+          match find_function_binding(bindings, name) {
+            Some(fn_binding) =>
+              return eval_expr_with_bindings(
+                fn_binding.value,
                 bindings,
                 env,
                 class_env,
                 cache,
-                push_binding_stack(stack, name),
+                stack,
                 declarations,
                 diagnostics,
                 resolve_import,
-              ) {
-              Some(raw_value) => {
-                let value = coerce_value_to_annotated_type(
-                  raw_value,
-                  binding.type_name,
-                )
-                // PKL-148u: structural type rejection ahead of the
-                // constraint cascade. Module-level bindings surface
-                // the diagnostic eagerly (no lazy access-time
-                // intercept; the binding is evaluated once on
-                // reference). For class defaults, see the deferred
-                // `@error$` encoding in `eval_object_members`.
-                let structural_reject = match binding.type_name {
-                  Some(annotation) =>
-                    eval_resolved_annotation_structural_rejection_message(
-                      annotation, value, declarations,
-                    )
-                  None => None
-                }
-                match structural_reject {
-                  Some(message) => {
-                    diagnostics.push(diag(message))
-                    None
-                  }
-                  None =>
-                    if pkl_constrained_type_annotation_value_is_valid(
-                        binding.type_name,
-                        value,
-                        diagnostics,
-                      ) {
-                      cache.push({ name, value })
-                      Some(value)
-                    } else {
-                      None
+              )
+            None => ()
+          }
+        }
+        diagnostics.push(diag("cyclic property reference \{name}"))
+        None
+      } else {
+        // PKL-148bg: when the binding annotation names a user class
+        // (`local base: TheClass2 = new { requiredLength = 5 }`),
+        // rewrite a bare `new { ... }` (ObjectLiteral) to
+        // `new TheClass2 { ... }` (TypedObjectLiteral) so the
+        // class's `hidden` / default machinery runs. Without this
+        // the unprefixed `requiredLength` would leak into the
+        // rendered output (`listings/listing6` fixture). When the
+        // annotation names an in-scope module-shaped value
+        // (`res1: someModule = new { foo = "..." }`), promote the
+        // RHS to `AmendExpr(Identifier(someModule), members)` so
+        // the module's own defaults flow through.
+        let rewritten_value : Expr = match (binding.value, binding.type_name) {
+          (ObjectLiteral(members), Some(class_name)) =>
+            match lookup_class_binding(class_env, class_name) {
+              Some(_) => TypedObjectLiteral(class_name, members)
+              None =>
+                if class_name.contains(".") ||
+                  class_name.contains("<") ||
+                  class_name.contains("(") ||
+                  class_name.contains("?") {
+                  binding.value
+                } else if class_name.contains("|") {
+                  // PKL-148bh: union annotation (`*Foo | Baz`)
+                  // — pick the starred branch and route through
+                  // its class. Falls back to ObjectLiteral when
+                  // no starred branch resolves to a user class.
+                  let mut starred_class : String? = None
+                  for choice in split_top_level_union_choices(class_name) {
+                    let t = trim_spaces(choice)
+                    if t.has_prefix("*") {
+                      let head = trim_spaces(
+                        String::unsafe_substring(t, start=1, end=t.length()),
+                      )
+                      if lookup_class_binding(class_env, head) is Some(_) {
+                        starred_class = Some(head)
+                        break
+                      }
                     }
+                  }
+                  match starred_class {
+                    Some(name) => TypedObjectLiteral(name, members)
+                    None => binding.value
+                  }
+                } else if lookup_value(env, class_name) is Some(ObjectValue(_)) ||
+                  lookup_value(cache, class_name) is Some(ObjectValue(_)) ||
+                  find_binding(bindings, class_name) is Some(_) {
+                  AmendExpr(Identifier(class_name), members)
+                } else {
+                  binding.value
                 }
-              }
+            }
+          _ => binding.value
+        }
+        match
+          eval_expr_with_bindings(
+            rewritten_value,
+            bindings,
+            env,
+            class_env,
+            cache,
+            push_binding_stack(stack, name),
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(raw_value) => {
+            let value = coerce_value_to_annotated_type(
+              raw_value,
+              binding.type_name,
+            )
+            // PKL-148u: structural type rejection ahead of the
+            // constraint cascade. Module-level bindings surface
+            // the diagnostic eagerly (no lazy access-time
+            // intercept; the binding is evaluated once on
+            // reference). For class defaults, see the deferred
+            // `@error$` encoding in `eval_object_members`.
+            let structural_reject = match binding.type_name {
+              Some(annotation) =>
+                eval_resolved_annotation_structural_rejection_message(
+                  annotation, value, declarations,
+                )
               None => None
             }
+            match structural_reject {
+              Some(message) => {
+                diagnostics.push(diag(message))
+                None
+              }
+              None =>
+                if pkl_constrained_type_annotation_value_is_valid(
+                    binding.type_name,
+                    value,
+                    diagnostics,
+                  ) {
+                  cache.push({ name: binding.name, value })
+                  Some(value)
+                } else {
+                  None
+                }
+            }
           }
-        None => None
+          None => None
+        }
+      }
+    None =>
+      match lookup_value(cache, "super") {
+        Some(ObjectValue(parent_members)) =>
+          if is_module_member_set(parent_members) {
+            resolve_module_parent_member_value(
+              name, parent_members, bindings, env, class_env, cache, stack, declarations,
+              diagnostics, resolve_import,
+            )
+          } else {
+            None
+          }
+        _ => None
       }
   }
 }

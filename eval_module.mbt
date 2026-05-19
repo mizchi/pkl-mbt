@@ -122,6 +122,260 @@ fn eval_module_relation(
 }
 
 ///|
+fn module_metadata_name() -> String {
+  "__module_name"
+}
+
+///|
+fn module_metadata_super_name() -> String {
+  "__module_super"
+}
+
+///|
+fn module_members_name(members : Array[ValueMember]) -> String? {
+  match lookup_member(members, module_metadata_name()) {
+    Some(StringValue(name)) => Some(name)
+    _ => None
+  }
+}
+
+///|
+fn module_members_super(members : Array[ValueMember]) -> Array[ValueMember]? {
+  match lookup_member(members, module_metadata_super_name()) {
+    Some(ObjectValue(super_members)) => Some(super_members)
+    _ => None
+  }
+}
+
+///|
+fn is_module_member_set(members : Array[ValueMember]) -> Bool {
+  module_members_name(members) is Some(_) ||
+  module_members_super(members) is Some(_)
+}
+
+///|
+fn module_super_members_from_cache(
+  cache : Array[ValueBinding],
+) -> Array[ValueMember]? {
+  match lookup_value(cache, "super") {
+    Some(ObjectValue(members)) =>
+      if is_module_member_set(members) {
+        Some(members)
+      } else {
+        None
+      }
+    _ => None
+  }
+}
+
+///|
+fn is_module_runtime_metadata_name(name : String) -> Bool {
+  let bare = strip_member_visibility_prefix(name)
+  bare == module_metadata_name() ||
+  bare == module_metadata_super_name() ||
+  bare == "__class" ||
+  bare == "__kind" ||
+  bare == "__qualified_name"
+}
+
+///|
+fn should_overlay_module_receiver_binding(name : String) -> Bool {
+  if name == "super" || name == "this" || is_error_member_name(name) {
+    return false
+  }
+  if name.has_prefix("@") &&
+    !is_hidden_member_name(name) &&
+    !is_local_member_name(name) {
+    return false
+  }
+  !is_module_runtime_metadata_name(name)
+}
+
+///|
+fn module_receiver_binding_name(name : String) -> String {
+  strip_member_visibility_prefix(name)
+}
+
+///|
+fn module_binding_shadowed_by_receiver(
+  name : String,
+  receiver_bindings : Array[Binding],
+) -> Bool {
+  find_binding(receiver_bindings, module_receiver_binding_name(name)) is Some(_)
+}
+
+///|
+fn bind_module_function_receiver(
+  value : Value,
+  receiver_cache : Array[ValueBinding],
+  receiver_bindings : Array[Binding],
+) -> Value {
+  match value {
+    FunctionValue(parameters, body, return_type_name, captured_env, id) => {
+      let rebound : Array[ValueBinding] = []
+      for captured in captured_env {
+        if should_overlay_module_receiver_binding(captured.name) &&
+          module_binding_shadowed_by_receiver(captured.name, receiver_bindings) {
+          continue
+        }
+        rebound.push(captured)
+      }
+      for receiver in receiver_cache {
+        if should_overlay_module_receiver_binding(receiver.name) {
+          rebound.push({
+            name: module_receiver_binding_name(receiver.name),
+            value: receiver.value,
+          })
+        }
+      }
+      FunctionValue(parameters, body, return_type_name, rebound, id)
+    }
+    _ => value
+  }
+}
+
+///|
+fn module_parent_reeval_env(
+  owner_members : Array[ValueMember],
+  receiver_bindings : Array[Binding],
+  env : Array[ValueBinding],
+  receiver_cache : Array[ValueBinding],
+) -> Array[ValueBinding] {
+  let local_env : Array[ValueBinding] = []
+  for value_member in owner_members {
+    if is_error_member_name(value_member.name) ||
+      is_module_runtime_metadata_name(value_member.name) {
+      continue
+    }
+    let bare = strip_member_visibility_prefix(value_member.name)
+    if find_binding(receiver_bindings, bare) is Some(_) {
+      continue
+    }
+    local_env.push({
+      name: bare,
+      value: bind_module_function_receiver(
+        value_member.value,
+        receiver_cache,
+        receiver_bindings,
+      ),
+    })
+  }
+  for binding in env {
+    local_env.push(binding)
+  }
+  for binding in receiver_cache {
+    if should_overlay_module_receiver_binding(binding.name) {
+      local_env.push({
+        name: module_receiver_binding_name(binding.name),
+        value: binding.value,
+      })
+    }
+  }
+  local_env
+}
+
+///|
+fn module_parent_reeval_cache(
+  owner_members : Array[ValueMember],
+  receiver_cache : Array[ValueBinding],
+) -> Array[ValueBinding] {
+  let local_cache : Array[ValueBinding] = []
+  for binding in receiver_cache {
+    if binding.name != "super" {
+      local_cache.push(binding)
+    }
+  }
+  match module_members_super(owner_members) {
+    Some(super_members) =>
+      local_cache.push({ name: "super", value: ObjectValue(super_members) })
+    None => ()
+  }
+  local_cache
+}
+
+///|
+fn resolve_module_parent_member_value(
+  member_name : String,
+  parent_members : Array[ValueMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match lookup_value_member(parent_members, member_name) {
+    Some(value_member) =>
+      match value_member.value {
+        FunctionValue(_, _, _, _, _) =>
+          Some(
+            bind_module_function_receiver(value_member.value, cache, bindings),
+          )
+        _ =>
+          match value_member.source {
+            Some(source) =>
+              eval_expr_with_bindings(
+                source,
+                bindings,
+                module_parent_reeval_env(parent_members, bindings, env, cache),
+                class_env,
+                module_parent_reeval_cache(parent_members, cache),
+                stack,
+                declarations,
+                diagnostics,
+                resolve_import,
+              )
+            None => Some(value_member.value)
+          }
+      }
+    None => None
+  }
+}
+
+///|
+fn late_bind_module_parent_members(
+  parent_members : Array[ValueMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Array[ValueMember] {
+  if !is_module_member_set(parent_members) {
+    return parent_members
+  }
+  let rebound : Array[ValueMember] = []
+  for value_member in parent_members {
+    if is_module_runtime_metadata_name(value_member.name) {
+      rebound.push(value_member)
+      continue
+    }
+    let value = match
+      resolve_module_parent_member_value(
+        strip_member_visibility_prefix(value_member.name),
+        parent_members,
+        bindings,
+        env,
+        class_env,
+        cache,
+        [],
+        declarations,
+        diagnostics,
+        resolve_import,
+      ) {
+      Some(v) => v
+      None => value_member.value
+    }
+    rebound.push({ name: value_member.name, value, source: value_member.source })
+  }
+  rebound
+}
+
+///|
 fn eval_read_uri(uri : String, diagnostics : Array[Diagnostic]) -> Value? {
   // PKL-098 / PKL-106 sandbox policy: `env:` is always on the
   // allow-list; `prop:` is allow-listed when the CLI installed at
@@ -337,6 +591,7 @@ fn eval_program(
   let type_aliases = eval_type_alias_bindings(program.declarations)
   let cache : Array[ValueBinding] = []
   let members : Array[ValueMember] = []
+  let module_parent_members : Array[ValueMember] = []
   let bindings = all_eval_bindings(program)
   eval_imports(program.imports, env, diagnostics, resolve_import)
   add_imported_class_bindings(
@@ -407,6 +662,9 @@ fn eval_program(
       let parent_members = eval_module_relation(
         relation, diagnostics, resolve_import,
       )
+      for parent_member in parent_members {
+        module_parent_members.push(parent_member)
+      }
       if parent_members.length() > 0 {
         cache.push({ name: "super", value: ObjectValue(parent_members) })
       }
@@ -515,7 +773,11 @@ fn eval_program(
               type_aliases,
               diagnostics,
             ) {
-            members.push({ name: binding.name, value, source: None })
+            members.push({
+              name: binding.name,
+              value,
+              source: Some(binding.value),
+            })
           }
         }
         None => ()
@@ -565,6 +827,24 @@ fn eval_program(
       _ => ()
     }
   }
+  match program.module_name {
+    Some(name) =>
+      members.push({
+        name: hidden_member_name(module_metadata_name()),
+        value: StringValue(name),
+        source: None,
+      })
+    None => ()
+  }
+  match program.module_relation {
+    Some(_) =>
+      members.push({
+        name: hidden_member_name(module_metadata_super_name()),
+        value: ObjectValue(module_parent_members),
+        source: None,
+      })
+    None => ()
+  }
   let result = match program.body {
     Some(expr) =>
       eval_expr_with_bindings(
@@ -578,11 +858,20 @@ fn eval_program(
         diagnostics,
         resolve_import,
       )
-    None if program.module_relation is Some(relation) =>
+    None if program.module_relation is Some(_) =>
       Some(
         ObjectValue(
           merge_value_members(
-            eval_module_relation(relation, diagnostics, resolve_import),
+            late_bind_module_parent_members(
+              module_parent_members,
+              bindings,
+              env,
+              class_env,
+              cache,
+              program.declarations,
+              diagnostics,
+              resolve_import,
+            ),
             members,
           ),
         ),

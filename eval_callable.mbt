@@ -1235,11 +1235,7 @@ fn eval_super_method_call(
       // hidden member prefix.
       match lookup_value(cache, "super") {
         Some(ObjectValue(parent_members)) => {
-          let target = match lookup_member(parent_members, method_name) {
-            Some(value) => Some(value)
-            None =>
-              lookup_member(parent_members, hidden_member_name(method_name))
-          }
+          let target = lookup_member(parent_members, method_name)
           match target {
             Some(FunctionValue(_, _, _, _, _) as fn_value) => {
               let argument_values : Array[Value] = []
@@ -1259,7 +1255,7 @@ fn eval_super_method_call(
               }
               return apply_function_value(
                 "super.\{method_name}",
-                fn_value,
+                bind_module_function_receiver(fn_value, cache, bindings),
                 argument_values,
                 bindings,
                 env,
@@ -1276,8 +1272,12 @@ fn eval_super_method_call(
               return None
             }
             None => {
+              let target_name = match module_members_name(parent_members) {
+                Some(name) => "module `\{name}`"
+                None => "parent module"
+              }
               diagnostics.push(
-                diag("Cannot find method `\{method_name}` in parent module."),
+                diag("Cannot find method `\{method_name}` in \{target_name}."),
               )
               return None
             }
