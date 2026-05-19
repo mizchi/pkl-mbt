@@ -389,14 +389,17 @@ fn builtin_stdlib_source(uri : String) -> String? {
         #|Class = (name) -> new {
         #|  reflectee = name
         #|  hidden __kind = "Class"
+        #|  modifiers = Set()
         #|}
         #|Module = (name) -> new {
         #|  reflectee = name
         #|  hidden __kind = "Module"
+        #|  modifiers = Set()
         #|}
         #|TypeAlias = (name) -> new {
         #|  reflectee = name
         #|  hidden __kind = "TypeAlias"
+        #|  modifiers = Set()
         #|}
         #|Property = (name) -> new { name = name }
         #|DeclaredType = (referent) -> new { referent = referent }

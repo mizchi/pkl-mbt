@@ -382,12 +382,45 @@ fn synth_class_mirror_for_value(value : Value) -> Value {
 /// identifier as a Class instance whose member-access surface
 /// produces `Cannot find property \`X\` in object of type \`Class\`.`
 /// for anything other than `simpleName` / `name`.
+/// PKL-148bb: mirror for a typealias declaration. Same shape as the
+/// reflect.Class mirror but `__kind = "TypeAlias"` so member-access
+/// dispatch routes to the alias surface (`.simpleName`, `.name`,
+/// `.modifiers`, `.toString()`).
+fn synth_type_alias_mirror_for_name(name : String) -> Value {
+  ObjectValue([
+    {
+      name: hidden_member_name("__kind"),
+      value: StringValue("TypeAlias"),
+      source: None,
+    },
+    {
+      name: hidden_member_name("reflectee"),
+      value: StringValue(name),
+      source: None,
+    },
+    { name: "simpleName", value: StringValue(name), source: None },
+    { name: "name", value: StringValue(name), source: None },
+    { name: "modifiers", value: SetValue([]), source: None },
+  ])
+}
+
+///|
 fn synth_class_mirror_for_name(name : String) -> Value {
   ObjectValue([
     { name: hidden_member_name("__kind"), value: StringValue("Class"), source: None },
     { name: hidden_member_name("reflectee"), value: StringValue(name), source: None },
     { name: "simpleName", value: StringValue(name), source: None },
     { name: "name", value: StringValue(name), source: None },
+    // PKL-148bb: reflect.Class / reflect.TypeAlias both expose a
+    // `modifiers : Set<String>` slot (annotation / visibility keywords
+    // declared on the type). pkl-mbt doesn't surface modifier text
+    // through the AST yet, so default to an empty Set — `types/modifiersForTypes`
+    // and other `.modifiers` consumers see the expected empty Set form.
+    {
+      name: "modifiers",
+      value: SetValue([]),
+      source: None,
+    },
   ])
 }
 

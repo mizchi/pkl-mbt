@@ -1052,8 +1052,23 @@ fn eval_expr_with_bindings(
                 if is_stdlib_class_name(name) {
                   Some(synth_class_mirror_for_name(name))
                 } else {
-                  diagnostics.push(diag("Cannot find property `\{name}`."))
-                  None
+                  // PKL-148bb: a user-declared `typealias Bar = Foo`
+                  // surfaces as a TypeAlias mirror with the same
+                  // shape `pkl:reflect.TypeAlias(name)` would build —
+                  // `Bar.toString()` / `Bar.simpleName` round-trip.
+                  let mut has_alias = false
+                  for decl in declarations {
+                    if decl is TypeAliasDeclaration(td) && td.name == name {
+                      has_alias = true
+                      break
+                    }
+                  }
+                  if has_alias {
+                    Some(synth_type_alias_mirror_for_name(name))
+                  } else {
+                    diagnostics.push(diag("Cannot find property `\{name}`."))
+                    None
+                  }
                 }
             }
         }
