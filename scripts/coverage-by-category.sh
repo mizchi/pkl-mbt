@@ -23,6 +23,13 @@ cd "$ROOT"
 UPSTREAM="third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input"
 GOLD="third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/output"
 MPKL="_build/native/release/build/cmd/mpkl/mpkl.exe"
+# PKL-150 (#258): Apple ships pre-extracted packages under
+# `pkl-commons-test/src/main/files/packages/<name>@<version>/`, which
+# is exactly the layout `--package-cache` expects. Point at it so
+# `project*` fixtures that import `@dep/Foo.pkl` from a remote package
+# resolve via the cache rather than hitting the "not implemented"
+# diagnostic.
+PKG_CACHE="third_party/apple-pkl/pkl-commons-test/src/main/files/packages"
 
 if [ ! -x "$MPKL" ]; then
   echo "building $MPKL ..." >&2
@@ -38,6 +45,7 @@ cat > "$PROBE" <<EOF
 MPKL="$ROOT/$MPKL"
 UPSTREAM="$ROOT/$UPSTREAM"
 GOLD="$ROOT/$GOLD"
+PKG_CACHE="$ROOT/$PKG_CACHE"
 EOF
 cat >> "$PROBE" <<'EOF'
 f="$1"
@@ -51,7 +59,7 @@ fi
 # upstream-smoke gate. The previous `$(...)` capture + `printf '%s\n'`
 # wrapping always normalised the final byte and undercounted PASS.
 tmp="$(mktemp)"
-"$MPKL" eval "$UPSTREAM/$f.pkl" > "$tmp" 2>/dev/null || true
+"$MPKL" eval --package-cache "$PKG_CACHE" "$UPSTREAM/$f.pkl" > "$tmp" 2>/dev/null || true
 if diff -q "$goldpcf" "$tmp" >/dev/null 2>&1; then
   printf '%s|PASS\n' "$f"
 else

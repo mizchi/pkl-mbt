@@ -244,6 +244,48 @@ fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
   }
   let mut keep_walking = true
   while keep_walking {
+    // PKL-150 (#258): consult PklProject directly for the alias's URI
+    // first — it carries the alias→URI mapping verbatim, and the
+    // configured `--package-cache` can resolve the URI to a local
+    // file without needing the deps.json lockfile. The deps.json path
+    // below still wins for `type: "local"` (file-path) entries; the
+    // PklProject scan only runs for the remote-URI variant the cache
+    // can serve.
+    let pklproject_path = if current == "" {
+      "PklProject"
+    } else {
+      current + "/PklProject"
+    }
+    if @fs.path_exists(pklproject_path) {
+      let project_text = @fs.read_file_to_string(pklproject_path) catch {
+        _ => ""
+      }
+      if project_text != "" {
+        match pklproject_alias_to_uri(project_text, dep_name) {
+          Some(remote_uri) =>
+            match resolve_package_uri_to_cache(remote_uri, rest) {
+              Some(local) => return Some(local)
+              None => ()
+            }
+          None => ()
+        }
+      }
+    }
+    // PKL-150 (#258): when the importer is itself inside a package
+    // cache directory, the alias map lives in the `<name>@<version>.json`
+    // metadata sibling rather than a PklProject. The layout is
+    // `<cache>/<name>@<version>/package/<file>` for sources and
+    // `<cache>/<name>@<version>/<name>@<version>.json` for metadata —
+    // step past the `package/` directory once and probe for any
+    // `*@*.json` whose `dependencies[<dep>]` matches the alias.
+    match package_metadata_alias_to_uri(current, dep_name) {
+      Some(remote_uri) =>
+        match resolve_package_uri_to_cache(remote_uri, rest) {
+          Some(local) => return Some(local)
+          None => ()
+        }
+      None => ()
+    }
     let deps_path = if current == "" {
       "PklProject.deps.json"
     } else {
@@ -275,31 +317,53 @@ fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
                   if entry_name == dep_name {
                     match value {
                       Object(entry) => {
-                        let is_local = match entry.get("type") {
-                          Some(String(s)) => s == "local"
-                          _ => false
+                        let entry_type = match entry.get("type") {
+                          Some(String(s)) => s
+                          _ => ""
                         }
                         let path_str = match entry.get("path") {
                           Some(String(s)) => Some(s)
                           _ => None
                         }
-                        match (is_local, path_str) {
-                          (true, Some(path)) => {
-                            let dep_dir = if path.has_suffix("/") {
-                              path
-                            } else {
-                              path + "/"
+                        let uri_str = match entry.get("uri") {
+                          Some(String(s)) => Some(s)
+                          _ => None
+                        }
+                        if entry_type == "local" {
+                          match path_str {
+                            Some(path) => {
+                              let dep_dir = if path.has_suffix("/") {
+                                path
+                              } else {
+                                path + "/"
+                              }
+                              let joined = if dep_dir.has_prefix("/") {
+                                dep_dir + rest
+                              } else if current == "" {
+                                dep_dir + rest
+                              } else {
+                                current + "/" + dep_dir + rest
+                              }
+                              return Some(joined)
                             }
-                            let joined = if dep_dir.has_prefix("/") {
-                              dep_dir + rest
-                            } else if current == "" {
-                              dep_dir + rest
-                            } else {
-                              current + "/" + dep_dir + rest
-                            }
-                            return Some(joined)
+                            None => ()
                           }
-                          _ => ()
+                        } else if entry_type == "remote" {
+                          // PKL-150 (#258): `type: "remote"` carries a
+                          // `projectpackage://host/name@version` URI.
+                          // Resolve through the configured package
+                          // caches so `@dep/rest` lands on the
+                          // pre-extracted package directory.
+                          match uri_str {
+                            Some(remote_uri) =>
+                              match resolve_package_uri_to_cache(
+                                  remote_uri, rest,
+                                ) {
+                                Some(local) => return Some(local)
+                                None => ()
+                              }
+                            None => ()
+                          }
                         }
                       }
                       _ => ()
@@ -320,6 +384,252 @@ fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
           current = String::unsafe_substring(current, start=0, end=idx)
         None => current = ""
       }
+    }
+  }
+  None
+}
+
+///|
+/// PKL-150 (#258): when a file inside a package cache (`<cache>/<name>@<version>/package/...`)
+/// imports `@<dep>/<rest>`, the alias→URI map lives in the package's
+/// `<name>@<version>.json` metadata sibling, not in a PklProject.
+/// Probe ancestor directories for one whose parent contains a
+/// `*.json` metadata file with `dependencies[<dep>].uri`. Returns the
+/// `package://...` URI on a hit so the caller routes through the
+/// existing cache resolver, or None to fall through to the legacy
+/// path.
+fn package_metadata_alias_to_uri(
+  current : String,
+  dep_name : String,
+) -> String? {
+  // Walk up: if the importing file is `.../<name>@<version>/package/sub/dir/X.pkl`,
+  // we keep stepping up until we hit `<name>@<version>/package`. The
+  // sibling `<name>@<version>.json` then carries the dep map.
+  let mut dir = current
+  while dir != "" && dir != "/" {
+    // Look for a sibling JSON file named like `<basename>.json` in the
+    // parent directory of `dir`. That covers the canonical cache
+    // layout where `package/` lives under `<name>@<version>/`.
+    let parent_idx = dir.rev_find("/")
+    let (parent, basename) = match parent_idx {
+      Some(idx) =>
+        (
+          String::unsafe_substring(dir, start=0, end=idx),
+          String::unsafe_substring(dir, start=idx + 1, end=dir.length()),
+        )
+      None => ("", dir)
+    }
+    // The package layout puts the metadata next to `package/`; the
+    // basename of `dir`'s parent should be `<name>@<version>`. Probe
+    // for that specific JSON.
+    if basename == "package" {
+      let pkg_dir_idx = parent.rev_find("/")
+      let pkg_basename = match pkg_dir_idx {
+        Some(idx) =>
+          String::unsafe_substring(parent, start=idx + 1, end=parent.length())
+        None => parent
+      }
+      if pkg_basename.find("@") is Some(_) {
+        let meta_path = parent + "/" + pkg_basename + ".json"
+        if @fs.path_exists(meta_path) {
+          let body = @fs.read_file_to_string(meta_path) catch { _ => "" }
+          if body != "" {
+            let parsed = Some(@json.parse(body[:])) catch { _ => None }
+            match parsed {
+              Some(Object(top)) =>
+                match top.get("dependencies") {
+                  Some(Object(deps)) =>
+                    match deps.get(dep_name) {
+                      Some(Object(entry)) =>
+                        match entry.get("uri") {
+                          Some(String(uri)) => return Some(uri)
+                          _ => ()
+                        }
+                      _ => ()
+                    }
+                  _ => ()
+                }
+              _ => ()
+            }
+          }
+        }
+      }
+    }
+    match parent_idx {
+      Some(idx) => dir = String::unsafe_substring(dir, start=0, end=idx)
+      None => dir = ""
+    }
+  }
+  None
+}
+
+///|
+/// PKL-150 (#258): scan a PklProject text for the `["<alias>"]` block
+/// and read out its `uri = "..."`. Apple Pkl evaluates the project
+/// module to compute this — we lean on a text scan because the eval
+/// path would loop (the loader resolves imports through PklProject,
+/// which would re-trigger eval through the loader). The scan only
+/// looks for the literal `["<alias>"] {` opener and a subsequent
+/// `uri = "..."` until the matching `}`, so non-literal forms
+/// (`["x" + y"]` etc.) fall through to None. That covers the snippet
+/// fixtures and any project that writes dependency entries in the
+/// standard form.
+fn pklproject_alias_to_uri(text : String, alias : String) -> String? {
+  let opener = "[\"" + alias + "\"]"
+  let mut search_from = 0
+  while search_from < text.length() {
+    let tail = String::unsafe_substring(text, start=search_from, end=text.length())
+    let open_idx = match tail.find(opener) {
+      Some(idx) => idx
+      None => return None
+    }
+    let absolute = search_from + open_idx
+    let after_opener = absolute + opener.length()
+    // Walk past whitespace then expect `{`. Skip on mismatch (some
+    // other `["<alias>"]` reference outside a dependencies block).
+    let mut p = after_opener
+    while p < text.length() {
+      let c = text[p].to_int().unsafe_to_char()
+      if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+        p = p + 1
+      } else {
+        break
+      }
+    }
+    if p >= text.length() || text[p].to_int().unsafe_to_char() != '{' {
+      search_from = after_opener
+      continue
+    }
+    let body_start = p + 1
+    // Find the matching `}`. Counts nested braces so an inner object
+    // (`checksums { ... }`) doesn't close early.
+    let mut depth = 1
+    let mut j = body_start
+    while j < text.length() && depth > 0 {
+      let c = text[j].to_int().unsafe_to_char()
+      if c == '{' {
+        depth = depth + 1
+      } else if c == '}' {
+        depth = depth - 1
+        if depth == 0 {
+          break
+        }
+      }
+      j = j + 1
+    }
+    if j >= text.length() {
+      return None
+    }
+    let body = String::unsafe_substring(text, start=body_start, end=j)
+    // Find `uri = "..."` literally. Restricted to the in-body slice so
+    // we don't accidentally grab a `uri` from a later block.
+    let uri_marker = "uri"
+    let uri_idx = match body.find(uri_marker) {
+      Some(idx) => idx
+      None => {
+        search_from = j + 1
+        continue
+      }
+    }
+    let mut k = uri_idx + uri_marker.length()
+    while k < body.length() {
+      let c = body[k].to_int().unsafe_to_char()
+      if c == ' ' || c == '\t' || c == '=' {
+        k = k + 1
+      } else {
+        break
+      }
+    }
+    if k >= body.length() || body[k].to_int().unsafe_to_char() != '"' {
+      search_from = j + 1
+      continue
+    }
+    let value_start = k + 1
+    let mut value_end = value_start
+    while value_end < body.length() &&
+          body[value_end].to_int().unsafe_to_char() != '"' {
+      value_end = value_end + 1
+    }
+    if value_end > body.length() {
+      return None
+    }
+    return Some(
+      String::unsafe_substring(body, start=value_start, end=value_end),
+    )
+  }
+  None
+}
+
+///|
+/// PKL-150 (#258): map a `package://host/name@version[/rest]` (or the
+/// `projectpackage://` variant the deps.json uses) URI onto a local
+/// file under one of the configured `--package-cache` directories.
+/// The lookup ignores the host and uses `<name>@<version>` as the
+/// directory name: `<cache>/<name>@<version>/package/<rest>`. The
+/// first cache root that contains a matching file wins. Returns None
+/// when no cache root has the file — the caller then falls back to
+/// the legacy "package:// not implemented" diagnostic.
+fn resolve_package_uri_to_cache(uri : String, rest : String) -> String? {
+  // Strip both `package://` and `projectpackage://` prefixes — the
+  // deps.json round-trips the second form for resolved-remote entries.
+  let body = if uri.has_prefix("projectpackage://") {
+    String::unsafe_substring(uri, start=17, end=uri.length())
+  } else if uri.has_prefix("package://") {
+    String::unsafe_substring(uri, start=10, end=uri.length())
+  } else {
+    return None
+  }
+  // Drop the host. The body has shape `<host>/<name>@<version>[/<path>]`;
+  // we only care about the `<name>@<version>` tail and any extra path.
+  let after_host = match body.find("/") {
+    Some(idx) => String::unsafe_substring(body, start=idx + 1, end=body.length())
+    None => return None
+  }
+  // Split at the first `/` after the `@` so `name@version[/sub/Bird.pkl]`
+  // separates into the cache key and an extra path tail. URIs without
+  // a trailing path leave `extra` empty.
+  let at_idx = match after_host.find("@") {
+    Some(idx) => idx
+    None => return None
+  }
+  let after_at = String::unsafe_substring(
+    after_host, start=at_idx + 1, end=after_host.length(),
+  )
+  let (version, extra) = match after_at.find("/") {
+    Some(idx) =>
+      (
+        String::unsafe_substring(after_at, start=0, end=idx),
+        String::unsafe_substring(after_at, start=idx + 1, end=after_at.length()),
+      )
+    None => (after_at, "")
+  }
+  let name = String::unsafe_substring(after_host, start=0, end=at_idx)
+  let pkg_dir = "\{name}@\{version}/package"
+  let suffix = if extra == "" && rest == "" {
+    ""
+  } else if extra == "" {
+    rest
+  } else if rest == "" {
+    extra
+  } else if extra.has_suffix("/") {
+    extra + rest
+  } else {
+    extra + "/" + rest
+  }
+  let relative = if suffix == "" {
+    pkg_dir
+  } else {
+    pkg_dir + "/" + suffix
+  }
+  for cache_dir in @pkl.sandbox_package_caches() {
+    let base = if cache_dir.has_suffix("/") {
+      cache_dir
+    } else {
+      cache_dir + "/"
+    }
+    let candidate = base + relative
+    if @fs.path_exists(candidate) {
+      return Some(candidate)
     }
   }
   None
@@ -657,8 +967,20 @@ async fn load_path(
       }
     }
   } else if path.has_prefix("package://") {
-    diagnose_package_uri(path)
-    ""
+    // PKL-150 (#258): try the configured package caches first. The
+    // direct entry-point form is `package://host/name@version` with no
+    // trailing path — pass `""` as the extra `rest` so the resolver
+    // returns the bare `package/` directory; the loader's `@fs.read`
+    // call below then fails with the normal "Cannot find module"
+    // diagnostic if the resolved candidate isn't a file (matches the
+    // upstream behaviour when the import names a directory).
+    match resolve_package_uri_to_cache(path, "") {
+      Some(local) => @fs.read_file_to_string(local) catch { _ => "" }
+      None => {
+        diagnose_package_uri(path)
+        ""
+      }
+    }
   } else {
     read_with_module_paths(path)
   }
@@ -877,6 +1199,7 @@ async fn main {
   // matching Apple Pkl's flag.
   let prop_pairs : Map[String, String] = Map([], capacity=8)
   let module_paths : Array[String] = []
+  let package_caches : Array[String] = []
   let mut allowed_modules : Array[String] = []
   let mut i = 2
   while i < args.length() {
@@ -925,6 +1248,13 @@ async fn main {
       }
       module_paths.push(args[i + 1])
       i = i + 2
+    } else if token == "--package-cache" {
+      if i + 1 >= args.length() {
+        usage()
+        @sys.exit(1)
+      }
+      package_caches.push(args[i + 1])
+      i = i + 2
     } else if token == "--allowed-modules" {
       if i + 1 >= args.length() {
         usage()
@@ -939,6 +1269,7 @@ async fn main {
   }
   @pkl.configure_sandbox_props(prop_pairs)
   @pkl.configure_sandbox_module_paths(module_paths)
+  @pkl.configure_sandbox_package_caches(package_caches)
   @pkl.configure_sandbox_allowed_modules(allowed_modules)
   if format != "pcf" &&
     format != "json" &&

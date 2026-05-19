@@ -23,6 +23,14 @@ priv struct SandboxConfig {
   mut props : Map[String, String]
   mut allowed_modules : Array[String]
   mut module_paths : Array[String]
+  // PKL-150 (#258): pre-extracted package cache roots. A directory
+  // looks like `<dir>/<name>@<version>/package/<files>` — this is the
+  // layout `pkl download-package` produces and the one Apple ships
+  // alongside their snippet fixtures (`pkl-commons-test/src/main/files/packages`).
+  // Real network download + DEFLATE + SHA-256 is deferred; this lets
+  // any caller that has already-extracted packages (CI fixtures, an
+  // air-gapped registry mirror) resolve `package://` URIs.
+  mut package_caches : Array[String]
   // PKL-148r: triple-dot import resolutions cached by the CLI's load
   // step (FS-based) so the IO-free analysis layer can map the same
   // `(from, ".../X")` pair back to the absolute path the CLI already
@@ -36,6 +44,7 @@ let sandbox_config : SandboxConfig = {
   props: Map([], capacity=8),
   allowed_modules: [],
   module_paths: [],
+  package_caches: [],
   triple_dot_resolutions: Map([], capacity=8),
 }
 
@@ -105,6 +114,20 @@ pub fn sandbox_is_module_allowed(uri : String) -> Bool {
 /// array directly keeps the loader free of an iterator wrapper.
 pub fn sandbox_module_paths() -> Array[String] {
   sandbox_config.module_paths
+}
+
+///|
+/// Replace the configured package-cache search list. See
+/// `SandboxConfig.package_caches` for the layout each directory must
+/// follow.
+pub fn configure_sandbox_package_caches(dirs : Array[String]) -> Unit {
+  sandbox_config.package_caches = dirs
+}
+
+///|
+/// Iterate the configured `--package-cache` directories in CLI order.
+pub fn sandbox_package_caches() -> Array[String] {
+  sandbox_config.package_caches
 }
 
 ///|
