@@ -152,6 +152,15 @@ fn resolve_import_path(from : String, uri : String) -> String {
       None => return uri
     }
   }
+  // PKL-148bb: `modulepath:/<path>` — consult the same cache the CLI
+  // populates when it walks the importer's directory for a basename
+  // match (basic/import1b).
+  if uri.has_prefix("modulepath:/") {
+    match lookup_triple_dot_resolution(from, uri) {
+      Some(resolved) => return resolved
+      None => return uri
+    }
+  }
   // PKL-148ad: `@<dep>/<rest>` project-dependency imports — the CLI
   // loader resolves the local dep via `PklProject.deps.json` and
   // registers the absolute path in the same sandbox cache the triple-

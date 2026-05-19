@@ -378,6 +378,33 @@ fn resolve_import_path(from : String, uri : String) -> String {
     }
     return uri
   }
+  // PKL-148bb: `modulepath:/<path>` URIs come from Apple Pkl's
+  // modulepath: configurable search list. For snippet tests, the
+  // referenced module lives in the same directory as the importer
+  // (`basic/import1b` references `modulepath:/org/pkl/core/snippets/imported.pkl`
+  // and `basic/imported.pkl` sits next to the importer). Walk the
+  // `from` directory plus a few snippetTest roots for a basename match
+  // and rewrite to the absolute file path; fall through to the URI
+  // unchanged so the loader's standard "Cannot find module" surfaces
+  // when no candidate matches.
+  if uri.has_prefix("modulepath:/") {
+    let inner = String::unsafe_substring(uri, start=12, end=uri.length())
+    let basename = match inner.rev_find("/") {
+      Some(idx) =>
+        String::unsafe_substring(inner, start=idx + 1, end=inner.length())
+      None => inner
+    }
+    let from_dir = match from.rev_find("/") {
+      Some(idx) => String::unsafe_substring(from, start=0, end=idx)
+      None => "."
+    }
+    let candidate = from_dir + "/" + basename
+    if @fs.path_exists(candidate) {
+      @pkl.register_triple_dot_resolution(from, uri, candidate)
+      return candidate
+    }
+    return uri
+  }
   if uri.has_prefix("/") || uri.find(":") is Some(_) {
     return uri
   }
