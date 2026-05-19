@@ -86,6 +86,7 @@ fn infer_expr_with_bindings(
           UnknownType
         }
       }
+    ImportGlobExpr(_) => MapType([])
     ObjectLiteral(members) =>
       ObjectType(
         infer_object_members(

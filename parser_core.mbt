@@ -133,19 +133,6 @@ fn Parser::peek_non_whitespace_kind(
 }
 
 ///|
-fn Parser::peek_non_trivia_text(self : Parser, start : Int) -> String {
-  let mut i = start
-  while i < self.len && is_trivia(self.tokens[i].kind()) {
-    i += 1
-  }
-  if i >= self.len {
-    ""
-  } else {
-    self.tokens[i].text()
-  }
-}
-
-///|
 fn Parser::peek_non_trivia_kind(self : Parser, start : Int) -> @cst.SyntaxKind {
   let mut i = start
   while i < self.len && is_trivia(self.tokens[i].kind()) {
@@ -796,12 +783,26 @@ fn Parser::parse(self : Parser) -> ParseResult {
       // matters when another module re-imports this one). Bump past
       // `local` and let the next loop iteration dispatch on the decl
       // keyword.
-      let next_text = self.peek_non_trivia_text(self.pos + 1)
+      let mut decl_i = self.skip_trivia_from(self.pos + 1)
+      while decl_i < self.len &&
+            self.tokens[decl_i].kind() == identifier() &&
+            is_modifier_text(self.tokens[decl_i].text()) {
+        decl_i = self.skip_trivia_from(decl_i + 1)
+      }
+      let next_text = if decl_i < self.len {
+        self.tokens[decl_i].text()
+      } else {
+        ""
+      }
       if next_text == "class" ||
         next_text == "function" ||
         next_text == "typealias" {
         ignore(self.bump())
         self.skip_whitespace()
+        while self.at(identifier()) && is_modifier_text(self.peek().text()) {
+          ignore(self.bump())
+          self.skip_whitespace()
+        }
         continue
       } else if is_decl_text(next_text) {
         self.skip_unknown_member()

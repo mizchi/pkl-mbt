@@ -85,14 +85,11 @@ fn capture_value_bindings(
 ) -> Array[ValueBinding] {
   let captured = copy_value_bindings(env)
   for binding in cache {
-    // PKL-148bh: skip the `@__module_name` marker only — it's pure
-    // plumbing for reflect mirror toString, never read inside a user
-    // function body, and leaking it changed captured_env's length
-    // which the unit suite asserts against. Other `@__` markers
-    // (`@__module_imports`, `@__constructing_class`, `@__index_entry`,
-    // etc.) must propagate so the lambda body's reflect / interpolation
-    // path still sees them.
-    if binding.name == "@__module_name" {
+    // PKL-148bh / PKL-148bl: module metadata markers are plumbing for
+    // reflect/read dispatch and get reintroduced from the caller cache
+    // at application time. Keeping them out of captured_env prevents
+    // ordinary function values from growing hidden bindings.
+    if binding.name == "@__module_name" || binding.name == "@__module_path" {
       continue
     }
     captured.push(binding)

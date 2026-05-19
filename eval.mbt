@@ -523,6 +523,23 @@ fn eval_source_with_import_details_named(
   resolve_import : (String) -> EvalResult?,
   resolve_import_classes : (String) -> Array[ClassExport]?,
 ) -> EvalResult {
+  eval_source_with_import_details_named_at(
+    source,
+    fallback_module_name,
+    None,
+    resolve_import,
+    resolve_import_classes,
+  )
+}
+
+///|
+fn eval_source_with_import_details_named_at(
+  source : String,
+  fallback_module_name : String?,
+  current_module_path : String?,
+  resolve_import : (String) -> EvalResult?,
+  resolve_import_classes : (String) -> Array[ClassExport]?,
+) -> EvalResult {
   let parsed = parse_source(source)
   let diagnostics = parsed.diagnostics
   if diagnostics.length() > 0 {
@@ -548,7 +565,7 @@ fn eval_source_with_import_details_named(
   }
   match
     eval_program(
-      promoted_program, diagnostics, resolve_import, resolve_import_classes,
+      promoted_program, current_module_path, diagnostics, resolve_import, resolve_import_classes,
     ) {
     Some(value) =>
       if diagnostics.length() == 0 {

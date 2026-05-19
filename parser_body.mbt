@@ -384,6 +384,13 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
   ignore(self.expect(lbrace(), "{"))
   let members : Array[ObjectMember] = []
   self.consume_separators()
+  match self.parse_function_amend_signature_member() {
+    Some(signature) => {
+      members.push(signature)
+      self.consume_separators()
+    }
+    None => ()
+  }
   while !self.at(eof()) && !self.at(rbrace()) {
     let visibility = self.consume_member_header()
     if self.at(when_kw()) {
@@ -536,7 +543,12 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
       match self.parse_object_member() {
         Some(field) => {
           let stored_name = match visibility {
-            VisibleMember => field.name
+            VisibleMember =>
+              if field.name == "default" {
+                hidden_member_name(field.name)
+              } else {
+                field.name
+              }
             HiddenMember => hidden_member_name(field.name)
             LocalMember => local_member_name(field.name)
           }
@@ -623,6 +635,158 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
   }
   ignore(self.expect(rbrace(), "}"))
   members
+}
+
+///|
+fn function_amend_parameter_member_name() -> String {
+  "@functionAmend$params"
+}
+
+///|
+fn is_function_amend_parameter_member_name(name : String) -> Bool {
+  name == function_amend_parameter_member_name()
+}
+
+///|
+fn function_amend_recursive_member_name() -> String {
+  "@functionAmend$recursive"
+}
+
+///|
+fn is_function_amend_recursive_member_name(name : String) -> Bool {
+  name == function_amend_recursive_member_name()
+}
+
+///|
+fn is_function_amend_marker_member_name(name : String) -> Bool {
+  is_function_amend_parameter_member_name(name) ||
+  is_function_amend_recursive_member_name(name)
+}
+
+///|
+fn Parser::function_amend_signature_at_current(self : Parser) -> Bool {
+  let mut i = self.skip_trivia_from(self.pos)
+  if i >= self.len || self.tokens[i].kind() != identifier() {
+    return false
+  }
+  while i < self.len {
+    if self.tokens[i].kind() != identifier() {
+      return false
+    }
+    i = self.skip_trivia_from(i + 1)
+    if i < self.len && self.tokens[i].kind() == colon() {
+      i = self.skip_function_amend_type_from(i + 1)
+    }
+    i = self.skip_trivia_from(i)
+    if i < self.len && self.tokens[i].kind() == arrow() {
+      return true
+    }
+    if i < self.len && self.tokens[i].kind() == comma() {
+      i = self.skip_trivia_from(i + 1)
+      continue
+    }
+    return false
+  }
+  false
+}
+
+///|
+fn Parser::skip_function_amend_type_from(self : Parser, start : Int) -> Int {
+  let mut i = self.skip_trivia_from(start)
+  let mut parens = 0
+  let mut brackets = 0
+  let mut angles = 0
+  while i < self.len {
+    let kind = self.tokens[i].kind()
+    if parens == 0 && brackets == 0 && angles == 0 {
+      if kind == arrow() || kind == comma() || kind == rbrace() {
+        return i
+      }
+      if is_separator(kind) {
+        return i
+      }
+    }
+    if kind == lparen() {
+      parens += 1
+    } else if kind == rparen() {
+      if parens == 0 {
+        return i
+      }
+      parens -= 1
+    } else if kind == lbracket() {
+      brackets += 1
+    } else if kind == rbracket() {
+      if brackets == 0 {
+        return i
+      }
+      brackets -= 1
+    } else if parens == 0 && brackets == 0 && kind == lt() {
+      angles += 1
+    } else if parens == 0 && brackets == 0 && kind == gt() {
+      if angles == 0 {
+        return i
+      }
+      angles -= 1
+    }
+    i += 1
+  }
+  i
+}
+
+///|
+fn Parser::parse_function_amend_parameter(self : Parser) -> FunctionParameter? {
+  if !self.at(identifier()) {
+    return None
+  }
+  let name = self.bump().text()
+  self.skip_whitespace()
+  let type_name = if self.at(colon()) {
+    ignore(self.bump())
+    self.skip_whitespace()
+    let t = self.parse_type_text(
+      stop_at_arrow=true,
+      stop_at_expression_operator=false,
+    )
+    if t == "" {
+      None
+    } else {
+      Some(t)
+    }
+  } else {
+    None
+  }
+  Some({ name, type_name })
+}
+
+///|
+fn Parser::parse_function_amend_signature_member(
+  self : Parser,
+) -> ObjectMember? {
+  if !self.function_amend_signature_at_current() {
+    return None
+  }
+  let parameters : Array[FunctionParameter] = []
+  while !self.at(eof()) && !self.at(arrow()) && !self.at(rbrace()) {
+    match self.parse_function_amend_parameter() {
+      Some(parameter) => parameters.push(parameter)
+      None => ignore(self.bump())
+    }
+    self.skip_whitespace()
+    if self.at(comma()) {
+      ignore(self.bump())
+      self.skip_whitespace()
+    } else {
+      break
+    }
+  }
+  self.skip_whitespace()
+  ignore(self.expect(arrow(), "->"))
+  Some({
+    name: function_amend_parameter_member_name(),
+    type_name: None,
+    value: LambdaExpr(parameters, NullLiteral, None),
+    annotations: [],
+  })
 }
 
 ///|
@@ -776,7 +940,8 @@ fn is_error_member_name(name : String) -> Bool {
 fn is_invisible_member_name(name : String) -> Bool {
   is_hidden_member_name(name) ||
   is_local_member_name(name) ||
-  is_error_member_name(name)
+  is_error_member_name(name) ||
+  is_function_amend_marker_member_name(name)
 }
 
 ///|

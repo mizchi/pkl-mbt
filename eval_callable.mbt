@@ -3,6 +3,7 @@ fn eval_value_accepts_type_annotation(
   type_name : String,
   value : Value,
 ) -> Bool {
+  let type_name = pkl_strip_default_type_marker(type_name)
   match pkl_constrained_type_base_name(type_name) {
     Some(base_name) =>
       return eval_value_accepts_type_annotation(base_name, value)
@@ -254,6 +255,8 @@ fn eval_type_name_is_unresolvable(
 fn eval_callable_argument_type_rejection_message(
   type_name : String?,
   value : Value,
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
   declarations : Array[Declaration],
 ) -> String? {
   match type_name {
@@ -328,6 +331,8 @@ fn eval_callable_argument_type_rejection_message(
                     eval_callable_argument_type_rejection_message(
                       Some(element_type),
                       element,
+                      class_env,
+                      cache,
                       declarations,
                     ) {
                     Some(message) => return Some(message)
@@ -356,6 +361,8 @@ fn eval_callable_argument_type_rejection_message(
                       eval_callable_argument_type_rejection_message(
                         Some(key_type),
                         entry.key,
+                        class_env,
+                        cache,
                         declarations,
                       ) {
                       Some(message) => return Some(message)
@@ -365,6 +372,8 @@ fn eval_callable_argument_type_rejection_message(
                       eval_callable_argument_type_rejection_message(
                         Some(value_type),
                         entry.value,
+                        class_env,
+                        cache,
                         declarations,
                       ) {
                       Some(message) => return Some(message)
@@ -391,15 +400,67 @@ fn eval_callable_argument_type_rejection_message(
       // PKL-148u: Apple Pkl quotes the RESOLVED type name in the
       // rejection diagnostic (not the source alias name). Strip a
       // trailing `?` so `Nullable = Duration?` shows as `Duration`.
-      let diag_name = rejection_type_label(resolved)
+      let diag_name = qualified_rejection_type_label(resolved, class_env, cache)
       if value is NullValue {
         return Some("Expected value of type `\{diag_name}`, but got `null`.")
       }
+      let actual = qualify_value_type_name(
+        value,
+        class_env,
+        module_name_from_cache(cache),
+      )
       Some(
-        "Expected value of type `\{diag_name}`, but got type `\{eval_value_type_name(value)}`. Value: \{render_pcf_value_inline(value)}",
+        "Expected value of type `\{diag_name}`, but got type `\{actual}`. Value: \{render_pcf_value_inline(value)}",
       )
     }
     None => None
+  }
+}
+
+///|
+fn module_name_from_cache(cache : Array[ValueBinding]) -> String? {
+  match lookup_value(cache, "@__module_name") {
+    Some(StringValue(module_name)) =>
+      if module_name.length() == 0 {
+        None
+      } else {
+        Some(module_name)
+      }
+    _ => None
+  }
+}
+
+///|
+fn push_module_metadata_from_cache(
+  call_cache : Array[ValueBinding],
+  caller_cache : Array[ValueBinding],
+) -> Unit {
+  for name in ["@__module_name", "@__module_path"] {
+    if lookup_value(call_cache, name) is None {
+      match lookup_value(caller_cache, name) {
+        Some(v) => call_cache.push({ name, value: v })
+        None => ()
+      }
+    }
+  }
+}
+
+///|
+fn qualified_rejection_type_label(
+  type_name : String,
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+) -> String {
+  let label = rejection_type_label(type_name)
+  match module_name_from_cache(cache) {
+    Some(module_name) =>
+      if is_stdlib_class_name(label) ||
+        lookup_class_binding(class_env, label) is None {
+        label
+      } else {
+        "\{module_name}#\{label}"
+      }
+    None => label
   }
 }
 
@@ -645,13 +706,36 @@ fn value_satisfies_user_class_annotation(
   declarations : Array[Declaration],
 ) -> Bool {
   match value {
-    ObjectValue(_) => {
+    ObjectValue(members) => {
       if type_name == "Dynamic" || type_name == "Typed" {
         return true
       }
       let base = match pkl_constrained_type_base_name(type_name) {
         Some(b) => b
         None => type_name
+      }
+      match find_object_class_tag(members) {
+        Some(tag) =>
+          if tag == base {
+            return true
+          } else {
+            let mut current : ClassDecl? = eval_lookup_class_decl(
+              declarations, tag,
+            )
+            while current is Some(decl) {
+              match decl.parent_name {
+                Some(parent) =>
+                  if parent == base {
+                    return true
+                  } else {
+                    current = eval_lookup_class_decl(declarations, parent)
+                  }
+                None => current = None
+              }
+            }
+            return false
+          }
+        None => ()
       }
       eval_lookup_class_decl(declarations, base) is Some(_)
     }
@@ -664,6 +748,8 @@ fn eval_callable_return_rejection_message(
   label : String,
   return_type_name : String?,
   value : Value,
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
   declarations : Array[Declaration],
 ) -> String? {
   match return_type_name {
@@ -719,12 +805,19 @@ fn eval_callable_return_rejection_message(
         // `Value: <pcf>` segment mirrors upstream — it renders the
         // failing value with the standard PCF inline form so the
         // user sees what was rejected.
-        let diag_name = rejection_type_label(type_name)
+        let diag_name = qualified_rejection_type_label(
+          type_name, class_env, cache,
+        )
         if value is NullValue {
           return Some("Expected value of type `\{diag_name}`, but got `null`.")
         }
+        let actual = qualify_value_type_name(
+          value,
+          class_env,
+          module_name_from_cache(cache),
+        )
         Some(
-          "Expected value of type `\{diag_name}`, but got type `\{eval_value_type_name(value)}`. Value: \{render_pcf_value_inline(value)}",
+          "Expected value of type `\{diag_name}`, but got type `\{actual}`. Value: \{render_pcf_value_inline(value)}",
         )
       } else {
         // PKL-148ae: Apple Pkl's return-side constraint diagnostic
@@ -759,12 +852,14 @@ fn eval_callable_return_value(
   label : String,
   return_type_name : String?,
   value : Value,
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
   declarations : Array[Declaration],
   diagnostics : Array[Diagnostic],
 ) -> Value? {
   match
     eval_callable_return_rejection_message(
-      label, return_type_name, value, declarations,
+      label, return_type_name, value, class_env, cache, declarations,
     ) {
     Some(message) => {
       diagnostics.push(diag(message))
@@ -815,11 +910,14 @@ fn eval_lambda_application(
     return None
   }
   let call_cache = copy_value_bindings(captured_env)
+  push_module_metadata_from_cache(call_cache, cache)
   for i = 0; i < parameters.length(); i = i + 1 {
     match
       eval_callable_argument_type_rejection_message(
         parameters[i].type_name,
         argument_values[i],
+        class_env,
+        call_cache,
         declarations,
       ) {
       Some(message) => {
@@ -886,6 +984,8 @@ fn eval_lambda_application(
           copy_value_bindings(call_cache),
           fresh_function_id(),
         ),
+        class_env,
+        call_cache,
         declarations,
         diagnostics,
       )
@@ -922,7 +1022,8 @@ fn eval_lambda_application(
         ) {
         Some(value) =>
           eval_callable_return_value(
-            label, return_type_name, value, declarations, diagnostics,
+            label, return_type_name, value, class_env, call_cache, declarations,
+            diagnostics,
           )
         None => None
       }
@@ -959,22 +1060,17 @@ fn apply_function_value(
         return None
       }
       let call_cache = copy_value_bindings(captured_env)
-      // PKL-152: re-introduce the `@__module_name` cache marker at
-      // application time. The capture-pass filters it out (lambdas
-      // shouldn't observe it as a regular binding), but
-      // `getClass()` / class-keyed converter dispatch inside the body
-      // need it to qualify the mirror name with `<module>#<simple>`.
-      if lookup_value(call_cache, "@__module_name") is None {
-        match lookup_value(caller_cache, "@__module_name") {
-          Some(v) => call_cache.push({ name: "@__module_name", value: v })
-          None => ()
-        }
-      }
+      // Re-introduce module metadata at application time. The capture
+      // pass filters these plumbing markers out of ordinary function
+      // values, but read/reflect paths inside the body still need them.
+      push_module_metadata_from_cache(call_cache, caller_cache)
       for i = 0; i < parameters.length(); i = i + 1 {
         match
           eval_callable_argument_type_rejection_message(
             parameters[i].type_name,
             args[i],
+            class_env,
+            call_cache,
             declarations,
           ) {
           Some(message) => {
@@ -1061,7 +1157,8 @@ fn apply_function_value(
         ) {
         Some(value) =>
           eval_callable_return_value(
-            label, return_type_name, value, declarations, diagnostics,
+            label, return_type_name, value, class_env, call_cache, declarations,
+            diagnostics,
           )
         None => None
       }
@@ -1150,6 +1247,8 @@ fn eval_class_method_call(
                       eval_callable_argument_type_rejection_message(
                         function_decl.parameters[i].type_name,
                         argument_values[i],
+                        class_env,
+                        method_cache,
                         declarations,
                       ) {
                       Some(message) => {
@@ -1188,6 +1287,8 @@ fn eval_class_method_call(
                         "method \{method_name}",
                         function_decl.return_type_name,
                         value,
+                        class_env,
+                        method_cache,
                         declarations,
                         diagnostics,
                       )

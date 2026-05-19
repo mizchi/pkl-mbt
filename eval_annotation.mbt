@@ -1107,6 +1107,71 @@ fn eval_class_property_type_rejection_message(
         None => resolved_type_name
       }
       let coerced = coerce_value_to_annotated_type(value, Some(source_name))
+      let choices = split_top_level_union_choices(base)
+      if choices.length() > 1 {
+        let mut any_known_head = false
+        for choice in choices {
+          let trimmed = pkl_strip_default_type_marker(
+            pkl_constraint_trim(choice),
+          )
+          let without_constraint = match
+            pkl_constrained_type_base_name(trimmed) {
+            Some(b) => b
+            None => trimmed
+          }
+          let stripped_q = if without_constraint.has_suffix("?") {
+            String::unsafe_substring(
+              without_constraint,
+              start=0,
+              end=without_constraint.length() - 1,
+            )
+          } else {
+            without_constraint
+          }
+          let head = {
+            let mut cut = -1
+            let n = stripped_q.length()
+            for i = 0; i < n; i = i + 1 {
+              if stripped_q[i].to_int().unsafe_to_char() == '<' {
+                cut = i
+                break
+              }
+            }
+            if cut < 0 {
+              stripped_q
+            } else {
+              String::unsafe_substring(stripped_q, start=0, end=cut)
+            }
+          }
+          let head_with_optional = if without_constraint.has_suffix("?") {
+            head + "?"
+          } else {
+            head
+          }
+          if eval_value_accepts_type_annotation(head_with_optional, coerced) {
+            return eval_resolved_collection_element_structural_rejection_message(
+              stripped_q, coerced, declarations,
+            )
+          }
+          if value_satisfies_user_class_annotation(head, coerced, declarations) {
+            return None
+          }
+          if is_stdlib_class_name(head) ||
+            eval_lookup_class_decl(declarations, head) is Some(_) {
+            any_known_head = true
+          }
+        }
+        if !any_known_head {
+          return None
+        }
+        let diag_name = rejection_type_label(base)
+        if coerced is NullValue {
+          return Some("Expected value of type `\{diag_name}`, but got `null`.")
+        }
+        return Some(
+          "Expected value of type `\{diag_name}`, but got type `\{eval_value_type_name(coerced)}`. Value: \{render_pcf_value_inline(coerced)}",
+        )
+      }
       // Normalize generic type heads (`Listing<X>` → `Listing`,
       // `Mapping<K,V>` → `Mapping`, `Pair<A,B>` → `Pair`, …) before
       // the acceptance check; `eval_value_accepts_type_annotation`

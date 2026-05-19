@@ -834,6 +834,54 @@ test "PKL-119c: Set.contains uses value equality" {
 }
 
 ///|
+test "PKL-148al: Set.contains compares visible object members" {
+  guard eval_source(
+      "xs = Set(new Dynamic { name = \"Pigeon\" })\nhit = xs.contains(new Dynamic { name = localName; local localName = \"Pigeon\" })",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut hit = false
+  for entry in members {
+    match (entry.name, entry.value) {
+      ("hit", BoolValue(b)) => hit = b
+      _ => ()
+    }
+  }
+  inspect(hit, content="true")
+}
+
+///|
+test "PKL-148al: dynamic default member is hidden from rendering" {
+  guard eval_source(
+      "res = new Dynamic { name = \"Pigeon\"; default = (_) -> 42 }",
+    )
+    is EvalOk(value) else {
+    panic()
+  }
+  let expected =
+    #|res {
+    #|  name = "Pigeon"
+    #|}
+  inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
+test "PKL-148al: top-level local declaration can carry open modifier" {
+  guard eval_source(
+      "local open class Person { name: String }\nres = new Person { name = \"Pigeon\" }",
+    )
+    is EvalOk(value) else {
+    panic()
+  }
+  let expected =
+    #|res {
+    #|  name = "Pigeon"
+    #|}
+  inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
 test "PKL-148h: Set.toList materialises to ListValue, .toListing to ListingValue" {
   guard eval_source("xs = Set(1, 2, 3)\nl = xs.toList()\nlg = xs.toListing()")
     is EvalOk(ObjectValue(members)) else {
@@ -1100,6 +1148,132 @@ test "PKL-148d: deep-merge amend preserves uninvolved subtree members" {
   let rendered = @pkl.render_value(value)
   inspect(rendered.contains("a = 11"), content="true")
   inspect(rendered.contains("b = 2"), content="true")
+}
+
+///|
+test "PKL-148bi: function amend applies object body to call result" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "f = (x, y) -> new Dynamic { sum = x + y }\nres = (f) { a, b -> left = a; right = b }.apply(1, 2)",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("sum = 3"), content="true")
+  inspect(rendered.contains("left = 1"), content="true")
+  inspect(rendered.contains("right = 2"), content="true")
+}
+
+///|
+test "PKL-148bi: function amend propagates through returned functions" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "f = (x) -> (y) -> new Dynamic { y = y }\ng = (f) { a -> x = a }\nres = g.apply(1).apply(2)",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("x = 1"), content="true")
+  inspect(rendered.contains("y = 2"), content="true")
+}
+
+///|
+test "PKL-148bi: constructor body amends function-valued class defaults" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "class X {\n  hidden f = (n) -> new Dynamic { one = n }\n  res = f.apply(1)\n}\nx = new X {\n  f {\n    amended = \"yes\"\n  }\n}",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("one = 1"), content="true")
+  inspect(rendered.contains("amended = \"yes\""), content="true")
+}
+
+///|
+test "PKL-148bi: callable user-class parameter diagnostics are qualified" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "class Foo\nclass Baz\nf = (x: Baz) -> x\nres = f.apply(new Foo {})",
+  )
+  guard session.eval_path("main.pkl") is EvalError(diagnostics) else { panic() }
+  inspect(
+    diagnostics[0].message,
+    content="Expected value of type `main#Baz`, but got type `main#Foo`. Value: new Foo {}",
+  )
+}
+
+///|
+test "PKL-148bj: outer resolves enclosing object after amend" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "base { x = 1; child { z = outer.x } }\nres = (base) { x = 2 }",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("x = 2"), content="true")
+  inspect(rendered.contains("z = 2"), content="true")
+}
+
+///|
+test "PKL-148bj: super property re-evaluates base source with overrides" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "parent { x = 1 + y; y = 2 }\nchild = (parent) { x = super.x + 100; y = 3 }\ngrand = (child) { y = 4 }",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("child {\n  x = 104"), content="true")
+  inspect(rendered.contains("grand {\n  x = 105"), content="true")
+}
+
+///|
+test "PKL-148bj: typed object late binding can target class defaults" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "class Foo {\n  x: Int\n  y = 1\n}\nbase { foo = new Foo { x = y } }\nres = (base) { foo { y = 5 } }",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("res {\n  foo {\n    x = 5"), content="true")
+}
+
+///|
+test "PKL-148bk: classes extending module inherit module property defaults" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "open module Foo\n\nprop: String\nmyself: module?\n\nclass Bar extends module {\n  prop2: Int\n}\n\noutput {\n  value = new Bar {\n    prop = \"hi\"\n    prop2 = 15\n    myself {\n      prop = \"again\"\n      prop2 = 16\n    }\n  }\n}",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  guard value is ObjectValue(module_members) else { panic() }
+  let mut output_value : Value? = None
+  for value_member in module_members {
+    if value_member.name == "output" {
+      match value_member.value {
+        ObjectValue(output_members) =>
+          for output_member in output_members {
+            if output_member.name == "value" {
+              output_value = Some(output_member.value)
+            }
+          }
+        _ => ()
+      }
+    }
+  }
+  guard output_value is Some(output_value) else { panic() }
+  let rendered = @pkl.render_value(output_value)
+  inspect(rendered.contains("myself = null"), content="true")
+  inspect(rendered.contains("prop2 = 16"), content="true")
+}
+
+///|
+test "PKL-148bk: starred union class default validates against bare class" {
+  guard eval_source(
+      "class Foo { name: String = \"foo\" }\nclass Baz { name: String = \"baz\" }\nd: *Foo | Baz\nf: Foo | *Baz",
+    )
+    is EvalOk(value) else {
+    panic()
+  }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("d {\n  name = \"foo\""), content="true")
+  inspect(rendered.contains("f {\n  name = \"baz\""), content="true")
 }
 
 ///|
@@ -1515,6 +1689,23 @@ test "PKL-119be: empty IntSeqs are equal regardless of endpoints" {
   }
   guard members[0].value is BoolValue(b) else { panic() }
   inspect(b, content="true")
+}
+
+///|
+test "class property union accepts null branch after generic head" {
+  let source =
+    #|class Z {
+    #|  g: Pair<Int, Int>|Null
+    #|}
+    #|res = new Z { g = null }
+
+  let expected =
+    #|res {
+    #|  g = null
+    #|}
+
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  inspect(render_value(value), content=expected)
 }
 
 ///|

@@ -332,6 +332,38 @@ fn Parser::parse_postfix_expr(self : Parser) -> Expr {
     if is_triple_dot {
       break
     }
+    if self.at(star()) &&
+      expr is Identifier("read") &&
+      self.peek_non_whitespace_kind(self.pos + 1) == lparen() {
+      // Apple Pkl's `read*("glob")` is a glob intrinsic, not binary
+      // multiplication. Keep it on the existing CallExpr path by using
+      // a synthetic callee name that the evaluator recognises.
+      self.builder.start_node_at(checkpoint, call_expr())
+      ignore(self.bump())
+      self.skip_whitespace()
+      ignore(self.expect(lparen(), "("))
+      let arguments : Array[Expr] = []
+      self.skip_whitespace()
+      while !self.at(eof()) && !self.at(rparen()) {
+        arguments.push(self.parse_expr())
+        self.skip_whitespace()
+        if self.at(comma()) {
+          ignore(self.bump())
+          self.skip_whitespace()
+        } else {
+          break
+        }
+      }
+      self.skip_whitespace()
+      if self.at(rparen()) {
+        ignore(self.bump())
+      } else {
+        self.builder.token(error_kind(), "")
+      }
+      self.builder.finish_node()
+      expr = CallExpr(Identifier("read*"), arguments)
+      continue
+    }
     if next_kind == dot() || next_kind == qdot() {
       // PKL-107: pull byte_offset along with self.pos so subsequent
       // position-tagged diagnostics still point at the right source
@@ -705,6 +737,7 @@ fn Parser::parse_import_expr(self : Parser) -> Expr {
   self.builder.start_node(import_expr())
   ignore(self.expect(import_kw(), "import"))
   self.skip_whitespace()
+  let is_glob = self.at(star())
   if self.at(star()) {
     ignore(self.bump())
   }
@@ -724,7 +757,11 @@ fn Parser::parse_import_expr(self : Parser) -> Expr {
     ignore(self.bump())
   }
   self.builder.finish_node()
-  ImportExpr(uri)
+  if is_glob {
+    ImportGlobExpr(uri)
+  } else {
+    ImportExpr(uri)
+  }
 }
 
 ///|

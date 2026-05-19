@@ -47,7 +47,7 @@ fn contains_entry_key(entries : Array[ValueEntry], key : Value) -> Bool {
 ///|
 fn contains_value(xs : Array[Value], v : Value) -> Bool {
   for x in xs {
-    if x == v {
+    if values_equal(x, v) {
       return true
     }
   }

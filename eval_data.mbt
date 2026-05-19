@@ -264,6 +264,37 @@ fn intseq_length(start : Int64, end_v : Int64, step : Int64) -> Int64 {
 }
 
 ///|
+/// Pkl value equality for collection membership and unordered content
+/// comparisons. MoonBit's derived equality is fine for scalars, but
+/// containers need Apple Pkl's visible-member / order-insensitive rules.
+fn values_equal(a : Value, b : Value) -> Bool {
+  match (a, b) {
+    (ObjectValue(xs), ObjectValue(ys)) => object_values_equal(xs, ys)
+    (MapValue(xs), MapValue(ys)) => map_entries_equal(xs, ys)
+    (MappingValue(xs), MappingValue(ys)) => map_entries_equal(xs, ys)
+    (SetValue(xs), SetValue(ys)) => set_values_equal(xs, ys)
+    (ListingValue(xs), ListingValue(ys)) => value_arrays_equal(xs, ys)
+    (ListValue(xs), ListValue(ys)) => value_arrays_equal(xs, ys)
+    (IntSeqValue(s1, e1, st1), IntSeqValue(s2, e2, st2)) =>
+      intseq_value_equal(s1, e1, st1, s2, e2, st2)
+    _ => a == b
+  }
+}
+
+///|
+fn value_arrays_equal(xs : Array[Value], ys : Array[Value]) -> Bool {
+  if xs.length() != ys.length() {
+    return false
+  }
+  for i = 0; i < xs.length(); i = i + 1 {
+    if !values_equal(xs[i], ys[i]) {
+      return false
+    }
+  }
+  true
+}
+
+///|
 /// Visible-member equality for ObjectValue operands. Compares only
 /// rendered (non-hidden) properties and ignores order so
 /// `{foo=1; bar=2} == {bar=2; foo=1}` agrees with Apple Pkl.
@@ -297,7 +328,7 @@ fn object_values_equal(
   for x in visible_xs {
     let mut matched = false
     for y in visible_ys {
-      if y.name == x.name && y.value == x.value {
+      if y.name == x.name && values_equal(y.value, x.value) {
         matched = true
         break
       }
@@ -320,7 +351,9 @@ fn map_entries_equal(xs : Array[ValueEntry], ys : Array[ValueEntry]) -> Bool {
   for x in xs {
     let mut matched = false
     for j = 0; j < ys.length(); j = j + 1 {
-      if !consumed[j] && ys[j].key == x.key && ys[j].value == x.value {
+      if !consumed[j] &&
+        values_equal(ys[j].key, x.key) &&
+        values_equal(ys[j].value, x.value) {
         consumed[j] = true
         matched = true
         break
@@ -345,7 +378,7 @@ fn set_values_equal(xs : Array[Value], ys : Array[Value]) -> Bool {
   for x in xs {
     let mut matched = false
     for j = 0; j < ys.length(); j = j + 1 {
-      if !consumed[j] && ys[j] == x {
+      if !consumed[j] && values_equal(ys[j], x) {
         consumed[j] = true
         matched = true
         break

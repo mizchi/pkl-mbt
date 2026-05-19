@@ -248,7 +248,7 @@ fn expr_references(expr : Expr, name : String) -> Bool {
     StringLiteral(_) => false
     NullLiteral => false
     Identifier(n) => n == name
-    ImportExpr(_) => false
+    ImportExpr(_) | ImportGlobExpr(_) => false
     ObjectLiteral(members) => members_reference(members, name)
     TypedObjectLiteral(type_name, members) =>
       type_name == name || members_reference(members, name)

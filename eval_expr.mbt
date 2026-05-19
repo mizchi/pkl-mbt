@@ -17,14 +17,39 @@ fn eval_expr_with_bindings(
     StringLiteral(value) => Some(StringValue(value))
     NullLiteral => Some(NullValue)
     ImportExpr(uri) =>
-      match resolve_import(uri) {
-        Some(EvalOk(value)) => Some(value)
-        Some(EvalError(errors)) => {
-          for error in errors {
-            diagnostics.push(error)
+      match current_module_snapshot_for_import(uri, cache) {
+        Some(value) => Some(value)
+        None =>
+          match resolve_import(uri) {
+            Some(EvalOk(value)) => Some(value)
+            Some(EvalError(errors)) => {
+              for error in errors {
+                diagnostics.push(error)
+              }
+              None
+            }
+            None => {
+              diagnostics.push(diag("Cannot find module `\{uri}`."))
+              None
+            }
           }
-          None
-        }
+      }
+    ImportGlobExpr(uri) =>
+      match current_module_path_from_cache(cache) {
+        Some(path) =>
+          match sandbox_lookup_import_glob(path, uri) {
+            Some(uris) => {
+              let entries : Array[ValueEntry] = []
+              for visible_uri in uris {
+                entries.push({ key: StringValue(visible_uri), value: NullValue })
+              }
+              Some(MapValue(entries))
+            }
+            None => {
+              diagnostics.push(diag("Cannot find module `\{uri}`."))
+              None
+            }
+          }
         None => {
           diagnostics.push(diag("Cannot find module `\{uri}`."))
           None
@@ -159,6 +184,9 @@ fn eval_expr_with_bindings(
       let class_defaults = eval_class_default_members(
         type_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
         resolve_import,
+      )
+      let class_default_deps = class_default_dependency_names(
+        members, class_defaults, bindings, env, cache,
       )
       // PKL-148bb: expose class defaults as fallback bindings inside
       // the body's lookup chain so a body member that references a
@@ -308,7 +336,14 @@ fn eval_expr_with_bindings(
       if violation_emitted {
         None
       } else {
-        Some(ObjectValue(tag_object_with_class(merged, type_name)))
+        Some(
+          ObjectValue(
+            tag_object_with_class(
+              add_class_default_dependency_metadata(merged, class_default_deps),
+              type_name,
+            ),
+          ),
+        )
       }
     }
     ListingLiteral(elements) => {
@@ -529,12 +564,55 @@ fn eval_expr_with_bindings(
       // `eval_program` so `module.X` resolves through the merged
       // module surface instead of returning None.
       if target_expr is Identifier("super") &&
+        lookup_value(cache, "@current_class") is Some(_) {
+        match lookup_value(cache, "super") {
+          Some(ObjectValue(parent_members)) =>
+            match lookup_member(parent_members, member_name) {
+              Some(value) => Some(value)
+              None => {
+                diagnostics.push(diag("Cannot find property `\{member_name}`."))
+                None
+              }
+            }
+          _ =>
+            match lookup_value(cache, "this") {
+              Some(ObjectValue(receiver_members)) =>
+                match lookup_member(receiver_members, member_name) {
+                  Some(value) => Some(value)
+                  None => {
+                    diagnostics.push(
+                      diag("Cannot find property `\{member_name}`."),
+                    )
+                    None
+                  }
+                }
+              _ => {
+                diagnostics.push(diag("Cannot find property `super`."))
+                None
+              }
+            }
+        }
+      } else if target_expr is Identifier("super") &&
         lookup_value(cache, "@current_class") is None &&
         module_super_members_from_cache(cache) is Some(parent_members) {
         match
           resolve_module_parent_member_value(
             member_name, parent_members, bindings, env, class_env, cache, stack,
             declarations, diagnostics, resolve_import,
+          ) {
+          Some(value) => Some(value)
+          None => {
+            diagnostics.push(diag("Cannot find property `\{member_name}`."))
+            None
+          }
+        }
+      } else if target_expr is Identifier("super") &&
+        lookup_value(cache, "@current_class") is None &&
+        object_super_members_from_cache(cache) is Some(super_members) {
+        match
+          resolve_object_super_member_value(
+            member_name, super_members, bindings, env, class_env, cache, stack, declarations,
+            diagnostics, resolve_import,
           ) {
           Some(value) => Some(value)
           None => {
@@ -1205,9 +1283,11 @@ fn eval_expr_with_bindings(
           if violation_emitted {
             None
           } else {
-            Some(ObjectValue(merged))
+            Some(ObjectValue(add_object_super_metadata(merged, modified_base)))
           }
         }
+        Some(FunctionValue(_, _, _, _, _) as fn_value) =>
+          Some(build_function_amend_value(fn_value, members, env, cache))
         Some(ListingValue(elements)) =>
           // PKL-148w: `(listing) { [N] = newValue }` replaces element
           // N. Out-of-range indices surface Apple Pkl's wording
@@ -1597,7 +1677,12 @@ fn eval_expr_with_bindings(
               diagnostics,
               resolve_import,
             ) {
-            Some(StringValue(uri)) => eval_read_uri(uri, diagnostics)
+            Some(StringValue(uri)) =>
+              eval_read_uri(
+                uri,
+                current_module_path_from_cache(cache),
+                diagnostics,
+              )
             Some(_) => {
               diagnostics.push(diag("read expects a String argument"))
               None
@@ -1606,6 +1691,54 @@ fn eval_expr_with_bindings(
           }
         } else {
           diagnostics.push(diag("read expects exactly one argument"))
+          None
+        }
+      } else if callee is Identifier("read*") {
+        if arguments.length() == 1 {
+          match
+            eval_expr_with_bindings(
+              arguments[0],
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ) {
+            Some(StringValue(pattern)) =>
+              match current_module_path_from_cache(cache) {
+                Some(path) =>
+                  match sandbox_lookup_read_glob(path, pattern) {
+                    Some(resources) => {
+                      let entries : Array[ValueEntry] = []
+                      for resource in resources {
+                        entries.push({
+                          key: StringValue(resource.uri),
+                          value: sandbox_resource_value(resource),
+                        })
+                      }
+                      Some(MapValue(entries))
+                    }
+                    None => {
+                      diagnostics.push(diag("Cannot find module `\{pattern}`."))
+                      None
+                    }
+                  }
+                None => {
+                  diagnostics.push(diag("Cannot find module `\{pattern}`."))
+                  None
+                }
+              }
+            Some(_) => {
+              diagnostics.push(diag("read* expects a String argument"))
+              None
+            }
+            None => None
+          }
+        } else {
+          diagnostics.push(diag("read* expects exactly one argument"))
           None
         }
       } else if callee is Identifier("trace") &&
@@ -2673,7 +2806,7 @@ fn eval_expr_with_bindings(
       let value = coerce_value_to_annotated_type(raw_value, type_name)
       match
         eval_callable_argument_type_rejection_message(
-          type_name, value, declarations,
+          type_name, value, class_env, cache, declarations,
         ) {
         Some(message) => {
           diagnostics.push(diag(message))
@@ -3556,7 +3689,12 @@ fn eval_expr_with_bindings(
           match uri_value {
             Some(StringValue(uri)) => {
               let probe_diagnostics : Array[Diagnostic] = []
-              match eval_read_uri(uri, probe_diagnostics) {
+              match
+                eval_read_uri(
+                  uri,
+                  current_module_path_from_cache(cache),
+                  probe_diagnostics,
+                ) {
                 Some(value) => Some(value)
                 None => Some(NullValue)
               }
@@ -3680,6 +3818,60 @@ fn dispatch_value_to_string(
       }
     }
     _ => value_to_string_for_join(value)
+  }
+}
+
+///|
+fn current_module_path_from_cache(cache : Array[ValueBinding]) -> String? {
+  match lookup_value(cache, "@__module_path") {
+    Some(StringValue(path)) => Some(path)
+    _ => None
+  }
+}
+
+///|
+fn module_path_basename(path : String) -> String {
+  match path.rev_find("/") {
+    Some(idx) =>
+      String::unsafe_substring(path, start=idx + 1, end=path.length())
+    None => path
+  }
+}
+
+///|
+fn import_uri_matches_current_module(uri : String, path : String) -> Bool {
+  let basename = module_path_basename(path)
+  uri == path || uri == basename || uri == "./" + basename
+}
+
+///|
+fn current_module_snapshot_for_import(
+  uri : String,
+  cache : Array[ValueBinding],
+) -> Value? {
+  match current_module_path_from_cache(cache) {
+    Some(path) =>
+      if import_uri_matches_current_module(uri, path) {
+        let members : Array[ValueMember] = []
+        for binding in cache {
+          if binding.name == "super" ||
+            binding.name == "this" ||
+            binding.name.has_prefix("@") ||
+            is_invisible_member_name(binding.name) {
+            continue
+          }
+          members.push({
+            name: binding.name,
+            value: binding.value,
+            source: None,
+            annotations: [],
+          })
+        }
+        Some(ObjectValue(members))
+      } else {
+        None
+      }
+    None => None
   }
 }
 
@@ -3860,25 +4052,47 @@ fn push_unique_name(names : Array[String], name : String) -> Unit {
 }
 
 ///|
+fn collect_constructor_override_names_from_expr(
+  expr : Expr,
+  names : Array[String],
+) -> Unit {
+  match expr {
+    ObjectLiteral(members) =>
+      for object_member in members {
+        if object_member.name == "@when" {
+          collect_constructor_override_names_from_expr(
+            object_member.value,
+            names,
+          )
+        } else if !is_local_member_name(object_member.name) {
+          push_unique_name(
+            names,
+            strip_member_visibility_prefix(object_member.name),
+          )
+        }
+      }
+    ConditionalExpr(_, then_expr, else_expr) => {
+      collect_constructor_override_names_from_expr(then_expr, names)
+      collect_constructor_override_names_from_expr(else_expr, names)
+    }
+    _ => ()
+  }
+}
+
+///|
 fn constructor_override_names(members : Array[ObjectMember]) -> Array[String] {
   let names : Array[String] = []
   for object_member in members {
+    if object_member.name == "@when" {
+      collect_constructor_override_names_from_expr(object_member.value, names)
+      continue
+    }
     if is_local_member_name(object_member.name) {
       continue
     }
     push_unique_name(names, strip_member_visibility_prefix(object_member.name))
   }
   names
-}
-
-///|
-fn expr_references_any_late_binding(expr : Expr, names : Array[String]) -> Bool {
-  for name in names {
-    if expr_references_late_binding(expr, name) {
-      return true
-    }
-  }
-  false
 }
 
 ///|
@@ -3957,15 +4171,21 @@ fn reeval_class_defaults_after_constructor_overrides(
         break
       }
     }
+    if !directly_overridden {
+      for value_member in current {
+        if strip_member_visibility_prefix(value_member.name) == property.name &&
+          value_member.source is Some(_) {
+          directly_overridden = true
+          break
+        }
+      }
+    }
     if directly_overridden {
       continue
     }
     let source = match property.value {
       Some(expr) => expr
       None => continue
-    }
-    if !expr_references_any_late_binding(source, changed_names) {
-      continue
     }
     let local_env = copy_value_bindings(env)
     push_current_members_as_env(local_env, current)
@@ -4248,6 +4468,688 @@ fn xml_renderer_option(
 }
 
 ///|
+fn copy_function_parameters(
+  parameters : Array[FunctionParameter],
+) -> Array[FunctionParameter] {
+  let copied : Array[FunctionParameter] = []
+  for parameter in parameters {
+    copied.push(parameter)
+  }
+  copied
+}
+
+///|
+fn function_amend_regular_members(
+  members : Array[ObjectMember],
+) -> Array[ObjectMember] {
+  let regular : Array[ObjectMember] = []
+  for object_member in members {
+    if !is_function_amend_marker_member_name(object_member.name) {
+      regular.push(object_member)
+    }
+  }
+  regular
+}
+
+///|
+fn function_amend_has_recursive_marker(members : Array[ObjectMember]) -> Bool {
+  for object_member in members {
+    if is_function_amend_recursive_member_name(object_member.name) {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn generated_function_amend_parameters(
+  base_parameters : Array[FunctionParameter],
+) -> Array[FunctionParameter] {
+  let generated : Array[FunctionParameter] = []
+  for i = 0; i < base_parameters.length(); i = i + 1 {
+    generated.push({
+      name: "@__function_amend_arg" + i.to_string(),
+      type_name: base_parameters[i].type_name,
+    })
+  }
+  generated
+}
+
+///|
+fn function_amend_parameters(
+  members : Array[ObjectMember],
+  base_parameters : Array[FunctionParameter],
+  use_generated_parameters~ : Bool,
+) -> Array[FunctionParameter] {
+  for object_member in members {
+    if is_function_amend_parameter_member_name(object_member.name) {
+      match object_member.value {
+        LambdaExpr(parameters, _, _) =>
+          return copy_function_parameters(parameters)
+        _ => ()
+      }
+    }
+  }
+  if use_generated_parameters {
+    return generated_function_amend_parameters(base_parameters)
+  }
+  copy_function_parameters(base_parameters)
+}
+
+///|
+fn function_amend_base_binding_name() -> String {
+  "@__function_amend_base"
+}
+
+///|
+fn function_amend_body_members(
+  members : Array[ObjectMember],
+) -> Array[ObjectMember] {
+  let out = function_amend_regular_members(members)
+  out.push({
+    name: function_amend_recursive_member_name(),
+    type_name: None,
+    value: NullLiteral,
+    annotations: [],
+  })
+  out
+}
+
+///|
+fn function_amend_member_values_reference_name(
+  members : Array[ObjectMember],
+  name : String,
+) -> Bool {
+  for object_member in members {
+    if !is_function_amend_marker_member_name(object_member.name) &&
+      expr_references_late_binding(object_member.value, name) {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn function_amend_should_generate_parameters(
+  members : Array[ObjectMember],
+  base_parameters : Array[FunctionParameter],
+  env : Array[ValueBinding],
+  cache : Array[ValueBinding],
+) -> Bool {
+  if function_amend_has_recursive_marker(members) {
+    return true
+  }
+  for parameter in base_parameters {
+    if function_amend_member_values_reference_name(members, parameter.name) &&
+      (
+        lookup_value(env, parameter.name) is Some(_) ||
+        lookup_value(cache, parameter.name) is Some(_)
+      ) {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn build_function_amend_value(
+  fn_value : Value,
+  members : Array[ObjectMember],
+  env : Array[ValueBinding],
+  cache : Array[ValueBinding],
+) -> Value {
+  match fn_value {
+    FunctionValue(base_parameters, _, return_type_name, _, _) => {
+      let parameters = function_amend_parameters(
+        members,
+        base_parameters,
+        use_generated_parameters=function_amend_should_generate_parameters(
+          members, base_parameters, env, cache,
+        ),
+      )
+      let arguments : Array[Expr] = []
+      for parameter in parameters {
+        arguments.push(Identifier(parameter.name))
+      }
+      let captured = capture_value_bindings(env, cache)
+      captured.push({
+        name: function_amend_base_binding_name(),
+        value: fn_value,
+      })
+      FunctionValue(
+        parameters,
+        AmendExpr(
+          CallExpr(Identifier(function_amend_base_binding_name()), arguments),
+          function_amend_body_members(members),
+        ),
+        return_type_name,
+        captured,
+        fresh_function_id(),
+      )
+    }
+    _ => fn_value
+  }
+}
+
+///|
+fn object_super_metadata_name() -> String {
+  "__object_super"
+}
+
+///|
+fn class_default_dependency_metadata_name() -> String {
+  "__class_default_deps"
+}
+
+///|
+fn object_members_super(members : Array[ValueMember]) -> Array[ValueMember]? {
+  match lookup_member(members, object_super_metadata_name()) {
+    Some(ObjectValue(super_members)) => Some(super_members)
+    _ => None
+  }
+}
+
+///|
+fn object_members_depend_on_class_default(
+  members : Array[ValueMember],
+  name : String,
+) -> Bool {
+  match lookup_member(members, class_default_dependency_metadata_name()) {
+    Some(ObjectValue(deps)) =>
+      match lookup_member(deps, name) {
+        Some(BoolValue(true)) => true
+        _ => false
+      }
+    _ => false
+  }
+}
+
+///|
+fn copy_value_members(members : Array[ValueMember]) -> Array[ValueMember] {
+  let copied : Array[ValueMember] = []
+  for value_member in members {
+    copied.push(value_member)
+  }
+  copied
+}
+
+///|
+fn object_super_members_from_cache(
+  cache : Array[ValueBinding],
+) -> Array[ValueMember]? {
+  match lookup_value(cache, "super") {
+    Some(ObjectValue(members)) =>
+      if is_module_member_set(members) {
+        None
+      } else {
+        Some(members)
+      }
+    _ => None
+  }
+}
+
+///|
+fn add_object_super_metadata(
+  members : Array[ValueMember],
+  super_members : Array[ValueMember],
+) -> Array[ValueMember] {
+  let tagged : Array[ValueMember] = [
+    {
+      name: hidden_member_name(object_super_metadata_name()),
+      value: ObjectValue(copy_value_members(super_members)),
+      source: None,
+      annotations: [],
+    },
+  ]
+  let metadata_name = hidden_member_name(object_super_metadata_name())
+  for value_member in members {
+    if value_member.name != metadata_name {
+      tagged.push(value_member)
+    }
+  }
+  tagged
+}
+
+///|
+fn add_class_default_dependency_metadata(
+  members : Array[ValueMember],
+  dependency_names : Array[String],
+) -> Array[ValueMember] {
+  if dependency_names.length() == 0 {
+    return members
+  }
+  let deps : Array[ValueMember] = []
+  for name in dependency_names {
+    deps.push({ name, value: BoolValue(true), source: None, annotations: [] })
+  }
+  let metadata_name = hidden_member_name(
+    class_default_dependency_metadata_name(),
+  )
+  let tagged : Array[ValueMember] = [
+    {
+      name: metadata_name,
+      value: ObjectValue(deps),
+      source: None,
+      annotations: [],
+    },
+  ]
+  for value_member in members {
+    if value_member.name != metadata_name {
+      tagged.push(value_member)
+    }
+  }
+  tagged
+}
+
+///|
+fn object_members_declare_bare_name(
+  members : Array[ObjectMember],
+  name : String,
+) -> Bool {
+  for object_member in members {
+    if strip_member_visibility_prefix(object_member.name) == name {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn runtime_scope_has_binding(
+  name : String,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  cache : Array[ValueBinding],
+) -> Bool {
+  lookup_value(env, name) is Some(_) ||
+  lookup_value(cache, name) is Some(_) ||
+  lookup_value(cache, hidden_member_name(name)) is Some(_) ||
+  lookup_value(cache, local_member_name(name)) is Some(_) ||
+  find_binding(bindings, name) is Some(_)
+}
+
+///|
+fn class_default_dependency_names(
+  members : Array[ObjectMember],
+  class_defaults : Array[ValueMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  cache : Array[ValueBinding],
+) -> Array[String] {
+  let deps : Array[String] = []
+  for default_member in class_defaults {
+    let name = strip_member_visibility_prefix(default_member.name)
+    if object_members_declare_bare_name(members, name) ||
+      runtime_scope_has_binding(name, bindings, env, cache) {
+      continue
+    }
+    for object_member in members {
+      if expr_references_late_binding(object_member.value, name) {
+        push_unique_name(deps, name)
+        break
+      }
+    }
+  }
+  deps
+}
+
+///|
+fn cache_with_outer_object(
+  cache : Array[ValueBinding],
+  outer_members : Array[ValueMember],
+) -> Array[ValueBinding] {
+  let next = copy_value_bindings(cache)
+  next.push({
+    name: "outer",
+    value: ObjectValue(copy_value_members(outer_members)),
+  })
+  next
+}
+
+///|
+fn cache_for_nested_object_value(
+  value : Expr,
+  cache : Array[ValueBinding],
+  outer_members : Array[ValueMember],
+) -> Array[ValueBinding] {
+  match value {
+    ObjectLiteral(_) | TypedObjectLiteral(_, _) =>
+      cache_with_outer_object(cache, outer_members)
+    _ => cache
+  }
+}
+
+///|
+fn cache_for_member_source_reeval(
+  source : Expr,
+  cache : Array[ValueBinding],
+  current_members : Array[ValueMember],
+) -> Array[ValueBinding] {
+  let next = match object_members_super(current_members) {
+    Some(super_members) => {
+      let with_super = copy_value_bindings(cache)
+      with_super.push({ name: "super", value: ObjectValue(super_members) })
+      with_super
+    }
+    None => cache
+  }
+  cache_for_nested_object_value(source, next, current_members)
+}
+
+///|
+fn member_source_comes_from_base(
+  name : String,
+  base : Array[ValueMember],
+  overrides : Array[ValueMember],
+) -> Bool {
+  match
+    (
+      find_value_member_exact(base, name),
+      find_value_member_exact(overrides, name),
+    ) {
+    (Some(base_member), Some(override_member)) =>
+      match (base_member.value, override_member.value) {
+        (ObjectValue(_), ObjectValue(_)) => true
+        _ => false
+      }
+    (Some(_), None) => true
+    _ => false
+  }
+}
+
+///|
+fn expr_references_super(expr : Expr) -> Bool {
+  match expr {
+    Identifier(name) => name == "super"
+    ObjectLiteral(members) | TypedObjectLiteral(_, members) => {
+      for object_member in members {
+        if expr_references_super(object_member.value) {
+          return true
+        }
+      }
+      false
+    }
+    ListingLiteral(elements) => {
+      for element in elements {
+        if expr_references_super(element) {
+          return true
+        }
+      }
+      false
+    }
+    MappingLiteral(entries) => {
+      for entry in entries {
+        if expr_references_super(entry.key) ||
+          expr_references_super(entry.value) {
+          return true
+        }
+      }
+      false
+    }
+    MemberAccess(target, _) | SafeMemberAccess(target, _) =>
+      expr_references_super(target)
+    SubscriptAccess(target, key) =>
+      expr_references_super(target) || expr_references_super(key)
+    AmendExpr(base, members) =>
+      if expr_references_super(base) {
+        true
+      } else {
+        for object_member in members {
+          if expr_references_super(object_member.value) {
+            return true
+          }
+        }
+        false
+      }
+    CallExpr(callee, arguments) | NullSafeCallExpr(callee, arguments) => {
+      if expr_references_super(callee) {
+        return true
+      }
+      for argument in arguments {
+        if expr_references_super(argument) {
+          return true
+        }
+      }
+      false
+    }
+    LambdaExpr(_, body, _) => expr_references_super(body)
+    LetExpr(_, _, value, body) =>
+      expr_references_super(value) || expr_references_super(body)
+    NonNullExpr(inner) | UnaryExpr(_, inner) | WhenSpread(inner) =>
+      expr_references_super(inner)
+    BinaryExpr(_, left, right) =>
+      expr_references_super(left) || expr_references_super(right)
+    ConditionalExpr(cond, then_branch, else_branch) =>
+      expr_references_super(cond) ||
+      expr_references_super(then_branch) ||
+      expr_references_super(else_branch)
+    ForGenerator(_, _, source, members) => {
+      if expr_references_super(source) {
+        return true
+      }
+      for object_member in members {
+        if expr_references_super(object_member.value) {
+          return true
+        }
+      }
+      false
+    }
+    InterpolatedString(parts) => {
+      for part in parts {
+        if expr_references_super(part) {
+          return true
+        }
+      }
+      false
+    }
+    IntLiteral(_)
+    | FloatLiteral(_)
+    | BoolLiteral(_)
+    | StringLiteral(_)
+    | NullLiteral
+    | ImportExpr(_)
+    | ImportGlobExpr(_)
+    | UnsupportedExpr
+    | ErrorExpr(_) => false
+  }
+}
+
+///|
+fn expr_directly_references_outer_member(expr : Expr, name : String) -> Bool {
+  match expr {
+    MemberAccess(Identifier("outer"), member_name)
+    | SafeMemberAccess(Identifier("outer"), member_name) => member_name == name
+    ObjectLiteral(_) | TypedObjectLiteral(_, _) => false
+    ListingLiteral(elements) => {
+      for element in elements {
+        if expr_directly_references_outer_member(element, name) {
+          return true
+        }
+      }
+      false
+    }
+    MappingLiteral(entries) => {
+      for entry in entries {
+        if expr_directly_references_outer_member(entry.key, name) ||
+          expr_directly_references_outer_member(entry.value, name) {
+          return true
+        }
+      }
+      false
+    }
+    MemberAccess(target, _) | SafeMemberAccess(target, _) =>
+      expr_directly_references_outer_member(target, name)
+    SubscriptAccess(target, key) =>
+      expr_directly_references_outer_member(target, name) ||
+      expr_directly_references_outer_member(key, name)
+    AmendExpr(base, members) => {
+      if expr_directly_references_outer_member(base, name) {
+        return true
+      }
+      for object_member in members {
+        if expr_directly_references_outer_member(object_member.value, name) {
+          return true
+        }
+      }
+      false
+    }
+    CallExpr(callee, arguments) | NullSafeCallExpr(callee, arguments) => {
+      if expr_directly_references_outer_member(callee, name) {
+        return true
+      }
+      for argument in arguments {
+        if expr_directly_references_outer_member(argument, name) {
+          return true
+        }
+      }
+      false
+    }
+    LambdaExpr(_, body, _) => expr_directly_references_outer_member(body, name)
+    LetExpr(_, _, value, body) =>
+      expr_directly_references_outer_member(value, name) ||
+      expr_directly_references_outer_member(body, name)
+    NonNullExpr(inner) | UnaryExpr(_, inner) | WhenSpread(inner) =>
+      expr_directly_references_outer_member(inner, name)
+    BinaryExpr(_, left, right) =>
+      expr_directly_references_outer_member(left, name) ||
+      expr_directly_references_outer_member(right, name)
+    ConditionalExpr(cond, then_branch, else_branch) =>
+      expr_directly_references_outer_member(cond, name) ||
+      expr_directly_references_outer_member(then_branch, name) ||
+      expr_directly_references_outer_member(else_branch, name)
+    ForGenerator(_, _, source, members) => {
+      if expr_directly_references_outer_member(source, name) {
+        return true
+      }
+      for object_member in members {
+        if expr_directly_references_outer_member(object_member.value, name) {
+          return true
+        }
+      }
+      false
+    }
+    InterpolatedString(parts) => {
+      for part in parts {
+        if expr_directly_references_outer_member(part, name) {
+          return true
+        }
+      }
+      false
+    }
+    IntLiteral(_)
+    | FloatLiteral(_)
+    | BoolLiteral(_)
+    | StringLiteral(_)
+    | NullLiteral
+    | Identifier(_)
+    | ImportExpr(_)
+    | ImportGlobExpr(_)
+    | UnsupportedExpr
+    | ErrorExpr(_) => false
+  }
+}
+
+///|
+fn expr_references_outer_binding(expr : Expr, name : String) -> Bool {
+  match expr {
+    ObjectLiteral(members) | TypedObjectLiteral(_, members) => {
+      for object_member in members {
+        if expr_directly_references_outer_member(object_member.value, name) {
+          return true
+        }
+      }
+      false
+    }
+    AmendExpr(base, members) => {
+      if expr_references_outer_binding(base, name) {
+        return true
+      }
+      for object_member in members {
+        if expr_directly_references_outer_member(object_member.value, name) {
+          return true
+        }
+      }
+      false
+    }
+    CallExpr(callee, arguments) | NullSafeCallExpr(callee, arguments) => {
+      if expr_references_outer_binding(callee, name) {
+        return true
+      }
+      for argument in arguments {
+        if expr_references_outer_binding(argument, name) {
+          return true
+        }
+      }
+      false
+    }
+    ListingLiteral(elements) => {
+      for element in elements {
+        if expr_references_outer_binding(element, name) {
+          return true
+        }
+      }
+      false
+    }
+    MappingLiteral(entries) => {
+      for entry in entries {
+        if expr_references_outer_binding(entry.key, name) ||
+          expr_references_outer_binding(entry.value, name) {
+          return true
+        }
+      }
+      false
+    }
+    MemberAccess(target, _) | SafeMemberAccess(target, _) =>
+      expr_references_outer_binding(target, name)
+    SubscriptAccess(target, key) =>
+      expr_references_outer_binding(target, name) ||
+      expr_references_outer_binding(key, name)
+    LambdaExpr(_, body, _) => expr_references_outer_binding(body, name)
+    LetExpr(_, _, value, body) =>
+      expr_references_outer_binding(value, name) ||
+      expr_references_outer_binding(body, name)
+    NonNullExpr(inner) | UnaryExpr(_, inner) | WhenSpread(inner) =>
+      expr_references_outer_binding(inner, name)
+    BinaryExpr(_, left, right) =>
+      expr_references_outer_binding(left, name) ||
+      expr_references_outer_binding(right, name)
+    ConditionalExpr(cond, then_branch, else_branch) =>
+      expr_references_outer_binding(cond, name) ||
+      expr_references_outer_binding(then_branch, name) ||
+      expr_references_outer_binding(else_branch, name)
+    ForGenerator(_, _, source, members) => {
+      if expr_references_outer_binding(source, name) {
+        return true
+      }
+      for object_member in members {
+        if expr_directly_references_outer_member(object_member.value, name) {
+          return true
+        }
+      }
+      false
+    }
+    InterpolatedString(parts) => {
+      for part in parts {
+        if expr_references_outer_binding(part, name) {
+          return true
+        }
+      }
+      false
+    }
+    IntLiteral(_)
+    | FloatLiteral(_)
+    | BoolLiteral(_)
+    | StringLiteral(_)
+    | NullLiteral
+    | Identifier(_)
+    | ImportExpr(_)
+    | ImportGlobExpr(_)
+    | UnsupportedExpr
+    | ErrorExpr(_) => false
+  }
+}
+
+///|
 /// PKL-148bb: scope-aware reference probe used by the late-binding
 /// re-eval pass. `expr_references` in lint.mbt walks *every* sub-
 /// expression — that's the right semantic for cycle detection but
@@ -4267,7 +5169,7 @@ fn expr_references_late_binding(expr : Expr, name : String) -> Bool {
     StringLiteral(_) => false
     NullLiteral => false
     Identifier(n) => n == name
-    ImportExpr(_) => false
+    ImportExpr(_) | ImportGlobExpr(_) => false
     ObjectLiteral(members) => members_reference_late_binding(members, name)
     TypedObjectLiteral(type_name, members) =>
       type_name == name || members_reference_late_binding(members, name)
@@ -4431,21 +5333,19 @@ fn merge_objects_with_late_binding(
       if is_local_member_name(bm.name) {
         continue
       }
-      // A base slot with `source: None` came from a class default or a
-      // synthetic build path that didn't participate in body-level
-      // sibling resolution. The body's references may have resolved to
-      // an outer scope instead, and without per-reference binding-
-      // target tracking we can't tell — so skip these to keep the safe
-      // case (`lateBinding3.v3`: amending `foo.y = 5` overrides the
-      // class-default `y`, but the body's `x = y` originally went to
-      // the outer `y = 3` and must not pick up the new inner one). The
-      // unavoidable cost is `lateBinding4.v3` foo, where the class
-      // default *was* the target and the re-trigger would propagate
-      // `y = 5` into `x`; deferred until per-reference targets land.
-      if bm.source is None {
+      let bm_bare = strip_member_visibility_prefix(bm.name)
+      // A `source: None` base slot normally came from a class default
+      // or synthetic path, so it is not enough by itself to prove that
+      // body sources should late-bind to it. TypedObjectLiteral records
+      // the narrow case where a body reference actually fell through to
+      // that class default; only those default slots may re-trigger
+      // sibling source evaluation here. This keeps `lateBinding3.v3`
+      // bound to the outer `y` while letting `lateBinding4.v3` follow
+      // the class-default `y`.
+      if bm.source is None &&
+        !object_members_depend_on_class_default(base, bm_bare) {
         continue
       }
-      let bm_bare = strip_member_visibility_prefix(bm.name)
       if bm_bare == bare {
         in_base = true
         break
@@ -4485,10 +5385,14 @@ fn merge_objects_with_late_binding(
             )
           (_, ov) => ov
         }
+        let merged_source = match (bm.value, over_member.value) {
+          (ObjectValue(_), ObjectValue(_)) => bm.source
+          _ => over_member.source
+        }
         merged.push({
           name: bm.name,
           value: new_val,
-          source: over_member.source,
+          source: merged_source,
           annotations: append_annotations(
             bm.annotations,
             over_member.annotations,
@@ -4536,18 +5440,38 @@ fn merge_objects_with_late_binding(
           if name == m_bare {
             continue
           }
-          if expr_references_late_binding(src, name) {
+          if expr_references_late_binding(src, name) ||
+            expr_references_outer_binding(src, name) ||
+            expr_references_super(src) {
             needs = true
             break
           }
         }
         if needs {
+          let reeval_cache = if member_source_comes_from_base(
+              m.name,
+              base,
+              overrides,
+            ) {
+            cache_for_member_source_reeval(src, cache, merged)
+          } else {
+            cache_for_nested_object_value(src, cache, merged)
+          }
           match
             eval_expr_with_bindings(
-              src, bindings, local_env, class_env, cache, stack, declarations, diagnostics,
-              resolve_import,
+              src, bindings, local_env, class_env, reeval_cache, stack, declarations,
+              diagnostics, resolve_import,
             ) {
-            Some(new_val) => {
+            Some(new_raw_val) => {
+              let new_val = match (new_raw_val, m.value) {
+                (ObjectValue(reevaluated), ObjectValue(current)) =>
+                  ObjectValue(
+                    merge_reevaluated_object_preserving_overrides(
+                      reevaluated, current,
+                    ),
+                  )
+                _ => new_raw_val
+              }
               final_members.push({
                 name: m.name,
                 value: new_val,
@@ -4567,6 +5491,34 @@ fn merge_objects_with_late_binding(
     }
   }
   final_members
+}
+
+///|
+fn merge_reevaluated_object_preserving_overrides(
+  reevaluated : Array[ValueMember],
+  current : Array[ValueMember],
+) -> Array[ValueMember] {
+  let mut merged = copy_value_members(reevaluated)
+  for current_member in current {
+    match find_value_member_exact(reevaluated, current_member.name) {
+      Some(base_member) =>
+        if current_member.source == base_member.source {
+          continue
+        } else {
+          let next : Array[ValueMember] = []
+          for existing in merged {
+            if existing.name == current_member.name {
+              next.push(current_member)
+            } else {
+              next.push(existing)
+            }
+          }
+          merged = next
+        }
+      None => merged.push(current_member)
+    }
+  }
+  merged
 }
 
 ///|
@@ -4610,6 +5562,132 @@ fn eval_object_members(
 }
 
 ///|
+fn object_member_targets_function_default(
+  name : String,
+  cache : Array[ValueBinding],
+) -> Bool {
+  match lookup_value(cache, "super") {
+    Some(ObjectValue(members)) =>
+      match lookup_member(members, strip_member_visibility_prefix(name)) {
+        Some(FunctionValue(_, _, _, _, _)) => true
+        _ => false
+      }
+    _ => false
+  }
+}
+
+///|
+fn class_property_type_annotation_from_class_env_with_depth(
+  type_name : String,
+  property_name : String,
+  class_env : Array[ClassBinding],
+  depth : Int,
+) -> String? {
+  if depth > 8 {
+    return None
+  }
+  match lookup_class_binding(class_env, type_name) {
+    Some(class_binding) => {
+      let hidden_name = hidden_member_name(property_name)
+      let mut found = false
+      let mut annotation : String? = None
+      for property in class_binding.properties {
+        if property.name == property_name || property.name == hidden_name {
+          found = true
+          annotation = property.type_name
+          break
+        }
+      }
+      if found && annotation is Some(_) {
+        annotation
+      } else {
+        match class_binding.parent_name {
+          Some(parent_name) =>
+            class_property_type_annotation_from_class_env_with_depth(
+              parent_name,
+              property_name,
+              class_env,
+              depth + 1,
+            )
+          None => None
+        }
+      }
+    }
+    None => None
+  }
+}
+
+///|
+fn class_property_type_annotation_from_class_env(
+  type_name : String,
+  property_name : String,
+  class_env : Array[ClassBinding],
+) -> String? {
+  class_property_type_annotation_from_class_env_with_depth(
+    type_name, property_name, class_env, 0,
+  )
+}
+
+///|
+fn instantiable_class_name_for_type_annotation(
+  type_name : String,
+  class_env : Array[ClassBinding],
+) -> String? {
+  let mut name = trim_spaces(type_name)
+  while name.has_suffix("?") {
+    name = trim_spaces(
+      String::unsafe_substring(name, start=0, end=name.length() - 1),
+    )
+  }
+  match lookup_class_binding(class_env, name) {
+    Some(_) => Some(name)
+    None => None
+  }
+}
+
+///|
+fn resolve_object_super_member_value(
+  name : String,
+  super_members : Array[ValueMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match lookup_value_member(super_members, name) {
+    Some(value_member) =>
+      match value_member.source {
+        Some(source) =>
+          if expr_references_super(source) &&
+            object_members_super(super_members) is None {
+            Some(value_member.value)
+          } else {
+            let super_cache = copy_value_bindings(cache)
+            match object_members_super(super_members) {
+              Some(parent_members) =>
+                super_cache.push({
+                  name: "super",
+                  value: ObjectValue(parent_members),
+                })
+              None => ()
+            }
+            super_cache.push({ name: "this", value: ObjectValue(super_members) })
+            eval_expr_with_bindings(
+              source, bindings, env, class_env, super_cache, stack, declarations,
+              diagnostics, resolve_import,
+            )
+          }
+        None => Some(value_member.value)
+      }
+    None => None
+  }
+}
+
+///|
 /// PKL-148u: extended form with `defer_property_errors`. When true,
 /// any property whose evaluation produces a diagnostic (or a
 /// structural rejection) has the first diagnostic captured into a
@@ -4643,6 +5721,9 @@ fn eval_object_members_with_options(
     if field.name == "@when" || field.name == "@for" || field.name == "@spread" {
       continue
     }
+    if is_function_amend_marker_member_name(field.name) {
+      continue
+    }
     // PKL-148x: `@subscript$<offset>` / `@element$<offset>`
     // sentinels are Dynamic-shape payloads that don't expose a
     // user-visible name, so they shouldn't register as binding
@@ -4666,6 +5747,9 @@ fn eval_object_members_with_options(
   }
   let values : Array[ValueMember] = []
   for field in members {
+    if is_function_amend_marker_member_name(field.name) {
+      continue
+    }
     // PKL-148x: Dynamic-shape sentinels. `@subscript$<offset>`
     // (`[key] = value` mapping entry) decodes the synthetic
     // `CallExpr(Identifier("@__index_entry"), [key, value])` payload
@@ -4818,21 +5902,61 @@ fn eval_object_members_with_options(
     // hidden / default machinery runs. Without this the unprefixed
     // `requiredLength` would leak into the rendered output
     // (`listings/listing6` fixture).
-    let field_value : Expr = match (field.value, field.type_name) {
-      (ObjectLiteral(inner_members), Some(class_name)) =>
-        match lookup_class_binding(class_env, class_name) {
-          Some(_) => TypedObjectLiteral(class_name, inner_members)
-          None => field.value
+    let effective_type_name = match field.type_name {
+      Some(_) => field.type_name
+      None =>
+        match lookup_value(cache, "@__constructing_class") {
+          Some(StringValue(class_name)) =>
+            class_property_type_annotation_from_class_env(
+              class_name,
+              strip_member_visibility_prefix(field.name),
+              class_env,
+            )
+          _ => None
+        }
+    }
+    let field_value : Expr = match field.value {
+      ObjectLiteral(inner_members) =>
+        if object_member_targets_function_default(field.name, cache) {
+          AmendExpr(
+            MemberAccess(
+              Identifier("super"),
+              strip_member_visibility_prefix(field.name),
+            ),
+            inner_members,
+          )
+        } else {
+          match effective_type_name {
+            Some(type_name) =>
+              match
+                instantiable_class_name_for_type_annotation(
+                  type_name, class_env,
+                ) {
+                Some(class_name) =>
+                  TypedObjectLiteral(class_name, inner_members)
+                None => field.value
+              }
+            None => field.value
+          }
         }
       _ => field.value
     }
     match
       eval_expr_with_bindings(
-        field_value, local_bindings, local_env, class_env, cache, stack, declarations,
-        property_diagnostics, resolve_import,
+        field_value,
+        local_bindings,
+        local_env,
+        class_env,
+        cache_for_nested_object_value(field_value, cache, values),
+        stack,
+        declarations,
+        property_diagnostics,
+        resolve_import,
       ) {
       Some(raw_value) => {
-        let value = coerce_value_to_annotated_type(raw_value, field.type_name)
+        let value = coerce_value_to_annotated_type(
+          raw_value, effective_type_name,
+        )
         if field.name == "@when" || field.name == "@for" {
           match value {
             ObjectValue(branch_members) =>

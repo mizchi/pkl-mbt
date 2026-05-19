@@ -464,6 +464,18 @@ fn pkl_constraint_trim(text : String) -> String {
 }
 
 ///|
+fn pkl_strip_default_type_marker(text : String) -> String {
+  let trimmed = pkl_constraint_trim(text)
+  if trimmed.has_prefix("*") {
+    pkl_constraint_trim(
+      String::unsafe_substring(trimmed, start=1, end=trimmed.length()),
+    )
+  } else {
+    trimmed
+  }
+}
+
+///|
 fn pkl_constraint_split_at_operator(
   text : String,
   op : String,

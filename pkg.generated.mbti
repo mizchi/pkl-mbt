@@ -25,6 +25,12 @@ pub fn lookup_triple_dot_resolution(String, String) -> String?
 
 pub fn parse_source(String) -> ParseResult
 
+pub fn register_import_glob(String, String, Array[String]) -> Unit
+
+pub fn register_read_glob(String, String, Array[SandboxResource]) -> Unit
+
+pub fn register_read_resource(String, String, String, String) -> Unit
+
 pub fn register_triple_dot_resolution(String, String, String) -> Unit
 
 pub fn render_type(Type) -> String
@@ -50,6 +56,8 @@ pub fn render_value_as_xml_fragment(Value, String) -> String
 pub fn render_value_as_xml_with_options(Value, String, String, String) -> String
 
 pub fn render_value_as_yaml(Value) -> String
+
+pub fn reset_sandbox_io_cache() -> Unit
 
 pub fn sandbox_is_module_allowed(String) -> Bool
 
@@ -175,6 +183,7 @@ pub(all) enum Expr {
   NullLiteral
   Identifier(String)
   ImportExpr(String)
+  ImportGlobExpr(String)
   ObjectLiteral(Array[ObjectMember])
   TypedObjectLiteral(String, Array[ObjectMember])
   ListingLiteral(Array[Expr])
@@ -261,6 +270,11 @@ pub(all) struct Program {
   bindings : Array[Binding]
   body : Expr?
   module_annotations : Array[Annotation]
+} derive(Eq, @debug.Debug)
+
+pub(all) struct SandboxResource {
+  uri : String
+  text : String
 } derive(Eq, @debug.Debug)
 
 pub(all) enum Type {

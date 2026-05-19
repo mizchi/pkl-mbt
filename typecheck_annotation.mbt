@@ -306,6 +306,7 @@ fn constrained_type_suffix_is_balanced(name : String, start : Int) -> Bool {
 
 ///|
 fn type_from_annotation(name : String, type_env : Array[TypeBinding]) -> Type? {
+  let name = pkl_strip_default_type_marker(name)
   // PKL-137: strip a balanced outer paren wrapper before the dispatch
   // table runs. Parser-emitted type text retains the parens (`("a" |
   // "b")` survives intact through `parse_type_text`), so an alias like

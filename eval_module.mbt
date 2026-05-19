@@ -381,7 +381,29 @@ fn late_bind_module_parent_members(
 }
 
 ///|
-fn eval_read_uri(uri : String, diagnostics : Array[Diagnostic]) -> Value? {
+fn sandbox_resource_value(resource : SandboxResource) -> Value {
+  ObjectValue([
+    {
+      name: "uri",
+      value: StringValue(resource.uri),
+      source: None,
+      annotations: [],
+    },
+    {
+      name: "text",
+      value: StringValue(resource.text),
+      source: None,
+      annotations: [],
+    },
+  ])
+}
+
+///|
+fn eval_read_uri(
+  uri : String,
+  current_module_path : String?,
+  diagnostics : Array[Diagnostic],
+) -> Value? {
   // PKL-098 / PKL-106 sandbox policy: `env:` is always on the
   // allow-list; `prop:` is allow-listed when the CLI installed at
   // least one `-p NAME=VALUE` binding. The remaining Apple Pkl
@@ -390,10 +412,21 @@ fn eval_read_uri(uri : String, diagnostics : Array[Diagnostic]) -> Value? {
   // diagnostic keeps the failure mode honest until those follow-up
   // slices land.
   match uri.find(":") {
-    None => {
-      diagnostics.push(diag("read: missing URI scheme in \"\{uri}\""))
-      None
-    }
+    None =>
+      match current_module_path {
+        Some(path) =>
+          match sandbox_lookup_read_resource(path, uri) {
+            Some(resource) => Some(sandbox_resource_value(resource))
+            None => {
+              diagnostics.push(diag("read: missing URI scheme in \"\{uri}\""))
+              None
+            }
+          }
+        None => {
+          diagnostics.push(diag("read: missing URI scheme in \"\{uri}\""))
+          None
+        }
+      }
     Some(idx) => {
       let scheme = String::unsafe_substring(uri, start=0, end=idx)
       let rest = String::unsafe_substring(uri, start=idx + 1, end=uri.length())
@@ -585,8 +618,45 @@ fn eval_pkl_test_catch_or_null_binding_value(
 }
 
 ///|
+fn module_class_properties_from_bindings(
+  module_bindings : Array[Binding],
+) -> Array[ClassProperty] {
+  let properties : Array[ClassProperty] = []
+  for binding in module_bindings {
+    if !binding.exported || binding.name == "output" {
+      continue
+    }
+    properties.push({
+      name: binding.name,
+      type_name: binding.type_name,
+      value: if binding.abstract_slot {
+        None
+      } else {
+        Some(binding.value)
+      },
+      annotations: binding.annotations,
+    })
+  }
+  properties
+}
+
+///|
+fn add_current_module_class_binding(
+  class_env : Array[ClassBinding],
+  module_bindings : Array[Binding],
+) -> Unit {
+  class_env.push({
+    name: "module",
+    parent_name: None,
+    properties: module_class_properties_from_bindings(module_bindings),
+    methods: [],
+  })
+}
+
+///|
 fn eval_program(
   program : Program,
+  current_module_path : String?,
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
   resolve_import_classes : (String) -> Array[ClassExport]?,
@@ -598,6 +668,7 @@ fn eval_program(
   let members : Array[ValueMember] = []
   let module_parent_members : Array[ValueMember] = []
   let bindings = all_eval_bindings(program)
+  add_current_module_class_binding(class_env, program.bindings)
   eval_imports(program.imports, env, diagnostics, resolve_import)
   add_imported_class_bindings(
     program.imports,
@@ -617,6 +688,11 @@ fn eval_program(
       })
     }
     cache.push({ name: "@__module_imports", value: MapValue(entries) })
+  }
+  match current_module_path {
+    Some(path) =>
+      cache.push({ name: "@__module_path", value: StringValue(path) })
+    None => ()
   }
   // PKL-148bh: stash the declared module name (`module Foo` header)
   // so reflect mirrors can build the `<module>#<simple>` qualified
@@ -1596,14 +1672,7 @@ fn apply_convert_property_render_function(
       let call_cache = copy_value_bindings(captured_env)
       push_object_members_as_bindings(call_cache, outer_value)
       call_cache.push({ name: "outer", value: outer_value })
-      match lookup_value(call_cache, "@__module_name") {
-        Some(_) => ()
-        None =>
-          match lookup_value(caller_cache, "@__module_name") {
-            Some(v) => call_cache.push({ name: "@__module_name", value: v })
-            None => ()
-          }
-      }
+      push_module_metadata_from_cache(call_cache, caller_cache)
       call_cache.push({ name: parameters[0].name, value: property })
       call_cache.push({ name: parameters[1].name, value: renderer_value })
       eval_expr_with_bindings(

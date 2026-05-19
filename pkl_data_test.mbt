@@ -810,6 +810,36 @@ test "read built-in rejects URIs without a scheme" {
 }
 
 ///|
+test "read and import glob forms use current module resource cache" {
+  reset_sandbox_io_cache()
+  register_read_resource(
+    "fixtures/main.pkl", "日本語.pkl", "日本語.pkl", "resource body",
+  )
+  register_read_glob("fixtures/main.pkl", "./日*.pkl", [
+    { uri: "./日本語.pkl", text: "resource body" },
+    { uri: "./日本語_error.pkl", text: "error body" },
+  ])
+  register_import_glob("fixtures/main.pkl", "./日*.pkl", [
+    "./日本語.pkl", "./日本語_error.pkl",
+  ])
+  let source =
+    #|readOne = read("日本語.pkl").text
+    #|readGlob = read*("./日*.pkl").keys
+    #|importGlob = import*("./日*.pkl").keys
+
+  let expected =
+    #|readOne = "resource body"
+    #|readGlob = Set("./日本語.pkl", "./日本語_error.pkl")
+    #|importGlob = Set("./日本語.pkl", "./日本語_error.pkl")
+
+  let session = AnalysisSession::new()
+  session.set_source("fixtures/main.pkl", source)
+  guard session.eval_path("fixtures/main.pkl") is EvalOk(value) else { panic() }
+  inspect(render_value(value), content=expected)
+  reset_sandbox_io_cache()
+}
+
+///|
 test "read built-in rejects non-String arguments" {
   guard eval_source("res = read(7)") is EvalError(diagnostics) else { panic() }
   inspect(diagnostics[0].message, content="read expects a String argument")

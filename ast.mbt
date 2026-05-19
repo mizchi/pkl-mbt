@@ -64,6 +64,7 @@ pub(all) enum Expr {
   NullLiteral
   Identifier(String)
   ImportExpr(String)
+  ImportGlobExpr(String)
   ObjectLiteral(Array[ObjectMember])
   TypedObjectLiteral(String, Array[ObjectMember])
   ListingLiteral(Array[Expr])

@@ -174,7 +174,7 @@ fn eval_resolved_annotation_structural_rejection_message(
   // gold format is `\`Duration\`` not `\`Duration?\``.
   let diag_name = rejection_type_label(resolved)
   for choice in choices {
-    let trimmed = pkl_constraint_trim(choice)
+    let trimmed = pkl_strip_default_type_marker(choice)
     let without_constraint = match pkl_constrained_type_base_name(trimmed) {
       Some(base) => base
       None => trimmed
@@ -1015,12 +1015,8 @@ fn eval_class_default_members(
   // each other mutually. The class's own methods take precedence over
   // any inherited methods in the lexical scope (defaults_cache is
   // built fresh per class layer).
-  let needs_clone = base_values.length() > 0 || own_methods.length() > 0
-  let defaults_cache = if needs_clone {
-    copy_value_bindings(cache)
-  } else {
-    cache
-  }
+  let defaults_cache = copy_value_bindings(cache)
+  push_super_dispatch_marker(defaults_cache, type_name)
   if base_values.length() > 0 {
     defaults_cache.push({ name: "super", value: ObjectValue(base_values) })
     // Hoist parent-class properties into the defaults cache under their

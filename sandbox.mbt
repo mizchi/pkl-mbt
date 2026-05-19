@@ -35,7 +35,16 @@ priv struct SandboxConfig {
   // loaded into the session source store. Key shape is
   // `"<from>\n<uri>"`.
   triple_dot_resolutions : Map[String, String]
+  read_resources : Map[String, SandboxResource]
+  read_globs : Map[String, Array[SandboxResource]]
+  import_globs : Map[String, Array[String]]
 }
+
+///|
+pub(all) struct SandboxResource {
+  uri : String
+  text : String
+} derive(Eq, Debug)
 
 ///|
 let sandbox_config : SandboxConfig = {
@@ -44,6 +53,9 @@ let sandbox_config : SandboxConfig = {
   module_paths: [],
   package_caches: [],
   triple_dot_resolutions: Map([], capacity=8),
+  read_resources: Map([], capacity=8),
+  read_globs: Map([], capacity=8),
+  import_globs: Map([], capacity=8),
 }
 
 ///|
@@ -148,4 +160,71 @@ pub fn register_triple_dot_resolution(
 /// `None` if the CLI never saw this `(from, uri)` pair.
 pub fn lookup_triple_dot_resolution(from : String, uri : String) -> String? {
   sandbox_config.triple_dot_resolutions.get(from + "\n" + uri)
+}
+
+///|
+fn sandbox_io_key(from : String, uri : String) -> String {
+  from + "\n" + uri
+}
+
+///|
+pub fn reset_sandbox_io_cache() -> Unit {
+  sandbox_config.read_resources.clear()
+  sandbox_config.read_globs.clear()
+  sandbox_config.import_globs.clear()
+}
+
+///|
+pub fn register_read_resource(
+  from : String,
+  uri : String,
+  visible_uri : String,
+  text : String,
+) -> Unit {
+  sandbox_config.read_resources[sandbox_io_key(from, uri)] = {
+    uri: visible_uri,
+    text,
+  }
+}
+
+///|
+fn sandbox_lookup_read_resource(
+  from : String,
+  uri : String,
+) -> SandboxResource? {
+  sandbox_config.read_resources.get(sandbox_io_key(from, uri))
+}
+
+///|
+pub fn register_read_glob(
+  from : String,
+  pattern : String,
+  resources : Array[SandboxResource],
+) -> Unit {
+  sandbox_config.read_globs[sandbox_io_key(from, pattern)] = resources
+}
+
+///|
+fn sandbox_lookup_read_glob(
+  from : String,
+  pattern : String,
+) -> Array[SandboxResource]? {
+  sandbox_config.read_globs.get(sandbox_io_key(from, pattern))
+}
+
+///|
+pub fn register_import_glob(
+  from : String,
+  pattern : String,
+  uris : Array[String],
+) -> Unit {
+  sandbox_config.import_globs[sandbox_io_key(from, pattern)] = uris
+}
+
+///|
+fn sandbox_lookup_import_glob(
+  from : String,
+  pattern : String,
+) -> Array[String]? {
+  sandbox_config.import_globs.get(sandbox_io_key(from, pattern))
 }

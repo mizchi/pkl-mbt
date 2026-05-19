@@ -38,7 +38,10 @@ fn Lexer::char_at(self : Lexer, index : Int) -> Char {
 
 ///|
 fn is_alpha(c : Char) -> Bool {
-  (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+  (c >= 'a' && c <= 'z') ||
+  (c >= 'A' && c <= 'Z') ||
+  c == '_' ||
+  c.to_int() >= 0x80
 }
 
 ///|

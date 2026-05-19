@@ -602,9 +602,10 @@ fn eval_module_path(
   }
   match get_module_source(sources, rt, path) {
     Some(source) =>
-      eval_source_with_import_details_named(
+      eval_source_with_import_details_named_at(
         source,
         derive_module_name_from_path(path),
+        Some(path),
         fn(uri) {
           let resolved = resolve_import_path(path, uri)
           Some(eval_module_path(sources, rt, resolved, push_stack(stack, path)))

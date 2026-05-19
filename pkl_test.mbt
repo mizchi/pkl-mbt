@@ -42,6 +42,27 @@ test "parse module header and top-level properties" {
 }
 
 ///|
+test "parse and evaluate unicode identifiers" {
+  let parsed = parse_source("日本語 = \"Japanese language\"")
+  inspect(parsed.diagnostics.length(), content="0")
+  inspect(parsed.unsupported_syntax.length(), content="0")
+  inspect(parsed.program.bindings[0].name, content="日本語")
+  assert_true(
+    eval_source("日本語 = \"Japanese language\"") ==
+    EvalOk(
+      ObjectValue([
+        {
+          name: "日本語",
+          value: StringValue("Japanese language"),
+          source: Some(StringLiteral("Japanese language")),
+          annotations: [],
+        },
+      ]),
+    ),
+  )
+}
+
+///|
 test "evaluate object literal from top-level module properties" {
   assert_true(
     eval_source("module demo\nname = \"hawk\"\nage = 2") ==
@@ -86,6 +107,18 @@ test "analysis session resolves import clauses for typechecking and evaluation" 
   session.set_source("main.pkl", "import \"base.pkl\" as base\nbase.name")
   assert_true(session.typecheck_path("main.pkl") == TypeOk(StringType))
   assert_true(session.eval_path("main.pkl") == EvalOk(StringValue("hawk")))
+}
+
+///|
+test "analysis session self import sees current module partial bindings" {
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", "a = \"hawk\"\nb = import(\"main.pkl\").a")
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  assert_eq(members.length(), 2)
+  assert_eq(members[1].name, "b")
+  assert_true(members[1].value == StringValue("hawk"))
 }
 
 ///|

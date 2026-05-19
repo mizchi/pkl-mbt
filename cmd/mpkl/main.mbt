@@ -707,6 +707,207 @@ fn push_stack(stack : Array[String], path : String) -> Array[String] {
 }
 
 ///|
+fn module_parent_dir(path : String) -> String {
+  match path.rev_find("/") {
+    Some(idx) => String::unsafe_substring(path, start=0, end=idx)
+    None => "."
+  }
+}
+
+///|
+fn split_glob_pattern(pattern : String) -> (String, String) {
+  match pattern.rev_find("/") {
+    Some(idx) =>
+      (
+        String::unsafe_substring(pattern, start=0, end=idx + 1),
+        String::unsafe_substring(pattern, start=idx + 1, end=pattern.length()),
+      )
+    None => ("", pattern)
+  }
+}
+
+///|
+fn glob_name_matches(pattern : String, name : String) -> Bool {
+  match pattern.find("*") {
+    None => name == pattern
+    Some(idx) => {
+      let prefix = String::unsafe_substring(pattern, start=0, end=idx)
+      let suffix = String::unsafe_substring(
+        pattern,
+        start=idx + 1,
+        end=pattern.length(),
+      )
+      name.has_prefix(prefix) && name.has_suffix(suffix)
+    }
+  }
+}
+
+///|
+fn sort_strings(values : Array[String]) -> Array[String] {
+  let out = values[:].to_owned()
+  for i = 1; i < out.length(); i = i + 1 {
+    let cur = out[i]
+    let mut j = i - 1
+    while j >= 0 && out[j] > cur {
+      out[j + 1] = out[j]
+      j = j - 1
+    }
+    out[j + 1] = cur
+  }
+  out
+}
+
+///|
+fn read_resource_from(from : String, uri : String) -> @pkl.SandboxResource? {
+  let resolved = resolve_import_path(from, uri)
+  let body = @fs.read_file_to_string(resolved) catch { _ => "" }
+  if body != "" || @fs.path_exists(resolved) {
+    Some({ uri, text: body })
+  } else {
+    None
+  }
+}
+
+///|
+fn glob_resources_from(
+  from : String,
+  pattern : String,
+) -> Array[@pkl.SandboxResource] {
+  let (dir_prefix, name_pattern) = split_glob_pattern(pattern)
+  let base_dir = normalize_path_segments(
+    module_parent_dir(from) + "/" + dir_prefix,
+  )
+  let names = @fs.read_dir(base_dir) catch { _ => [] }
+  let resources : Array[@pkl.SandboxResource] = []
+  for name in sort_strings(names) {
+    if !glob_name_matches(name_pattern, name) {
+      continue
+    }
+    let resolved = normalize_path_segments(base_dir + "/" + name)
+    let is_dir = @fs.is_dir(resolved) catch { _ => false }
+    if is_dir {
+      continue
+    }
+    let body = @fs.read_file_to_string(resolved) catch { _ => "" }
+    if body != "" || @fs.path_exists(resolved) {
+      resources.push({ uri: dir_prefix + name, text: body })
+    }
+  }
+  resources
+}
+
+///|
+fn glob_visible_uris_from(from : String, pattern : String) -> Array[String] {
+  let uris : Array[String] = []
+  for resource in glob_resources_from(from, pattern) {
+    uris.push(resource.uri)
+  }
+  uris
+}
+
+///|
+fn register_expr_io(from : String, expr : @pkl.Expr) -> Unit {
+  match expr {
+    CallExpr(Identifier("read"), args) => {
+      if args.length() == 1 && args[0] is StringLiteral(uri) {
+        match read_resource_from(from, uri) {
+          Some(resource) =>
+            @pkl.register_read_resource(from, uri, resource.uri, resource.text)
+          None => ()
+        }
+      }
+      for arg in args {
+        register_expr_io(from, arg)
+      }
+    }
+    CallExpr(Identifier("read*"), args) => {
+      if args.length() == 1 && args[0] is StringLiteral(pattern) {
+        @pkl.register_read_glob(
+          from,
+          pattern,
+          glob_resources_from(from, pattern),
+        )
+      }
+      for arg in args {
+        register_expr_io(from, arg)
+      }
+    }
+    ImportGlobExpr(pattern) =>
+      @pkl.register_import_glob(
+        from,
+        pattern,
+        glob_visible_uris_from(from, pattern),
+      )
+    ObjectLiteral(members) | TypedObjectLiteral(_, members) =>
+      for field in members {
+        register_expr_io(from, field.value)
+      }
+    ListingLiteral(elements) =>
+      for element in elements {
+        register_expr_io(from, element)
+      }
+    MappingLiteral(entries) =>
+      for entry in entries {
+        register_expr_io(from, entry.key)
+        register_expr_io(from, entry.value)
+      }
+    MemberAccess(target, _) | SafeMemberAccess(target, _) =>
+      register_expr_io(from, target)
+    SubscriptAccess(target, key) => {
+      register_expr_io(from, target)
+      register_expr_io(from, key)
+    }
+    AmendExpr(base, members) => {
+      register_expr_io(from, base)
+      for object_member in members {
+        register_expr_io(from, object_member.value)
+      }
+    }
+    CallExpr(callee, args) | NullSafeCallExpr(callee, args) => {
+      register_expr_io(from, callee)
+      for arg in args {
+        register_expr_io(from, arg)
+      }
+    }
+    LambdaExpr(_, body, _) => register_expr_io(from, body)
+    LetExpr(_, _, value, body) => {
+      register_expr_io(from, value)
+      register_expr_io(from, body)
+    }
+    NonNullExpr(inner) | UnaryExpr(_, inner) | WhenSpread(inner) =>
+      register_expr_io(from, inner)
+    BinaryExpr(_, left, right) => {
+      register_expr_io(from, left)
+      register_expr_io(from, right)
+    }
+    ConditionalExpr(condition, then_expr, else_expr) => {
+      register_expr_io(from, condition)
+      register_expr_io(from, then_expr)
+      register_expr_io(from, else_expr)
+    }
+    ForGenerator(_, _, source, members) => {
+      register_expr_io(from, source)
+      for object_member in members {
+        register_expr_io(from, object_member.value)
+      }
+    }
+    InterpolatedString(parts) =>
+      for part in parts {
+        register_expr_io(from, part)
+      }
+    IntLiteral(_)
+    | FloatLiteral(_)
+    | BoolLiteral(_)
+    | StringLiteral(_)
+    | NullLiteral
+    | Identifier(_)
+    | ImportExpr(_)
+    | UnsupportedExpr
+    | ErrorExpr(_) => ()
+  }
+}
+
+///|
 async fn load_expr_imports(
   session : @pkl.AnalysisSession,
   from : String,
@@ -722,6 +923,7 @@ async fn load_expr_imports(
         push_stack(stack, from),
         loaded,
       )
+    ImportGlobExpr(_) => ()
     ObjectLiteral(members) =>
       for field in members {
         load_expr_imports(session, from, field.value, stack, loaded)
@@ -887,6 +1089,13 @@ async fn load_path(
   }
   session.set_source(path, source)
   let parsed = @pkl.parse_source(source)
+  for binding in parsed.program.bindings {
+    register_expr_io(path, binding.value)
+  }
+  match parsed.program.body {
+    Some(expr) => register_expr_io(path, expr)
+    None => ()
+  }
   for decl in parsed.program.imports {
     load_path(
       session,
@@ -1172,6 +1381,7 @@ async fn main {
   @pkl.configure_sandbox_module_paths(module_paths)
   @pkl.configure_sandbox_package_caches(package_caches)
   @pkl.configure_sandbox_allowed_modules(allowed_modules)
+  @pkl.reset_sandbox_io_cache()
   if format != "pcf" &&
     format != "json" &&
     format != "yaml" &&
