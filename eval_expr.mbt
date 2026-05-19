@@ -1556,6 +1556,51 @@ fn eval_expr_with_bindings(
             _ => None
           }
         }
+      } else if callee is Identifier("_pkl_shell_escape_single_quote") &&
+        arguments.length() == 1 {
+        // PKL-148bh: `pkl:shell.escapeWithSingleQuotes(str)` intrinsic.
+        // Split on `'`, wrap each non-empty piece in single quotes,
+        // join with `\'` (escaped single quote). The empty pieces
+        // between consecutive `'`s collapse into doubled escapes —
+        // `"abc'def''ghi"` becomes `'abc'\''def'\'\''ghi'`.
+        match
+          eval_expr_with_bindings(
+            arguments[0], bindings, env, class_env, cache, stack, declarations,
+            diagnostics, resolve_import,
+          ) {
+          Some(StringValue(s)) => {
+            let pieces : Array[String] = []
+            let cur = StringBuilder::new()
+            for c in s {
+              if c == '\'' {
+                pieces.push(cur.to_string())
+                cur.reset()
+              } else {
+                cur.write_char(c)
+              }
+            }
+            pieces.push(cur.to_string())
+            let out = StringBuilder::new()
+            for i = 0; i < pieces.length(); i = i + 1 {
+              if i > 0 {
+                out.write_string("\\'")
+              }
+              if pieces[i] != "" {
+                out.write_char('\'')
+                out.write_string(pieces[i])
+                out.write_char('\'')
+              }
+            }
+            Some(StringValue(out.to_string()))
+          }
+          Some(_) => {
+            diagnostics.push(
+              diag("escapeWithSingleQuotes expects a String argument"),
+            )
+            None
+          }
+          None => None
+        }
       } else if callee is Identifier("getClass") && arguments.length() == 0 &&
         !stack_contains_binding(stack, "getClass") &&
         find_binding(bindings, "getClass") is None &&

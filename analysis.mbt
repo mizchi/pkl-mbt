@@ -282,6 +282,14 @@ fn builtin_stdlib_source(uri : String) -> String? {
       Some(source)
     }
     "pkl:test" => Some("catch = null")
+    // PKL-148bh: `pkl:shell.escapeWithSingleQuotes(str)` — wraps the
+    // string in single quotes and escapes internal `'` via the
+    // `'\''` shell-quote idiom (api/shellModule).
+    "pkl:shell" => {
+      let source =
+        #|escapeWithSingleQuotes = (str) -> _pkl_shell_escape_single_quote(str)
+      Some(source)
+    }
     // PKL-148bh: `pkl:base` is the implicit-imported root stdlib.
     // Apple Pkl allows explicit `import "pkl:base"` (modules/equality
     // does it twice — once bare, once `as base2`) so the binding can
