@@ -3681,9 +3681,24 @@ fn eval_object_members_with_options(
     } else {
       diagnostics
     }
+    // PKL-148bg: see eval_binding.mbt — when a member declares a
+    // user-class annotation (`local base: TheClass2 = new { ... }`)
+    // and the RHS is a bare `new { ... }` (ObjectLiteral), rewrite to
+    // `new TheClass2 { ... }` (TypedObjectLiteral) so the class's
+    // hidden / default machinery runs. Without this the unprefixed
+    // `requiredLength` would leak into the rendered output
+    // (`listings/listing6` fixture).
+    let field_value : Expr = match (field.value, field.type_name) {
+      (ObjectLiteral(inner_members), Some(class_name)) =>
+        match lookup_class_binding(class_env, class_name) {
+          Some(_) => TypedObjectLiteral(class_name, inner_members)
+          None => field.value
+        }
+      _ => field.value
+    }
     match
       eval_expr_with_bindings(
-        field.value,
+        field_value,
         local_bindings,
         local_env,
         class_env,

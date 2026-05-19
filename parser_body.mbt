@@ -25,10 +25,19 @@ fn Parser::parse_listing_body(self : Parser) -> Expr {
     } else if self.at(local_kw()) {
       match self.parse_local_decl() {
         Some(binding) =>
+          // PKL-148bg: `local x: SomeClass = new { ... }` inside a
+          // Listing body. The desugar below drops the type annotation
+          // (the binding becomes a positional lambda parameter), so
+          // promote a bare `new { ... }` to `new SomeClass { ... }`
+          // here while the annotation is still in hand. Eval-time
+          // TypedObjectLiteral handling no-ops gracefully when the
+          // name isn't actually a class.
           items.push({
             kind: LocalBindingItem,
             name: binding.name,
-            value: binding.value,
+            value: rewrite_typed_object_literal(
+              binding.value, binding.type_name,
+            ),
           })
         None => ()
       }
@@ -50,6 +59,31 @@ fn Parser::parse_listing_body(self : Parser) -> Expr {
   ignore(self.expect(rbrace(), "}"))
   self.builder.finish_node()
   build_listing_body(items)
+}
+
+///|
+/// PKL-148bg: promote a bare `new { ... }` (ObjectLiteral) whose
+/// binding declared a user-class annotation into the typed form
+/// (`new SomeClass { ... }` / TypedObjectLiteral). The Listing /
+/// Mapping body desugar pipelines drop the type annotation while
+/// chaining locals into `let`-style lambdas, so the typed dispatch
+/// (class defaults, `hidden` rename, constraint firing) never ran
+/// for these otherwise. The eval-time TypedObjectLiteral handler
+/// no-ops gracefully when the supposed class name doesn't resolve.
+fn rewrite_typed_object_literal(value : Expr, type_name : String?) -> Expr {
+  match (value, type_name) {
+    (ObjectLiteral(members), Some(name)) =>
+      // Only rewrite when the annotation looks like a plain class name
+      // — generic parameters / unions / function shapes keep the
+      // original ObjectLiteral so the existing handling stays intact.
+      if name.contains("<") || name.contains("|") || name.contains("(") ||
+        name.contains("?") {
+        value
+      } else {
+        TypedObjectLiteral(name, members)
+      }
+    _ => value
+  }
 }
 
 ///|
@@ -188,7 +222,11 @@ fn Parser::parse_mapping_body(self : Parser) -> Expr {
       // local and rewrite every entry key/value below with nested
       // `((local) -> ...)(value)` calls so forward references work.
       match self.parse_local_decl() {
-        Some(binding) => locals.push((binding.name, binding.value))
+        Some(binding) =>
+          locals.push((
+            binding.name,
+            rewrite_typed_object_literal(binding.value, binding.type_name),
+          ))
         None => ()
       }
     } else {

@@ -142,9 +142,25 @@ fn resolve_binding_value(
             diagnostics.push(diag("cyclic property reference \{name}"))
             None
           } else {
+            // PKL-148bg: when the binding annotation names a user class
+            // (`local base: TheClass2 = new { requiredLength = 5 }`),
+            // rewrite a bare `new { ... }` (ObjectLiteral) to
+            // `new TheClass2 { ... }` (TypedObjectLiteral) so the
+            // class's `hidden` / default machinery runs. Without this
+            // the unprefixed `requiredLength` would leak into the
+            // rendered output (`listings/listing6` fixture).
+            let rewritten_value : Expr = match
+              (binding.value, binding.type_name) {
+              (ObjectLiteral(members), Some(class_name)) =>
+                match lookup_class_binding(class_env, class_name) {
+                  Some(_) => TypedObjectLiteral(class_name, members)
+                  None => binding.value
+                }
+              _ => binding.value
+            }
             match
               eval_expr_with_bindings(
-                binding.value,
+                rewritten_value,
                 bindings,
                 env,
                 class_env,
