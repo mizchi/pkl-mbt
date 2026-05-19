@@ -277,6 +277,14 @@ fn builtin_stdlib_source(uri : String) -> String? {
       Some(source)
     }
     "pkl:test" => Some("catch = null")
+    // PKL-148bh: `pkl:base` is the implicit-imported root stdlib.
+    // Apple Pkl allows explicit `import "pkl:base"` (modules/equality
+    // does it twice — once bare, once `as base2`) so the binding can
+    // be inspected for object-equality. The contents are vacuously
+    // empty here — every pkl:base name already resolves through the
+    // bare-identifier path so the import only needs to provide an
+    // ObjectValue that satisfies equality comparisons.
+    "pkl:base" => Some("")
     "pkl:json" => {
       // PKL-124 / PKL-144 / PKL-145: `pkl:json` carries `Parser` and
       // the annotation class `Property`. The Parser stamps a hidden
