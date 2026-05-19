@@ -37,6 +37,12 @@ pub fn render_value_as_plist(Value) -> String
 
 pub fn render_value_as_properties(Value) -> String
 
+pub fn render_value_as_textproto(Value) -> String
+
+pub fn render_value_as_textproto_fragment(Value, String) -> String
+
+pub fn render_value_as_textproto_with_indent(Value, String) -> String
+
 pub fn render_value_as_xml(Value) -> String
 
 pub fn render_value_as_xml_fragment(Value, String) -> String

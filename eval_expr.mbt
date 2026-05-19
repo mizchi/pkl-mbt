@@ -4190,6 +4190,24 @@ fn eval_value_renderer_method(
         "yaml" => Some(StringValue(render_value_as_yaml(value)))
         "properties" => Some(StringValue(render_value_as_properties(value)))
         "plist" => Some(StringValue(render_value_as_plist(value)))
+        "textproto" => {
+          let indent_text = xml_renderer_option(
+            renderer_members, "indent", "  ",
+          )
+          if method_name == "renderDocument" {
+            Some(
+              StringValue(
+                render_value_as_textproto_with_indent(value, indent_text),
+              ),
+            )
+          } else {
+            Some(
+              StringValue(
+                render_value_as_textproto_fragment(value, indent_text),
+              ),
+            )
+          }
+        }
         "xml" => {
           let indent_text = xml_renderer_option(
             renderer_members, "indent", "  ",

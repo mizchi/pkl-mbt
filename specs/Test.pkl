@@ -620,6 +620,28 @@ local cliRendererPlist = new Test {
   timeoutSec = 120
 }
 
+local cliRendererTextproto = new Test {
+  name = "cli renderer textproto"
+  description =
+    "The native CLI accepts `-f textproto` and renders typed Pkl objects through the protobuf text-format renderer. Scalar properties render as `name: value`, nested typed objects render as `name: { ... }`, listings become repeated fields, and mappings become repeated `{ key: ..., value: ... }` messages."
+  tags { "moonbit"; "cli"; "renderer"; "protobuf"; "textproto"; "contract" }
+  specRef { "PKL-126c" }
+  cmd = "moon run cmd/mpkl --target native -- eval -f textproto fixtures/cli_renderer_textproto.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "service: {"
+    "name: \"api\""
+    "secure: true"
+    "endpoint: {"
+    "host: \"localhost\""
+    "aliases: \"primary\""
+    "metadata: {"
+    "key: \"weight\""
+    "value: 10"
+  }
+  timeoutSec = 120
+}
+
 local cliRendererStdlibModules = new Test {
   name = "cli renderer stdlib modules"
   description =
@@ -640,7 +662,8 @@ local cliRendererStdlibModules = new Test {
     "xmlRenderer {"
     "xmlVersion = \"1.0\""
     "rootElementName = \"config\""
-    "protoRenderer {}"
+    "protoRenderer {"
+    "indent = \"  \""
     "jsonParser {"
     "useMapping = true"
   }
@@ -1243,7 +1266,7 @@ local cliTestFail = new Test {
 local upstreamSmoke = new Test {
   name = "upstream apple pkl fixture smoke"
   description =
-    "Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF and JSON)."
+    "Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF plus selected renderer gold files)."
   tags { "moonbit"; "upstream"; "compatibility"; "contract" }
   specRef {
     "PKL-011"
@@ -1256,6 +1279,7 @@ local upstreamSmoke = new Test {
     "PKL-109"
     "PKL-126a"
     "PKL-126b"
+    "PKL-126c"
     "PKL-144"
     "PKL-147"
     "PKL-148"
@@ -1442,10 +1466,12 @@ local upstreamSmoke = new Test {
     "upstream eval ok: api/pListRenderer1.plist (gold match)"
     "upstream eval ok: api/xmlRenderer1.xml (gold match)"
     "upstream eval ok: api/xmlRendererElement.xml (gold match)"
+    "upstream eval ok: api/protobuf3.txtpb (gold match)"
     "upstream-smoke: 166 gold-match fixtures passed"
     "upstream-smoke: 1 json gold-match fixtures passed"
     "upstream-smoke: 1 plist gold-match fixtures passed"
     "upstream-smoke: 2 xml gold-match fixtures passed"
+    "upstream-smoke: 1 textproto gold-match fixtures passed"
   }
   timeoutSec = 240
 }
@@ -1507,6 +1533,7 @@ tests {
   cliCrossModuleFunction
   cliRendererStdlibModules
   cliRendererPlist
+  cliRendererTextproto
   cliPairValue
   cliIntSeqValue
   cliSetValue

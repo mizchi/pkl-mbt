@@ -25,7 +25,7 @@
 /// `entries`:
 ///   - PKL-101 (repl)               — interactive CLI, low library value
 ///   - PKL-126b (xml renderer)      — covered by `pkl eval -f xml` upstream
-///   - PKL-126c (protobuf renderer) — same; needs `.proto` schema parser
+///   - PKL-126c (protobuf text renderer) — covered by `pkl eval -f textproto`
 ///   - PKL-127 (renderer converters) — same renderer surface
 ///   - PKL-130 (pkldoc)             — pkl's own `pkldoc` covers this
 ///   - PKL-132 (LSP)                — out of scope for the library slice
@@ -911,13 +911,13 @@ local xmlRenderer: Spec.Scenario = new {
 
 local protobufRenderer: Spec.Scenario = new {
   id = "PKL-126c"
-  name = "protobuf renderer"
+  name = "protobuf text renderer"
   description =
-    "Serialize Pkl values against an externally provided `.proto` schema and emit the binary wire format. Requires a schema-lookup mechanism (the `pkl:protobuf` `Renderer` class carries the schema reference) and a way to surface bytes through the existing `BytesValue` carrier. Deferred for the same reason as PKL-126b — Apple Pkl already covers the surface, and the `.proto` schema parser is a non-trivial separate lift."
+    "Emit Pkl values through Apple Pkl's experimental `pkl:protobuf.Renderer` text-format surface. The current upstream renderer supports Protocol Buffers text format, not binary wire encoding or `.proto` schema loading. `-f textproto`, `output { renderer = new protobuf.Renderer {} }`, `renderValue`, `renderDocument`, `indent`, `protobuf.Property { name = ... }`, and converter-produced `RenderDirective` comments are in scope; oneof/subtype naming and binary protobuf stay follow-up work."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-124"; "PKL-126a"; "PKL-126b" }
-  tags { "renderer"; "protobuf"; "deferred" }
-  reviewStatus = "draft"
+  tags { "renderer"; "protobuf"; "textproto" }
+  reviewStatus = "approved"
   severity = "major"
 }
 

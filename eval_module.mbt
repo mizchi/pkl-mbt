@@ -1459,6 +1459,12 @@ fn apply_single_convert_property_annotation(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> (String, Value)? {
+  if annotation.class_name == "protobuf.Property" {
+    match protobuf_annotation_string_field(annotation.body_text, "name") {
+      Some(next_name) => return Some((next_name, property_value))
+      None => ()
+    }
+  }
   let class_name = class_binding_name_from_mirror(annotation.class_name)
   let matching_transformer = pick_convert_property_transformer(
     class_name, transformers, class_env,

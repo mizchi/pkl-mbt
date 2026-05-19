@@ -208,6 +208,14 @@ XML_GOLD_FIXTURES=(
   "api/xmlRendererElement.xml"
 )
 
+# PKL-126c: textproto renderer fixtures whose `output { renderer =
+# new protobuf.Renderer {} }` path now matches the upstream `.txtpb`
+# gold. Apple Pkl's current protobuf renderer emits text format only;
+# binary protobuf / .proto schema loading is not part of this slice.
+TEXTPROTO_GOLD_FIXTURES=(
+  "api/protobuf3.txtpb"
+)
+
 # Files whose `pkl parse` should succeed even when we cannot evaluate
 # them (e.g. they exercise stdlib gaps or runtime semantics outside
 # the implemented slice). Keeping a parse-only check pins the parser
@@ -335,7 +343,14 @@ for label in "${XML_GOLD_FIXTURES[@]}"; do
   xml_ok_count=$((xml_ok_count + 1))
 done
 
+textproto_ok_count=0
+for label in "${TEXTPROTO_GOLD_FIXTURES[@]}"; do
+  eval_matches_gold "$label" "$UPSTREAM/$label.pkl" "$GOLD/$label"
+  textproto_ok_count=$((textproto_ok_count + 1))
+done
+
 printf 'upstream-smoke: %d gold-match fixtures passed\n' "$ok_count"
 printf 'upstream-smoke: %d json gold-match fixtures passed\n' "$json_ok_count"
 printf 'upstream-smoke: %d plist gold-match fixtures passed\n' "$plist_ok_count"
 printf 'upstream-smoke: %d xml gold-match fixtures passed\n' "$xml_ok_count"
+printf 'upstream-smoke: %d textproto gold-match fixtures passed\n' "$textproto_ok_count"

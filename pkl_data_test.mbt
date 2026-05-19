@@ -339,6 +339,106 @@ test "PKL-126b: xml Element constructor overrides the member element name" {
 }
 
 ///|
+test "PKL-126c: protobuf text renderer emits scalar fields and nested messages" {
+  let value : Value = ObjectValue([
+    ValueMember::{
+      name: "@hidden$__class",
+      value: StringValue("Server"),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "host",
+      value: StringValue("localhost"),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "port",
+      value: IntValue(8080),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "tls",
+      value: BoolValue(true),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "nested",
+      value: ObjectValue([
+        ValueMember::{
+          name: "@hidden$__class",
+          value: StringValue("Nested"),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "name",
+          value: StringValue("inner"),
+          source: None,
+          annotations: [],
+        },
+      ]),
+      source: None,
+      annotations: [],
+    },
+  ])
+  inspect(
+    render_value_as_textproto(value),
+    content=(
+      #|host: "localhost"
+      #|port: 8080
+      #|tls: true
+      #|nested: {
+      #|  name: "inner"
+      #|}
+      #|
+    ),
+  )
+}
+
+///|
+test "PKL-126c: protobuf Renderer renderValue dispatches through pkl:protobuf" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:protobuf\" as protobuf\nclass Message { x: String = \"y\" }\nr = (new protobuf.Renderer {}).renderValue(new Message {})",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is StringValue(rendered) else { panic() }
+  inspect(rendered, content="x: \"y\"")
+}
+
+///|
+test "PKL-126c: protobuf Property annotation renames textproto field" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:protobuf\" as protobuf\nclass Message {\n  @protobuf.Property { name = \"FOO\" }\n  foo: String = \"a\"\n}\noutput { value = new Message {}; renderer = new protobuf.Renderer {} }",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut output : Value? = None
+  for m in members {
+    if m.name == "output" {
+      output = Some(m.value)
+    }
+  }
+  guard output is Some(ObjectValue(output_members)) else { panic() }
+  let mut projected : Value? = None
+  for m in output_members {
+    if m.name == "value" {
+      projected = Some(m.value)
+    }
+  }
+  guard projected is Some(value) else { panic() }
+  inspect(render_value_as_textproto_fragment(value, "  "), content="FOO: \"a\"")
+}
+
+///|
 test "PKL-124: pkl:base JsonRenderer typechecks without import" {
   let result = typecheck_source(
     "count = 5\noutput { renderer = new JsonRenderer { indent = \"    \" } }",
