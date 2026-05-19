@@ -429,6 +429,18 @@ fn pretty_constraint_text(text : String) -> String {
         i = i + 2
         continue
       }
+      // PKL-148bb: commas in argument lists need a trailing space —
+      // `parse_type_text` strips trivia between tokens, so the captured
+      // text reads `(key,value)` instead of Apple Pkl's `(key, value)`.
+      if c == ',' {
+        buf.write_char(',')
+        if i + 1 < n &&
+          trimmed[i + 1].to_int().unsafe_to_char() != ' ' {
+          buf.write_char(' ')
+        }
+        i = i + 1
+        continue
+      }
       // Check multi-char ops first.
       let mut matched = false
       for op in multi {

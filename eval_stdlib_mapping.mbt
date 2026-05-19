@@ -813,6 +813,58 @@ fn eval_map_method(
       }
       Some(acc)
     }
+    // PKL-148bb: Map mirrors Mapping's predicate trio. Each takes a
+    // 2-arg lambda `(key, value) -> Boolean`. Used by class-property
+    // constraints whose Map slot fires the `every(...)` cascade
+    // (`classes/mapConstraints1`).
+    "every" | "any" | "none" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("Map.\{method_name} expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let mut hit = false
+      let mut all = true
+      for entry in entries {
+        match
+          apply_function_value(
+            "Map.\{method_name} predicate",
+            arg_values[0],
+            [entry.key, entry.value],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(BoolValue(true)) => hit = true
+          Some(BoolValue(false)) => all = false
+          Some(_) => {
+            diagnostics.push(
+              diag("Map.\{method_name} predicate must return Boolean"),
+            )
+            return None
+          }
+          None => return None
+        }
+        if method_name == "any" && hit {
+          return Some(BoolValue(true))
+        }
+        if method_name == "every" && !all {
+          return Some(BoolValue(false))
+        }
+      }
+      match method_name {
+        "every" => Some(BoolValue(all))
+        "any" => Some(BoolValue(hit))
+        "none" => Some(BoolValue(!hit))
+        _ => None
+      }
+    }
     _ => {
       diagnostics.push(
         diag("Cannot find property `\{method_name}` in object of type `Map`."),
