@@ -499,15 +499,6 @@ fn synth_class_mirror_for_value(value : Value) -> Value {
 /// identifier as a Class instance whose member-access surface
 /// produces `Cannot find property \`X\` in object of type \`Class\`.`
 /// for anything other than `simpleName` / `name`.
-/// PKL-148bb: mirror for a typealias declaration. Same shape as the
-/// reflect.Class mirror but `__kind = "TypeAlias"` so member-access
-/// dispatch routes to the alias surface (`.simpleName`, `.name`,
-/// `.modifiers`, `.toString()`).
-fn synth_type_alias_mirror_for_name(name : String) -> Value {
-  synth_type_alias_mirror_for_qualified(name, None)
-}
-
-///|
 /// PKL-148bh: TypeAlias mirror with a module-qualified `name` /
 /// toString. When `module_name` is Some, the mirror's `name` and the
 /// toString-style projection use `<module>#<simple>` (matching

@@ -264,7 +264,7 @@ fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
         match pklproject_alias_to_uri(project_text, dep_name) {
           Some(remote_uri) =>
             match resolve_package_uri_to_cache(remote_uri, rest) {
-              Some(local) => return Some(local)
+              Some(local_path) => return Some(local_path)
               None => ()
             }
           None => ()
@@ -281,7 +281,7 @@ fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
     match package_metadata_alias_to_uri(current, dep_name) {
       Some(remote_uri) =>
         match resolve_package_uri_to_cache(remote_uri, rest) {
-          Some(local) => return Some(local)
+          Some(local_path) => return Some(local_path)
           None => ()
         }
       None => ()
@@ -359,7 +359,7 @@ fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
                               match resolve_package_uri_to_cache(
                                   remote_uri, rest,
                                 ) {
-                                Some(local) => return Some(local)
+                                Some(local_path) => return Some(local_path)
                                 None => ()
                               }
                             None => ()
@@ -474,8 +474,8 @@ fn package_metadata_alias_to_uri(
 /// (`["x" + y"]` etc.) fall through to None. That covers the snippet
 /// fixtures and any project that writes dependency entries in the
 /// standard form.
-fn pklproject_alias_to_uri(text : String, alias : String) -> String? {
-  let opener = "[\"" + alias + "\"]"
+fn pklproject_alias_to_uri(text : String, dep_alias : String) -> String? {
+  let opener = "[\"" + dep_alias + "\"]"
   let mut search_from = 0
   while search_from < text.length() {
     let tail = String::unsafe_substring(text, start=search_from, end=text.length())
@@ -743,7 +743,7 @@ fn normalize_path_segments(path : String) -> String {
   let mut start = if leading_slash { 1 } else { 0 }
   let mut i = start
   while i < body.length() {
-    if body.unsafe_charcode_at(i) == 47 {
+    if body.unsafe_get(i) == '/' {
       raw_segments.push(String::unsafe_substring(body, start~, end=i))
       start = i + 1
     }
@@ -975,7 +975,7 @@ async fn load_path(
     // diagnostic if the resolved candidate isn't a file (matches the
     // upstream behaviour when the import names a directory).
     match resolve_package_uri_to_cache(path, "") {
-      Some(local) => @fs.read_file_to_string(local) catch { _ => "" }
+      Some(local_path) => @fs.read_file_to_string(local_path) catch { _ => "" }
       None => {
         diagnose_package_uri(path)
         ""

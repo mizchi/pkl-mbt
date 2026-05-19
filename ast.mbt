@@ -74,6 +74,7 @@ pub(all) enum Expr {
   AmendExpr(Expr, Array[ObjectMember])
   CallExpr(Expr, Array[Expr])
   LambdaExpr(Array[FunctionParameter], Expr, String?)
+  LetExpr(String, String?, Expr, Expr)
   NonNullExpr(Expr)
   UnaryExpr(UnaryOp, Expr)
   BinaryExpr(BinaryOp, Expr, Expr)

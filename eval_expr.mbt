@@ -43,8 +43,8 @@ fn eval_expr_with_bindings(
       Some(
         ObjectValue(
           eval_object_members(
-            members, bindings, env, class_env, body_cache, stack, declarations,
-            diagnostics, resolve_import,
+            members, bindings, env, class_env, body_cache, stack, declarations, diagnostics,
+            resolve_import,
           ),
         ),
       )
@@ -189,20 +189,32 @@ fn eval_expr_with_bindings(
         name: "@__constructing_class",
         value: StringValue(type_name),
       })
-      let merged = reorder_typed_object_members_by_class_declaration(
-        merge_value_members(
-          class_defaults,
-          rename_overrides_for_hidden_class_properties(
-            eval_object_members(
-              members, body_bindings, env, class_env, body_cache, stack,
-              declarations, diagnostics, resolve_import,
-            ),
-            type_name,
-            class_env,
-          ),
-        ),
+      let merged = reeval_class_defaults_after_constructor_overrides(
         type_name,
+        members,
+        reorder_typed_object_members_by_class_declaration(
+          merge_value_members(
+            class_defaults,
+            rename_overrides_for_hidden_class_properties(
+              eval_object_members(
+                members, body_bindings, env, class_env, body_cache, stack, declarations,
+                diagnostics, resolve_import,
+              ),
+              type_name,
+              class_env,
+            ),
+          ),
+          type_name,
+          class_env,
+        ),
+        bindings,
+        env,
         class_env,
+        cache,
+        stack,
+        declarations,
+        diagnostics,
+        resolve_import,
       )
       // PKL-148b: fire class-property constraints at construction time
       // so `new P { l {} }` where `l: Listing<String>(!isEmpty)` raises
@@ -310,14 +322,19 @@ fn eval_expr_with_bindings(
             if idx_args.length() >= 1 {
               match
                 eval_expr_with_bindings(
-                  idx_args[0], bindings, env, class_env, cache, stack, declarations,
-                  diagnostics, resolve_import,
+                  idx_args[0],
+                  bindings,
+                  env,
+                  class_env,
+                  cache,
+                  stack,
+                  declarations,
+                  diagnostics,
+                  resolve_import,
                 ) {
                 Some(IntValue(idx)) => {
                   diagnostics.push(
-                    diag(
-                      "Element index `\{idx}` is out of range `0`..`-1`.",
-                    ),
+                    diag("Element index `\{idx}` is out of range `0`..`-1`."),
                   )
                   return None
                 }
@@ -1077,16 +1094,8 @@ fn eval_expr_with_bindings(
             diagnostics, resolve_import,
           )
           let merged = merge_objects_with_late_binding(
-            modified_base,
-            evaluated_regular,
-            bindings,
-            env,
-            class_env,
-            amend_cache,
-            stack,
-            declarations,
-            diagnostics,
-            resolve_import,
+            modified_base, evaluated_regular, bindings, env, class_env, amend_cache,
+            stack, declarations, diagnostics, resolve_import,
           )
           // Fire class-property constraints against amend bodies that
           // target a typed receiver (`(counter) { y = 0 }` where
@@ -1305,7 +1314,8 @@ fn eval_expr_with_bindings(
           }
           module_members.push({
             name: value_binding.name,
-            value: value_binding.value, source: None
+            value: value_binding.value,
+            source: None,
           })
         }
         Some(ObjectValue(module_members))
@@ -1755,8 +1765,15 @@ fn eval_expr_with_bindings(
         // `"abc'def''ghi"` becomes `'abc'\''def'\'\''ghi'`.
         match
           eval_expr_with_bindings(
-            arguments[0], bindings, env, class_env, cache, stack, declarations,
-            diagnostics, resolve_import,
+            arguments[0],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
           ) {
           Some(StringValue(s)) => {
             let pieces : Array[String] = []
@@ -1791,7 +1808,8 @@ fn eval_expr_with_bindings(
           }
           None => None
         }
-      } else if callee is Identifier("getClass") && arguments.length() == 0 &&
+      } else if callee is Identifier("getClass") &&
+        arguments.length() == 0 &&
         !stack_contains_binding(stack, "getClass") &&
         find_binding(bindings, "getClass") is None &&
         lookup_value(env, "getClass") is None &&
@@ -1816,9 +1834,7 @@ fn eval_expr_with_bindings(
           _ => ""
         }
         if module_name.length() > 0 && !is_stdlib_class_name(class_name) {
-          Some(
-            synth_class_mirror_for_qualified(class_name, Some(module_name)),
-          )
+          Some(synth_class_mirror_for_qualified(class_name, Some(module_name)))
         } else {
           Some(synth_class_mirror_for_name(class_name))
         }
@@ -2001,18 +2017,15 @@ fn eval_expr_with_bindings(
                 // mirror when the class is non-stdlib.
                 Some(value) => {
                   let bare = eval_value_type_name(value)
-                  let module_name = match lookup_value(
-                    cache, "@__module_name",
-                  ) {
+                  let module_name = match
+                    lookup_value(cache, "@__module_name") {
                     Some(StringValue(s)) => s
                     _ => ""
                   }
-                  if module_name.length() > 0 &&
-                    !is_stdlib_class_name(bare) {
-                    Some(synth_class_mirror_for_qualified(
-                      bare,
-                      Some(module_name),
-                    ))
+                  if module_name.length() > 0 && !is_stdlib_class_name(bare) {
+                    Some(
+                      synth_class_mirror_for_qualified(bare, Some(module_name)),
+                    )
                   } else {
                     Some(synth_class_mirror_for_value(value))
                   }
@@ -2230,9 +2243,8 @@ fn eval_expr_with_bindings(
                     // `toDynamic` apply to every user-class ObjectValue
                     // receiver. Argument count is validated per arm.
                     eval_typed_method_dispatch(
-                      receiver_members, method_name, arguments, bindings, env,
-                      class_env, cache, stack, declarations, diagnostics,
-                      resolve_import,
+                      receiver_members, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
                     )
                   } else {
                     // Method call against an ObjectValue receiver that
@@ -2272,9 +2284,8 @@ fn eval_expr_with_bindings(
                     // when the receiver was a List, but a Listing
                     // receiver stays a Listing — pass `false`.
                     eval_list_or_listing_method(
-                      false, elements, method_name, arguments, bindings, env,
-                      class_env, cache, stack, declarations, diagnostics,
-                      resolve_import,
+                      false, elements, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
                     )
                   } else {
                     eval_callable_call(
@@ -2285,9 +2296,8 @@ fn eval_expr_with_bindings(
                 Some(ListValue(elements)) =>
                   if is_listing_method_name(method_name) {
                     eval_list_or_listing_method(
-                      true, elements, method_name, arguments, bindings, env,
-                      class_env, cache, stack, declarations, diagnostics,
-                      resolve_import,
+                      true, elements, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
                     )
                   } else {
                     eval_callable_call(
@@ -2467,9 +2477,8 @@ fn eval_expr_with_bindings(
                     // when the receiver was a List, but a Listing
                     // receiver stays a Listing — pass `false`.
                     eval_list_or_listing_method(
-                      false, elements, method_name, arguments, bindings, env,
-                      class_env, cache, stack, declarations, diagnostics,
-                      resolve_import,
+                      false, elements, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
                     )
                   } else {
                     eval_callable_call(
@@ -2480,9 +2489,8 @@ fn eval_expr_with_bindings(
                 Some(ListValue(elements)) =>
                   if is_listing_method_name(method_name) {
                     eval_list_or_listing_method(
-                      true, elements, method_name, arguments, bindings, env,
-                      class_env, cache, stack, declarations, diagnostics,
-                      resolve_import,
+                      true, elements, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
                     )
                   } else {
                     eval_callable_call(
@@ -2591,6 +2599,42 @@ fn eval_expr_with_bindings(
           fresh_function_id(),
         ),
       )
+    LetExpr(name, type_name, value_expr, body) => {
+      let raw_value = match
+        eval_expr_with_bindings(
+          value_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
+        ) {
+        Some(value) => value
+        None => return None
+      }
+      let value = coerce_value_to_annotated_type(raw_value, type_name)
+      match
+        eval_callable_argument_type_rejection_message(
+          type_name, value, declarations,
+        ) {
+        Some(message) => {
+          diagnostics.push(diag(message))
+          return None
+        }
+        None => ()
+      }
+      match
+        eval_callable_argument_rejection_message(type_name, value, declarations) {
+        Some(message) => {
+          diagnostics.push(diag(message))
+          return None
+        }
+        None => ()
+      }
+      let body_env = copy_value_bindings(env)
+      let body_cache = copy_value_bindings(cache)
+      body_env.push({ name, value })
+      eval_expr_with_bindings(
+        body, bindings, body_env, class_env, body_cache, stack, declarations, diagnostics,
+        resolve_import,
+      )
+    }
     NonNullExpr(inner_expr) =>
       match
         eval_expr_with_bindings(
@@ -2740,13 +2784,10 @@ fn eval_expr_with_bindings(
                     if lookup_class_binding(class_env, base_for_user_check)
                       is Some(_) {
                       true
-                    } else if
-                      lookup_value(env, base_for_user_check) is Some(
-                        ObjectValue(_),
-                      ) ||
-                      lookup_value(cache, base_for_user_check) is Some(
-                        ObjectValue(_),
-                      ) {
+                    } else if lookup_value(env, base_for_user_check)
+                      is Some(ObjectValue(_)) ||
+                      lookup_value(cache, base_for_user_check)
+                      is Some(ObjectValue(_)) {
                       // PKL-148bh: `x is someModule` where `someModule`
                       // is an imported module value — treat any
                       // ObjectValue as matching, because module amends
@@ -2769,9 +2810,8 @@ fn eval_expr_with_bindings(
                   // else ...` must reject Dog / User / Env instances
                   // even though they're ObjectValues.
                   if base_for_user_check == "module" {
-                    let module_name = match lookup_value(
-                      cache, "@__module_name",
-                    ) {
+                    let module_name = match
+                      lookup_value(cache, "@__module_name") {
                       Some(StringValue(s)) => s
                       _ => ""
                     }
@@ -2786,7 +2826,7 @@ fn eval_expr_with_bindings(
                     return Some(
                       BoolValue(
                         class_tag == "module" ||
-                          (module_name.length() > 0 && class_tag == module_name),
+                        (module_name.length() > 0 && class_tag == module_name),
                       ),
                     )
                   }
@@ -2803,9 +2843,12 @@ fn eval_expr_with_bindings(
                   // class-property constraint cascade uses.
                   match pkl_constrained_type_constraint_text(type_name) {
                     Some(constraint_text) => {
-                      let parts = pkl_split_constraint_arguments(constraint_text)
+                      let parts = pkl_split_constraint_arguments(
+                        constraint_text,
+                      )
                       for part in parts {
-                        let pred_expr = match parse_constraint_expression(part) {
+                        let pred_expr = match
+                          parse_constraint_expression(part) {
                           Some(e) => e
                           None => continue
                         }
@@ -3488,8 +3531,8 @@ fn eval_expr_with_bindings(
           Some(value) =>
             buf.write_string(
               dispatch_value_to_string(
-                value, bindings, env, class_env, cache, stack, declarations,
-                diagnostics, resolve_import,
+                value, bindings, env, class_env, cache, stack, declarations, diagnostics,
+                resolve_import,
               ),
             )
           None => ok = false
@@ -3531,8 +3574,7 @@ fn dispatch_value_to_string(
       // fallback renders the full `new { simpleName=...; ... }` shape.
       match lookup_member(members, hidden_member_name("__kind")) {
         Some(StringValue("Class")) | Some(StringValue("TypeAlias")) =>
-          match
-            lookup_member(members, hidden_member_name("__qualified_name")) {
+          match lookup_member(members, hidden_member_name("__qualified_name")) {
             Some(StringValue(s)) => return s
             _ =>
               match lookup_member(members, "name") {
@@ -3559,8 +3601,8 @@ fn dispatch_value_to_string(
                   Some(body) =>
                     match
                       eval_expr_with_bindings(
-                        body, bindings, env, class_env, method_cache, stack,
-                        declarations, method_diags, resolve_import,
+                        body, bindings, env, class_env, method_cache, stack, declarations,
+                        method_diags, resolve_import,
                       ) {
                       Some(StringValue(s)) => return s
                       _ => ()
@@ -3689,6 +3731,183 @@ fn eval_for_generator(
 }
 
 ///|
+fn collect_class_default_properties_in_order(
+  out : Array[ClassProperty],
+  type_name : String,
+  class_env : Array[ClassBinding],
+  declarations : Array[Declaration],
+) -> Unit {
+  match lookup_class_binding(class_env, type_name) {
+    Some(class_binding) => {
+      match class_binding.parent_name {
+        Some(parent_name) => {
+          let aliases = eval_type_alias_bindings(declarations)
+          collect_class_default_properties_in_order(
+            out,
+            eval_resolved_type_alias(parent_name, aliases),
+            class_env,
+            declarations,
+          )
+        }
+        None => ()
+      }
+      for property in class_binding.properties {
+        match property.value {
+          Some(_) => out.push(property)
+          None => ()
+        }
+      }
+    }
+    None => ()
+  }
+}
+
+///|
+fn push_unique_name(names : Array[String], name : String) -> Unit {
+  for existing in names {
+    if existing == name {
+      return
+    }
+  }
+  names.push(name)
+}
+
+///|
+fn constructor_override_names(members : Array[ObjectMember]) -> Array[String] {
+  let names : Array[String] = []
+  for object_member in members {
+    if is_local_member_name(object_member.name) {
+      continue
+    }
+    push_unique_name(names, strip_member_visibility_prefix(object_member.name))
+  }
+  names
+}
+
+///|
+fn expr_references_any_late_binding(expr : Expr, names : Array[String]) -> Bool {
+  for name in names {
+    if expr_references_late_binding(expr, name) {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn push_current_members_as_env(
+  local_env : Array[ValueBinding],
+  members : Array[ValueMember],
+) -> Unit {
+  for value_member in members {
+    let bare = strip_member_visibility_prefix(value_member.name)
+    if !is_invisible_member_name(value_member.name) ||
+      is_local_member_name(value_member.name) ||
+      is_hidden_member_name(value_member.name) {
+      local_env.push({ name: bare, value: value_member.value })
+    }
+  }
+}
+
+///|
+fn replace_member_value_by_bare_name(
+  members : Array[ValueMember],
+  name : String,
+  value : Value,
+) -> Bool {
+  for i = 0; i < members.length(); i = i + 1 {
+    if strip_member_visibility_prefix(members[i].name) == name {
+      members[i] = { name: members[i].name, value, source: None }
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn reeval_class_defaults_after_constructor_overrides(
+  type_name : String,
+  constructor_members : Array[ObjectMember],
+  merged : Array[ValueMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Array[ValueMember] {
+  let constructor_names = constructor_override_names(constructor_members)
+  if constructor_names.length() == 0 {
+    return merged
+  }
+  let properties : Array[ClassProperty] = []
+  collect_class_default_properties_in_order(
+    properties, type_name, class_env, declarations,
+  )
+  if properties.length() == 0 {
+    return merged
+  }
+  let current : Array[ValueMember] = []
+  for value_member in merged {
+    current.push(value_member)
+  }
+  let changed_names : Array[String] = []
+  for name in constructor_names {
+    changed_names.push(name)
+  }
+  for property in properties {
+    let mut directly_overridden = false
+    for name in constructor_names {
+      if name == property.name {
+        directly_overridden = true
+        break
+      }
+    }
+    if directly_overridden {
+      continue
+    }
+    let source = match property.value {
+      Some(expr) => expr
+      None => continue
+    }
+    if !expr_references_any_late_binding(source, changed_names) {
+      continue
+    }
+    let local_env = copy_value_bindings(env)
+    push_current_members_as_env(local_env, current)
+    let reeval_cache = copy_value_bindings(cache)
+    reeval_cache.push({ name: "this", value: ObjectValue(current) })
+    reeval_cache.push({
+      name: "@__constructing_class",
+      value: StringValue(type_name),
+    })
+    push_super_dispatch_marker(reeval_cache, type_name)
+    push_sibling_class_methods(
+      reeval_cache, type_name, class_env, local_env, reeval_cache,
+    )
+    match
+      eval_expr_with_bindings(
+        source, bindings, local_env, class_env, reeval_cache, stack, declarations,
+        diagnostics, resolve_import,
+      ) {
+      Some(raw_value) => {
+        let value = coerce_value_to_annotated_type(
+          raw_value,
+          property.type_name,
+        )
+        if replace_member_value_by_bare_name(current, property.name, value) {
+          push_unique_name(changed_names, property.name)
+        }
+      }
+      None => ()
+    }
+  }
+  current
+}
+
+///|
 /// PKL-148bb: scope-aware reference probe used by the late-binding
 /// re-eval pass. `expr_references` in lint.mbt walks *every* sub-
 /// expression — that's the right semantic for cycle detection but
@@ -3697,7 +3916,7 @@ fn eval_for_generator(
 /// because an outer-level amend adds a sibling `y`, since the inner
 /// `y = 3` shadows the outer name. This probe treats every scope-
 /// creating construct (ObjectLiteral / TypedObjectLiteral / AmendExpr
-/// body / LambdaExpr params / ForGenerator key+value+body) as a
+/// body / LambdaExpr params / LetExpr body / ForGenerator key+value+body) as a
 /// barrier: if it declares / binds `name`, the reference is shadowed
 /// and recursion into that scope stops returning true.
 fn expr_references_late_binding(expr : Expr, name : String) -> Bool {
@@ -3756,6 +3975,9 @@ fn expr_references_late_binding(expr : Expr, name : String) -> Bool {
       }
       expr_references_late_binding(body, name)
     }
+    LetExpr(let_name, _, value, body) =>
+      expr_references_late_binding(value, name) ||
+      (let_name != name && expr_references_late_binding(body, name))
     NonNullExpr(inner) => expr_references_late_binding(inner, name)
     UnaryExpr(_, inner) => expr_references_late_binding(inner, name)
     BinaryExpr(_, left, right) =>
@@ -3917,8 +4139,8 @@ fn merge_objects_with_late_binding(
           (ObjectValue(inner_base), ObjectValue(inner_over)) =>
             ObjectValue(
               merge_objects_with_late_binding(
-                inner_base, inner_over, bindings, env, class_env, cache, stack,
-                declarations, diagnostics, resolve_import,
+                inner_base, inner_over, bindings, env, class_env, cache, stack, declarations,
+                diagnostics, resolve_import,
               ),
             )
           (_, ov) => ov
@@ -3978,8 +4200,8 @@ fn merge_objects_with_late_binding(
         if needs {
           match
             eval_expr_with_bindings(
-              src, bindings, local_env, class_env, cache, stack, declarations,
-              diagnostics, resolve_import,
+              src, bindings, local_env, class_env, cache, stack, declarations, diagnostics,
+              resolve_import,
             ) {
             Some(new_val) => {
               final_members.push({
@@ -4093,7 +4315,7 @@ fn eval_object_members_with_options(
       type_name: field.type_name,
       value: field.value,
       exported: true,
-      abstract_slot: false
+      abstract_slot: false,
     })
   }
   let values : Array[ValueMember] = []
@@ -4139,7 +4361,8 @@ fn eval_object_members_with_options(
                   value: ObjectValue([
                     { name: "@key", value: k, source: None },
                     { name: "@value", value: v, source: None },
-                  ]), source: None
+                  ]),
+                  source: None,
                 })
               _ => ()
             }
@@ -4252,15 +4475,8 @@ fn eval_object_members_with_options(
     }
     match
       eval_expr_with_bindings(
-        field_value,
-        local_bindings,
-        local_env,
-        class_env,
-        cache,
-        stack,
-        declarations,
-        property_diagnostics,
-        resolve_import,
+        field_value, local_bindings, local_env, class_env, cache, stack, declarations,
+        property_diagnostics, resolve_import,
       ) {
       Some(raw_value) => {
         let value = coerce_value_to_annotated_type(raw_value, field.type_name)
@@ -4296,7 +4512,8 @@ fn eval_object_members_with_options(
               for i = 0; i < elements.length(); i = i + 1 {
                 values.push({
                   name: "@element$spread" + field.name + "$" + i.to_string(),
-                  value: elements[i], source: None
+                  value: elements[i],
+                  source: None,
                 })
               }
             MappingValue(entries) | MapValue(entries) =>
@@ -4306,7 +4523,8 @@ fn eval_object_members_with_options(
                   value: ObjectValue([
                     { name: "@key", value: entries[i].key, source: None },
                     { name: "@value", value: entries[i].value, source: None },
-                  ]), source: None
+                  ]),
+                  source: None,
                 })
               }
             // PKL-148bb: Apple Pkl silently drops non-collection
@@ -4326,11 +4544,7 @@ fn eval_object_members_with_options(
           match structural_reject {
             Some(message) => {
               property_diagnostics.push(diag(message))
-              values.push({
-                name: field.name,
-                value,
-                source: Some(field.value),
-              })
+              values.push({ name: field.name, value, source: Some(field.value) })
             }
             None =>
               if pkl_constrained_type_annotation_value_is_valid(
@@ -4371,7 +4585,8 @@ fn eval_object_members_with_options(
       }
       values.push({
         name: error_member_name(field.name),
-        value: StringValue(property_diagnostics[0].message), source: None
+        value: StringValue(property_diagnostics[0].message),
+        source: None,
       })
     }
   }

@@ -278,6 +278,9 @@ fn expr_references(expr : Expr, name : String) -> Bool {
       }
       expr_references(body, name)
     }
+    LetExpr(let_name, _, value, body) =>
+      expr_references(value, name) ||
+      (let_name != name && expr_references(body, name))
     NonNullExpr(inner) => expr_references(inner, name)
     UnaryExpr(_, inner) => expr_references(inner, name)
     BinaryExpr(_, left, right) =>
