@@ -55,3 +55,49 @@ pub async fn fetch_uri(url : String) -> String? {
   println("http fetch failed: too many redirects (last url: \{current})")
   None
 }
+
+///|
+pub async fn fetch_uri_bytes(url : String) -> Bytes? {
+  let mut current = url
+  let mut remaining = 5
+  while remaining > 0 {
+    try {
+      let (resp, body) = @http.get(current)
+      if resp.code >= 300 && resp.code < 400 {
+        match resp.headers.get("location") {
+          Some(next) => {
+            current = next
+            remaining = remaining - 1
+            continue
+          }
+          None =>
+            match resp.headers.get("Location") {
+              Some(next) => {
+                current = next
+                remaining = remaining - 1
+                continue
+              }
+              None => {
+                println(
+                  "http \{resp.code} \{resp.reason} fetching \{current} (no Location header)",
+                )
+                return None
+              }
+            }
+        }
+      }
+      if resp.code < 200 || resp.code >= 300 {
+        println("http \{resp.code} \{resp.reason} fetching \{current}")
+        return None
+      }
+      return Some(body.binary())
+    } catch {
+      e => {
+        println("http fetch failed: \{e}")
+        return None
+      }
+    }
+  }
+  println("http fetch failed: too many redirects (last url: \{current})")
+  None
+}

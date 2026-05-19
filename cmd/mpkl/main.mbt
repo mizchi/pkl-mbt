@@ -107,6 +107,7 @@ fn parse_package_uri(uri : String) -> PackageUri? {
 /// becomes `https://<authority><path>`. The metadata response carries
 /// `packageZipUrl` (extracted separately).
 fn package_metadata_url(p : PackageUri) -> String {
+  ignore(p.fragment)
   "https://\{p.authority}\{p.path}"
 }
 
@@ -158,59 +159,6 @@ fn extract_package_zip_url(body : String) -> String? {
     }
   }
 }
-
-///|
-/// PKL-129b1: surface an actionable, structured diagnostic when the
-/// loader hits a `package://` URI. Today the registry resolution is
-/// partial — we parse the URI, compute the metadata URL, and fetch
-/// + extract the `packageZipUrl` so the user sees the underlying
-/// zip URL. The actual zipball download + unpack is deferred to
-/// PKL-129b2 (it needs a DEFLATE decoder); the user can either pick
-/// up the zip URL surfaced here and unpack manually, or use Apple
-/// Pkl's `pkl download-package` and point `--module-path` at the
-/// extracted directory.
-async fn diagnose_package_uri(uri : String) -> Unit {
-  match parse_package_uri(uri) {
-    None =>
-      fail(
-        "package:// URI is malformed — expected package://<host>/<path>@<version>[#<fragment>], got: \{uri}",
-      )
-    Some(parsed) => {
-      let metadata = package_metadata_url(parsed)
-      println("package:// import is not fully implemented yet.")
-      println("  package URI:  \{uri}")
-      println("  metadata URL: \{metadata}")
-      if parsed.fragment != "" {
-        println("  fragment:     \{parsed.fragment}")
-      }
-      match fetch_uri(metadata) {
-        None =>
-          println(
-            "  zip URL:      <metadata fetch failed; see http error above>",
-          )
-        Some(body) =>
-          match extract_package_zip_url(body) {
-            Some(zip_url) => println("  zip URL:      \{zip_url}")
-            None =>
-              println(
-                "  zip URL:      <metadata fetched, but `packageZipUrl` not found>",
-              )
-          }
-      }
-      println("")
-      println(
-        "Workaround: download the zip manually (or run `pkl download-package`)",
-      )
-      println(
-        "and pass `--module-path <dir>` pointing at the extracted directory.",
-      )
-      println("Full registry resolution lands with PKL-129b2.")
-      @sys.exit(1)
-    }
-  }
-}
-
-///|
 
 ///|
 /// PKL-148ad: resolve an `@<dep>/<rest>` project-dependency import URI
@@ -265,7 +213,7 @@ fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
           Some(remote_uri) =>
             match resolve_package_uri_to_cache(remote_uri, rest) {
               Some(cached_path) => return Some(cached_path)
-              None => ()
+              None => return Some(package_uri_with_rest(remote_uri, rest))
             }
           None => ()
         }
@@ -282,7 +230,7 @@ fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
       Some(remote_uri) =>
         match resolve_package_uri_to_cache(remote_uri, rest) {
           Some(cached_path) => return Some(cached_path)
-          None => ()
+          None => return Some(package_uri_with_rest(remote_uri, rest))
         }
       None => ()
     }
@@ -351,15 +299,18 @@ fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
                         } else if entry_type == "remote" {
                           // PKL-150 (#258): `type: "remote"` carries a
                           // `projectpackage://host/name@version` URI.
-                          // Resolve through the configured package
-                          // caches so `@dep/rest` lands on the
-                          // pre-extracted package directory.
+                          // Resolve through the package cache when
+                          // possible; otherwise return the package URI
+                          // shape so the async loader can download it.
                           match uri_str {
                             Some(remote_uri) =>
                               match
                                 resolve_package_uri_to_cache(remote_uri, rest) {
                                 Some(cached_path) => return Some(cached_path)
-                                None => ()
+                                None =>
+                                  return Some(
+                                    package_uri_with_rest(remote_uri, rest),
+                                  )
                               }
                             None => ()
                           }
@@ -566,64 +517,14 @@ fn pklproject_alias_to_uri(text : String, dep_alias : String) -> String? {
 ///|
 /// PKL-150 (#258): map a `package://host/name@version[/rest]` (or the
 /// `projectpackage://` variant the deps.json uses) URI onto a local
-/// file under one of the configured `--package-cache` directories.
-/// The lookup ignores the host and uses `<name>@<version>` as the
-/// directory name: `<cache>/<name>@<version>/package/<rest>`. The
-/// first cache root that contains a matching file wins. Returns None
-/// when no cache root has the file — the caller then falls back to
-/// the legacy "package:// not implemented" diagnostic.
+/// file under one of the configured `--package-cache` directories, or
+/// the CLI default cache when no explicit root is configured.
 fn resolve_package_uri_to_cache(uri : String, rest : String) -> String? {
-  // Strip both `package://` and `projectpackage://` prefixes — the
-  // deps.json round-trips the second form for resolved-remote entries.
-  let body = if uri.has_prefix("projectpackage://") {
-    String::unsafe_substring(uri, start=17, end=uri.length())
-  } else if uri.has_prefix("package://") {
-    String::unsafe_substring(uri, start=10, end=uri.length())
-  } else {
-    return None
-  }
-  // Drop the host. The body has shape `<host>/<name>@<version>[/<path>]`;
-  // we only care about the `<name>@<version>` tail and any extra path.
-  let after_host = match body.find("/") {
-    Some(idx) =>
-      String::unsafe_substring(body, start=idx + 1, end=body.length())
+  let relative = match package_cache_parts(uri, rest) {
+    Some(parts) => parts.file_relative
     None => return None
   }
-  // Split at the first `/` after the `@` so `name@version[/sub/Bird.pkl]`
-  // separates into the cache key and an extra path tail. URIs without
-  // a trailing path leave `extra` empty.
-  let at_idx = match after_host.find("@") {
-    Some(idx) => idx
-    None => return None
-  }
-  let after_at = String::unsafe_substring(
-    after_host,
-    start=at_idx + 1,
-    end=after_host.length(),
-  )
-  let (version, extra) = match after_at.find("/") {
-    Some(idx) =>
-      (
-        String::unsafe_substring(after_at, start=0, end=idx),
-        String::unsafe_substring(after_at, start=idx + 1, end=after_at.length()),
-      )
-    None => (after_at, "")
-  }
-  let name = String::unsafe_substring(after_host, start=0, end=at_idx)
-  let pkg_dir = "\{name}@\{version}/package"
-  let suffix = if extra == "" && rest == "" {
-    ""
-  } else if extra == "" {
-    rest
-  } else if rest == "" {
-    extra
-  } else if extra.has_suffix("/") {
-    extra + rest
-  } else {
-    extra + "/" + rest
-  }
-  let relative = if suffix == "" { pkg_dir } else { pkg_dir + "/" + suffix }
-  for cache_dir in @pkl.sandbox_package_caches() {
+  for cache_dir in package_cache_roots() {
     let base = if cache_dir.has_suffix("/") {
       cache_dir
     } else {
@@ -954,10 +855,9 @@ async fn load_path(
   //   under a `moonbitlang/async` event loop. Native target ships
   //   the working fetcher; JS / WASM print a diagnostic and exit
   //   pending WASI support.
-  // - `package://`: not yet implemented. Apple Pkl's package
-  //   registry protocol (zipball metadata + per-file path
-  //   fragments) is a separate slice. Surface the gap clearly so
-  //   the user knows the URI form was recognised.
+  // - `package://`: resolve through registry metadata, download the
+  //   zipball via `mizchi/x/http`, verify SHA-256, then unpack ZIP
+  //   method 0/8 entries into the CLI package cache.
   let source = if path.has_prefix("https://") || path.has_prefix("http://") {
     match fetch_uri(path) {
       Some(body) => body
@@ -966,21 +866,17 @@ async fn load_path(
         ""
       }
     }
-  } else if path.has_prefix("package://") {
-    // PKL-150 (#258): try the configured package caches first. The
-    // direct entry-point form is `package://host/name@version` with no
-    // trailing path — pass `""` as the extra `rest` so the resolver
-    // returns the bare `package/` directory; the loader's `@fs.read`
-    // call below then fails with the normal "Cannot find module"
-    // diagnostic if the resolved candidate isn't a file (matches the
-    // upstream behaviour when the import names a directory).
-    match resolve_package_uri_to_cache(path, "") {
+  } else if is_package_uri_like(path) {
+    match resolve_or_download_package_uri_to_cache(path, "") {
       Some(cached_path) =>
         @fs.read_file_to_string(cached_path) catch {
-          _ => ""
+          _ => {
+            fail("Cannot find module `\{path}`.")
+            ""
+          }
         }
       None => {
-        diagnose_package_uri(path)
+        fail("failed to resolve package URI `\{path}`")
         ""
       }
     }
@@ -1297,9 +1193,20 @@ async fn main {
         ""
       }
     }
-  } else if path.has_prefix("package://") {
-    diagnose_package_uri(path)
-    ""
+  } else if is_package_uri_like(path) {
+    match resolve_or_download_package_uri_to_cache(path, "") {
+      Some(cached_path) =>
+        @fs.read_file_to_string(cached_path) catch {
+          _ => {
+            fail("Cannot find module `\{path}`.")
+            ""
+          }
+        }
+      None => {
+        fail("failed to resolve package URI `\{path}`")
+        ""
+      }
+    }
   } else {
     @fs.read_file_to_string(path) catch {
       _ => {

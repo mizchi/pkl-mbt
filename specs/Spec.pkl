@@ -3586,9 +3586,9 @@ local codegenMoonbitBridgeScenario = new Scenario {
 
 local packageRegistryProbeScenario = new Scenario {
   id = "PKL-129b1"
-  name = "package registry probe and structured diagnostic"
+  name = "package registry download and cache"
   description =
-    "The CLI accepts `package://<authority>/<path>@<version>[#<fragment>]` URIs and reports a structured diagnostic naming the package URI, the metadata URL (derived by direct scheme rewrite + drop the fragment), the optional fragment, and the `packageZipUrl` pulled out of the metadata JSON. The fetch path follows up to five 301 / 302 / 303 / 307 / 308 redirects so the `pkg.pkl-lang.org → CDN` hop the registry serves doesn't break the probe. `parse_package_uri` validates the shape (rejects authority-only URIs); `package_metadata_url` performs the rewrite; `extract_package_zip_url` substring-scans the metadata body for the `packageZipUrl` string (no full JSON parser stood up — the field is a simple unescaped URL string). On metadata fetch failure or missing field the diagnostic still surfaces the parsed pieces plus the workaround: download the zip manually (or with `pkl download-package`) and pass `--module-path <dir>`. The CLI exits with status 1 in either case. Full zipball download + DEFLATE unpack + cache + checksum verification land with PKL-129b2."
+    "The CLI accepts `package://<authority>/<path>@<version>[#<fragment>]` and `projectpackage://...` URIs, resolves them through the package registry metadata URL (direct scheme rewrite + drop the fragment), downloads `packageZipUrl` with `mizchi/x/http`, verifies `packageZipChecksums.sha256` with `moonbitlang/x/crypto`, and unpacks ZIP method 0/8 entries with `mizchi/zlib` into the package cache. `--package-cache` roots are still honored; when omitted the CLI uses `$PKL_MBT_PACKAGE_CACHE`, `$XDG_CACHE_HOME/pkl-mbt/package-2`, or `$HOME/.cache/pkl-mbt/package-2`. Cache layout is `<cache>/<path>/<name>@<version>/package/<files>` plus a `<name>@<version>.json` metadata sibling for dependency alias lookup. Metadata fetch failures remain structured and do not fall through to filesystem lookup."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-129" }
   tags { "cli"; "parser"; "imports"; "sandbox"; "pkf-pkspec" }
@@ -3612,6 +3612,12 @@ local packageRegistryProbeScenario = new Scenario {
       summary = "Split PKL-129b into PKL-129b1 / PKL-129b2"
       rationale =
         "The original PKL-129b bundled URI parse + metadata fetch + zipball extract + cache + checksum. The zip extraction needs a DEFLATE decoder that doesn't exist in `moonbitlang/core` today (and would itself be a several-hundred-line slice). Splitting into b1 (parse + diagnostic, this slice) and b2 (download + unpack + cache + checksum) lets the b1 diagnostic ship today and gives users an actionable workaround (`pkl download-package` + `--module-path`) while b2 either lands later or stays deferred if pkl-mbt consumers route through Apple Pkl's CLI for that part."
+    }
+    new Decision {
+      date = "2026-05-19"
+      summary = "Use `mizchi/x/http` and `mizchi/zlib` in the CLI-only package downloader"
+      rationale =
+        "Keeping download and unpack in `cmd/mpkl` preserves the pure library boundary while removing the practical `package://` adoption blocker for CLI users. `mizchi/x/http` already supplies native byte downloads through the existing async fetch path; `mizchi/zlib` provides raw deflate inflate for ZIP method 8, including the GitHub release zipballs used by the registry. The downloader verifies SHA-256 before writing cache files and keeps metadata beside `package/` so existing `@dep` alias resolution can use it."
     }
   }
 }

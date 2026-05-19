@@ -27,10 +27,6 @@
 ///   - PKL-126b (xml renderer)      — covered by `pkl eval -f xml` upstream
 ///   - PKL-126c (protobuf renderer) — same; needs `.proto` schema parser
 ///   - PKL-127 (renderer converters) — same renderer surface
-///   - PKL-129b2 (package unpack)   — `pkl download-package` + `--module-path`
-///                                    covers it; ZIP/DEFLATE/SHA-256/cache is
-///                                    a multi-KLOC slice for thin marginal
-///                                    library value over PKL-129b1's diagnostic
 ///   - PKL-130 (pkldoc)             — pkl's own `pkldoc` covers this
 ///   - PKL-132 (LSP)                — out of scope for the library slice
 ///
@@ -961,18 +957,6 @@ local lspServer: Spec.Scenario = new {
   severity = "major"
 }
 
-local packagePklRegistryUnpack: Spec.Scenario = new {
-  id = "PKL-129b2"
-  name = "package:// zipball download and unpack"
-  description =
-    "PKL-129b1 already lands the URI parse, metadata fetch, and `packageZipUrl` extraction with an actionable diagnostic. PKL-129b2 would close the loop: download the zipball over HTTPS, verify the SHA-256 checksum from `packageZipChecksums`, DEFLATE-decode the archive, cache the extracted tree under `~/.pkl/cache/package-2/<authority>/<path>/<version>/`, then resolve the fragment path against the cache. Deferred because the DEFLATE decoder isn't accessible standalone (mizchi/x and moonbitlang/async only expose it under gzip framing) and the ZIP central-directory parser is a several-hundred-line slice on top — a multi-KLOC lift for thin marginal value over the PKL-129b1 diagnostic, which already tells users to run `pkl download-package` + `--module-path`. Revisit when a concrete library consumer needs end-to-end registry resolution without an Apple Pkl CLI dependency."
-  contributes { "GOAL-PKL-PURE" }
-  dependsOn { "PKL-129b1" }
-  tags { "parser"; "imports"; "sandbox"; "pkf-pkspec"; "deferred" }
-  reviewStatus = "draft"
-  severity = "major"
-}
-
 deferredEntries: Listing<Spec.Scenario> = new {
   pklRepl
   xmlRenderer
@@ -980,5 +964,4 @@ deferredEntries: Listing<Spec.Scenario> = new {
   rendererConverters
   pkldoc
   lspServer
-  packagePklRegistryUnpack
 }

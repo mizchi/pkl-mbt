@@ -32,7 +32,7 @@ mpkl codegen  <file.pkl> [-t moonbit]     # lower to a target-language skeleton 
 
 Renderers via `-f` / `--format`: `pcf` (default), `json`, `yaml`, `properties`, `plist`. `output { renderer = new <Renderer> { ... } }` also drives the format from the source.
 
-Sandbox flags: `--allowed-modules <pipe|prefixes>`, `--module-path <dir>` (repeatable), `--package-cache <dir>` (repeatable; resolves `package://host/name@version[/rest]` against `<dir>/<name>@<version>/package/<rest>`), `-p NAME=VALUE` (populates `read("prop:NAME")`).
+Sandbox flags: `--allowed-modules <pipe|prefixes>`, `--module-path <dir>` (repeatable), `--package-cache <dir>` (repeatable; resolves and stores `package://host/path/name@version#/file.pkl` under `<dir>/path/name@version/package/file.pkl`; when omitted the CLI uses `$PKL_MBT_PACKAGE_CACHE`, `$XDG_CACHE_HOME/pkl-mbt/package-2`, or `$HOME/.cache/pkl-mbt/package-2`), `-p NAME=VALUE` (populates `read("prop:NAME")`).
 
 ## pkl-mbt specific
 
