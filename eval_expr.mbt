@@ -842,26 +842,29 @@ fn eval_expr_with_bindings(
               None
             }
           }
-        // PKL-148bh: String subscript returns the code-point character
-        // as a one-character String (Apple Pkl's `s[i]` semantics).
-        // `modules/functions`'s `charAt(str, idx) = str[idx]` depends
-        // on this — without it the body raises
-        // "subscript access expects Listing or Mapping" and the whole
-        // module evaluation aborts at res3.
-        (Some(StringValue(s)), Some(IntValue(index))) =>
-          if index >= 0 && index < s.length() {
-            let c = s[index].to_int().unsafe_to_char()
-            Some(StringValue(c.to_string()))
+        // PKL-148bh / PKL-152: String subscript indexes by code point
+        // (Apple Pkl semantics). `s[i]` returns the i-th code point as
+        // a one-character String — surrogate pairs count as a single
+        // unit so `"🙈🙉🙊🐒"[2] == "🙊"` and the upper bound is the
+        // code-point count, not the UTF-16 code-unit length.
+        (Some(StringValue(s)), Some(IntValue(index))) => {
+          let code_points : Array[String] = []
+          for c in s.iter() {
+            code_points.push(String::from_array([c][:]))
+          }
+          if index >= 0 && index < code_points.length() {
+            Some(StringValue(code_points[index]))
           } else {
             let buf = StringBuilder::new()
             render_pcf_scalar(StringValue(s), buf)
             diagnostics.push(
               diag(
-                "Character index `\{index}` is out of range `0`..`\{s.length() - 1}`. String: \{buf.to_string()}",
+                "Character index `\{index}` is out of range `0`..`\{code_points.length() - 1}`. String: \{buf.to_string()}",
               ),
             )
             None
           }
+        }
         (Some(_), Some(_)) => {
           diagnostics.push(diag("subscript access expects Listing or Mapping"))
           None
