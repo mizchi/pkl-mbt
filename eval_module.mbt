@@ -884,7 +884,7 @@ fn walk_class_converter(
   // Look up a matching converter for this node's class. Class-specific
   // wins over `Any`; if neither matches, the descended value flows
   // through unchanged.
-  let chosen = pick_class_converter(descended, converters)
+  let chosen = pick_class_converter(descended, converters, class_env)
   match chosen {
     Some(callback) =>
       match
@@ -912,6 +912,7 @@ fn walk_class_converter(
 fn pick_class_converter(
   value : Value,
   converters : Array[(String, Value)],
+  class_env : Array[ClassBinding],
 ) -> Value? {
   // PKL-152: collection wrappers (Listing / Mapping / Map / Pair) are
   // never re-rendered through `[Any]`; their elements are walked
@@ -927,18 +928,20 @@ fn pick_class_converter(
       }
     _ => return None
   }
-  // Specific match first.
-  for entry in converters {
-    let (name, cb) = entry
-    if name == tag {
-      return Some(cb)
-    }
-    // Compare simple-name suffix when the converter is qualified to a
-    // different module than the receiving value (Apple Pkl's class
-    // identity check is by class object, but the converter key carries
-    // the fully-qualified name).
-    if name_matches_class_tag(name, tag) && name != "Any" {
-      return Some(cb)
+  // PKL-152: walk the receiver's superclass chain via `class_env`,
+  // most-specific first, so a `[Cat]` converter wins over `[Animal]`
+  // when both apply. Falls back to `[Any]` once the chain is
+  // exhausted.
+  let chain = class_chain_for_tag(tag, class_env)
+  for ancestor in chain {
+    for entry in converters {
+      let (name, cb) = entry
+      if name == "Any" {
+        continue
+      }
+      if name == ancestor || name_matches_class_tag(name, ancestor) {
+        return Some(cb)
+      }
     }
   }
   // Fall back to `Any` if present — only fires for ObjectValues.
@@ -948,6 +951,74 @@ fn pick_class_converter(
     }
   }
   None
+}
+
+///|
+/// PKL-152: walk the class hierarchy starting from `tag`. Strips the
+/// `<module>#` prefix to look up bindings (which are stored under the
+/// simple name). Walks via `parent_name`; stops when the parent is
+/// missing or already seen (guards against cycles even though the
+/// language disallows them).
+fn class_chain_for_tag(
+  tag : String,
+  class_env : Array[ClassBinding],
+) -> Array[String] {
+  let chain : Array[String] = [tag]
+  let mut current_simple = simple_class_name(tag)
+  let seen : Array[String] = [current_simple]
+  let mut limit = 32
+  while limit > 0 {
+    let parent = match lookup_class_binding_by_name(class_env, current_simple) {
+      Some(binding) => binding.parent_name
+      None => None
+    }
+    match parent {
+      Some(p) => {
+        if contains_string(seen, p) {
+          break
+        }
+        seen.push(p)
+        chain.push(p)
+        current_simple = simple_class_name(p)
+      }
+      None => break
+    }
+    limit = limit - 1
+  }
+  chain
+}
+
+///|
+fn simple_class_name(name : String) -> String {
+  let hash = name.find("#")
+  match hash {
+    Some(idx) =>
+      String::unsafe_substring(name, start=idx + 1, end=name.length())
+    None => name
+  }
+}
+
+///|
+fn lookup_class_binding_by_name(
+  class_env : Array[ClassBinding],
+  name : String,
+) -> ClassBinding? {
+  for binding in class_env {
+    if binding.name == name {
+      return Some(binding)
+    }
+  }
+  None
+}
+
+///|
+fn contains_string(xs : Array[String], target : String) -> Bool {
+  for s in xs {
+    if s == target {
+      return true
+    }
+  }
+  false
 }
 
 ///|
