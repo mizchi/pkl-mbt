@@ -417,6 +417,101 @@ fn eval_callable_argument_rejection_message(
 ///|
 
 ///|
+/// PKL-148bh: runtime predicate check for a callable parameter
+/// annotation that carries a `(<expr>)` constraint
+/// (e.g. `String(length > n)` where `n` lives in the captured env).
+/// Mirrors the eval_runtime_constraint_for_property cascade but uses
+/// the function's captured_env as the lexical scope and binds `this`
+/// to the actual argument. Returns Apple Pkl's standard violation
+/// wording when the predicate evaluates to `false`; returns `None`
+/// when the predicate matches or the annotation has no constraint /
+/// fails to parse.
+fn eval_callable_runtime_constraint_message(
+  type_name : String?,
+  value : Value,
+  bindings : Array[Binding],
+  class_env : Array[ClassBinding],
+  captured_env : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> String? {
+  let source = match type_name {
+    Some(s) => s
+    None => return None
+  }
+  let text = match pkl_constrained_type_constraint_text(source) {
+    Some(t) => t
+    None => return None
+  }
+  let parts = pkl_split_constraint_arguments(text)
+  for part in parts {
+    let expr = match parse_constraint_expression(part) {
+      Some(e) => e
+      None => continue
+    }
+    let pred_env : Array[ValueBinding] = []
+    for b in captured_env {
+      pred_env.push(b)
+    }
+    pred_env.push({ name: "this", value })
+    // Implicit-receiver bareword resolution: when the value is an
+    // ObjectValue, hoist its visible members so `length` / `name`
+    // etc. resolve directly. Scalar values rely on
+    // rewrite_implicit_this_in_expr to fold bare names that miss
+    // both env and bindings into `this.<name>` member accesses.
+    match value {
+      ObjectValue(members) =>
+        for m in members {
+          if !is_invisible_member_name(m.name) {
+            pred_env.push({ name: m.name, value: m.value })
+          }
+        }
+      _ => ()
+    }
+    let rewritten = rewrite_implicit_this_in_expr(
+      expr, bindings, pred_env, captured_env,
+    )
+    let probe_diags : Array[Diagnostic] = []
+    let probe = eval_expr_with_bindings(
+      rewritten, bindings, pred_env, class_env, captured_env, stack, declarations,
+      probe_diags, resolve_import,
+    )
+    match probe {
+      Some(BoolValue(true)) => continue
+      Some(BoolValue(false)) => {
+        let hint = match pkl_constrained_type_base_name(source) {
+          Some(base) =>
+            if base == "Int" ||
+              base == "Float" ||
+              base == "Number" ||
+              base == "Boolean" ||
+              base == "String" ||
+              base == "Listing" ||
+              base == "Mapping" ||
+              base == "Set" ||
+              base == "Map" ||
+              base.has_prefix("Listing<") ||
+              base.has_prefix("Mapping<") ||
+              base.has_prefix("Set<") ||
+              base.has_prefix("Map<") {
+              None
+            } else {
+              Some(base)
+            }
+          None => None
+        }
+        return Some(
+          "Type constraint `\{pretty_constraint_text(part)}` violated. Value: \{render_pcf_value_inline_compact(value, hint)}",
+        )
+      }
+      _ => continue
+    }
+  }
+  None
+}
+
+///|
 /// PKL-148: render a value through the inline PCF form so diagnostic
 /// messages can quote the rejected value. The wrapper keeps the call
 /// sites concise — the `Value: <text>` segment is a recurring shape
@@ -733,6 +828,27 @@ fn eval_lambda_application(
       }
       None => ()
     }
+    // PKL-148bh: runtime predicate check using the captured env —
+    // see `apply_function_value` for the rationale. Hooks the same
+    // diagnostic format Apple Pkl prints for `String(length > n)`-
+    // style parameter constraints (lambdas/typedLambdas).
+    match
+      eval_callable_runtime_constraint_message(
+        parameters[i].type_name,
+        argument_values[i],
+        bindings,
+        class_env,
+        captured_env,
+        stack,
+        declarations,
+        resolve_import,
+      ) {
+      Some(message) => {
+        diagnostics.push(diag(message))
+        return None
+      }
+      None => ()
+    }
     call_cache.push({ name: parameters[i].name, value: argument_values[i] })
   }
   match body {
@@ -824,6 +940,30 @@ fn apply_function_value(
             // PKL-148o: bare upstream wording — see
             // `eval_lambda_application` for the rationale.
             let _ = label
+            diagnostics.push(diag(message))
+            return None
+          }
+          None => ()
+        }
+        // PKL-148bh: runtime predicate check for parameter
+        // constraints (`(str: String(length > n)) -> str` where
+        // `n` comes from the captured env — lambdas/typedLambdas).
+        // The static cascade only handles closed-form integer
+        // predicates; once the predicate references the captured
+        // env we have to evaluate the constraint expression with
+        // `this` bound to the argument.
+        match
+          eval_callable_runtime_constraint_message(
+            parameters[i].type_name,
+            args[i],
+            bindings,
+            class_env,
+            captured_env,
+            stack,
+            declarations,
+            resolve_import,
+          ) {
+          Some(message) => {
             diagnostics.push(diag(message))
             return None
           }
