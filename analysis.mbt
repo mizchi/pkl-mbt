@@ -205,18 +205,14 @@ fn normalize_path_segments(path : String) -> String {
   let mut start = if leading_slash { 1 } else { 0 }
   let mut i = start
   while i < body.length() {
-    if body.unsafe_charcode_at(i) == 47 {
-      raw_segments.push(
-        String::unsafe_substring(body, start~, end=i),
-      )
+    if body[i].to_int().unsafe_to_char() == '/' {
+      raw_segments.push(String::unsafe_substring(body, start~, end=i))
       start = i + 1
     }
     i = i + 1
   }
   if start <= body.length() {
-    raw_segments.push(
-      String::unsafe_substring(body, start~, end=body.length()),
-    )
+    raw_segments.push(String::unsafe_substring(body, start~, end=body.length()))
   }
   let resolved : Array[String] = []
   for seg in raw_segments {
@@ -224,8 +220,7 @@ fn normalize_path_segments(path : String) -> String {
       continue
     }
     if seg == ".." {
-      if resolved.length() > 0 &&
-        resolved[resolved.length() - 1] != ".." {
+      if resolved.length() > 0 && resolved[resolved.length() - 1] != ".." {
         let _ = resolved.pop()
       } else if !leading_slash {
         resolved.push("..")
@@ -277,6 +272,8 @@ fn builtin_stdlib_source(uri : String) -> String? {
         #|minInt = 0 - 2147483647 - 1
         #|pi = 3.141592653589793
         #|e = 2.718281828459045
+        #|maxFiniteFloat = 1.7976931348623157E308
+        #|minFiniteFloat = 0.0 - 1.7976931348623157E308
         #|abs = (x) -> if (x < 0) 0 - x else x
         #|min = (a, b) -> if (a < b) a else b
         #|max = (a, b) -> if (a > b) a else b
@@ -556,13 +553,12 @@ fn typecheck_module_path(
 /// reflect mirror falls back to the bare simple name).
 fn derive_module_name_from_path(path : String) -> String? {
   let basename = match path.rev_find("/") {
-    Some(idx) => String::unsafe_substring(path, start=idx + 1, end=path.length())
+    Some(idx) =>
+      String::unsafe_substring(path, start=idx + 1, end=path.length())
     None => path
   }
   if basename.has_suffix(".pkl") {
-    Some(
-      String::unsafe_substring(basename, start=0, end=basename.length() - 4),
-    )
+    Some(String::unsafe_substring(basename, start=0, end=basename.length() - 4))
   } else if basename == "" {
     None
   } else {

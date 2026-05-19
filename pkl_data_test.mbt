@@ -1122,6 +1122,22 @@ test "object body for-generator iterates a Listing with one variable" {
 }
 
 ///|
+test "object body for-generator appends unnamed elements from each iteration" {
+  let source = "result {\n  for (x in new Listing { 1; 2; 3 }) {\n    x\n  }\n}"
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  inspect(
+    render_value(value),
+    content=(
+      #|result {
+      #|  1
+      #|  2
+      #|  3
+      #|}
+    ),
+  )
+}
+
+///|
 test "object body for-generator binds index and element with two variables" {
   assert_true(
     eval_source(

@@ -42,8 +42,10 @@ fn typed_object_class_name_for_expr(
             // dispatches against class A's method table.
             match (binding.value, binding.type_name) {
               (ObjectLiteral(_), Some(class_name)) =>
-                if class_name.contains("<") || class_name.contains("|") ||
-                  class_name.contains("(") || class_name.contains("?") ||
+                if class_name.contains("<") ||
+                  class_name.contains("|") ||
+                  class_name.contains("(") ||
+                  class_name.contains("?") ||
                   class_name.contains(".") {
                   typed_object_class_name_for_expr(
                     binding.value,
@@ -190,8 +192,10 @@ fn resolve_binding_value(
                 match lookup_class_binding(class_env, class_name) {
                   Some(_) => TypedObjectLiteral(class_name, members)
                   None =>
-                    if class_name.contains(".") || class_name.contains("<") ||
-                      class_name.contains("(") || class_name.contains("?") {
+                    if class_name.contains(".") ||
+                      class_name.contains("<") ||
+                      class_name.contains("(") ||
+                      class_name.contains("?") {
                       binding.value
                     } else if class_name.contains("|") {
                       // PKL-148bh: union annotation (`*Foo | Baz`)
@@ -203,9 +207,7 @@ fn resolve_binding_value(
                         let t = trim_spaces(choice)
                         if t.has_prefix("*") {
                           let head = trim_spaces(
-                            String::unsafe_substring(
-                              t, start=1, end=t.length(),
-                            ),
+                            String::unsafe_substring(t, start=1, end=t.length()),
                           )
                           if lookup_class_binding(class_env, head) is Some(_) {
                             starred_class = Some(head)
@@ -217,9 +219,8 @@ fn resolve_binding_value(
                         Some(name) => TypedObjectLiteral(name, members)
                         None => binding.value
                       }
-                    } else if lookup_value(env, class_name) is Some(
-                      ObjectValue(_),
-                    ) ||
+                    } else if lookup_value(env, class_name)
+                      is Some(ObjectValue(_)) ||
                       lookup_value(cache, class_name) is Some(ObjectValue(_)) ||
                       find_binding(bindings, class_name) is Some(_) {
                       AmendExpr(Identifier(class_name), members)
@@ -299,7 +300,7 @@ fn push_receiver_method_bindings(
     if is_invisible_member_name(value_member.name) {
       method_cache.push({
         name: strip_member_visibility_prefix(value_member.name),
-        value: value_member.value
+        value: value_member.value,
       })
     }
   }
@@ -317,7 +318,7 @@ fn push_super_dispatch_marker(
 ) -> Unit {
   method_cache.push({
     name: "@current_class",
-    value: StringValue(current_class)
+    value: StringValue(current_class),
   })
 }
 
@@ -364,7 +365,7 @@ fn push_sibling_class_methods(
               class_method.return_type_name,
               captured_env,
               fresh_function_id(),
-            )
+            ),
           })
         None => ()
       }
@@ -493,21 +494,6 @@ fn synth_class_mirror_for_value(value : Value) -> Value {
 }
 
 ///|
-/// PKL-148d: build the same `pkl:reflect.Class` mirror from a bare
-/// class name. Used when a class identifier (`Person`) is read as a
-/// value rather than as a type annotation — Apple Pkl treats the
-/// identifier as a Class instance whose member-access surface
-/// produces `Cannot find property \`X\` in object of type \`Class\`.`
-/// for anything other than `simpleName` / `name`.
-/// PKL-148bb: mirror for a typealias declaration. Same shape as the
-/// reflect.Class mirror but `__kind = "TypeAlias"` so member-access
-/// dispatch routes to the alias surface (`.simpleName`, `.name`,
-/// `.modifiers`, `.toString()`).
-fn synth_type_alias_mirror_for_name(name : String) -> Value {
-  synth_type_alias_mirror_for_qualified(name, None)
-}
-
-///|
 /// PKL-148bh: TypeAlias mirror with a module-qualified `name` /
 /// toString. When `module_name` is Some, the mirror's `name` and the
 /// toString-style projection use `<module>#<simple>` (matching
@@ -563,8 +549,16 @@ fn synth_class_mirror_for_qualified(
     None => name
   }
   ObjectValue([
-    { name: hidden_member_name("__kind"), value: StringValue("Class"), source: None },
-    { name: hidden_member_name("reflectee"), value: StringValue(name), source: None },
+    {
+      name: hidden_member_name("__kind"),
+      value: StringValue("Class"),
+      source: None,
+    },
+    {
+      name: hidden_member_name("reflectee"),
+      value: StringValue(name),
+      source: None,
+    },
     { name: "simpleName", value: StringValue(name), source: None },
     { name: "name", value: StringValue(qualified), source: None },
     {
@@ -577,11 +571,7 @@ fn synth_class_mirror_for_qualified(
     // declared on the type). pkl-mbt doesn't surface modifier text
     // through the AST yet, so default to an empty Set — `types/modifiersForTypes`
     // and other `.modifiers` consumers see the expected empty Set form.
-    {
-      name: "modifiers",
-      value: SetValue([]),
-      source: None,
-    },
+    { name: "modifiers", value: SetValue([]), source: None },
   ])
 }
 

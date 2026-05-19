@@ -298,13 +298,7 @@ fn eval_float_binary(
     Add => Some(FloatValue(a + b))
     Subtract => Some(FloatValue(a - b))
     Multiply => Some(FloatValue(a * b))
-    Divide =>
-      if b == 0.0 {
-        diagnostics.push(diag("division by zero"))
-        None
-      } else {
-        Some(FloatValue(a / b))
-      }
+    Divide => Some(FloatValue(a / b))
     LessThan => Some(BoolValue(a < b))
     LessOrEqual => Some(BoolValue(a <= b))
     GreaterThan => Some(BoolValue(a > b))

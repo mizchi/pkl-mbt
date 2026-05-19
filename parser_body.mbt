@@ -572,6 +572,7 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
         // `basic/newInsideLet`, `parser/spread` rely on this).
         kind == if_kw() ||
         kind == let_kw() ||
+        kind == module_kw() ||
         kind == lparen()
       let identifier_kind_safe = kind == identifier() &&
         next_non_trivia != arrow() &&
