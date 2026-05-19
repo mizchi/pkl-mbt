@@ -1042,6 +1042,20 @@ fn eval_expr_with_bindings(
         is Some(StringValue(message)) {
         diagnostics.push(diag(message))
         None
+      } else if name == "NaN" &&
+        !stack_contains_binding(stack, "NaN") &&
+        find_binding(bindings, "NaN") is None &&
+        lookup_value(env, "NaN") is None &&
+        lookup_value(cache, "NaN") is None {
+        // pkl:base `NaN` constant — IEEE 754 Not-a-Number sentinel.
+        Some(FloatValue(0.0 / 0.0))
+      } else if name == "Infinity" &&
+        !stack_contains_binding(stack, "Infinity") &&
+        find_binding(bindings, "Infinity") is None &&
+        lookup_value(env, "Infinity") is None &&
+        lookup_value(cache, "Infinity") is None {
+        // pkl:base `Infinity` constant — IEEE 754 positive infinity.
+        Some(FloatValue(1.0 / 0.0))
       } else if name == "module" ||
         (
           name == "this" &&
@@ -1513,6 +1527,21 @@ fn eval_expr_with_bindings(
             _ => None
           }
         }
+      } else if callee is Identifier("TODO") &&
+        !stack_contains_binding(stack, "TODO") &&
+        find_binding(bindings, "TODO") is None {
+        // pkl:base `TODO(message?)` always throws — Apple Pkl raises
+        // "TODO" by default (or the supplied message). The fixture
+        // captures via test.catch.
+        diagnostics.push(diag("TODO"))
+        None
+      } else if callee is Identifier("Undefined") &&
+        !stack_contains_binding(stack, "Undefined") &&
+        find_binding(bindings, "Undefined") is None {
+        // pkl:base `Undefined()` throws Apple Pkl's "Undefined value."
+        // wording — used inside test.catch to confirm the throw fires.
+        diagnostics.push(diag("Undefined value."))
+        None
       } else if callee is Identifier("Null") &&
         !stack_contains_binding(stack, "Null") &&
         find_binding(bindings, "Null") is None {
