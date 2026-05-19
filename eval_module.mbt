@@ -604,23 +604,39 @@ fn eval_program(
   match result {
     Some(value) => {
       let converters = collect_path_converters(value)
-      if converters.length() == 0 {
-        Some(value)
-      } else {
-        Some(
-          apply_path_converters(
-            value,
-            converters,
-            bindings,
-            env,
-            class_env,
-            cache,
-            program.declarations,
-            diagnostics,
-            resolve_import,
-          ),
+      let class_converters = collect_class_converters(value)
+      let mut current = value
+      if converters.length() > 0 {
+        current = apply_path_converters(
+          current,
+          converters,
+          bindings,
+          env,
+          class_env,
+          cache,
+          program.declarations,
+          diagnostics,
+          resolve_import,
         )
       }
+      // PKL-152: class-keyed converters (`[Dog]`, `[Any]`) walk the
+      // whole rendered tree and rewrite any ObjectValue whose class tag
+      // matches the converter's class reference. `Any` matches anything
+      // that isn't a module mirror.
+      if class_converters.length() > 0 {
+        current = apply_class_converters(
+          current,
+          class_converters,
+          bindings,
+          env,
+          class_env,
+          cache,
+          program.declarations,
+          diagnostics,
+          resolve_import,
+        )
+      }
+      Some(current)
     }
     None => None
   }
@@ -693,6 +709,271 @@ fn apply_path_converters(
     )
   }
   current
+}
+
+///|
+/// PKL-152: extract class-keyed converters from
+/// `result.output.renderer.converters`. Each entry's key is an
+/// ObjectValue carrying the class mirror Apple Pkl materializes for
+/// `Dog` / `Any` / etc. The returned list pairs the class's qualified
+/// name (`"anyConverter#Dog"` / `"Any"`) with the callback.
+fn collect_class_converters(value : Value) -> Array[(String, Value)] {
+  let converters : Array[(String, Value)] = []
+  match value {
+    ObjectValue(members) =>
+      for entry in members {
+        if entry.name == "output" {
+          match entry.value {
+            ObjectValue(output_members) =>
+              for output_member in output_members {
+                if output_member.name == "renderer" {
+                  match output_member.value {
+                    ObjectValue(renderer_members) =>
+                      for renderer_member in renderer_members {
+                        if renderer_member.name == "converters" {
+                          match renderer_member.value {
+                            MappingValue(entries) =>
+                              for entry in entries {
+                                match entry.key {
+                                  ObjectValue(class_mirror_members) =>
+                                    match
+                                      lookup_member(
+                                        class_mirror_members,
+                                        "name",
+                                      ) {
+                                      Some(StringValue(name)) =>
+                                        converters.push((name, entry.value))
+                                      _ => ()
+                                    }
+                                  _ => ()
+                                }
+                              }
+                            _ => ()
+                          }
+                        }
+                      }
+                    _ => ()
+                  }
+                }
+              }
+            _ => ()
+          }
+        }
+      }
+    _ => ()
+  }
+  converters
+}
+
+///|
+/// PKL-152: walk the rendered tree and rewrite any ObjectValue whose
+/// class matches a converter key. `Any` matches every ObjectValue
+/// (except the module mirror itself); explicit class entries match
+/// only when the class tag agrees verbatim. Lookup falls through to
+/// the next match so a more specific class wins over `Any`.
+fn apply_class_converters(
+  value : Value,
+  converters : Array[(String, Value)],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  // Skip the top-level module value; converters apply to children only
+  // (so `[Any]` doesn't recursively swallow the output module itself).
+  match value {
+    ObjectValue(members) => {
+      let next : Array[ValueMember] = []
+      for field in members {
+        next.push({
+          name: field.name,
+          value: walk_class_converter(
+            field.value, converters, bindings, env, class_env, cache, declarations,
+            diagnostics, resolve_import,
+          ),
+          source: field.source,
+        })
+      }
+      ObjectValue(next)
+    }
+    _ => value
+  }
+}
+
+///|
+fn walk_class_converter(
+  value : Value,
+  converters : Array[(String, Value)],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  let descended = match value {
+    ObjectValue(members) => {
+      let next : Array[ValueMember] = []
+      for field in members {
+        next.push({
+          name: field.name,
+          value: walk_class_converter(
+            field.value, converters, bindings, env, class_env, cache, declarations,
+            diagnostics, resolve_import,
+          ),
+          source: field.source,
+        })
+      }
+      ObjectValue(next)
+    }
+    ListingValue(xs) => {
+      let next : Array[Value] = []
+      for x in xs {
+        next.push(
+          walk_class_converter(
+            x, converters, bindings, env, class_env, cache, declarations, diagnostics,
+            resolve_import,
+          ),
+        )
+      }
+      ListingValue(next)
+    }
+    ListValue(xs) => {
+      let next : Array[Value] = []
+      for x in xs {
+        next.push(
+          walk_class_converter(
+            x, converters, bindings, env, class_env, cache, declarations, diagnostics,
+            resolve_import,
+          ),
+        )
+      }
+      ListValue(next)
+    }
+    SetValue(xs) => {
+      let next : Array[Value] = []
+      for x in xs {
+        next.push(
+          walk_class_converter(
+            x, converters, bindings, env, class_env, cache, declarations, diagnostics,
+            resolve_import,
+          ),
+        )
+      }
+      SetValue(next)
+    }
+    MappingValue(entries) => {
+      let next : Array[ValueEntry] = []
+      for e in entries {
+        next.push({
+          key: e.key,
+          value: walk_class_converter(
+            e.value, converters, bindings, env, class_env, cache, declarations, diagnostics,
+            resolve_import,
+          ),
+        })
+      }
+      MappingValue(next)
+    }
+    _ => value
+  }
+  // Look up a matching converter for this node's class. Class-specific
+  // wins over `Any`; if neither matches, the descended value flows
+  // through unchanged.
+  let chosen = pick_class_converter(descended, converters)
+  match chosen {
+    Some(callback) =>
+      match
+        apply_function_value(
+          "renderer converter",
+          callback,
+          [descended],
+          bindings,
+          env,
+          class_env,
+          cache,
+          [],
+          declarations,
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(converted) => converted
+        None => descended
+      }
+    None => descended
+  }
+}
+
+///|
+fn pick_class_converter(
+  value : Value,
+  converters : Array[(String, Value)],
+) -> Value? {
+  // PKL-152: collection wrappers (Listing / Mapping / Map / Pair) are
+  // never re-rendered through `[Any]`; their elements are walked
+  // first, then the wrapper passes through. Scalar values also skip
+  // `[Any]` — Apple Pkl's class identity for "Any" matches user class
+  // instances (ObjectValue with a class tag), not the universal
+  // scalar/collection projection.
+  let tag = match value {
+    ObjectValue(members) =>
+      match find_object_class_tag(members) {
+        Some(s) => s
+        None => "Dynamic"
+      }
+    _ => return None
+  }
+  // Specific match first.
+  for entry in converters {
+    let (name, cb) = entry
+    if name == tag {
+      return Some(cb)
+    }
+    // Compare simple-name suffix when the converter is qualified to a
+    // different module than the receiving value (Apple Pkl's class
+    // identity check is by class object, but the converter key carries
+    // the fully-qualified name).
+    if name_matches_class_tag(name, tag) && name != "Any" {
+      return Some(cb)
+    }
+  }
+  // Fall back to `Any` if present — only fires for ObjectValues.
+  for entry in converters {
+    if entry.0 == "Any" {
+      return Some(entry.1)
+    }
+  }
+  None
+}
+
+///|
+/// PKL-152: a converter key like `anyConverter#User` should match a
+/// value tagged `"User"` (or vice versa). Stdlib-typed values carry the
+/// bare class name; user classes carry the module-qualified form. We
+/// accept the suffix-match either direction so the lookup is robust to
+/// both projections.
+fn name_matches_class_tag(name : String, tag : String) -> Bool {
+  if name == tag {
+    return true
+  }
+  // strip "<module>#" prefix
+  let hash = name.find("#")
+  let name_simple = match hash {
+    Some(idx) =>
+      String::unsafe_substring(name, start=idx + 1, end=name.length())
+    None => name
+  }
+  let hash2 = tag.find("#")
+  let tag_simple = match hash2 {
+    Some(idx) =>
+      String::unsafe_substring(tag, start=idx + 1, end=tag.length())
+    None => tag
+  }
+  name_simple == tag_simple
 }
 
 ///|

@@ -1617,7 +1617,21 @@ fn eval_expr_with_bindings(
           Some(StringValue(s)) => s
           _ => "Dynamic"
         }
-        Some(synth_class_mirror_for_name(class_name))
+        // PKL-152: qualify the mirror's `name` with the surrounding
+        // module so reflect.Class.toString agrees with Apple Pkl. The
+        // stdlib classes ("Dynamic" / "Listing" / etc.) stay bare —
+        // qualifying them would break api/reflect* expectations.
+        let module_name = match lookup_value(cache, "@__module_name") {
+          Some(StringValue(s)) => s
+          _ => ""
+        }
+        if module_name.length() > 0 && !is_stdlib_class_name(class_name) {
+          Some(
+            synth_class_mirror_for_qualified(class_name, Some(module_name)),
+          )
+        } else {
+          Some(synth_class_mirror_for_name(class_name))
+        }
       } else if callee is Identifier("TODO") &&
         !stack_contains_binding(stack, "TODO") &&
         find_binding(bindings, "TODO") is None {
@@ -1789,7 +1803,30 @@ fn eval_expr_with_bindings(
                   target_expr, bindings, env, class_env, cache, stack, declarations,
                   diagnostics, resolve_import,
                 ) {
-                Some(value) => Some(synth_class_mirror_for_value(value))
+                // PKL-152: a user-class instance's getClass() must
+                // produce `<module>#<simple>` for `.name` so the
+                // converter dispatch (api/anyConverter) and reflect
+                // round-trip both agree. Read the module name from
+                // the `@__module_name` cache marker and qualify the
+                // mirror when the class is non-stdlib.
+                Some(value) => {
+                  let bare = eval_value_type_name(value)
+                  let module_name = match lookup_value(
+                    cache, "@__module_name",
+                  ) {
+                    Some(StringValue(s)) => s
+                    _ => ""
+                  }
+                  if module_name.length() > 0 &&
+                    !is_stdlib_class_name(bare) {
+                    Some(synth_class_mirror_for_qualified(
+                      bare,
+                      Some(module_name),
+                    ))
+                  } else {
+                    Some(synth_class_mirror_for_value(value))
+                  }
+                }
                 None => None
               }
             } else if is_listing_method_name(method_name) ||
@@ -2520,6 +2557,36 @@ fn eval_expr_with_bindings(
                     }
                   } else {
                     false
+                  }
+                  // PKL-152: `o is module` — the runtime identity
+                  // check is strict (only the actual current-module
+                  // value passes), unlike `: module` type annotations
+                  // which accept any ObjectValue structurally. The
+                  // converter dispatch in api/anyConverter relies on
+                  // this split — `[Any] = (o) -> if (o is module) o
+                  // else ...` must reject Dog / User / Env instances
+                  // even though they're ObjectValues.
+                  if base_for_user_check == "module" {
+                    let module_name = match lookup_value(
+                      cache, "@__module_name",
+                    ) {
+                      Some(StringValue(s)) => s
+                      _ => ""
+                    }
+                    let class_tag = match value {
+                      ObjectValue(members) =>
+                        match find_object_class_tag(members) {
+                          Some(s) => s
+                          None => ""
+                        }
+                      _ => ""
+                    }
+                    return Some(
+                      BoolValue(
+                        class_tag == "module" ||
+                          (module_name.length() > 0 && class_tag == module_name),
+                      ),
+                    )
                   }
                   if !value_is_type(value, type_name) && !user_class_match {
                     return Some(BoolValue(false))
@@ -3255,7 +3322,24 @@ fn dispatch_value_to_string(
   resolve_import : (String) -> EvalResult?,
 ) -> String {
   match value {
-    ObjectValue(members) =>
+    ObjectValue(members) => {
+      // PKL-152: reflect Class / TypeAlias mirrors are projected
+      // through their qualified name when stringified in interpolation
+      // (api/anyConverter / api/reflect*). Without this branch the
+      // fallback renders the full `new { simpleName=...; ... }` shape.
+      match lookup_member(members, hidden_member_name("__kind")) {
+        Some(StringValue("Class")) | Some(StringValue("TypeAlias")) =>
+          match
+            lookup_member(members, hidden_member_name("__qualified_name")) {
+            Some(StringValue(s)) => return s
+            _ =>
+              match lookup_member(members, "name") {
+                Some(StringValue(s)) => return s
+                _ => ()
+              }
+          }
+        _ => ()
+      }
       match find_object_class_tag(members) {
         Some(class_name) =>
           if class_name != "Dynamic" &&
@@ -3292,6 +3376,7 @@ fn dispatch_value_to_string(
           }
         None => value_to_string_for_join(value)
       }
+    }
     _ => value_to_string_for_join(value)
   }
 }

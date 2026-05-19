@@ -921,7 +921,7 @@ fn apply_function_value(
   bindings : Array[Binding],
   _env : Array[ValueBinding],
   class_env : Array[ClassBinding],
-  _cache : Array[ValueBinding],
+  caller_cache : Array[ValueBinding],
   stack : Array[String],
   declarations : Array[Declaration],
   diagnostics : Array[Diagnostic],
@@ -938,6 +938,17 @@ fn apply_function_value(
         return None
       }
       let call_cache = copy_value_bindings(captured_env)
+      // PKL-152: re-introduce the `@__module_name` cache marker at
+      // application time. The capture-pass filters it out (lambdas
+      // shouldn't observe it as a regular binding), but
+      // `getClass()` / class-keyed converter dispatch inside the body
+      // need it to qualify the mirror name with `<module>#<simple>`.
+      if lookup_value(call_cache, "@__module_name") is None {
+        match lookup_value(caller_cache, "@__module_name") {
+          Some(v) => call_cache.push({ name: "@__module_name", value: v })
+          None => ()
+        }
+      }
       for i = 0; i < parameters.length(); i = i + 1 {
         match
           eval_callable_argument_type_rejection_message(
