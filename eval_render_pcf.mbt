@@ -64,6 +64,23 @@ fn render_float_text(d : Double) -> String {
 
 ///|
 fn render_pcf_scalar(value : Value, buf : StringBuilder) -> Unit {
+  render_pcf_scalar_with_indent(value, 0, buf)
+}
+
+///|
+/// PKL-148bb: indent-aware scalar / constructor render. The element
+/// values nested inside `Set(...)`, `List(...)`, `Map(...)`, `Pair(...)`
+/// previously rendered at indent 0; when the element was itself a block
+/// (`new Foo { ... }`), the inner body opened at column 2 regardless
+/// of the enclosing context's depth. Apple Pkl indents the inner block
+/// relative to the enclosing column so `classes/class2a` projects
+/// `friends = Set(new { name = "Emma" ... })` with the body sitting at
+/// the same depth as `friends`'s siblings.
+fn render_pcf_scalar_with_indent(
+  value : Value,
+  indent : Int,
+  buf : StringBuilder,
+) -> Unit {
   match value {
     IntValue(n) => buf.write_string("\{n}")
     FloatValue(d) => buf.write_string(render_float_text(d))
@@ -102,9 +119,9 @@ fn render_pcf_scalar(value : Value, buf : StringBuilder) -> Unit {
     // so nested composites stay valid PCF (`Pair(new { x = 1 }, 2)`).
     PairValue(first, second) => {
       buf.write_string("Pair(")
-      render_pcf_inline(first, 0, buf)
+      render_pcf_inline(first, indent, buf)
       buf.write_string(", ")
-      render_pcf_inline(second, 0, buf)
+      render_pcf_inline(second, indent, buf)
       buf.write_char(')')
     }
     // PKL-119b: PCF round-trips IntSeq through Apple Pkl's constructor
@@ -126,7 +143,7 @@ fn render_pcf_scalar(value : Value, buf : StringBuilder) -> Unit {
         if i > 0 {
           buf.write_string(", ")
         }
-        render_pcf_inline(elements[i], 0, buf)
+        render_pcf_inline(elements[i], indent, buf)
       }
       buf.write_char(')')
     }
@@ -141,7 +158,7 @@ fn render_pcf_scalar(value : Value, buf : StringBuilder) -> Unit {
         if i > 0 {
           buf.write_string(", ")
         }
-        render_pcf_inline(elements[i], 0, buf)
+        render_pcf_inline(elements[i], indent, buf)
       }
       buf.write_char(')')
     }
@@ -154,9 +171,9 @@ fn render_pcf_scalar(value : Value, buf : StringBuilder) -> Unit {
         if i > 0 {
           buf.write_string(", ")
         }
-        render_pcf_inline(entries[i].key, 0, buf)
+        render_pcf_inline(entries[i].key, indent, buf)
         buf.write_string(", ")
-        render_pcf_inline(entries[i].value, 0, buf)
+        render_pcf_inline(entries[i].value, indent, buf)
       }
       buf.write_char(')')
     }
@@ -183,7 +200,7 @@ fn render_pcf_inline(value : Value, indent : Int, buf : StringBuilder) -> Unit {
     // single-line escape form.
     render_pcf_string_heredoc(s, indent, buf)
   } else {
-    render_pcf_scalar(value, buf)
+    render_pcf_scalar_with_indent(value, indent, buf)
   }
 }
 
@@ -345,7 +362,7 @@ fn render_pcf_block_body(
       write_pcf_indent(buf, indent)
       buf.write_char('}')
     }
-    _ => render_pcf_scalar(value, buf)
+    _ => render_pcf_scalar_with_indent(value, indent, buf)
   }
 }
 
@@ -384,7 +401,7 @@ fn render_pcf_object_member(
               render_pcf_block_body(v, indent, buf)
             } else {
               buf.write_string(" = ")
-              render_pcf_scalar(v, buf)
+              render_pcf_scalar_with_indent(v, indent, buf)
             }
           }
           _ => ()
@@ -405,7 +422,7 @@ fn render_pcf_object_member(
     render_pcf_string_heredoc(s, indent + 2, buf)
   } else {
     buf.write_string(" = ")
-    render_pcf_scalar(field.value, buf)
+    render_pcf_scalar_with_indent(field.value, indent, buf)
   }
 }
 
@@ -426,7 +443,7 @@ fn render_pcf_mapping_entry(
     render_pcf_string_heredoc(s, indent + 2, buf)
   } else {
     buf.write_string(" = ")
-    render_pcf_scalar(entry.value, buf)
+    render_pcf_scalar_with_indent(entry.value, indent, buf)
   }
 }
 
