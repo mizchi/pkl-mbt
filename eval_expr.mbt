@@ -2024,6 +2024,7 @@ fn eval_expr_with_bindings(
               is_intseq_method_name(method_name) ||
               is_set_method_name(method_name) ||
               is_map_method_name(method_name) ||
+              is_typed_method_name(method_name) ||
               method_name == "toUnit" ||
               method_name == "toBytes" ||
               method_name == "isSubclassOf" ||
@@ -2214,6 +2215,16 @@ fn eval_expr_with_bindings(
                         }
                       }
                     }
+                  } else if is_typed_method_name(method_name) {
+                    // PKL-152: pkl:base.Typed surface — `getProperty`,
+                    // `getPropertyOrNull`, `hasProperty`, `toMap`,
+                    // `toDynamic` apply to every user-class ObjectValue
+                    // receiver. Argument count is validated per arm.
+                    eval_typed_method_dispatch(
+                      receiver_members, method_name, arguments, bindings, env,
+                      class_env, cache, stack, declarations, diagnostics,
+                      resolve_import,
+                    )
                   } else {
                     // Method call against an ObjectValue receiver that
                     // didn't match the JSON/YAML/isSubclassOf intercepts.
@@ -2426,6 +2437,7 @@ fn eval_expr_with_bindings(
               is_intseq_method_name(method_name) ||
               is_set_method_name(method_name) ||
               is_map_method_name(method_name) ||
+              is_typed_method_name(method_name) ||
               method_name == "toUnit" ||
               method_name == "toBytes" {
               match

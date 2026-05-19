@@ -174,6 +174,134 @@ fn is_int_method_name(name : String) -> Bool {
 }
 
 ///|
+/// PKL-152: pkl:base.Typed method surface — `getProperty(name)`,
+/// `getPropertyOrNull(name)`, `hasProperty(name)`, `toMap()`,
+/// `toDynamic()`. These dispatch off any ObjectValue receiver via
+/// the eval_callable_call intercept.
+fn is_typed_method_name(name : String) -> Bool {
+  match name {
+    "getProperty" | "getPropertyOrNull" | "hasProperty" | "toMap" | "toDynamic" =>
+      true
+    _ => false
+  }
+}
+
+///|
+/// PKL-152: dispatch a pkl:base.Typed method against a user-class
+/// ObjectValue receiver. Each arm validates argument count locally;
+/// missing properties surface the module-qualified diagnostic, in
+/// keeping with `api/typed`'s gold wording.
+fn eval_typed_method_dispatch(
+  receiver_members : Array[ValueMember],
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match method_name {
+    "getProperty" | "getPropertyOrNull" | "hasProperty" => {
+      if arguments.length() != 1 {
+        diagnostics.push(
+          diag("\{method_name} expects 1 argument, got \{arguments.length()}"),
+        )
+        return None
+      }
+      let name_value = eval_expr_with_bindings(
+        arguments[0], bindings, env, class_env, cache, stack, declarations,
+        diagnostics, resolve_import,
+      )
+      match name_value {
+        Some(StringValue(name)) => {
+          let mut found : Value? = None
+          for m in receiver_members {
+            if !is_invisible_member_name(m.name) && m.name == name {
+              found = Some(m.value)
+              break
+            }
+          }
+          match (method_name, found) {
+            ("getProperty", Some(v)) => Some(v)
+            ("getProperty", None) => {
+              let class_tag = match find_object_class_tag(receiver_members) {
+                Some(s) => s
+                None => "Dynamic"
+              }
+              let qualified = if is_stdlib_class_name(class_tag) {
+                class_tag
+              } else {
+                let module_name = match lookup_value(cache, "@__module_name") {
+                  Some(StringValue(s)) => s
+                  _ => ""
+                }
+                if module_name.length() > 0 {
+                  "\{module_name}#\{class_tag}"
+                } else {
+                  class_tag
+                }
+              }
+              diagnostics.push(
+                diag(
+                  "Cannot find property `\{name}` in object of type `\{qualified}`.",
+                ),
+              )
+              None
+            }
+            ("getPropertyOrNull", Some(v)) => Some(v)
+            ("getPropertyOrNull", None) => Some(NullValue)
+            ("hasProperty", Some(_)) => Some(BoolValue(true))
+            ("hasProperty", None) => Some(BoolValue(false))
+            _ => None
+          }
+        }
+        Some(_) => {
+          diagnostics.push(diag("\{method_name} expects String argument"))
+          None
+        }
+        None => None
+      }
+    }
+    "toMap" => {
+      if arguments.length() != 0 {
+        diagnostics.push(
+          diag("toMap expects 0 arguments, got \{arguments.length()}"),
+        )
+        return None
+      }
+      let entries : Array[ValueEntry] = []
+      for m in receiver_members {
+        if !is_invisible_member_name(m.name) {
+          entries.push({ key: StringValue(m.name), value: m.value })
+        }
+      }
+      Some(MapValue(entries))
+    }
+    "toDynamic" => {
+      if arguments.length() != 0 {
+        diagnostics.push(
+          diag("toDynamic expects 0 arguments, got \{arguments.length()}"),
+        )
+        return None
+      }
+      let next : Array[ValueMember] = []
+      for m in receiver_members {
+        if m.name == hidden_member_name("__class") {
+          continue
+        }
+        next.push(m)
+      }
+      Some(ObjectValue(next))
+    }
+    _ => None
+  }
+}
+
+///|
 /// PKL-148: pkl:base Boolean method names.
 fn is_bool_method_name(name : String) -> Bool {
   match name {
