@@ -265,6 +265,24 @@ fn object_values_equal(
   xs : Array[ValueMember],
   ys : Array[ValueMember],
 ) -> Bool {
+  // PKL-148bh: class identity is part of equality — `new Person {}`
+  // and `new Person2 {}` carry distinct `@hidden$__class` tags so
+  // they don't compare equal even though the visible-member arrays
+  // are both empty. An untagged ObjectValue (bare object-literal
+  // body like `(obj1) {}`) compares as `Dynamic` so `(obj1) {} ==
+  // new Dynamic { foo = 1 }` still returns true when the visible
+  // members align.
+  let class_xs = match find_object_class_tag(xs) {
+    Some(s) => s
+    None => "Dynamic"
+  }
+  let class_ys = match find_object_class_tag(ys) {
+    Some(s) => s
+    None => "Dynamic"
+  }
+  if class_xs != class_ys {
+    return false
+  }
   let visible_xs = visible_members(xs)
   let visible_ys = visible_members(ys)
   if visible_xs.length() != visible_ys.length() {
