@@ -78,11 +78,17 @@ fn eval_expr_with_bindings(
       // PKL-152: a user-class or stdlib non-listing target rejects a
       // bare-element body (`new Person { "pigeon" }`). The element
       // payload is the `@element$<offset>` sentinel; if any member
-      // starts with that prefix and the type isn't Listing / List, the
-      // body is malformed. Mapping rejects the same way with the
-      // dedicated `Object of type \`Mapping\` cannot have an element.`
-      // wording. Person-style classes report the qualified name.
-      if type_name != "Listing" && type_name != "List" {
+      // starts with that prefix and the type isn't Listing / List /
+      // Dynamic / Object, the body is malformed. Mapping rejects the
+      // same way with the dedicated `Object of type \`Mapping\`
+      // cannot have an element.` wording. Person-style classes
+      // report the qualified name. Dynamic and Object intentionally
+      // accept bare-element bodies (the Dynamic-shape ObjectValue
+      // already used internally).
+      if type_name != "Listing" &&
+        type_name != "List" &&
+        type_name != "Dynamic" &&
+        type_name != "Object" {
         let mut element_seen = false
         for m in members {
           if m.name.has_prefix("@element$") {

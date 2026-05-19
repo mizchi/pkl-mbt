@@ -180,8 +180,18 @@ fn is_int_method_name(name : String) -> Bool {
 /// the eval_callable_call intercept.
 fn is_typed_method_name(name : String) -> Bool {
   match name {
-    "getProperty" | "getPropertyOrNull" | "hasProperty" | "toMap" | "toDynamic" =>
-      true
+    "getProperty"
+    | "getPropertyOrNull"
+    | "hasProperty"
+    | "toMap"
+    | "toDynamic"
+    // PKL-152: Dynamic-specific introspection — `length` (number of
+    // bare-element members), `toList` (project elements into a List),
+    // `toTyped(<class>)` (cast a Dynamic into a Typed instance with
+    // the supplied class).
+    | "length"
+    | "toList"
+    | "toTyped" => true
     _ => false
   }
 }
@@ -296,6 +306,89 @@ fn eval_typed_method_dispatch(
         next.push(m)
       }
       Some(ObjectValue(next))
+    }
+    "length" => {
+      if arguments.length() != 0 {
+        diagnostics.push(
+          diag("length expects 0 arguments, got \{arguments.length()}"),
+        )
+        return None
+      }
+      // PKL-152: Dynamic.length counts only bare-element members
+      // (`@element$<offset>`). Properties and bracket-entries don't
+      // count, matching Apple Pkl's gold (`new Dynamic { name = ... }.length
+      // == 0`).
+      let mut count = 0
+      for m in receiver_members {
+        if m.name.has_prefix("@element$") {
+          count = count + 1
+        }
+      }
+      Some(IntValue(count))
+    }
+    "toList" => {
+      if arguments.length() != 0 {
+        diagnostics.push(
+          diag("toList expects 0 arguments, got \{arguments.length()}"),
+        )
+        return None
+      }
+      let out : Array[Value] = []
+      for m in receiver_members {
+        if m.name.has_prefix("@element$") {
+          out.push(m.value)
+        }
+      }
+      Some(ListValue(out))
+    }
+    "toTyped" => {
+      if arguments.length() != 1 {
+        diagnostics.push(
+          diag("toTyped expects 1 argument, got \{arguments.length()}"),
+        )
+        return None
+      }
+      // PKL-152: Dynamic.toTyped(<class>) stamps the receiver's
+      // visible members with the supplied class's tag. Drops bare
+      // element members (a Typed receiver can't hold them).
+      match
+        eval_expr_with_bindings(
+          arguments[0], bindings, env, class_env, cache, stack, declarations,
+          diagnostics, resolve_import,
+        ) {
+        Some(ObjectValue(class_mirror)) =>
+          match lookup_member(class_mirror, "simpleName") {
+            Some(StringValue(class_name)) => {
+              let stamped : Array[ValueMember] = [
+                {
+                  name: hidden_member_name("__class"),
+                  value: StringValue(class_name),
+                  source: None,
+                },
+              ]
+              for m in receiver_members {
+                if m.name.has_prefix("@element$") {
+                  continue
+                }
+                if m.name == hidden_member_name("__class") {
+                  continue
+                }
+                stamped.push(m)
+              }
+              Some(ObjectValue(stamped))
+            }
+            _ => {
+              diagnostics.push(
+                diag("toTyped expects a Class mirror argument"),
+              )
+              None
+            }
+          }
+        _ => {
+          diagnostics.push(diag("toTyped expects a Class mirror argument"))
+          None
+        }
+      }
     }
     _ => None
   }
