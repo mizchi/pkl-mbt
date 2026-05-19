@@ -219,7 +219,11 @@ fn eval_intseq_method(
           None => return None
         }
       }
-      Some(ListingValue(mapped))
+      // Apple Pkl's IntSeq.map returns `List<T>` — the gold fixture
+      // `basic/let`'s `res11 = IntSeq(1, 5).map(...)` renders through
+      // the `List(3, 4, 5, 6, 7)` constructor form rather than a
+      // Listing block.
+      Some(ListValue(mapped))
     }
     "fold" => {
       if arg_values.length() != 2 {

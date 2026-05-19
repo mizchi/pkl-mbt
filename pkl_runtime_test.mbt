@@ -1006,7 +1006,7 @@ test "PKL-119b: IntSeq.map projects each element through the lambda" {
     is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  guard members[0].value is ListingValue(elements) else { panic() }
+  guard members[0].value is ListValue(elements) else { panic() }
   guard elements[0] is IntValue(a) else { panic() }
   guard elements[1] is IntValue(b) else { panic() }
   guard elements[2] is IntValue(c) else { panic() }
