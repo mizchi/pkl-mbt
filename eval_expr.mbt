@@ -1405,7 +1405,13 @@ fn eval_expr_with_bindings(
         }
       }
     CallExpr(callee, arguments) =>
-      if callee is Identifier("Bytes") &&
+      if eval_xml_constructor_call(
+          callee, arguments, bindings, env, class_env, cache, stack, declarations,
+          diagnostics, resolve_import,
+        )
+        is Some(xml_value) {
+        Some(xml_value)
+      } else if callee is Identifier("Bytes") &&
         !stack_contains_binding(stack, "Bytes") &&
         find_binding(bindings, "Bytes") is None {
         // PKL-083: `Bytes(<Listing of Int>)` constructor. Each element
@@ -2114,8 +2120,8 @@ fn eval_expr_with_bindings(
                     renderer_format_from_members(receiver_members)
                     is Some(format) {
                     eval_value_renderer_method(
-                      format, method_name, arguments, bindings, env, class_env, cache,
-                      stack, declarations, diagnostics, resolve_import,
+                      format, receiver_members, method_name, arguments, bindings,
+                      env, class_env, cache, stack, declarations, diagnostics, resolve_import,
                     )
                   } else if method_name == "parse" &&
                     reflect_kind(receiver_members) is Some("JsonParser") {
@@ -3994,8 +4000,158 @@ fn reeval_class_defaults_after_constructor_overrides(
 }
 
 ///|
+fn eval_xml_constructor_call(
+  callee : Expr,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let ctor_name = match callee {
+    MemberAccess(Identifier(import_name), name) =>
+      if xml_constructor_name(name) is Some(kind) &&
+        lookup_class_binding(class_env, import_name + "." + name) is Some(_) {
+        Some(kind)
+      } else {
+        None
+      }
+    _ => None
+  }
+  match ctor_name {
+    Some("Element") =>
+      xml_single_string_constructor(
+        "Element", "name", arguments, bindings, env, class_env, cache, stack, declarations,
+        diagnostics, resolve_import,
+      )
+    Some("CData") =>
+      xml_single_string_constructor(
+        "CData", "text", arguments, bindings, env, class_env, cache, stack, declarations,
+        diagnostics, resolve_import,
+      )
+    Some("Comment") =>
+      xml_single_string_constructor(
+        "Comment", "text", arguments, bindings, env, class_env, cache, stack, declarations,
+        diagnostics, resolve_import,
+      )
+    Some("Inline") => {
+      if arguments.length() != 1 {
+        diagnostics.push(diag("xml.Inline expects exactly one argument"))
+        return Some(NullValue)
+      }
+      match
+        eval_expr_with_bindings(
+          arguments[0],
+          bindings,
+          env,
+          class_env,
+          cache,
+          stack,
+          declarations,
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(value) =>
+          Some(
+            ObjectValue(
+              tag_object_with_class(
+                [
+                  {
+                    name: hidden_member_name("__xmlKind"),
+                    value: StringValue("Inline"),
+                    source: None,
+                    annotations: [],
+                  },
+                  { name: "value", value, source: None, annotations: [] },
+                ],
+                "xml.Inline",
+              ),
+            ),
+          )
+        None => Some(NullValue)
+      }
+    }
+    Some(_) => None
+    None => None
+  }
+}
+
+///|
+fn xml_constructor_name(name : String) -> String? {
+  match name {
+    "Element" | "Inline" | "CData" | "Comment" => Some(name)
+    _ => None
+  }
+}
+
+///|
+fn xml_single_string_constructor(
+  class_name : String,
+  field_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  if arguments.length() != 1 {
+    diagnostics.push(diag("xml.\{class_name} expects exactly one argument"))
+    return Some(NullValue)
+  }
+  match
+    eval_expr_with_bindings(
+      arguments[0],
+      bindings,
+      env,
+      class_env,
+      cache,
+      stack,
+      declarations,
+      diagnostics,
+      resolve_import,
+    ) {
+    Some(StringValue(text)) =>
+      Some(
+        ObjectValue(
+          tag_object_with_class(
+            [
+              {
+                name: hidden_member_name("__xmlKind"),
+                value: StringValue(class_name),
+                source: None,
+                annotations: [],
+              },
+              {
+                name: field_name,
+                value: StringValue(text),
+                source: None,
+                annotations: [],
+              },
+            ],
+            "xml.\{class_name}",
+          ),
+        ),
+      )
+    Some(_) => {
+      diagnostics.push(diag("xml.\{class_name} expects a String argument"))
+      Some(NullValue)
+    }
+    None => Some(NullValue)
+  }
+}
+
+///|
 fn eval_value_renderer_method(
   format : String,
+  renderer_members : Array[ValueMember],
   method_name : String,
   arguments : Array[Expr],
   bindings : Array[Binding],
@@ -4034,9 +4190,42 @@ fn eval_value_renderer_method(
         "yaml" => Some(StringValue(render_value_as_yaml(value)))
         "properties" => Some(StringValue(render_value_as_properties(value)))
         "plist" => Some(StringValue(render_value_as_plist(value)))
+        "xml" => {
+          let indent_text = xml_renderer_option(
+            renderer_members, "indent", "  ",
+          )
+          if method_name == "renderDocument" {
+            Some(
+              StringValue(
+                render_value_as_xml_with_options(
+                  value,
+                  xml_renderer_option(
+                    renderer_members, "rootElementName", "root",
+                  ),
+                  indent_text,
+                  xml_renderer_option(renderer_members, "xmlVersion", "1.0"),
+                ),
+              ),
+            )
+          } else {
+            Some(StringValue(render_value_as_xml_fragment(value, indent_text)))
+          }
+        }
         _ => None
       }
     None => None
+  }
+}
+
+///|
+fn xml_renderer_option(
+  renderer_members : Array[ValueMember],
+  name : String,
+  default : String,
+) -> String {
+  match lookup_member(renderer_members, name) {
+    Some(StringValue(s)) => s
+    _ => default
   }
 }
 

@@ -201,6 +201,13 @@ PLIST_GOLD_FIXTURES=(
   "api/pListRenderer1.plist"
 )
 
+# PKL-126b: XML renderer fixtures whose `output { renderer = new
+# xml.Renderer {} }` path now matches the upstream `.xml` gold.
+XML_GOLD_FIXTURES=(
+  "api/xmlRenderer1.xml"
+  "api/xmlRendererElement.xml"
+)
+
 # Files whose `pkl parse` should succeed even when we cannot evaluate
 # them (e.g. they exercise stdlib gaps or runtime semantics outside
 # the implemented slice). Keeping a parse-only check pins the parser
@@ -322,6 +329,13 @@ for label in "${PLIST_GOLD_FIXTURES[@]}"; do
   plist_ok_count=$((plist_ok_count + 1))
 done
 
+xml_ok_count=0
+for label in "${XML_GOLD_FIXTURES[@]}"; do
+  eval_matches_gold "$label" "$UPSTREAM/$label.pkl" "$GOLD/$label"
+  xml_ok_count=$((xml_ok_count + 1))
+done
+
 printf 'upstream-smoke: %d gold-match fixtures passed\n' "$ok_count"
 printf 'upstream-smoke: %d json gold-match fixtures passed\n' "$json_ok_count"
 printf 'upstream-smoke: %d plist gold-match fixtures passed\n' "$plist_ok_count"
+printf 'upstream-smoke: %d xml gold-match fixtures passed\n' "$xml_ok_count"

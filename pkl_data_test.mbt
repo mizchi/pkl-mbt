@@ -303,6 +303,42 @@ test "PKL-126a: plist empty object renders as self-closing <dict/>" {
 }
 
 ///|
+test "PKL-126b: xml renderer wraps object members in root element" {
+  guard eval_source("name = \"alpha\"\nage = 42\nabsent = null")
+    is EvalOk(value) else {
+    panic()
+  }
+  let out = @pkl.render_value_as_xml(value)
+  inspect(
+    out,
+    content="<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<root>\n  <name>alpha</name>\n  <age>42</age>\n</root>\n",
+  )
+}
+
+///|
+test "PKL-126b: xml renderer escapes text and concatenates listings" {
+  guard eval_source("message = \"<a & b>\"\nitems = new Listing { \"x\"; 2 }")
+    is EvalOk(value) else {
+    panic()
+  }
+  let out = @pkl.render_value_as_xml(value)
+  inspect(out.contains("<message>&lt;a &amp; b&gt;</message>"), content="true")
+  inspect(out.contains("<items>x2</items>"), content="true")
+}
+
+///|
+test "PKL-126b: xml Element constructor overrides the member element name" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:xml\"\nnode = (xml.Element(\"entry\")) { 1 }",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let out = @pkl.render_value_as_xml(value)
+  inspect(out.contains("<entry>1</entry>"), content="true")
+  inspect(out.contains("<node>"), content="false")
+}
+
+///|
 test "PKL-124: pkl:base JsonRenderer typechecks without import" {
   let result = typecheck_source(
     "count = 5\noutput { renderer = new JsonRenderer { indent = \"    \" } }",

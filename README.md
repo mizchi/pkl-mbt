@@ -30,7 +30,7 @@ mpkl analyze  <file.pkl>                  # lint (unused locals / imports / ...)
 mpkl codegen  <file.pkl> [-t moonbit]     # lower to a target-language skeleton  (pkl-mbt only)
 ```
 
-Renderers via `-f` / `--format`: `pcf` (default), `json`, `yaml`, `properties`, `plist`. `output { renderer = new <Renderer> { ... } }` also drives the format from the source.
+Renderers via `-f` / `--format`: `pcf` (default), `json`, `yaml`, `properties`, `plist`, `xml`. `output { renderer = new <Renderer> { ... } }` also drives the format from the source.
 
 Sandbox flags: `--allowed-modules <pipe|prefixes>`, `--module-path <dir>` (repeatable), `--package-cache <dir>` (repeatable; resolves and stores `package://host/path/name@version#/file.pkl` under `<dir>/path/name@version/package/file.pkl`; when omitted the CLI uses `$PKL_MBT_PACKAGE_CACHE`, `$XDG_CACHE_HOME/pkl-mbt/package-2`, or `$HOME/.cache/pkl-mbt/package-2`), `-p NAME=VALUE` (populates `read("prop:NAME")`).
 
@@ -46,6 +46,7 @@ These don't exist in Apple Pkl:
 
 - **Parser corpus**: 802 / 802 LanguageSnippetTests fixtures (parse-only)
 - **Eval gold-match**: 224 / 391 PCF fixtures byte-for-byte against upstream (57.3%)
+- **Renderer gold-match**: JSON 1, plist 1, XML 2 upstream renderer fixtures byte-for-byte against upstream
 - **Diagnostic wording**: first-line messages aligned with Apple Pkl (`Cannot find type \`X\`.`, `Cannot find property \`x\`.`, `Cannot find module \`...\`.`)
 
 ### Per-category PCF gold-match (LanguageSnippetTests/input)

@@ -417,9 +417,23 @@ fn builtin_stdlib_source(uri : String) -> String? {
         #|  rootElementName: String = "root"
         #|}
         #|class Element {
+        #|  hidden __xmlKind: String = "Element"
         #|  name: String
+        #|  isBlockFormat: Boolean = true
         #|}
         #|class Inline {
+        #|  hidden __xmlKind: String = "Inline"
+        #|  value: Any
+        #|}
+        #|class CData {
+        #|  hidden __xmlKind: String = "CData"
+        #|  text: String
+        #|}
+        #|class Comment {
+        #|  hidden __xmlKind: String = "Comment"
+        #|  text: String
+        #|}
+        #|class Property {
         #|  name: String
         #|}
       Some(source)
