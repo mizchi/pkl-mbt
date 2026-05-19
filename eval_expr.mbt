@@ -825,6 +825,24 @@ fn eval_expr_with_bindings(
               None
             }
           }
+        // PKL-148bh: String subscript returns the code-point character
+        // as a one-character String (Apple Pkl's `s[i]` semantics).
+        // `modules/functions`'s `charAt(str, idx) = str[idx]` depends
+        // on this — without it the body raises
+        // "subscript access expects Listing or Mapping" and the whole
+        // module evaluation aborts at res3.
+        (Some(StringValue(s)), Some(IntValue(index))) =>
+          if index >= 0 && index < s.length() {
+            let c = s[index].to_int().unsafe_to_char()
+            Some(StringValue(c.to_string()))
+          } else {
+            diagnostics.push(
+              diag(
+                "Character index `\{index}` is out of range `0`..`\{s.length() - 1}`.",
+              ),
+            )
+            None
+          }
         (Some(_), Some(_)) => {
           diagnostics.push(diag("subscript access expects Listing or Mapping"))
           None
