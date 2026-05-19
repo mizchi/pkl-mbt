@@ -1477,6 +1477,22 @@ fn eval_expr_with_bindings(
             _ => None
           }
         }
+      } else if callee is Identifier("Null") &&
+        !stack_contains_binding(stack, "Null") &&
+        find_binding(bindings, "Null") is None {
+        // pkl:base `Null(defaultValue)` always returns NullValue —
+        // the argument is purely a type-inference carrier so the
+        // host can synthesise a typed null without spelling out
+        // `null as T`. The argument is intentionally NOT evaluated:
+        // Apple Pkl treats it as a lazy thunk, and patterns like
+        // `class Bad { res24c: NonNull = Null(new Bad {}) }` would
+        // otherwise recurse indefinitely while constructing Bad.
+        if arguments.length() != 1 {
+          diagnostics.push(diag("Null expects exactly one argument"))
+          None
+        } else {
+          Some(NullValue)
+        }
       } else if callee is Identifier("Pair") &&
         !stack_contains_binding(stack, "Pair") &&
         find_binding(bindings, "Pair") is None {
