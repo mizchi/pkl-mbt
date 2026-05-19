@@ -248,6 +248,17 @@ fn builtin_stdlib_source(uri : String) -> String? {
         #|  language = new {
         #|    version = "0.30.0"
         #|  }
+        #|  runtime = new {
+        #|    name = "stub-runtime"
+        #|    version = "0.0.0"
+        #|  }
+        #|  virtualMachine = new {
+        #|    name = "stub-vm"
+        #|    version = "0.0.0"
+        #|  }
+        #|  processor = new {
+        #|    architecture = "stub-arch"
+        #|  }
         #|}
       Some(source)
     }
