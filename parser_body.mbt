@@ -36,7 +36,8 @@ fn Parser::parse_listing_body(self : Parser) -> Expr {
             kind: LocalBindingItem,
             name: binding.name,
             value: rewrite_typed_object_literal(
-              binding.value, binding.type_name,
+              binding.value,
+              binding.type_name,
             ),
           })
         None => ()
@@ -99,7 +100,9 @@ fn rewrite_typed_object_literal(value : Expr, type_name : String?) -> Expr {
       // Only rewrite when the annotation looks like a plain class name
       // — generic parameters / unions / function shapes keep the
       // original ObjectLiteral so the existing handling stays intact.
-      if name.contains("<") || name.contains("|") || name.contains("(") ||
+      if name.contains("<") ||
+        name.contains("|") ||
+        name.contains("(") ||
         name.contains("?") {
         value
       } else {
@@ -246,10 +249,12 @@ fn Parser::parse_mapping_body(self : Parser) -> Expr {
       // `((local) -> ...)(value)` calls so forward references work.
       match self.parse_local_decl() {
         Some(binding) =>
-          locals.push((
-            binding.name,
-            rewrite_typed_object_literal(binding.value, binding.type_name),
-          ))
+          locals.push(
+            (
+              binding.name,
+              rewrite_typed_object_literal(binding.value, binding.type_name),
+            ),
+          )
         None => ()
       }
     } else if self.at_property_decl() {

@@ -4,10 +4,19 @@ package "mizchi/pkl/cmd/mpkl"
 // Values
 pub async fn fetch_uri(String) -> String?
 
+pub async fn fetch_uri_bytes(String) -> Bytes?
+
+pub fn package_cache_relative(String, String) -> String
+
 // Errors
+type PackageDownloadError derive(Eq)
 
 // Types and methods
+type PackageCacheParts
+
 type PackageUri
+
+type ZipEntry
 
 // Type aliases
 

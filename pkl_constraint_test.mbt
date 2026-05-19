@@ -1041,7 +1041,9 @@ test "Pkl module.catch captures Duration isoString non-finite diagnostics" {
 ///|
 test "Pkl module.catch captures diagnostics when catch is inherited" {
   let session = AnalysisSession::new()
-  session.set_source("snippetTest.pkl", "open module snippetTest\nextends \"pkl:test\"")
+  session.set_source(
+    "snippetTest.pkl", "open module snippetTest\nextends \"pkl:test\"",
+  )
   session.set_source(
     "main.pkl", "amends \"snippetTest.pkl\"\na = module.catch(() -> (0/0).s.isoString)",
   )
@@ -1065,12 +1067,11 @@ test "Pkl module.catch captures diagnostics when catch is inherited" {
 ///|
 test "Pkl module.catch emits inherited snippet body elements" {
   let session = AnalysisSession::new()
-  session.set_source("snippetTest.pkl", "open module snippetTest\nextends \"pkl:test\"")
-  let source =
-    "amends \"snippetTest.pkl\"\nimport \"pkl:math\"\nexamples {\n  local cases = new Listing { 1.ns; 7.d }\n  [\"isoString\"] {\n    for (c in cases) {\n      c.isoString\n    }\n    math.maxFiniteFloat.s.isoString\n    module.catch(() -> (0/0).s.isoString)\n    module.catch(() -> (1/0).s.isoString)\n    module.catch(() -> (-1/0).s.isoString)\n    module.catch(() -> (math.maxFiniteFloat * 1.00000000001).s.isoString)\n  }\n}"
   session.set_source(
-    "main.pkl", source,
+    "snippetTest.pkl", "open module snippetTest\nextends \"pkl:test\"",
   )
+  let source = "amends \"snippetTest.pkl\"\nimport \"pkl:math\"\nexamples {\n  local cases = new Listing { 1.ns; 7.d }\n  [\"isoString\"] {\n    for (c in cases) {\n      c.isoString\n    }\n    math.maxFiniteFloat.s.isoString\n    module.catch(() -> (0/0).s.isoString)\n    module.catch(() -> (1/0).s.isoString)\n    module.catch(() -> (-1/0).s.isoString)\n    module.catch(() -> (math.maxFiniteFloat * 1.00000000001).s.isoString)\n  }\n}"
+  session.set_source("main.pkl", source)
   guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
   inspect(
     render_value(value),

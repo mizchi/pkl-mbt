@@ -533,16 +533,8 @@ fn eval_expr_with_bindings(
         module_super_members_from_cache(cache) is Some(parent_members) {
         match
           resolve_module_parent_member_value(
-            member_name,
-            parent_members,
-            bindings,
-            env,
-            class_env,
-            cache,
-            stack,
-            declarations,
-            diagnostics,
-            resolve_import,
+            member_name, parent_members, bindings, env, class_env, cache, stack,
+            declarations, diagnostics, resolve_import,
           ) {
           Some(value) => Some(value)
           None => {
@@ -3776,10 +3768,10 @@ fn merge_for_generator_members(
       value_member.name.has_prefix("@subscript$") {
       prepared.push({
         name: value_member.name +
-          "$for" +
-          iteration.to_string() +
-          "$" +
-          i.to_string(),
+        "$for" +
+        iteration.to_string() +
+        "$" +
+        i.to_string(),
         value: value_member.value,
         source: value_member.source,
       })

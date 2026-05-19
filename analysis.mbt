@@ -206,9 +206,7 @@ fn normalize_path_segments(path : String) -> String {
   let mut i = start
   while i < body.length() {
     if body.unsafe_get(i) == '/' {
-      raw_segments.push(
-        String::unsafe_substring(body, start~, end=i),
-      )
+      raw_segments.push(String::unsafe_substring(body, start~, end=i))
       start = i + 1
     }
     i = i + 1

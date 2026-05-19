@@ -482,7 +482,10 @@ fn eval_source_with_import_details(
   resolve_import_classes : (String) -> Array[ClassExport]?,
 ) -> EvalResult {
   eval_source_with_import_details_named(
-    source, None, resolve_import, resolve_import_classes,
+    source,
+    None,
+    resolve_import,
+    resolve_import_classes,
   )
 }
 
@@ -523,10 +526,7 @@ fn eval_source_with_import_details_named(
   }
   match
     eval_program(
-      promoted_program,
-      diagnostics,
-      resolve_import,
-      resolve_import_classes,
+      promoted_program, diagnostics, resolve_import, resolve_import_classes,
     ) {
     Some(value) =>
       if diagnostics.length() == 0 {

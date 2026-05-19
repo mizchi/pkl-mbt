@@ -204,13 +204,17 @@ fn synthesize_default_for_type(
           let trimmed = trim_spaces(choice)
           if trimmed.has_prefix("*") {
             let starred = trim_spaces(
-              String::unsafe_substring(
-                trimmed, start=1, end=trimmed.length(),
-              ),
+              String::unsafe_substring(trimmed, start=1, end=trimmed.length()),
             )
             return synthesize_default_for_type(
-              Some(starred), bindings, env, class_env, cache, declarations,
-              diagnostics, resolve_import,
+              Some(starred),
+              bindings,
+              env,
+              class_env,
+              cache,
+              declarations,
+              diagnostics,
+              resolve_import,
             )
           }
         }
@@ -244,8 +248,14 @@ fn synthesize_default_for_type(
       let resolved = eval_resolved_type_alias(name, aliases)
       if resolved != name {
         return synthesize_default_for_type(
-          Some(resolved), bindings, env, class_env, cache, declarations,
-          diagnostics, resolve_import,
+          Some(resolved),
+          bindings,
+          env,
+          class_env,
+          cache,
+          declarations,
+          diagnostics,
+          resolve_import,
         )
       }
       // Structural collections fall back to their empty form. Set/Map
@@ -404,8 +414,7 @@ fn eval_class_property_annotation_with_depth(
       // when matching.
       let hidden_prefixed = hidden_member_name(property_name)
       for property in class_decl.properties {
-        if property.name == property_name ||
-          property.name == hidden_prefixed {
+        if property.name == property_name || property.name == hidden_prefixed {
           found = true
           annotation = property.type_name
         }
@@ -491,7 +500,9 @@ fn pretty_constraint_text(text : String) -> String {
       // not just trailing. Handle it ahead of the single-char `>` rule
       // so the `>` branch can't see the `-` first and leave the leading
       // gap unfilled.
-      if c == '-' && i + 1 < n && trimmed[i + 1].to_int().unsafe_to_char() == '>' {
+      if c == '-' &&
+        i + 1 < n &&
+        trimmed[i + 1].to_int().unsafe_to_char() == '>' {
         ensure_trailing_space(buf)
         buf.write_string("->")
         buf.write_char(' ')
@@ -503,8 +514,7 @@ fn pretty_constraint_text(text : String) -> String {
       // text reads `(key,value)` instead of Apple Pkl's `(key, value)`.
       if c == ',' {
         buf.write_char(',')
-        if i + 1 < n &&
-          trimmed[i + 1].to_int().unsafe_to_char() != ' ' {
+        if i + 1 < n && trimmed[i + 1].to_int().unsafe_to_char() != ' ' {
           buf.write_char(' ')
         }
         i = i + 1
@@ -745,8 +755,8 @@ fn eval_collection_element_constraint_rejection_message(
                   )
                   let probe_diags : Array[Diagnostic] = []
                   let probe = eval_expr_with_bindings(
-                    rewritten, bindings, pred_env, class_env, cache, stack,
-                    declarations, probe_diags, resolve_import,
+                    rewritten, bindings, pred_env, class_env, cache, stack, declarations,
+                    probe_diags, resolve_import,
                   )
                   match probe {
                     Some(BoolValue(true)) => continue
@@ -819,14 +829,7 @@ fn eval_runtime_constraint_for_property(
   // `classes/setConstraints1` exercises `ys: Set<Int(this < 0)>`.
   match
     eval_collection_element_constraint_rejection_message(
-      source_name,
-      property_value,
-      bindings,
-      env,
-      class_env,
-      cache,
-      stack,
-      declarations,
+      source_name, property_value, bindings, env, class_env, cache, stack, declarations,
       resolve_import,
     ) {
     Some(message) => return Some(message)
