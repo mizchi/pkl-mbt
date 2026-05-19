@@ -636,6 +636,86 @@ fn rewrite_implicit_this_in_expr(
 }
 
 ///|
+/// PKL-148bb: element-wise constraint cascade for collection-typed
+/// class properties. When the type is `Listing<Inner(pred)>` /
+/// `List<Inner(pred)>` / `Set<Inner(pred)>` / `Mapping<K,
+/// V(pred)>` / `Map<K, V(pred)>` and the inner element type carries
+/// a predicate, evaluate the predicate with `this` bound to each
+/// element / value. Returns Apple Pkl's `Type constraint
+/// \`<pred>\` violated. Value: <element>` on the first miss; None
+/// when every element satisfies (or the type has no inner predicate).
+fn eval_collection_element_constraint_rejection_message(
+  type_name : String,
+  value : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> String? {
+  let element_type = match generic_argument_text(type_name, "Listing") {
+    Some(t) => Some(t)
+    None =>
+      match generic_argument_text(type_name, "List") {
+        Some(t) => Some(t)
+        None =>
+          match generic_argument_text(type_name, "Set") {
+            Some(t) => Some(t)
+            None => generic_argument_text(type_name, "Collection")
+          }
+      }
+  }
+  match element_type {
+    Some(inner) => {
+      let inner_constraint = pkl_constrained_type_constraint_text(inner)
+      match inner_constraint {
+        Some(constraint_text) =>
+          match value {
+            ListingValue(elements) | ListValue(elements) | SetValue(elements) =>
+              for element in elements {
+                let parts = pkl_split_constraint_arguments(constraint_text)
+                for part in parts {
+                  let pred_expr = match parse_constraint_expression(part) {
+                    Some(e) => e
+                    None => continue
+                  }
+                  let pred_env : Array[ValueBinding] = []
+                  for b in env {
+                    pred_env.push(b)
+                  }
+                  pred_env.push({ name: "this", value: element })
+                  let rewritten = rewrite_implicit_this_in_expr(
+                    pred_expr, bindings, pred_env, cache,
+                  )
+                  let probe_diags : Array[Diagnostic] = []
+                  let probe = eval_expr_with_bindings(
+                    rewritten, bindings, pred_env, class_env, cache, stack,
+                    declarations, probe_diags, resolve_import,
+                  )
+                  match probe {
+                    Some(BoolValue(true)) => continue
+                    Some(BoolValue(false)) =>
+                      return Some(
+                        "Type constraint `\{pretty_constraint_text(part)}` violated. Value: \{render_pcf_value_inline(element)}",
+                      )
+                    _ => continue
+                  }
+                }
+              }
+            _ => ()
+          }
+        None => ()
+      }
+      return None
+    }
+    None => ()
+  }
+  None
+}
+
+///|
 /// PKL-148c: parse a constraint expression text into an `Expr`. Uses
 /// the regular parser by wrapping the source as `__probe = (text)` and
 /// pulling the binding's value back out. Returns `None` when the parse
@@ -676,6 +756,27 @@ fn eval_runtime_constraint_for_property(
     eval_class_property_annotation(declarations, class_name, property_name) {
     Some(s) => s
     None => return None
+  }
+  // PKL-148bb: when the property type is a `Collection<Inner(...)>`
+  // (or List/Set/Listing/Mapping/Map) and the inner type carries its
+  // own constraint, fire the inner predicate against each element /
+  // entry. The structural element walker only checks the bare type
+  // head; the inner constraint stays untouched until this pass.
+  // `classes/setConstraints1` exercises `ys: Set<Int(this < 0)>`.
+  match
+    eval_collection_element_constraint_rejection_message(
+      source_name,
+      property_value,
+      bindings,
+      env,
+      class_env,
+      cache,
+      stack,
+      declarations,
+      resolve_import,
+    ) {
+    Some(message) => return Some(message)
+    None => ()
   }
   let text = match pkl_constrained_type_constraint_text(source_name) {
     Some(t) => t
