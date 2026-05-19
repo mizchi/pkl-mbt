@@ -505,7 +505,12 @@ fn is_stdlib_class_name(name : String) -> Bool {
     | "Function2"
     | "Function3"
     | "Function4"
-    | "Function5" => true
+    | "Function5"
+    // PKL-148bh: `module` is Apple Pkl's annotation for "the type of
+    // the enclosing module" — treat as a stdlib-accepting class name
+    // so the eval-side rejection path doesn't blanket-reject every
+    // signature that mentions it (types/currentModuleType*).
+    | "module" => true
     _ => false
   }
 }

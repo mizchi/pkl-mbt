@@ -383,6 +383,14 @@ fn value_is_type(value : Value, type_name : String) -> Bool {
         ObjectValue(_) => true
         _ => false
       }
+    // PKL-148bh: `module` is the enclosing-module type — every
+    // ObjectValue satisfies it structurally, matching how Apple Pkl
+    // treats the annotation in types/currentModuleType*.
+    "module" =>
+      match value {
+        ObjectValue(_) => true
+        _ => false
+      }
     "Any" => true
     _ => false
   }

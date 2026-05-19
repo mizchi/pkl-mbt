@@ -73,6 +73,12 @@ fn builtin_type_from_annotation(name : String) -> Type? {
     // PKL-133: top type. Maps to its own `AnyType` variant so render
     // output stays as `Any` instead of collapsing to `Unknown`.
     "Any" => Some(AnyType)
+    // PKL-148bh: `module` is Apple Pkl's "type of the enclosing
+    // module" annotation (`types/currentModuleType*`). Without a
+    // dedicated variant the typechecker rejects every signature that
+    // uses it; map to `ObjectType` so the structural shape lines up
+    // with the module's own ObjectValue projection.
+    "module" => Some(ObjectType([]))
     // PKL-124: pkl:base renderer classes are globally accessible
     // (Apple Pkl implicitly imports `pkl:base`). Empty member list
     // means `new JsonRenderer { ... }` accepts any subset of property

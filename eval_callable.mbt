@@ -117,6 +117,9 @@ fn eval_value_accepts_type_annotation(
     ("Boolean", BoolValue(_)) | ("Bool", BoolValue(_)) => true
     ("Null", NullValue) => true
     ("Object", ObjectValue(_)) => true
+    // PKL-148bh: `module` is the type of the enclosing module — any
+    // ObjectValue satisfies it structurally (types/currentModuleType*).
+    ("module", ObjectValue(_)) => true
     ("Listing", ListingValue(_)) => true
     ("Mapping", MappingValue(_)) => true
     // PKL-148h: `List<T>` accepts the dedicated `ListValue`; the older
