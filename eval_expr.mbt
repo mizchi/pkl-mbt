@@ -1437,11 +1437,16 @@ fn eval_expr_with_bindings(
           None
         }
       } else if (
-          callee is MemberAccess(Identifier("module"), "catch") ||
-          callee is MemberAccess(Identifier("test"), "catch")
+          (
+            callee is MemberAccess(Identifier("module"), "catch") &&
+            !stack_contains_binding(stack, "catch")
+          ) ||
+          (
+            callee is MemberAccess(Identifier("test"), "catch") &&
+            !stack_contains_binding(stack, "catch") &&
+            find_binding(bindings, "catch") is None
+          )
         ) &&
-        !stack_contains_binding(stack, "catch") &&
-        find_binding(bindings, "catch") is None &&
         arguments.length() == 1 {
         // PKL-147: snippetTest fixtures call `module.catch(lambda)` to
         // probe whether the lambda throws. Reuse the binding-time
@@ -1461,11 +1466,16 @@ fn eval_expr_with_bindings(
           resolve_import,
         )
       } else if (
-          callee is MemberAccess(Identifier("module"), "catchOrNull") ||
-          callee is MemberAccess(Identifier("test"), "catchOrNull")
+          (
+            callee is MemberAccess(Identifier("module"), "catchOrNull") &&
+            !stack_contains_binding(stack, "catchOrNull")
+          ) ||
+          (
+            callee is MemberAccess(Identifier("test"), "catchOrNull") &&
+            !stack_contains_binding(stack, "catchOrNull") &&
+            find_binding(bindings, "catchOrNull") is None
+          )
         ) &&
-        !stack_contains_binding(stack, "catchOrNull") &&
-        find_binding(bindings, "catchOrNull") is None &&
         arguments.length() == 1 {
         // PKL-148o: `catchOrNull(fun)` mirrors `catch(fun)` but the
         // no-throw branch returns `null` instead of throwing — used
@@ -2982,12 +2992,7 @@ fn eval_expr_with_bindings(
             Divide =>
               // PKL-092: `/` widens to Float when both operands are Int,
               // mirroring Apple Pkl's `Int.div` semantics (`5 / 2 = 2.5`).
-              if b == 0 {
-                diagnostics.push(diag("division by zero"))
-                None
-              } else {
-                Some(FloatValue(a.to_double() / b.to_double()))
-              }
+              Some(FloatValue(a.to_double() / b.to_double()))
             IntDivide =>
               if b == 0 {
                 diagnostics.push(diag("division by zero"))
@@ -3618,7 +3623,7 @@ fn eval_for_generator(
           body_members, bindings, env, class_env, iter_cache, stack, declarations,
           diagnostics, resolve_import,
         )
-        accumulated = merge_value_members(accumulated, iter_members)
+        accumulated = merge_for_generator_members(accumulated, iter_members, i)
       }
     // PKL-148bb: `IntSeq(a, b)` iterates `a..=b` inclusive. The
     // single-var form binds the current integer; the two-var form
@@ -3651,11 +3656,12 @@ fn eval_for_generator(
           body_members, bindings, env, class_env, iter_cache, stack, declarations,
           diagnostics, resolve_import,
         )
-        accumulated = merge_value_members(accumulated, iter_members)
+        accumulated = merge_for_generator_members(accumulated, iter_members, i)
       }
     }
     Some(MappingValue(entries)) | Some(MapValue(entries)) =>
-      for entry in entries {
+      for i = 0; i < entries.length(); i = i + 1 {
+        let entry = entries[i]
         let iter_cache = copy_value_bindings(cache)
         match var2 {
           Some(name2) => {
@@ -3675,7 +3681,7 @@ fn eval_for_generator(
           body_members, bindings, env, class_env, iter_cache, stack, declarations,
           diagnostics, resolve_import,
         )
-        accumulated = merge_value_members(accumulated, iter_members)
+        accumulated = merge_for_generator_members(accumulated, iter_members, i)
       }
     Some(_) => {
       diagnostics.push(diag("for-generator source must be Listing or Mapping"))
@@ -3684,6 +3690,33 @@ fn eval_for_generator(
     None => return None
   }
   Some(ObjectValue(accumulated))
+}
+
+///|
+fn merge_for_generator_members(
+  accumulated : Array[ValueMember],
+  iter_members : Array[ValueMember],
+  iteration : Int,
+) -> Array[ValueMember] {
+  let prepared : Array[ValueMember] = []
+  for i = 0; i < iter_members.length(); i = i + 1 {
+    let value_member = iter_members[i]
+    if value_member.name.has_prefix("@element$") ||
+      value_member.name.has_prefix("@subscript$") {
+      prepared.push({
+        name: value_member.name +
+          "$for" +
+          iteration.to_string() +
+          "$" +
+          i.to_string(),
+        value: value_member.value,
+        source: value_member.source,
+      })
+    } else {
+      prepared.push(value_member)
+    }
+  }
+  merge_value_members(accumulated, prepared)
 }
 
 ///|

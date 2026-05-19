@@ -38,7 +38,7 @@
 
 ## 現在の開発状況
 
-- 上流の Apple Pkl LanguageSnippetTests に対する gold-match: **216 / 391 (55.2%)**。確認は `pkf run coverage` で。
+- 上流の Apple Pkl LanguageSnippetTests に対する gold-match: **218 / 391 (55.8%)**。確認は `pkf run coverage` で。
 - カテゴリ別の内訳と最終更新は `README.md` の「Per-category PCF gold-match」表が source of truth。
 
 ## 次に触るべきタスク

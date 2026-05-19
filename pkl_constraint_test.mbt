@@ -929,6 +929,95 @@ test "Pkl Duration isoString renders ISO 8601 time fragments" {
 }
 
 ///|
+test "Pkl module.catch captures Duration isoString non-finite diagnostics" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "a = module.catch(() -> (0/0).s.isoString)\nb = module.catch(() -> (1/0).s.isoString)\nc = module.catch(() -> (-1/0).s.isoString)",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "a",
+          value: StringValue(
+            "Cannot convert duration `NaN.s` to ISO 8601 duration.",
+          ),
+          source: None,
+        },
+        ValueMember::{
+          name: "b",
+          value: StringValue(
+            "Cannot convert duration `Infinity.s` to ISO 8601 duration.",
+          ),
+          source: None,
+        },
+        ValueMember::{
+          name: "c",
+          value: StringValue(
+            "Cannot convert duration `-Infinity.s` to ISO 8601 duration.",
+          ),
+          source: None,
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl module.catch captures diagnostics when catch is inherited" {
+  let session = AnalysisSession::new()
+  session.set_source("snippetTest.pkl", "open module snippetTest\nextends \"pkl:test\"")
+  session.set_source(
+    "main.pkl", "amends \"snippetTest.pkl\"\na = module.catch(() -> (0/0).s.isoString)",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{ name: "catch", value: NullValue, source: None },
+        ValueMember::{
+          name: "a",
+          value: StringValue(
+            "Cannot convert duration `NaN.s` to ISO 8601 duration.",
+          ),
+          source: None,
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl module.catch emits inherited snippet body elements" {
+  let session = AnalysisSession::new()
+  session.set_source("snippetTest.pkl", "open module snippetTest\nextends \"pkl:test\"")
+  let source =
+    "amends \"snippetTest.pkl\"\nimport \"pkl:math\"\nexamples {\n  local cases = new Listing { 1.ns; 7.d }\n  [\"isoString\"] {\n    for (c in cases) {\n      c.isoString\n    }\n    math.maxFiniteFloat.s.isoString\n    module.catch(() -> (0/0).s.isoString)\n    module.catch(() -> (1/0).s.isoString)\n    module.catch(() -> (-1/0).s.isoString)\n    module.catch(() -> (math.maxFiniteFloat * 1.00000000001).s.isoString)\n  }\n}"
+  session.set_source(
+    "main.pkl", source,
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(
+    render_value(value),
+    content=(
+      #|catch = null
+      #|examples {
+      #|  ["isoString"] {
+      #|    "PT0.000000001S"
+      #|    "PT168H"
+      #|    "PT9223372036854775807H7M8S"
+      #|    "Cannot convert duration `NaN.s` to ISO 8601 duration."
+      #|    "Cannot convert duration `Infinity.s` to ISO 8601 duration."
+      #|    "Cannot convert duration `-Infinity.s` to ISO 8601 duration."
+      #|    "Cannot convert duration `Infinity.s` to ISO 8601 duration."
+      #|  }
+      #|}
+    ),
+  )
+}
+
+///|
 test "Pkl DataSize unit family helpers and conversions" {
   let session = AnalysisSession::new()
   session.set_source(
