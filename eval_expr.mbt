@@ -189,20 +189,32 @@ fn eval_expr_with_bindings(
         name: "@__constructing_class",
         value: StringValue(type_name),
       })
-      let merged = reorder_typed_object_members_by_class_declaration(
-        merge_value_members(
-          class_defaults,
-          rename_overrides_for_hidden_class_properties(
-            eval_object_members(
-              members, body_bindings, env, class_env, body_cache, stack, declarations,
-              diagnostics, resolve_import,
-            ),
-            type_name,
-            class_env,
-          ),
-        ),
+      let merged = reeval_class_defaults_after_constructor_overrides(
         type_name,
+        members,
+        reorder_typed_object_members_by_class_declaration(
+          merge_value_members(
+            class_defaults,
+            rename_overrides_for_hidden_class_properties(
+              eval_object_members(
+                members, body_bindings, env, class_env, body_cache, stack, declarations,
+                diagnostics, resolve_import,
+              ),
+              type_name,
+              class_env,
+            ),
+          ),
+          type_name,
+          class_env,
+        ),
+        bindings,
+        env,
         class_env,
+        cache,
+        stack,
+        declarations,
+        diagnostics,
+        resolve_import,
       )
       // PKL-148b: fire class-property constraints at construction time
       // so `new P { l {} }` where `l: Listing<String>(!isEmpty)` raises
@@ -2601,6 +2613,42 @@ fn eval_expr_with_bindings(
           fresh_function_id(),
         ),
       )
+    LetExpr(name, type_name, value_expr, body) => {
+      let raw_value = match
+        eval_expr_with_bindings(
+          value_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
+        ) {
+        Some(value) => value
+        None => return None
+      }
+      let value = coerce_value_to_annotated_type(raw_value, type_name)
+      match
+        eval_callable_argument_type_rejection_message(
+          type_name, value, declarations,
+        ) {
+        Some(message) => {
+          diagnostics.push(diag(message))
+          return None
+        }
+        None => ()
+      }
+      match
+        eval_callable_argument_rejection_message(type_name, value, declarations) {
+        Some(message) => {
+          diagnostics.push(diag(message))
+          return None
+        }
+        None => ()
+      }
+      let body_env = copy_value_bindings(env)
+      let body_cache = copy_value_bindings(cache)
+      body_env.push({ name, value })
+      eval_expr_with_bindings(
+        body, bindings, body_env, class_env, body_cache, stack, declarations, diagnostics,
+        resolve_import,
+      )
+    }
     NonNullExpr(inner_expr) =>
       match
         eval_expr_with_bindings(
@@ -3720,6 +3768,183 @@ fn merge_for_generator_members(
 }
 
 ///|
+fn collect_class_default_properties_in_order(
+  out : Array[ClassProperty],
+  type_name : String,
+  class_env : Array[ClassBinding],
+  declarations : Array[Declaration],
+) -> Unit {
+  match lookup_class_binding(class_env, type_name) {
+    Some(class_binding) => {
+      match class_binding.parent_name {
+        Some(parent_name) => {
+          let aliases = eval_type_alias_bindings(declarations)
+          collect_class_default_properties_in_order(
+            out,
+            eval_resolved_type_alias(parent_name, aliases),
+            class_env,
+            declarations,
+          )
+        }
+        None => ()
+      }
+      for property in class_binding.properties {
+        match property.value {
+          Some(_) => out.push(property)
+          None => ()
+        }
+      }
+    }
+    None => ()
+  }
+}
+
+///|
+fn push_unique_name(names : Array[String], name : String) -> Unit {
+  for existing in names {
+    if existing == name {
+      return
+    }
+  }
+  names.push(name)
+}
+
+///|
+fn constructor_override_names(members : Array[ObjectMember]) -> Array[String] {
+  let names : Array[String] = []
+  for object_member in members {
+    if is_local_member_name(object_member.name) {
+      continue
+    }
+    push_unique_name(names, strip_member_visibility_prefix(object_member.name))
+  }
+  names
+}
+
+///|
+fn expr_references_any_late_binding(expr : Expr, names : Array[String]) -> Bool {
+  for name in names {
+    if expr_references_late_binding(expr, name) {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn push_current_members_as_env(
+  local_env : Array[ValueBinding],
+  members : Array[ValueMember],
+) -> Unit {
+  for value_member in members {
+    let bare = strip_member_visibility_prefix(value_member.name)
+    if !is_invisible_member_name(value_member.name) ||
+      is_local_member_name(value_member.name) ||
+      is_hidden_member_name(value_member.name) {
+      local_env.push({ name: bare, value: value_member.value })
+    }
+  }
+}
+
+///|
+fn replace_member_value_by_bare_name(
+  members : Array[ValueMember],
+  name : String,
+  value : Value,
+) -> Bool {
+  for i = 0; i < members.length(); i = i + 1 {
+    if strip_member_visibility_prefix(members[i].name) == name {
+      members[i] = { name: members[i].name, value, source: None }
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn reeval_class_defaults_after_constructor_overrides(
+  type_name : String,
+  constructor_members : Array[ObjectMember],
+  merged : Array[ValueMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Array[ValueMember] {
+  let constructor_names = constructor_override_names(constructor_members)
+  if constructor_names.length() == 0 {
+    return merged
+  }
+  let properties : Array[ClassProperty] = []
+  collect_class_default_properties_in_order(
+    properties, type_name, class_env, declarations,
+  )
+  if properties.length() == 0 {
+    return merged
+  }
+  let current : Array[ValueMember] = []
+  for value_member in merged {
+    current.push(value_member)
+  }
+  let changed_names : Array[String] = []
+  for name in constructor_names {
+    changed_names.push(name)
+  }
+  for property in properties {
+    let mut directly_overridden = false
+    for name in constructor_names {
+      if name == property.name {
+        directly_overridden = true
+        break
+      }
+    }
+    if directly_overridden {
+      continue
+    }
+    let source = match property.value {
+      Some(expr) => expr
+      None => continue
+    }
+    if !expr_references_any_late_binding(source, changed_names) {
+      continue
+    }
+    let local_env = copy_value_bindings(env)
+    push_current_members_as_env(local_env, current)
+    let reeval_cache = copy_value_bindings(cache)
+    reeval_cache.push({ name: "this", value: ObjectValue(current) })
+    reeval_cache.push({
+      name: "@__constructing_class",
+      value: StringValue(type_name),
+    })
+    push_super_dispatch_marker(reeval_cache, type_name)
+    push_sibling_class_methods(
+      reeval_cache, type_name, class_env, local_env, reeval_cache,
+    )
+    match
+      eval_expr_with_bindings(
+        source, bindings, local_env, class_env, reeval_cache, stack, declarations,
+        diagnostics, resolve_import,
+      ) {
+      Some(raw_value) => {
+        let value = coerce_value_to_annotated_type(
+          raw_value,
+          property.type_name,
+        )
+        if replace_member_value_by_bare_name(current, property.name, value) {
+          push_unique_name(changed_names, property.name)
+        }
+      }
+      None => ()
+    }
+  }
+  current
+}
+
+///|
 /// PKL-148bb: scope-aware reference probe used by the late-binding
 /// re-eval pass. `expr_references` in lint.mbt walks *every* sub-
 /// expression — that's the right semantic for cycle detection but
@@ -3728,7 +3953,7 @@ fn merge_for_generator_members(
 /// because an outer-level amend adds a sibling `y`, since the inner
 /// `y = 3` shadows the outer name. This probe treats every scope-
 /// creating construct (ObjectLiteral / TypedObjectLiteral / AmendExpr
-/// body / LambdaExpr params / ForGenerator key+value+body) as a
+/// body / LambdaExpr params / LetExpr body / ForGenerator key+value+body) as a
 /// barrier: if it declares / binds `name`, the reference is shadowed
 /// and recursion into that scope stops returning true.
 fn expr_references_late_binding(expr : Expr, name : String) -> Bool {
@@ -3787,6 +4012,9 @@ fn expr_references_late_binding(expr : Expr, name : String) -> Bool {
       }
       expr_references_late_binding(body, name)
     }
+    LetExpr(let_name, _, value, body) =>
+      expr_references_late_binding(value, name) ||
+      (let_name != name && expr_references_late_binding(body, name))
     NonNullExpr(inner) => expr_references_late_binding(inner, name)
     UnaryExpr(_, inner) => expr_references_late_binding(inner, name)
     BinaryExpr(_, left, right) =>

@@ -435,6 +435,20 @@ fn infer_expr_with_bindings(
         return_type,
       )
     }
+    LetExpr(name, type_name, value_expr, body) => {
+      let raw_type = infer_expr_with_bindings(
+        value_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+      )
+      let typ = apply_type_annotation(
+        type_name, raw_type, type_env, diagnostics,
+      )
+      let body_env = copy_type_bindings(env)
+      let body_cache = copy_type_bindings(cache)
+      body_env.push({ name, typ, alias_decl: None, bound: None })
+      infer_expr_with_bindings(
+        body, bindings, body_env, type_env, body_cache, stack, diagnostics, resolve_import,
+      )
+    }
     NonNullExpr(inner_expr) =>
       match
         infer_expr_with_bindings(

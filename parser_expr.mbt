@@ -586,10 +586,7 @@ fn Parser::parse_lambda_expr(self : Parser) -> Expr {
 }
 
 ///|
-/// Parse `let (name = value) body` and desugar it into `((name) -> body)(value)`.
-/// Keeping the desugar at the parser level means the rest of the evaluator
-/// continues to operate on the same `LambdaExpr` + `CallExpr` shape that
-/// already implements scoping and closure capture.
+/// Parse `let (name = value) body`.
 fn Parser::parse_let_expr(self : Parser) -> Expr {
   self.builder.start_node(let_decl())
   ignore(self.expect(let_kw(), "let"))
@@ -611,7 +608,7 @@ fn Parser::parse_let_expr(self : Parser) -> Expr {
   if name == "" {
     return UnsupportedExpr
   }
-  CallExpr(LambdaExpr([{ name, type_name }], body, None), [value])
+  LetExpr(name, type_name, value, body)
 }
 
 ///|

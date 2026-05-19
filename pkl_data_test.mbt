@@ -964,6 +964,44 @@ test "let-expression body can reference outer bindings" {
 }
 
 ///|
+test "let-expression preserves the current this binding" {
+  assert_true(
+    eval_source(
+      "result = let (x = this) let (y = this) x == y && y == this && this == module",
+    ) ==
+    EvalOk(ObjectValue([ValueMember::{ name: "result", value: BoolValue(true), source: None }])),
+  )
+}
+
+///|
+test "class defaults with let see constructor overrides" {
+  let source =
+    #|class Lets {
+    #|  x = 2
+    #|  y = let (z = 2) z + x
+    #|  function f(x) = let (z = 2) z + x
+    #|  z = f(x)
+    #|}
+    #|result = new Lets { x = 4 }
+  assert_true(
+    eval_source(source) ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "result",
+          value: ObjectValue([
+            ValueMember::{ name: "x", value: IntValue(4), source: None },
+            ValueMember::{ name: "y", value: IntValue(6), source: None },
+            ValueMember::{ name: "z", value: IntValue(6), source: None },
+          ]),
+          source: None,
+        },
+      ]),
+    ),
+  )
+}
+
+///|
 test "let-expression nests with inner shadowing" {
   assert_true(
     eval_source("result = let (x = 1) let (x = x + 10) let (x = x * 2) x") ==

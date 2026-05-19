@@ -745,7 +745,7 @@ fn normalize_path_segments(path : String) -> String {
   let mut start = if leading_slash { 1 } else { 0 }
   let mut i = start
   while i < body.length() {
-    if body[i].to_int().unsafe_to_char() == '/' {
+    if body.unsafe_get(i) == '/' {
       raw_segments.push(String::unsafe_substring(body, start~, end=i))
       start = i + 1
     }
