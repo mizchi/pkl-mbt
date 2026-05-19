@@ -939,21 +939,30 @@ fn eval_class_default_members(
             })
           None =>
             // PKL-148bb: a typed property declared without a default
-            // (`bar: Bar?`) synthesises a null default when the type
-            // is nullable so the instance still renders the slot
-            // (`modules/recursiveModule1`: `new Foo {}` rendered
-            // `{}` instead of `{ bar = null }`).
-            match property.type_name {
-              Some(name) => {
-                let trimmed = pkl_constraint_trim(name)
-                if trimmed.has_suffix("?") {
-                  base_values.push({
-                    name: property.name,
-                    value: NullValue,
-                    source: None,
-                  })
-                }
-              }
+            // (`bar: Bar?`, `friends: Set`) synthesises the default
+            // implied by its type so the instance still renders the
+            // slot and `super.<name>` reads back the empty collection
+            // / null Apple Pkl materialises (`modules/recursiveModule1`,
+            // `classes/class2a`'s `friends = super.friends + …`).
+            // Constrained / user-class types fall through to the
+            // existing abstract-slot behaviour.
+            match
+              synthesize_default_for_type(
+                property.type_name,
+                bindings,
+                env,
+                class_env,
+                cache,
+                declarations,
+                diagnostics,
+                resolve_import,
+              ) {
+              Some(value) =>
+                base_values.push({
+                  name: property.name,
+                  value,
+                  source: None,
+                })
               None => ()
             }
         }

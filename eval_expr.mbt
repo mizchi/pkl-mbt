@@ -58,13 +58,22 @@ fn eval_expr_with_bindings(
       for b in bindings {
         body_bindings.push(b)
       }
+      // PKL-148bb: expose the class defaults as `super` for the body's
+      // eval cache so a constructor body's `super.X` reads the class-
+      // default value of `X` (`classes/class2a`: `friends = super.friends
+      // + ...` reads the inherited / class-default Set). The existing
+      // amend-side `super` is pushed by the AmendExpr handler against
+      // the amend target; the TypedObjectLiteral handler needs its own
+      // entry against the class's defaults.
+      let body_cache = copy_value_bindings(cache)
+      body_cache.push({ name: "super", value: ObjectValue(class_defaults) })
       let merged = reorder_typed_object_members_by_class_declaration(
         merge_value_members(
           class_defaults,
           rename_overrides_for_hidden_class_properties(
             eval_object_members(
-              members, body_bindings, env, class_env, cache, stack, declarations,
-              diagnostics, resolve_import,
+              members, body_bindings, env, class_env, body_cache, stack,
+              declarations, diagnostics, resolve_import,
             ),
             type_name,
             class_env,
