@@ -388,9 +388,11 @@ fn tag_object_with_class(
   members : Array[ValueMember],
   class_name : String,
 ) -> Array[ValueMember] {
-  if class_name != "Dynamic" {
-    return members
-  }
+  // PKL-148bh: tag every typed ObjectValue with the constructing
+  // class name. The marker uses the hidden prefix so the renderer
+  // and visible_members filter it out automatically; downstream
+  // dispatch paths (`eval_value_type_name`, `render_pcf_value_inline`,
+  // `is X` checks) read it via `find_object_class_tag`.
   let tag_name = class_tag_member_name()
   for m in members {
     if m.name == tag_name {
@@ -421,6 +423,31 @@ fn find_object_class_tag(members : Array[ValueMember]) -> String? {
 }
 
 ///|
+/// PKL-148bh: like `eval_value_type_name`, but when the value's
+/// class tag matches a user-declared class in scope, prefix the
+/// surrounding module name (`<module>#<simple>`). Stdlib types
+/// (`Int`, `String`, `Listing`, …) and the `Dynamic` tag keep their
+/// bare form because Apple Pkl never qualifies them.
+fn qualify_value_type_name(
+  value : Value,
+  class_env : Array[ClassBinding],
+  module_name : String?,
+) -> String {
+  let bare = eval_value_type_name(value)
+  match module_name {
+    Some(m) =>
+      if bare == "Dynamic" || bare == "Object" || is_stdlib_class_name(bare) {
+        bare
+      } else if lookup_class_binding(class_env, bare) is Some(_) {
+        "\{m}#\{bare}"
+      } else {
+        bare
+      }
+    None => bare
+  }
+}
+
+///|
 fn eval_value_type_name(value : Value) -> String {
   match value {
     IntValue(_) => "Int"
@@ -429,13 +456,16 @@ fn eval_value_type_name(value : Value) -> String {
     StringValue(_) => "String"
     NullValue => "Null"
     ObjectValue(members) =>
-      // Today only the `Dynamic` tag promotes through to the
-      // type-name surface — broader user-class tagging would shift
-      // many downstream diagnostics in one go and breaks existing
-      // unit tests that expect the generic `Object` form.
+      // PKL-148bh: universal tagging emits the class name verbatim
+      // (`Dynamic` stays `Dynamic`; user classes surface as
+      // `Person` etc.). The module-qualified form
+      // `<module>#<simple>` lives on the cached
+      // `@__module_name` marker — the diagnostic path that wants
+      // the qualified shape stitches it in via
+      // `eval_value_type_name_qualified` below.
       match find_object_class_tag(members) {
-        Some("Dynamic") => "Dynamic"
-        _ => "Object"
+        Some(class_name) => class_name
+        None => "Object"
       }
     ListingValue(_) => "Listing"
     ListValue(_) => "List"

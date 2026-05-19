@@ -2624,8 +2624,17 @@ fn eval_expr_with_bindings(
               )
               match left_value {
                 Some(left_val) => {
-                  let left_type = eval_value_type_name(left_val)
-                  let right_type = eval_value_type_name(right_val)
+                  let module_name = match
+                    lookup_value(cache, "@__module_name") {
+                    Some(StringValue(s)) => Some(s)
+                    _ => None
+                  }
+                  let left_type = qualify_value_type_name(
+                    left_val, class_env, module_name,
+                  )
+                  let right_type = qualify_value_type_name(
+                    right_val, class_env, module_name,
+                  )
                   let left_render = render_pcf_value_inline(left_val)
                   let right_render = render_pcf_value_inline(right_val)
                   diagnostics.push(

@@ -187,16 +187,80 @@ pub fn eval_source(source : String) -> EvalResult {
   // `render_value` already skips hidden members, so this filter is the
   // only place the symmetry needs to be re-stated.
   match eval_source_with_imports(source, fn(_) { None }) {
-    EvalOk(ObjectValue(members)) => {
-      let visible : Array[ValueMember] = []
-      for field in members {
-        if !is_invisible_member_name(field.name) {
-          visible.push(field)
-        }
-      }
-      EvalOk(ObjectValue(visible))
-    }
+    EvalOk(value) => EvalOk(strip_invisible_recursive(value))
     other => other
+  }
+}
+
+///|
+/// PKL-148bh: recursively strip invisible members (hidden /
+/// local / error sentinels / class tags) from an evaluation result.
+/// The test harness compares evaluator output against
+/// hand-constructed ObjectValue arrays that don't carry the runtime
+/// markers; preserving them at depth 1+ broke fixtures that nest a
+/// typed instance inside a module-level binding (universal class
+/// tagging in `tag_object_with_class` started writing the
+/// `@hidden$__class` marker for every typed body).
+fn strip_invisible_recursive(value : Value) -> Value {
+  match value {
+    ObjectValue(members) => {
+      let kept : Array[ValueMember] = []
+      for m in members {
+        if is_invisible_member_name(m.name) {
+          continue
+        }
+        kept.push({
+          name: m.name,
+          value: strip_invisible_recursive(m.value),
+          source: m.source,
+        })
+      }
+      ObjectValue(kept)
+    }
+    ListingValue(elements) => {
+      let kept : Array[Value] = []
+      for e in elements {
+        kept.push(strip_invisible_recursive(e))
+      }
+      ListingValue(kept)
+    }
+    ListValue(elements) => {
+      let kept : Array[Value] = []
+      for e in elements {
+        kept.push(strip_invisible_recursive(e))
+      }
+      ListValue(kept)
+    }
+    SetValue(elements) => {
+      let kept : Array[Value] = []
+      for e in elements {
+        kept.push(strip_invisible_recursive(e))
+      }
+      SetValue(kept)
+    }
+    MappingValue(entries) => {
+      let kept : Array[ValueEntry] = []
+      for entry in entries {
+        kept.push({
+          key: strip_invisible_recursive(entry.key),
+          value: strip_invisible_recursive(entry.value),
+        })
+      }
+      MappingValue(kept)
+    }
+    MapValue(entries) => {
+      let kept : Array[ValueEntry] = []
+      for entry in entries {
+        kept.push({
+          key: strip_invisible_recursive(entry.key),
+          value: strip_invisible_recursive(entry.value),
+        })
+      }
+      MapValue(kept)
+    }
+    PairValue(a, b) =>
+      PairValue(strip_invisible_recursive(a), strip_invisible_recursive(b))
+    _ => value
   }
 }
 

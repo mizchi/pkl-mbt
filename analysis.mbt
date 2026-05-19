@@ -86,17 +86,11 @@ pub fn AnalysisSession::eval_path(
   // hidden-prefixed function members the evaluator adds for cross-
   // module dispatch. The session's cached EvalResult keeps the full
   // (with-hidden) shape so subsequent import lookups still see the
-  // function exports; only this returning boundary strips them.
+  // function exports; only this returning boundary strips them. The
+  // recursive helper also clears the `@hidden$__class` tag that
+  // universal class tagging now writes (PKL-148bh).
   match self.evals.fetch(self.db.runtime(), path) {
-    EvalOk(ObjectValue(members)) => {
-      let visible : Array[ValueMember] = []
-      for field in members {
-        if !is_invisible_member_name(field.name) {
-          visible.push(field)
-        }
-      }
-      EvalOk(ObjectValue(visible))
-    }
+    EvalOk(value) => EvalOk(strip_invisible_recursive(value))
     other => other
   }
 }

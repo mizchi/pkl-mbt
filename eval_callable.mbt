@@ -523,13 +523,14 @@ fn render_pcf_value_inline(value : Value) -> String {
   let buf = StringBuilder::new()
   match value {
     ObjectValue(members) =>
-      // Only the `Dynamic` tag promotes to the `new Dynamic { ... }`
-      // inline form today — user-class tags would change a handful of
-      // existing PCF gold matches at the same time, so they stay on
-      // the generic `new { ... }` rendering for now.
+      // PKL-148bh: every typed ObjectValue now carries the
+      // `@hidden$__class` tag (universal tagging in
+      // `tag_object_with_class`), so the inline form prints
+      // `new <Class> { ... }` for both Dynamic and user classes
+      // (lambdas/pipeOperator's diagnostic for `Person`).
       match find_object_class_tag(members) {
-        Some("Dynamic") => render_pcf_class_inline("Dynamic", members, buf)
-        _ => render_pcf_inline(value, 0, buf)
+        Some(class_name) => render_pcf_class_inline(class_name, members, buf)
+        None => render_pcf_inline(value, 0, buf)
       }
     _ => render_pcf_inline(value, 0, buf)
   }
