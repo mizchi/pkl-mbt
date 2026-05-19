@@ -1,18 +1,18 @@
 ///|
-fn parse_int_text(text : String) -> Int {
+fn parse_int_text(text : String) -> Int64 {
   // PKL-147: Apple Pkl integer literals come in four shapes:
   //   1. decimal `123`, with optional `_` separators (`1_000_000`),
   //   2. hex `0xFF_FF` / `0X1A`,
   //   3. binary `0b1010` / `0B1010`,
   //   4. octal `0o17` / `0O17`.
-  // The lexer keeps the prefix in the token text, so dispatch on
-  // `text[0..1]` and accumulate the digits in the matching base.
-  // Underscores are skipped in every form.
+  // PKL-150: accumulate in Int64 so 64-bit literals like
+  // `0xFFFF_FFFF_FFFF_FFFF` / `9_223_372_036_854_775_807` round-trip
+  // without truncation.
   let len = text.length()
   if len >= 2 && text[0].to_int().unsafe_to_char() == '0' {
     let prefix = text[1].to_int().unsafe_to_char()
     if prefix == 'x' || prefix == 'X' {
-      let mut value = 0
+      let mut value : Int64 = 0L
       for i = 2; i < len; i = i + 1 {
         let c = text[i].to_int().unsafe_to_char()
         if c == '_' {
@@ -27,36 +27,36 @@ fn parse_int_text(text : String) -> Int {
         } else {
           continue
         }
-        value = value * 16 + d
+        value = value * 16L + d.to_int64()
       }
       return value
     }
     if prefix == 'b' || prefix == 'B' {
-      let mut value = 0
+      let mut value : Int64 = 0L
       for i = 2; i < len; i = i + 1 {
         let c = text[i].to_int().unsafe_to_char()
         if c == '0' || c == '1' {
-          value = value * 2 + c.to_int() - '0'.to_int()
+          value = value * 2L + (c.to_int() - '0'.to_int()).to_int64()
         }
       }
       return value
     }
     if prefix == 'o' || prefix == 'O' {
-      let mut value = 0
+      let mut value : Int64 = 0L
       for i = 2; i < len; i = i + 1 {
         let c = text[i].to_int().unsafe_to_char()
         if c >= '0' && c <= '7' {
-          value = value * 8 + c.to_int() - '0'.to_int()
+          value = value * 8L + (c.to_int() - '0'.to_int()).to_int64()
         }
       }
       return value
     }
   }
-  let mut value = 0
+  let mut value : Int64 = 0L
   for i = 0; i < len; i = i + 1 {
     let c = text[i].to_int().unsafe_to_char()
     if c >= '0' && c <= '9' {
-      value = value * 10 + c.to_int() - '0'.to_int()
+      value = value * 10L + (c.to_int() - '0'.to_int()).to_int64()
     }
   }
   value

@@ -138,7 +138,7 @@ fn eval_listing_property(
   diagnostics : Array[Diagnostic],
 ) -> Value? {
   match name {
-    "length" => Some(IntValue(elements.length()))
+    "length" => Some(IntValue(elements.length().to_int64()))
     "isEmpty" => Some(BoolValue(elements.length() == 0))
     "isNotEmpty" => Some(BoolValue(elements.length() != 0))
     "isDistinct" => {
@@ -228,7 +228,7 @@ fn eval_listing_property(
       }
     // PKL-151: `lastIndex` mirrors Apple Pkl's `length - 1` semantics
     // (returns `-1` on empty input, the same convention `String` uses).
-    "lastIndex" => Some(IntValue(elements.length() - 1))
+    "lastIndex" => Some(IntValue((elements.length() - 1).to_int64()))
     // PKL-151: `min` / `max` use Pkl ordering — Int/Float/String all
     // support `<` / `>` via the value model's compare operator. Empty
     // input raises.
@@ -486,12 +486,14 @@ fn eval_listing_method(
         return None
       }
       match arg_values[0] {
-        IntValue(idx) =>
-          if idx >= 0 && idx < elements.length() {
+        IntValue(idx64) => {
+          let idx = idx64.to_int()
+          if idx64 >= 0L && idx < elements.length() {
             Some(elements[idx])
           } else {
             Some(NullValue)
           }
+        }
         _ => {
           diagnostics.push(diag("Listing.getOrNull expects an Int index"))
           None
@@ -562,12 +564,13 @@ fn eval_listing_method(
       }
       match arg_values[0] {
         IntValue(raw) => {
-          let n = if raw < 0 {
+          let raw_i = raw.to_int()
+          let n = if raw < 0L {
             0
-          } else if raw > elements.length() {
+          } else if raw_i > elements.length() {
             elements.length()
           } else {
-            raw
+            raw_i
           }
           let result : Array[Value] = []
           for i = 0; i < n; i = i + 1 {
@@ -590,12 +593,13 @@ fn eval_listing_method(
       }
       match arg_values[0] {
         IntValue(raw) => {
-          let n = if raw < 0 {
+          let raw_i = raw.to_int()
+          let n = if raw < 0L {
             0
-          } else if raw > elements.length() {
+          } else if raw_i > elements.length() {
             elements.length()
           } else {
-            raw
+            raw_i
           }
           let result : Array[Value] = []
           for i = n; i < elements.length(); i = i + 1 {
@@ -826,7 +830,7 @@ fn eval_listing_method(
           None => return None
         }
       }
-      Some(IntValue(n))
+      Some(IntValue(n.to_int64()))
     }
     "every" => {
       if arg_values.length() != 1 {
@@ -1053,7 +1057,7 @@ fn eval_listing_method(
         )
         None
       } else {
-        Some(IntValue(found))
+        Some(IntValue(found.to_int64()))
       }
     }
     // PKL-151: findIndex(pred) / findLastIndex(pred) — predicate
@@ -1120,7 +1124,7 @@ fn eval_listing_method(
         )
         None
       } else {
-        Some(IntValue(found))
+        Some(IntValue(found.to_int64()))
       }
     }
     // PKL-151: sortBy / minBy / maxBy / distinctBy — extract a key,
@@ -1398,12 +1402,13 @@ fn eval_listing_method(
       }
       match arg_values[0] {
         IntValue(raw) => {
-          let n = if raw < 0 {
+          let raw_i = raw.to_int()
+          let n = if raw < 0L {
             0
-          } else if raw > elements.length() {
+          } else if raw_i > elements.length() {
             elements.length()
           } else {
-            raw
+            raw_i
           }
           let out : Array[Value] = []
           for i = elements.length() - n; i < elements.length(); i = i + 1 {
@@ -1428,12 +1433,13 @@ fn eval_listing_method(
       }
       match arg_values[0] {
         IntValue(raw) => {
-          let n = if raw < 0 {
+          let raw_i = raw.to_int()
+          let n = if raw < 0L {
             0
-          } else if raw > elements.length() {
+          } else if raw_i > elements.length() {
             elements.length()
           } else {
-            raw
+            raw_i
           }
           let out : Array[Value] = []
           for i = 0; i < elements.length() - n; i = i + 1 {
@@ -1459,14 +1465,14 @@ fn eval_listing_method(
       }
       match arg_values[0] {
         IntValue(n) =>
-          if n < 0 {
+          if n < 0L {
             diagnostics.push(
               diag("Expected a positive number, but got \{n}."),
             )
             None
           } else {
             let out : Array[Value] = []
-            for _ in 0..<n {
+            for _ in 0..<n.to_int() {
               for e in elements {
                 out.push(e)
               }
@@ -1501,10 +1507,11 @@ fn eval_listing_method(
         return None
       }
       match arg_values[0] {
-        IntValue(i) =>
-          if i < 0 || i >= elements.length() {
+        IntValue(i64) => {
+          let i = i64.to_int()
+          if i64 < 0L || i >= elements.length() {
             diagnostics.push(
-              diag("Index out of range: \{i}, length \{elements.length()}"),
+              diag("Index out of range: \{i64}, length \{elements.length()}"),
             )
             None
           } else {
@@ -1512,6 +1519,7 @@ fn eval_listing_method(
             out[i] = arg_values[1]
             Some(ListingValue(out))
           }
+        }
         _ => {
           diagnostics.push(diag("Listing.replace expects (Int, T) arguments"))
           None

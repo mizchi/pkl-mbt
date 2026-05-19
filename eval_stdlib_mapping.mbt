@@ -154,7 +154,7 @@ fn eval_mapping_property(
   diagnostics : Array[Diagnostic],
 ) -> Value? {
   match name {
-    "length" => Some(IntValue(entries.length()))
+    "length" => Some(IntValue(entries.length().to_int64()))
     "isEmpty" => Some(BoolValue(entries.length() == 0))
     "isNotEmpty" => Some(BoolValue(entries.length() != 0))
     "keys" => {
@@ -206,9 +206,9 @@ fn eval_mapping_property(
 /// then applies the lambda to each element; `fold(initial, op)`
 /// reduces left-to-right.
 fn eval_intseq_method(
-  start : Int,
-  end_v : Int,
-  step : Int,
+  start : Int64,
+  end_v : Int64,
+  step : Int64,
   method_name : String,
   arguments : Array[Expr],
   bindings : Array[Binding],
@@ -245,7 +245,7 @@ fn eval_intseq_method(
       }
       match arg_values[0] {
         IntValue(new_step) =>
-          if new_step == 0 {
+          if new_step == 0L {
             diagnostics.push(diag("IntSeq.step rejects 0"))
             None
           } else {
@@ -504,7 +504,7 @@ fn eval_set_method(
           None => return None
         }
       }
-      Some(IntValue(n))
+      Some(IntValue(n.to_int64()))
     }
     "toList" | "toListing" => {
       if arg_values.length() != 0 {
@@ -1202,7 +1202,7 @@ fn eval_mapping_method(
           None => return None
         }
       }
-      Some(IntValue(n))
+      Some(IntValue(n.to_int64()))
     }
     _ => None
   }

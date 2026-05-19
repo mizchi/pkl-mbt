@@ -211,9 +211,9 @@ fn semver_value(
     None => NullValue
   }
   ObjectValue([
-    { name: "major", value: IntValue(major), source: None },
-    { name: "minor", value: IntValue(minor), source: None },
-    { name: "patch", value: IntValue(patch), source: None },
+    { name: "major", value: IntValue(major.to_int64()), source: None },
+    { name: "minor", value: IntValue(minor.to_int64()), source: None },
+    { name: "patch", value: IntValue(patch.to_int64()), source: None },
     { name: "preRelease", value: pre_value, source: None },
     { name: "build", value: build_value, source: None },
   ])
@@ -359,7 +359,7 @@ fn find_member(members : Array[ValueMember], name : String) -> Value? {
 ///|
 fn find_int_member(members : Array[ValueMember], name : String) -> Int? {
   match find_member(members, name) {
-    Some(IntValue(n)) => Some(n)
+    Some(IntValue(n)) => Some(n.to_int())
     _ => None
   }
 }
@@ -438,7 +438,7 @@ fn eval_pkl_semver_intrinsic(
     }
     "_pkl_semver_compare" =>
       match compare_semver_values(arg_values[0], arg_values[1]) {
-        Some(n) => Some(IntValue(n))
+        Some(n) => Some(IntValue(n.to_int64()))
         None => {
           diagnostics.push(
             diag("semver.compare expects two parsed Version objects"),

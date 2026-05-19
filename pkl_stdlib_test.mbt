@@ -1152,7 +1152,7 @@ test "PKL-105: path-keyed renderer converter rewrites a top-level value" {
     is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  let mut count_value = -1
+  let mut count_value = -1L
   for entry in members {
     if entry.name == "count" {
       match entry.value {
@@ -1219,8 +1219,8 @@ test "PKL-122: String.codePointCount counts code points not UTF-16 units" {
     is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  let mut u = 0
-  let mut c = 0
+  let mut u = 0L
+  let mut c = 0L
   for entry in members {
     if entry.name == "u" {
       guard entry.value is IntValue(n) else { panic() }

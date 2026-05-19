@@ -99,15 +99,15 @@ fn capture_value_bindings(
 }
 
 ///|
-fn int_pow(base : Int, exponent : Int) -> Int? {
-  if exponent < 0 {
+fn int_pow(base : Int64, exponent : Int64) -> Int64? {
+  if exponent < 0L {
     return None
   }
-  let mut result = 1
-  let mut i = 0
+  let mut result = 1L
+  let mut i = 0L
   while i < exponent {
     result = result * base
-    i += 1
+    i += 1L
   }
   Some(result)
 }

@@ -342,13 +342,17 @@ fn infer_expr_with_bindings(
         ListingType(items) =>
           if key == IntType {
             match key_expr {
-              IntLiteral(index) =>
-                if index >= 0 && index < items.length() {
+              IntLiteral(index64) => {
+                let index = index64.to_int()
+                if index64 >= 0L && index < items.length() {
                   items[index]
                 } else {
-                  diagnostics.push(diag("listing index out of bounds \{index}"))
+                  diagnostics.push(
+                    diag("listing index out of bounds \{index64}"),
+                  )
                   UnknownType
                 }
+              }
               _ => common_type(items)
             }
           } else {

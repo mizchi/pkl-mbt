@@ -57,7 +57,7 @@ pub(all) enum UnaryOp {
 
 ///|
 pub(all) enum Expr {
-  IntLiteral(Int)
+  IntLiteral(Int64)
   FloatLiteral(Double)
   BoolLiteral(Bool)
   StringLiteral(String)

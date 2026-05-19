@@ -1,5 +1,5 @@
 ///|
-fn pkl_value_int(value : Value) -> Int? {
+fn pkl_value_int(value : Value) -> Int64? {
   match value {
     IntValue(inner) => Some(inner)
     _ => None

@@ -103,7 +103,7 @@ test "PKL-119a: Pair.first / .second eval-side access" {
     panic()
   }
   let mut got_first = ""
-  let mut got_second = 0
+  let mut got_second = 0L
   for entry in members {
     if entry.name == "f" {
       guard entry.value is StringValue(s) else { panic() }
@@ -534,7 +534,7 @@ test "PKL-105: nested-path converter rewrites a nested value" {
     is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  let mut port = -1
+  let mut port = -1L
   for entry in members {
     if entry.name == "server" {
       match entry.value {

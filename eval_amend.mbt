@@ -654,12 +654,13 @@ fn eval_listing_subscript_amend(
             resolve_import,
           )
           match key_value {
-            Some(IntValue(idx)) =>
+            Some(IntValue(idx64)) => {
+              let idx = idx64.to_int()
               if idx < 0 || idx >= result.length() {
                 let upper = result.length() - 1
                 diagnostics.push(
                   diag(
-                    "Element index `\{idx}` is out of range `0`..`\{upper}`.",
+                    "Element index `\{idx64}` is out of range `0`..`\{upper}`.",
                   ),
                 )
                 return None
@@ -680,6 +681,7 @@ fn eval_listing_subscript_amend(
                   None => return None
                 }
               }
+            }
             Some(_) => {
               diagnostics.push(diag("listing index expects Int"))
               return None

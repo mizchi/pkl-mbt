@@ -88,9 +88,14 @@ fn json_to_value(j : Json, use_mapping : Bool) -> Value {
     True => BoolValue(true)
     False => BoolValue(false)
     Number(d, ..) => {
-      let truncated = d.to_int().to_double()
-      if truncated == d && d >= -2147483648.0 && d <= 2147483647.0 {
-        IntValue(d.to_int())
+      // PKL-150: Pkl's `Int` is i64. Widen the JSON Number → IntValue
+      // round-trip to the full Int64 range; values outside fall back
+      // to FloatValue. Previously clamped to i32.
+      let truncated = d.to_int64().to_double()
+      if truncated == d &&
+        d >= -9223372036854775808.0 &&
+        d <= 9223372036854775807.0 {
+        IntValue(d.to_int64())
       } else {
         FloatValue(d)
       }
@@ -149,16 +154,15 @@ fn yaml_to_value(y : @yaml.Yaml, use_mapping : Bool) -> Value {
   match y {
     Null => NullValue
     Boolean(b) => BoolValue(b)
-    Integer(i) =>
-      if i >= -2147483648L && i <= 2147483647L {
-        IntValue(i.to_int())
-      } else {
-        FloatValue(i.to_double())
-      }
+    Integer(i) => IntValue(i)
     Real(d, ..) => {
-      let truncated = d.to_int().to_double()
-      if truncated == d && d >= -2147483648.0 && d <= 2147483647.0 {
-        IntValue(d.to_int())
+      // PKL-150: Pkl `Int` is i64. Widen to full Int64 range; falls
+      // back to FloatValue only when truly out of range or non-integral.
+      let truncated = d.to_int64().to_double()
+      if truncated == d &&
+        d >= -9223372036854775808.0 &&
+        d <= 9223372036854775807.0 {
+        IntValue(d.to_int64())
       } else {
         FloatValue(d)
       }
@@ -195,36 +199,31 @@ fn yaml_to_value(y : @yaml.Yaml, use_mapping : Bool) -> Value {
 /// `step < 0 && start < end`; `step == 0` would be rejected by the
 /// caller before reaching here (and is treated as empty here too as
 /// a defensive guard).
-fn intseq_materialize(start : Int, end_v : Int, step : Int) -> Array[Value] {
-  // PKL-148am: iterate in Int64 so `start + step` cannot wrap.
-  // Previously the loop var was Int (i32); with a fixture like
-  // `IntSeq(math.maxInt, math.minInt).step(math.minInt)` the i32
-  // `i + step` wrapped from -1 back to maxInt on the third step
-  // and the while-condition (i >= end_v) stayed true forever, so
-  // `result.push` grew the array past memory and the runtime
-  // crashed with `invalid memory access`. Int64 has enough head /
-  // tailroom (~64 bits vs. the i32 range each operand sits in) that
-  // a single add never overflows, and the directional check (next
-  // moved the wrong way) catches the boundary case where step is
-  // 0 (caller already rejects) or somehow non-monotone.
+fn intseq_materialize(
+  start : Int64,
+  end_v : Int64,
+  step : Int64,
+) -> Array[Value] {
+  // PKL-148am / PKL-150: iterate in Int64 so `start + step` cannot wrap
+  // even at the full Int range. Directional check (next moved the wrong
+  // way) catches the boundary case where step is 0 (caller rejects
+  // upstream) or somehow non-monotone.
   let result : Array[Value] = []
-  let end64 = end_v.to_int64()
-  let step64 = step.to_int64()
-  if step > 0 {
-    let mut i = start.to_int64()
-    while i <= end64 {
-      result.push(IntValue(i.to_int()))
-      let next = i + step64
+  if step > 0L {
+    let mut i = start
+    while i <= end_v {
+      result.push(IntValue(i))
+      let next = i + step
       if next <= i {
         break
       }
       i = next
     }
-  } else if step < 0 {
-    let mut i = start.to_int64()
-    while i >= end64 {
-      result.push(IntValue(i.to_int()))
-      let next = i + step64
+  } else if step < 0L {
+    let mut i = start
+    while i >= end_v {
+      result.push(IntValue(i))
+      let next = i + step
       if next >= i {
         break
       }
@@ -238,21 +237,18 @@ fn intseq_materialize(start : Int, end_v : Int, step : Int) -> Array[Value] {
 /// Number of elements an IntSeq with the given start/end/step would
 /// produce. Computed in Int64 so that ranges that span the full Int32
 /// width (`IntSeq(math.minInt, math.maxInt)`) don't overflow.
-fn intseq_length(start : Int, end_v : Int, step : Int) -> Int64 {
-  let s = start.to_int64()
-  let e = end_v.to_int64()
-  let st = step.to_int64()
-  if st > 0L {
-    if s > e {
+fn intseq_length(start : Int64, end_v : Int64, step : Int64) -> Int64 {
+  if step > 0L {
+    if start > end_v {
       return 0L
     }
-    return (e - s) / st + 1L
+    return (end_v - start) / step + 1L
   }
-  if st < 0L {
-    if s < e {
+  if step < 0L {
+    if start < end_v {
       return 0L
     }
-    return (s - e) / -st + 1L
+    return (start - end_v) / -step + 1L
   }
   0L
 }
@@ -358,12 +354,12 @@ fn set_values_equal(xs : Array[Value], ys : Array[Value]) -> Bool {
 /// materializing — for arithmetic progressions equality reduces to
 /// matching length, start, and step (step doesn't matter when len <= 1).
 fn intseq_value_equal(
-  start_a : Int,
-  end_a : Int,
-  step_a : Int,
-  start_b : Int,
-  end_b : Int,
-  step_b : Int,
+  start_a : Int64,
+  end_a : Int64,
+  step_a : Int64,
+  start_b : Int64,
+  end_b : Int64,
+  step_b : Int64,
 ) -> Bool {
   let len_a = intseq_length(start_a, end_a, step_a)
   let len_b = intseq_length(start_b, end_b, step_b)

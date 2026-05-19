@@ -324,7 +324,7 @@ fn eval_typed_method_dispatch(
           count = count + 1
         }
       }
-      Some(IntValue(count))
+      Some(IntValue(count.to_int64()))
     }
     "toList" => {
       if arguments.length() != 0 {
@@ -641,7 +641,7 @@ fn eval_bytes_property(
   diagnostics : Array[Diagnostic],
 ) -> Value? {
   match name {
-    "length" => Some(IntValue(bytes.length()))
+    "length" => Some(IntValue(bytes.length().to_int64()))
     "base64" => Some(StringValue(@base64.encode(bytes[:])))
     _ => {
       diagnostics.push(
@@ -685,12 +685,14 @@ fn eval_bytes_method(
     "getOrNull" =>
       if arg_values.length() == 1 {
         match arg_values[0] {
-          IntValue(index) =>
-            if index < 0 || index >= bytes.length() {
+          IntValue(index64) => {
+            let index = index64.to_int()
+            if index64 < 0L || index >= bytes.length() {
               Some(NullValue)
             } else {
-              Some(IntValue(bytes[index].to_int()))
+              Some(IntValue(bytes[index].to_int().to_int64()))
             }
+          }
           _ => {
             diagnostics.push(diag("Bytes.getOrNull expects an Int argument"))
             None
@@ -704,7 +706,7 @@ fn eval_bytes_method(
       if arg_values.length() == 0 {
         let elements : Array[Value] = []
         for i = 0; i < bytes.length(); i = i + 1 {
-          elements.push(IntValue(bytes[i].to_int()))
+          elements.push(IntValue(bytes[i].to_int().to_int64()))
         }
         Some(ListValue(elements))
       } else {
@@ -870,27 +872,27 @@ fn regex_replace_all(
 
 ///|
 fn eval_int_property(
-  n : Int,
+  n : Int64,
   name : String,
   diagnostics : Array[Diagnostic],
 ) -> Value? {
   match name {
-    "abs" => if n < 0 { Some(IntValue(0 - n)) } else { Some(IntValue(n)) }
-    "isEven" => Some(BoolValue(n % 2 == 0))
-    "isOdd" => Some(BoolValue(n % 2 != 0))
+    "abs" => if n < 0L { Some(IntValue(0L - n)) } else { Some(IntValue(n)) }
+    "isEven" => Some(BoolValue(n % 2L == 0L))
+    "isOdd" => Some(BoolValue(n % 2L != 0L))
     // PKL-148: pkl:base Int zero-arg accessors.
-    "isPositive" => Some(BoolValue(n >= 0))
-    "isNonZero" => Some(BoolValue(n != 0))
+    "isPositive" => Some(BoolValue(n >= 0L))
+    "isNonZero" => Some(BoolValue(n != 0L))
     "isFinite" => Some(BoolValue(true))
     "isNaN" => Some(BoolValue(false))
     "isInfinite" => Some(BoolValue(false))
     "sign" =>
-      if n > 0 {
-        Some(IntValue(1))
-      } else if n < 0 {
-        Some(IntValue(-1))
+      if n > 0L {
+        Some(IntValue(1L))
+      } else if n < 0L {
+        Some(IntValue(-1L))
       } else {
-        Some(IntValue(0))
+        Some(IntValue(0L))
       }
     "inv" => Some(IntValue(n.lnot()))
     // PKL-150: rounding / truncation are no-ops on Int.
@@ -997,7 +999,7 @@ fn eval_datasize_property(
 /// identical to the pre-PKL-121 behaviour (`.value` on `5.min` is
 /// still `5`, not `5.0`).
 fn magnitude_as_value(magnitude : Double) -> Value {
-  let rounded = magnitude.to_int()
+  let rounded = magnitude.to_int64()
   if rounded.to_double() == magnitude {
     IntValue(rounded)
   } else {
@@ -1006,18 +1008,19 @@ fn magnitude_as_value(magnitude : Double) -> Value {
 }
 
 ///|
-fn int_to_string_radix(n : Int, radix : Int) -> String {
-  if n == 0 {
+fn int_to_string_radix(n : Int64, radix : Int) -> String {
+  if n == 0L {
     return "0"
   }
   let digits = "0123456789abcdefghijklmnopqrstuvwxyz"
-  let negative = n < 0
-  let mut value = if negative { 0 - n } else { n }
+  let negative = n < 0L
+  let mut value = if negative { 0L - n } else { n }
+  let radix64 = radix.to_int64()
   let chars : Array[Char] = []
-  while value > 0 {
-    let d = value % radix
+  while value > 0L {
+    let d = (value % radix64).to_int()
     chars.push(digits.unsafe_get(d).to_int().unsafe_to_char())
-    value = value / radix
+    value = value / radix64
   }
   let buf = StringBuilder::new()
   if negative {
@@ -1033,7 +1036,7 @@ fn int_to_string_radix(n : Int, radix : Int) -> String {
 
 ///|
 fn eval_int_method(
-  n : Int,
+  n : Int64,
   method_name : String,
   arguments : Array[Expr],
   bindings : Array[Binding],
@@ -1067,7 +1070,7 @@ fn eval_int_method(
       } else if arg_values.length() == 1 {
         match arg_values[0] {
           IntValue(radix) =>
-            if radix < 2 || radix > 36 {
+            if radix < 2L || radix > 36L {
               diagnostics.push(
                 diag(
                   "Int.toString radix must be between 2 and 36, got \{radix}",
@@ -1075,7 +1078,7 @@ fn eval_int_method(
               )
               None
             } else {
-              Some(StringValue(int_to_string_radix(n, radix)))
+              Some(StringValue(int_to_string_radix(n, radix.to_int())))
             }
           _ => {
             diagnostics.push(diag("Int.toString radix must be Int"))
@@ -1097,7 +1100,7 @@ fn eval_int_method(
         )
         return None
       }
-      if n < 0 || n > 0x10FFFF {
+      if n < 0L || n > 0x10FFFFL {
         // PKL-150: match Apple Pkl's wording — "Decimal `N` is not a
         // valid Unicode code point." with a comma-grouped magnitude.
         diagnostics.push(
@@ -1108,7 +1111,7 @@ fn eval_int_method(
         return None
       }
       let buf = StringBuilder::new()
-      buf.write_char(n.unsafe_to_char())
+      buf.write_char(n.to_int().unsafe_to_char())
       Some(StringValue(buf.to_string()))
     }
     // PKL-148b: Int.isBetween(lower, upper) — inclusive range check.
@@ -1168,7 +1171,7 @@ fn eval_int_method(
       }
       match arg_values[0] {
         IntValue(radix) =>
-          if radix < 2 || radix > 36 {
+          if radix < 2L || radix > 36L {
             // PKL-150: match Apple Pkl's wording — the parameter is
             // declared `Int(this.isBetween(2, 36))` so the violation
             // surfaces through the constraint message verbatim.
@@ -1179,7 +1182,7 @@ fn eval_int_method(
             )
             None
           } else {
-            Some(StringValue(int_to_string_radix(n, radix)))
+            Some(StringValue(int_to_string_radix(n, radix.to_int())))
           }
         _ => {
           diagnostics.push(diag("Int.toRadixString expects Int argument"))
@@ -1201,7 +1204,7 @@ fn eval_int_method(
       }
       match arg_values[0] {
         IntValue(decimals) =>
-          if decimals < 0 || decimals > 20 {
+          if decimals < 0L || decimals > 20L {
             // PKL-150: Apple Pkl's `toFixed(decimals: Int(this.isBetween(0, 20)))`
             // surfaces a constraint-violation message verbatim.
             diagnostics.push(
@@ -1211,7 +1214,7 @@ fn eval_int_method(
             )
             None
           } else {
-            Some(StringValue(format_fixed_decimal(n, decimals)))
+            Some(StringValue(format_fixed_decimal(n, decimals.to_int())))
           }
         _ => {
           diagnostics.push(diag("Int.toFixed expects Int argument"))
@@ -1283,16 +1286,25 @@ fn eval_int_method(
         return None
       }
       match arg_values[0] {
-        IntValue(m) =>
+        IntValue(m) => {
+          // PKL-150: shift count is Int (i32). Bitwise ops are Int64
+          // and / or / xor.
+          let m_int = m.to_int()
           match method_name {
-            "shl" => Some(IntValue(n << m))
-            "shr" => Some(IntValue(n >> m))
-            "ushr" => Some(IntValue((n.reinterpret_as_uint() >> m).reinterpret_as_int()))
+            "shl" => Some(IntValue(n << m_int))
+            "shr" => Some(IntValue(n >> m_int))
+            "ushr" =>
+              Some(
+                IntValue(
+                  (n.reinterpret_as_uint64() >> m_int).reinterpret_as_int64(),
+                ),
+              )
             "and" => Some(IntValue(n.land(m)))
             "or" => Some(IntValue(n.lor(m)))
             "xor" => Some(IntValue(n.lxor(m)))
             _ => None
           }
+        }
         _ => {
           diagnostics.push(diag("Int.\{method_name} expects Int argument"))
           None
@@ -1333,7 +1345,7 @@ fn eval_int_method(
 /// PKL-150: format `n` as a fixed-point string with exactly
 /// `decimals` digits after the dot. `decimals == 0` omits the dot
 /// entirely. Negative inputs get a leading "-".
-fn format_fixed_decimal(n : Int, decimals : Int) -> String {
+fn format_fixed_decimal(n : Int64, decimals : Int) -> String {
   let buf = StringBuilder::new()
   buf.write_string("\{n}")
   if decimals > 0 {
@@ -1348,9 +1360,9 @@ fn format_fixed_decimal(n : Int, decimals : Int) -> String {
 ///|
 /// PKL-150: format an Int with Apple Pkl-style "," thousand-grouping
 /// (e.g. `1,114,112`). Negative sign is preserved.
-fn format_int_with_commas(n : Int) -> String {
-  let negative = n < 0
-  let magnitude = if negative { 0 - n } else { n }
+fn format_int_with_commas(n : Int64) -> String {
+  let negative = n < 0L
+  let magnitude = if negative { 0L - n } else { n }
   let raw = "\{magnitude}"
   if raw.length() <= 3 {
     return if negative { "-\{raw}" } else { raw }
@@ -1509,7 +1521,7 @@ fn eval_float_method(
       if arg_values.length() == 0 {
         // Round half to even (Apple Pkl's default per IEEE 754 round-to-nearest).
         let r = d.round()
-        Some(IntValue(r.to_int()))
+        Some(IntValue(r.to_int64()))
       } else {
         diagnostics.push(diag("Float.round takes no arguments"))
         None

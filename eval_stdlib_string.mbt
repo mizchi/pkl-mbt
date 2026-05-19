@@ -5,7 +5,7 @@ fn eval_string_property(
   diagnostics : Array[Diagnostic],
 ) -> Value? {
   match name {
-    "length" => Some(IntValue(s.length()))
+    "length" => Some(IntValue(s.length().to_int64()))
     "isEmpty" => Some(BoolValue(s.length() == 0))
     // PKL-148: pkl:base String zero-arg accessors. `isBlank` checks
     // for whitespace-only; `reverse` reverses code-points (not UTF-16
@@ -54,11 +54,11 @@ fn eval_string_property(
     // new Unicode-correct view. MoonBit's `String::iter` already
     // yields full code-point `Char` values, so a single pass walks
     // surrogates correctly.
-    "codePointCount" => Some(IntValue(s.char_length()))
+    "codePointCount" => Some(IntValue(s.char_length().to_int64()))
     "codePoints" => {
       let points : Array[Value] = []
       for c in s.iter() {
-        points.push(IntValue(c.to_int()))
+        points.push(IntValue(c.to_int().to_int64()))
       }
       Some(ListingValue(points))
     }
@@ -78,9 +78,9 @@ fn eval_string_property(
     "lastIndex" => {
       let len = s.length()
       if len == 0 {
-        Some(IntValue(-1))
+        Some(IntValue(-1L))
       } else {
-        Some(IntValue(len - 1))
+        Some(IntValue((len - 1).to_int64()))
       }
     }
     "isBase64" =>
@@ -225,7 +225,8 @@ fn eval_string_method(
         return None
       }
       match arg_values[0] {
-        IntValue(idx) => {
+        IntValue(idx64) => {
+          let idx = idx64.to_int()
           let mut count = 0
           let mut found : Int? = None
           for c in s.iter() {
@@ -236,10 +237,10 @@ fn eval_string_method(
             count = count + 1
           }
           match found {
-            Some(cp) => Some(IntValue(cp))
+            Some(cp) => Some(IntValue(cp.to_int64()))
             None => {
               diagnostics.push(
-                diag("String.codePointAt index \{idx} out of range"),
+                diag("String.codePointAt index \{idx64} out of range"),
               )
               None
             }
@@ -321,7 +322,7 @@ fn eval_string_method(
         diagnostics,
         fn(needle) {
           match s.find(needle) {
-            Some(i) => Some(IntValue(i))
+            Some(i) => Some(IntValue(i.to_int64()))
             None => {
               // Apple Pkl raises when the needle is not present.
               diagnostics.push(
@@ -333,7 +334,7 @@ fn eval_string_method(
         },
         fn(re) {
           match re.match_(s) {
-            Some(m) => Some(IntValue(m.before().length()))
+            Some(m) => Some(IntValue(m.before().length().to_int64()))
             None => {
               diagnostics.push(
                 diag(
@@ -402,12 +403,13 @@ fn eval_string_method(
       }
       match arg_values[0] {
         IntValue(raw) => {
-          let n = if raw < 0 {
+          let raw_i = raw.to_int()
+          let n = if raw < 0L {
             0
-          } else if raw > s.length() {
+          } else if raw_i > s.length() {
             s.length()
           } else {
-            raw
+            raw_i
           }
           Some(StringValue(String::unsafe_substring(s, start=0, end=n)))
         }
@@ -426,12 +428,13 @@ fn eval_string_method(
       }
       match arg_values[0] {
         IntValue(raw) => {
-          let n = if raw < 0 {
+          let raw_i = raw.to_int()
+          let n = if raw < 0L {
             0
-          } else if raw > s.length() {
+          } else if raw_i > s.length() {
             s.length()
           } else {
-            raw
+            raw_i
           }
           Some(
             StringValue(String::unsafe_substring(s, start=n, end=s.length())),
@@ -501,7 +504,7 @@ fn eval_string_method(
       }
       match (arg_values[0], arg_values[1]) {
         (IntValue(width), StringValue(pad)) =>
-          Some(StringValue(pad_string(s, width, pad, true)))
+          Some(StringValue(pad_string(s, width.to_int(), pad, true)))
         _ => {
           diagnostics.push(
             diag("String.padStart expects (Int, String) arguments"),
@@ -519,7 +522,7 @@ fn eval_string_method(
       }
       match (arg_values[0], arg_values[1]) {
         (IntValue(width), StringValue(pad)) =>
-          Some(StringValue(pad_string(s, width, pad, false)))
+          Some(StringValue(pad_string(s, width.to_int(), pad, false)))
         _ => {
           diagnostics.push(
             diag("String.padEnd expects (Int, String) arguments"),
@@ -590,14 +593,14 @@ fn eval_string_method(
       }
       match arg_values[0] {
         IntValue(n) => {
-          if n < 0 {
+          if n < 0L {
             diagnostics.push(
               diag("Expected a positive number, but got \{n}."),
             )
             return None
           }
           let buf = StringBuilder::new()
-          for _ in 0..<n {
+          for _ in 0..<n.to_int() {
             buf.write_string(s)
           }
           Some(StringValue(buf.to_string()))
@@ -758,10 +761,12 @@ fn eval_string_method(
         return None
       }
       match (arg_values[0], arg_values[1]) {
-        (IntValue(start), IntValue(end)) =>
-          if start < 0 || end > s.length() || start > end {
+        (IntValue(start64), IntValue(end64)) => {
+          let start = start64.to_int()
+          let end = end64.to_int()
+          if start64 < 0L || end > s.length() || start > end {
             diagnostics.push(
-              diag("Index out of range: start=\{start}, end=\{end}, length=\{s.length()}"),
+              diag("Index out of range: start=\{start64}, end=\{end64}, length=\{s.length()}"),
             )
             None
           } else {
@@ -769,6 +774,7 @@ fn eval_string_method(
               StringValue(String::unsafe_substring(s, start~, end~)),
             )
           }
+        }
         _ => {
           diagnostics.push(
             diag("String.substring expects (Int, Int) arguments"),
@@ -787,14 +793,17 @@ fn eval_string_method(
         return None
       }
       match (arg_values[0], arg_values[1]) {
-        (IntValue(start), IntValue(end)) =>
-          if start < 0 || end > s.length() || start > end {
+        (IntValue(start64), IntValue(end64)) => {
+          let start = start64.to_int()
+          let end = end64.to_int()
+          if start64 < 0L || end > s.length() || start > end {
             Some(NullValue)
           } else {
             Some(
               StringValue(String::unsafe_substring(s, start~, end~)),
             )
           }
+        }
         _ => {
           diagnostics.push(
             diag("String.substringOrNull expects (Int, Int) arguments"),
@@ -815,8 +824,9 @@ fn eval_string_method(
         return None
       }
       match arg_values[0] {
-        IntValue(i) =>
-          if i < 0 || i >= s.length() {
+        IntValue(i64) => {
+          let i = i64.to_int()
+          if i64 < 0L || i >= s.length() {
             Some(NullValue)
           } else {
             Some(
@@ -825,6 +835,7 @@ fn eval_string_method(
               ),
             )
           }
+        }
         _ => {
           diagnostics.push(diag("String.getOrNull expects Int argument"))
           None
@@ -932,7 +943,7 @@ fn parse_pkl_boolean(s : String) -> Bool? {
 /// are stripped before delegating to MoonBit's `parse_int`. Leading
 /// or trailing underscores in Apple Pkl behave exactly like elsewhere
 /// — the digit positions count, the underscores are visual only.
-fn parse_pkl_int(s : String) -> Int? {
+fn parse_pkl_int(s : String) -> Int64? {
   if s.length() == 0 {
     return None
   }
@@ -952,7 +963,7 @@ fn parse_pkl_int(s : String) -> Int? {
   if head is Some('_') {
     return None
   }
-  try Some(@string.parse_int(cleaned[:])) catch {
+  try Some(@string.parse_int64(cleaned[:])) catch {
     _ => None
   }
 }

@@ -773,7 +773,7 @@ fn eval_expr_with_bindings(
           // fall through to the CallExpr dispatcher.
           Some(SetValue(elements)) =>
             match member_name {
-              "length" => Some(IntValue(elements.length()))
+              "length" => Some(IntValue(elements.length().to_int64()))
               "isEmpty" => Some(BoolValue(elements.length() == 0))
               "isNotEmpty" => Some(BoolValue(elements.length() != 0))
               "first" =>
@@ -808,7 +808,7 @@ fn eval_expr_with_bindings(
           // fall through to the CallExpr dispatcher.
           Some(MapValue(entries)) =>
             match member_name {
-              "length" => Some(IntValue(entries.length()))
+              "length" => Some(IntValue(entries.length().to_int64()))
               "isEmpty" => Some(BoolValue(entries.length() == 0))
               "isNotEmpty" => Some(BoolValue(entries.length() != 0))
               "keys" => {
@@ -952,9 +952,10 @@ fn eval_expr_with_bindings(
         resolve_import,
       )
       match (target, key) {
-        (Some(ListingValue(elements)), Some(IntValue(index)))
-        | (Some(ListValue(elements)), Some(IntValue(index))) =>
-          if index >= 0 && index < elements.length() {
+        (Some(ListingValue(elements)), Some(IntValue(index64)))
+        | (Some(ListValue(elements)), Some(IntValue(index64))) => {
+          let index = index64.to_int()
+          if index64 >= 0L && index < elements.length() {
             Some(elements[index])
           } else {
             // PKL-148h: match Apple Pkl's wording so `module.catch(...)`
@@ -968,11 +969,12 @@ fn eval_expr_with_bindings(
             let upper = elements.length() - 1
             diagnostics.push(
               diag(
-                "Element index `\{index}` is out of range `0`..`\{upper}`. Collection: \{coll_text}",
+                "Element index `\{index64}` is out of range `0`..`\{upper}`. Collection: \{coll_text}",
               ),
             )
             None
           }
+        }
         (Some(ListingValue(_)), Some(key_value))
         | (Some(ListValue(_)), Some(key_value)) => {
           // PKL-148bb: align with Apple Pkl wording so `test.catch`
@@ -996,19 +998,20 @@ fn eval_expr_with_bindings(
         // a one-character String — surrogate pairs count as a single
         // unit so `"🙈🙉🙊🐒"[2] == "🙊"` and the upper bound is the
         // code-point count, not the UTF-16 code-unit length.
-        (Some(StringValue(s)), Some(IntValue(index))) => {
+        (Some(StringValue(s)), Some(IntValue(index64))) => {
           let code_points : Array[String] = []
           for c in s.iter() {
             code_points.push(String::from_array([c][:]))
           }
-          if index >= 0 && index < code_points.length() {
+          let index = index64.to_int()
+          if index64 >= 0L && index < code_points.length() {
             Some(StringValue(code_points[index]))
           } else {
             let buf = StringBuilder::new()
             render_pcf_scalar(StringValue(s), buf)
             diagnostics.push(
               diag(
-                "Character index `\{index}` is out of range `0`..`\{code_points.length() - 1}`. String: \{buf.to_string()}",
+                "Character index `\{index64}` is out of range `0`..`\{code_points.length() - 1}`. String: \{buf.to_string()}",
               ),
             )
             None
@@ -3608,7 +3611,7 @@ fn eval_for_generator(
         let iter_cache = copy_value_bindings(cache)
         match var2 {
           Some(name2) => {
-            iter_cache.push({ name: var1, value: IntValue(i) })
+            iter_cache.push({ name: var1, value: IntValue(i.to_int64()) })
             iter_cache.push({ name: name2, value: elements[i] })
           }
           None => iter_cache.push({ name: var1, value: elements[i] })
@@ -3624,13 +3627,13 @@ fn eval_for_generator(
     // binds (index, value) like Listing.
     Some(IntSeqValue(start_v, end_v, step_v)) => {
       let elements : Array[Value] = []
-      if step_v > 0 {
+      if step_v > 0L {
         let mut v = start_v
         while v <= end_v {
           elements.push(IntValue(v))
           v = v + step_v
         }
-      } else if step_v < 0 {
+      } else if step_v < 0L {
         let mut v = start_v
         while v >= end_v {
           elements.push(IntValue(v))
@@ -3641,7 +3644,7 @@ fn eval_for_generator(
         let iter_cache = copy_value_bindings(cache)
         match var2 {
           Some(name2) => {
-            iter_cache.push({ name: var1, value: IntValue(i) })
+            iter_cache.push({ name: var1, value: IntValue(i.to_int64()) })
             iter_cache.push({ name: name2, value: elements[i] })
           }
           None => iter_cache.push({ name: var1, value: elements[i] })

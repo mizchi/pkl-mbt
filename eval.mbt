@@ -1,6 +1,12 @@
 ///|
 pub(all) enum Value {
-  IntValue(Int)
+  // PKL-150: Pkl's `Int` is i64. We stored it in MoonBit's `Int` (i32)
+  // through PKL-149; everything from Unix-ns timestamps to bitwise ops on
+  // the upper 32 bits silently truncated. Carrying Int64 in the variant
+  // keeps the runtime aligned with the language reference and is the
+  // load-bearing change for the api/int / api/dataSize / api/duration
+  // gold-match.
+  IntValue(Int64)
   // PKL-092: Float numeric value backed by MoonBit's `Double`. Arithmetic
   // between `IntValue` and `FloatValue` promotes to `FloatValue`; the
   // dedicated `Number` type sits above both in the typechecker hierarchy.
@@ -35,7 +41,8 @@ pub(all) enum Value {
   // materialization happens at `.toList()` / `.toListing()` / `.map`
   // / `.fold` / non-PCF renderer projection time so a million-element
   // IntSeq doesn't allocate a million-slot Array up front.
-  IntSeqValue(Int, Int, Int)
+  // PKL-150: IntSeq carries Int64 to match the widened Pkl `Int`.
+  IntSeqValue(Int64, Int64, Int64)
   // PKL-119c: ordered set of unique values, insertion-order preserved.
   // `Set(a, b, c)` constructs one (duplicates dropped at the
   // constructor); the dedicated variant means PCF renders the
@@ -315,7 +322,7 @@ fn eval_float_binary(
         diagnostics.push(diag("division by zero"))
         None
       } else {
-        Some(IntValue(double_trunc(a / b).to_int()))
+        Some(IntValue(double_trunc(a / b).to_int64()))
       }
     Modulo =>
       if b == 0.0 {

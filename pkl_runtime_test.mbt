@@ -316,9 +316,9 @@ test "PKL-123: pkl:semver parse decomposes major.minor.patch" {
   guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  let mut maj = 0
-  let mut min = 0
-  let mut pat = 0
+  let mut maj = 0L
+  let mut min = 0L
+  let mut pat = 0L
   for entry in members {
     if entry.name == "maj" {
       guard entry.value is IntValue(n) else { panic() }
@@ -596,7 +596,7 @@ test "PKL-119d: Map.length / .isEmpty / .keys / .values / .entries" {
     is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  let mut length = 0
+  let mut length = 0L
   let mut empty = true
   for entry in members {
     match (entry.name, entry.value) {
@@ -624,7 +624,7 @@ test "PKL-119d: Map.containsKey / .getOrNull / .getOrThrow" {
   }
   let mut hit = false
   let mut miss = true
-  let mut got = 0
+  let mut got = 0L
   let mut null_seen = false
   for entry in members {
     match (entry.name, entry.value) {
@@ -774,7 +774,7 @@ test "PKL-119c: Set.length / .isEmpty / .first / .last bare reads" {
     is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  let mut len = 0
+  let mut len = 0L
   let mut empty = true
   let mut first = ""
   let mut last = ""
@@ -938,9 +938,9 @@ test "PKL-119b: IntSeq.start / .end / .step bare reads" {
     is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  let mut got_start = 0
-  let mut got_end = 0
-  let mut got_step = 0
+  let mut got_start = 0L
+  let mut got_end = 0L
+  let mut got_step = 0L
   for entry in members {
     match (entry.name, entry.value) {
       ("s", IntValue(n)) => got_start = n

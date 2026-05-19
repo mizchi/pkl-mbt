@@ -894,7 +894,7 @@ fn format_constraint_arg(value : Double) -> String {
 ///|
 fn pkl_constraint_predicate_accepts(
   predicate : ConstraintIntPredicate,
-  value : Int,
+  value : Int64,
 ) -> Bool {
   // PKL-112: thresholds are stored as Double. Widen the Int side to
   // Double for the comparison so Int(isBetween(0, 10)) keeps working
@@ -906,7 +906,7 @@ fn pkl_constraint_predicate_accepts(
 fn pkl_constrained_int_rejection_message_from_source(
   _display_name : String,
   source_name : String,
-  value : Int,
+  value : Int64,
 ) -> String? {
   for predicate in pkl_constrained_int_predicates(source_name) {
     if !pkl_constraint_predicate_accepts(predicate, value) {
@@ -925,7 +925,7 @@ fn pkl_constrained_int_rejection_message_from_source(
 fn pkl_user_defined_constrained_int_rejection_message_from_source(
   _display_name : String,
   source_name : String,
-  value : Int,
+  value : Int64,
   declarations : Array[Declaration],
 ) -> String? {
   for
@@ -945,10 +945,10 @@ fn pkl_user_defined_constrained_int_rejection_message_from_source(
 }
 
 ///|
-fn pkl_int_literal_value(expr : Expr) -> Int? {
+fn pkl_int_literal_value(expr : Expr) -> Int64? {
   match expr {
     IntLiteral(value) => Some(value)
-    UnaryExpr(Negate, IntLiteral(value)) => Some(0 - value)
+    UnaryExpr(Negate, IntLiteral(value)) => Some(0L - value)
     _ => None
   }
 }
