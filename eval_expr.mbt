@@ -3028,7 +3028,9 @@ fn eval_for_generator(
   )
   let mut accumulated : Array[ValueMember] = []
   match source {
-    Some(ListingValue(elements)) | Some(ListValue(elements)) =>
+    Some(ListingValue(elements))
+    | Some(ListValue(elements))
+    | Some(SetValue(elements)) =>
       for i = 0; i < elements.length(); i = i + 1 {
         let iter_cache = copy_value_bindings(cache)
         match var2 {
@@ -3044,7 +3046,41 @@ fn eval_for_generator(
         )
         accumulated = merge_value_members(accumulated, iter_members)
       }
-    Some(MappingValue(entries)) =>
+    // PKL-148bb: `IntSeq(a, b)` iterates `a..=b` inclusive. The
+    // single-var form binds the current integer; the two-var form
+    // binds (index, value) like Listing.
+    Some(IntSeqValue(start_v, end_v, step_v)) => {
+      let elements : Array[Value] = []
+      if step_v > 0 {
+        let mut v = start_v
+        while v <= end_v {
+          elements.push(IntValue(v))
+          v = v + step_v
+        }
+      } else if step_v < 0 {
+        let mut v = start_v
+        while v >= end_v {
+          elements.push(IntValue(v))
+          v = v + step_v
+        }
+      }
+      for i = 0; i < elements.length(); i = i + 1 {
+        let iter_cache = copy_value_bindings(cache)
+        match var2 {
+          Some(name2) => {
+            iter_cache.push({ name: var1, value: IntValue(i) })
+            iter_cache.push({ name: name2, value: elements[i] })
+          }
+          None => iter_cache.push({ name: var1, value: elements[i] })
+        }
+        let iter_members = eval_object_members(
+          body_members, bindings, env, class_env, iter_cache, stack, declarations,
+          diagnostics, resolve_import,
+        )
+        accumulated = merge_value_members(accumulated, iter_members)
+      }
+    }
+    Some(MappingValue(entries)) | Some(MapValue(entries)) =>
       for entry in entries {
         let iter_cache = copy_value_bindings(cache)
         match var2 {
