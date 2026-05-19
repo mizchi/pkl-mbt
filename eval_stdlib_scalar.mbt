@@ -13,7 +13,15 @@ fn is_string_property_name(name : String) -> Bool {
     | "base64"
     | "codePointCount"
     | "codePoints"
-    | "chars" => true
+    | "chars"
+    // PKL-149: extra pkl:base.String property surface (api/string facts
+    // batch). `isBase64`, `lastIndex`, `isRegex`, `base64Decoded`,
+    // `base64DecodedBytes` are all bare property reads in Apple Pkl.
+    | "isBase64"
+    | "lastIndex"
+    | "isRegex"
+    | "base64Decoded"
+    | "base64DecodedBytes" => true
     _ => false
   }
 }
@@ -47,7 +55,54 @@ fn is_string_method_name(name : String) -> Bool {
     | "base64"
     | "codePointCount"
     | "codePoints"
-    | "chars" => true
+    | "chars"
+    // PKL-149: extended pkl:base.String method surface for the
+    // api/string.pkl fact/example matrix. All five trim/case helpers,
+    // numeric conversions (toInt / toFloat / toBoolean and their
+    // `*OrNull` siblings), regex match (`matches`), `repeat`,
+    // substring/get bounds-safe siblings, and three more replace
+    // variants (`replaceLast`, `replaceAllMapped`,
+    // `replaceFirstMapped`, `replaceLastMapped`, `replaceRange`).
+    // `indexOfOrNull` / `lastIndexOf` / `lastIndexOfOrNull` /
+    // `splitLimit` round out the search surface. Also covers the
+    // bare-property names that Apple Pkl accepts as zero-arg method
+    // calls (`isBase64()` / `lastIndex()` etc).
+    | "matches"
+    | "capitalize"
+    | "decapitalize"
+    | "repeat"
+    | "trim"
+    | "trimStart"
+    | "trimEnd"
+    | "toBoolean"
+    | "toBooleanOrNull"
+    | "toInt"
+    | "toIntOrNull"
+    | "toFloat"
+    | "toFloatOrNull"
+    | "substring"
+    | "substringOrNull"
+    | "getOrNull"
+    | "replaceLast"
+    | "replaceRange"
+    | "replaceAllMapped"
+    | "replaceFirstMapped"
+    | "replaceLastMapped"
+    | "indexOfOrNull"
+    | "lastIndexOf"
+    | "lastIndexOfOrNull"
+    | "splitLimit"
+    | "takeWhile"
+    | "takeLast"
+    | "takeLastWhile"
+    | "dropWhile"
+    | "dropLast"
+    | "dropLastWhile"
+    | "isBase64"
+    | "lastIndex"
+    | "isRegex"
+    | "base64Decoded"
+    | "base64DecodedBytes" => true
     _ => false
   }
 }

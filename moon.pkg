@@ -7,6 +7,7 @@ import {
   "moonbitlang/core/env" @env,
   "moonbitlang/core/json" @json,
   "moonbitlang/core/math" @math,
+  "moonbitlang/core/string" @string,
   "moonbitlang/regexp" @regexp,
 }
 

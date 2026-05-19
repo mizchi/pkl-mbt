@@ -1285,20 +1285,27 @@ test "String search predicates" {
 }
 
 ///|
-test "String.indexOf returns position or -1" {
-  // Apple Pkl returns -1 when the substring is absent rather than null.
+/// PKL-149: Apple Pkl's `String.indexOf` raises when the substring is
+/// absent (fixture `api/string` wraps the missing case in
+/// `module.catch`). For absence-tolerant callers, `indexOfOrNull` and
+/// `lastIndexOfOrNull` return Null.
+test "String.indexOf returns position or raises on miss" {
   assert_true(
     eval_source(
-      "s = \"hello world\"\nat = s.indexOf(\"world\")\nmissing = s.indexOf(\"xyz\")",
+      "s = \"hello world\"\nat = s.indexOf(\"world\")",
     ) ==
     EvalOk(
       ObjectValue([
         ValueMember::{ name: "s", value: StringValue("hello world"), source: None },
         ValueMember::{ name: "at", value: IntValue(6), source: None },
-        ValueMember::{ name: "missing", value: IntValue(-1), source: None },
       ]),
     ),
   )
+  // Missing substring raises.
+  let outcome = eval_source(
+    "s = \"hello world\"\nmissing = s.indexOf(\"xyz\")",
+  )
+  assert_true(outcome is EvalError(_))
 }
 
 ///|
