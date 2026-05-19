@@ -3667,11 +3667,11 @@ fn eval_object_members_with_options(
                   ]), source: None
                 })
               }
-            NullValue => ()
-            _ =>
-              property_diagnostics.push(
-                diag("spread in object body expects Object or null"),
-              )
+            // PKL-148bb: Apple Pkl silently drops non-collection
+            // spreads (`parser/spread` exercises `...super.bar` where
+            // `super.bar` is an `Int`; the spread contributes nothing
+            // rather than raising). Null also stays a no-op.
+            _ => ()
           }
         } else {
           let structural_reject = match field.type_name {

@@ -3,6 +3,21 @@ fn eval_type_alias_bindings(
   declarations : Array[Declaration],
 ) -> Array[EvalTypeAliasBinding] {
   let aliases : Array[EvalTypeAliasBinding] = []
+  // PKL-148bb: Apple Pkl's `pkl:base` ships fixed-width integer
+  // typealiases (`UInt8` = `Int(isBetween(0, 255))`, etc.). Seed them
+  // so user code can annotate `x: UInt8 = 255` without explicitly
+  // importing — the constraint cascade then enforces the range.
+  // `api/typeAliases` and `basic/int` both rely on these.
+  aliases.push({ name: "UInt", target: "Int(isBetween(0, 4294967295))" })
+  aliases.push({ name: "UInt8", target: "Int(isBetween(0, 255))" })
+  aliases.push({ name: "UInt16", target: "Int(isBetween(0, 65535))" })
+  aliases.push({ name: "UInt32", target: "Int(isBetween(0, 4294967295))" })
+  aliases.push({ name: "Int8", target: "Int(isBetween(-128, 127))" })
+  aliases.push({ name: "Int16", target: "Int(isBetween(-32768, 32767))" })
+  aliases.push({
+    name: "Int32",
+    target: "Int(isBetween(-2147483648, 2147483647))",
+  })
   for declaration in declarations {
     match declaration {
       TypeAliasDeclaration(type_alias) =>
