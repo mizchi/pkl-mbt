@@ -37,6 +37,12 @@ pub fn render_value_as_plist(Value) -> String
 
 pub fn render_value_as_properties(Value) -> String
 
+pub fn render_value_as_xml(Value) -> String
+
+pub fn render_value_as_xml_fragment(Value, String) -> String
+
+pub fn render_value_as_xml_with_options(Value, String, String, String) -> String
+
 pub fn render_value_as_yaml(Value) -> String
 
 pub fn sandbox_is_module_allowed(String) -> Bool

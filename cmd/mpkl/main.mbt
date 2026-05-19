@@ -3,7 +3,9 @@ fn usage() -> Unit {
   println(
     "usage: pkl <parse|check|eval|test|format|analyze|codegen|stdlib> [args]",
   )
-  println("       pkl eval [-f|--format pcf|json|yaml|properties] <file.pkl>")
+  println(
+    "       pkl eval [-f|--format pcf|json|yaml|properties|plist|xml] <file.pkl>",
+  )
   println("       pkl test <file.pkl>")
   println("       pkl format <file.pkl>")
   println("       pkl analyze <file.pkl>")
@@ -1174,7 +1176,8 @@ async fn main {
     format != "json" &&
     format != "yaml" &&
     format != "properties" &&
-    format != "plist" {
+    format != "plist" &&
+    format != "xml" {
     fail("unsupported format: \{format}")
   }
   if positional.length() != 1 {
@@ -1272,6 +1275,7 @@ async fn main {
           // returns. Extract `output.value` so fixtures that route
           // their data through it render only that subtree instead
           // of the whole module envelope.
+          let xml_options = extract_xml_renderer_options(raw)
           let value = extract_output_value(raw)
           // PKL-104: when the user didn't pass `-f / --format`, honor
           // the renderer class declared in `output { renderer = new
@@ -1325,6 +1329,18 @@ async fn main {
                 String::unsafe_substring(plist, start=0, end=plist.length() - 1)
               } else {
                 plist
+              }
+              println(trimmed)
+            }
+            "xml" => {
+              let (root_name, indent_text, xml_version) = xml_options
+              let xml = @pkl.render_value_as_xml_with_options(
+                value, root_name, indent_text, xml_version,
+              )
+              let trimmed = if xml.has_suffix("\n") {
+                String::unsafe_substring(xml, start=0, end=xml.length() - 1)
+              } else {
+                xml
               }
               println(trimmed)
             }
@@ -1644,8 +1660,47 @@ fn renderer_format_from_class(class_name : String) -> String? {
     "PropertiesRenderer" => Some("properties")
     "PcfRenderer" => Some("pcf")
     "PListRenderer" => Some("plist")
+    "XmlRenderer" => Some("xml")
+    "Renderer" => if raw == "xml.Renderer" { Some("xml") } else { None }
     _ => None
   }
+}
+
+///|
+fn extract_xml_renderer_options(value : @pkl.Value) -> (String, String, String) {
+  let mut root_name = "root"
+  let mut indent_text = "  "
+  let mut xml_version = "1.0"
+  match value {
+    @pkl.ObjectValue(members) =>
+      for entry in members {
+        if entry.name == "output" {
+          match entry.value {
+            @pkl.ObjectValue(output_members) =>
+              for output_member in output_members {
+                if output_member.name == "renderer" {
+                  match output_member.value {
+                    @pkl.ObjectValue(renderer_members) =>
+                      for renderer_member in renderer_members {
+                        match (renderer_member.name, renderer_member.value) {
+                          ("rootElementName", @pkl.StringValue(s)) =>
+                            root_name = s
+                          ("indent", @pkl.StringValue(s)) => indent_text = s
+                          ("xmlVersion", @pkl.StringValue(s)) => xml_version = s
+                          _ => ()
+                        }
+                      }
+                    _ => ()
+                  }
+                }
+              }
+            _ => ()
+          }
+        }
+      }
+    _ => ()
+  }
+  (root_name, indent_text, xml_version)
 }
 
 ///|

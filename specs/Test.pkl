@@ -1255,6 +1255,7 @@ local upstreamSmoke = new Test {
     "PKL-097"
     "PKL-109"
     "PKL-126a"
+    "PKL-126b"
     "PKL-144"
     "PKL-147"
     "PKL-148"
@@ -1439,9 +1440,12 @@ local upstreamSmoke = new Test {
     "upstream eval ok: mappings2/inequality (gold match)"
     "upstream json eval ok: api/jsonRenderer1.json (gold match)"
     "upstream eval ok: api/pListRenderer1.plist (gold match)"
+    "upstream eval ok: api/xmlRenderer1.xml (gold match)"
+    "upstream eval ok: api/xmlRendererElement.xml (gold match)"
     "upstream-smoke: 166 gold-match fixtures passed"
     "upstream-smoke: 1 json gold-match fixtures passed"
     "upstream-smoke: 1 plist gold-match fixtures passed"
+    "upstream-smoke: 2 xml gold-match fixtures passed"
   }
   timeoutSec = 240
 }

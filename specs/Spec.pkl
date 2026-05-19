@@ -3686,6 +3686,26 @@ local plistRendererScenario = new Scenario {
   }
 }
 
+local xmlRendererScenario = new Scenario {
+  id = "PKL-126b"
+  name = "xml renderer"
+  description =
+    "The XML renderer emits a standard XML document with an XML prolog, a configurable root element (`rootElementName`, default `root`), configurable indentation (`indent`, default two spaces), and XML-escaped text nodes. Object and Mapping members render as child elements; Listing / List / Set scalar elements concatenate inside their containing element; Null members are omitted. The CLI accepts `-f xml`, and `output { renderer = new xml.Renderer { ... } }` is detected from the AST just like the JSON / YAML / plist renderer drivers. The `pkl:xml` module now exposes the renderer-support classes needed by the first upstream fixtures (`Renderer`, `Element`, `Inline`, `CData`, `Comment`, `Property`). `xml.Element(\"name\")` can override the emitted element name for a value. The upstream `api/xmlRenderer1.xml` and `api/xmlRendererElement.xml` fixtures now byte-match their `.xml` gold files and are pinned by `scripts/upstream-smoke.sh`'s `XML_GOLD_FIXTURES` list. Remaining XML renderer parity gaps are converter class coverage, comment / CDATA constructor identity preservation through post-eval rewrites, validation diagnostics, attributes, and HTML-style inline formatting."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-124"; "PKL-126a" }
+  tags { "renderer"; "xml"; "cli" }
+  reviewStatus = "approved"
+  severity = "major"
+  decisions {
+    new Decision {
+      date = "2026-05-20"
+      summary = "Promote only byte-matching XML fixtures"
+      rationale =
+        "The XML renderer surface is larger than the structural document emitter: annotation converters, `xml.Comment`, `xml.CData`, validation errors, attributes, and inline HTML formatting all need additional evaluator identity or diagnostic plumbing. Promoting only the two fixtures that byte-match keeps the regression gate honest while still unblocking the practical `output.renderer = new xml.Renderer {}` path and the `xml.Element` rename path."
+    }
+  }
+}
+
 local rendererStdlibModulesScenario = new Scenario {
   id = "PKL-124"
   name = "pkl:json / pkl:yaml / pkl:xml / pkl:protobuf stdlib modules"
@@ -5637,6 +5657,7 @@ scenarios {
   upstreamFixtureSweepExpansionScenario
   rendererStdlibModulesScenario
   plistRendererScenario
+  xmlRendererScenario
   pairValueVariantScenario
   intSeqValueVariantScenario
   intSeqEqualityScenario
