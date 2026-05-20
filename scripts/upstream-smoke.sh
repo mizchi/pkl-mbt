@@ -165,6 +165,7 @@ GOLD_FIXTURES=(
   "generators/entryGeneratorsTyped"
   "generators/forGeneratorInFunctionBody"
   "generators/forGeneratorInMixins"
+  "generators/forGeneratorLexicalScope"
   "listings2/wrongIndex"
   "classes/supercallsInLet"
   "basic/localMethodOverride1"

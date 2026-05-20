@@ -6906,6 +6906,28 @@ fn replace_member_value_by_bare_name(
 }
 
 ///|
+fn remove_pending_error_member_by_bare_name(
+  members : Array[ValueMember],
+  name : String,
+) -> Unit {
+  let mut i = 0
+  while i < members.length() {
+    if is_error_member_name(members[i].name) {
+      let inner = String::unsafe_substring(
+        members[i].name,
+        start=error_member_prefix.length(),
+        end=members[i].name.length(),
+      )
+      if strip_member_visibility_prefix(inner) == name {
+        let _ = members.remove(i)
+        continue
+      }
+    }
+    i = i + 1
+  }
+}
+
+///|
 fn reeval_class_defaults_after_constructor_overrides(
   type_name : String,
   constructor_members : Array[ObjectMember],
@@ -6986,6 +7008,7 @@ fn reeval_class_defaults_after_constructor_overrides(
           property.type_name,
         )
         if replace_member_value_by_bare_name(current, property.name, value) {
+          remove_pending_error_member_by_bare_name(current, property.name)
           push_unique_name(changed_names, property.name)
         }
       }

@@ -2051,6 +2051,48 @@ test "PKL-148ba: Mixin pipe applies generated elements and entries" {
 }
 
 ///|
+test "PKL-148bl: class defaults re-evaluate after generator overrides" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|local class App {
+      #|  n: Int
+      #|  list = List(n, n, n)
+      #|}
+      #|result = new {
+      #|  for (_n in List(1, 2, 3)) {
+      #|    for (x in new App { n = _n }.list) {
+      #|      x
+      #|    }
+      #|  }
+      #|}
+      #|
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered.contains(
+      (
+        #|result {
+        #|  1
+        #|  1
+        #|  1
+        #|  2
+        #|  2
+        #|  2
+        #|  3
+        #|  3
+        #|  3
+        #|}
+      ),
+    ),
+    content="true",
+  )
+}
+
+///|
 test "PKL-148ar: Dynamic.toMap projects bracket entries" {
   let session = AnalysisSession::new()
   session.set_source(

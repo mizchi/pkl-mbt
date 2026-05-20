@@ -1,18 +1,18 @@
 # Release TODO
 
-Current coverage: 281 / 391 PCF gold-match (71.9%).
+Current coverage: 282 / 391 PCF gold-match (72.1%).
 Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-05-21.
 
 Release focus:
 
 - `basic`: 70 PASS / 16 DIFF
-- `generators`: 20 PASS / 1 DIFF
+- `generators`: 21 PASS / 0 DIFF
 
 Planned order:
 
 1. Done: Priority 4: Spread And Predicate Member Semantics
-2. Current: Priority 3: `for` / Shape-Aware Object Body Evaluation
-3. Priority 2: Resource And Glob Host Surface
+2. Done: Priority 3: `for` / Shape-Aware Object Body Evaluation
+3. Current: Priority 2: Resource And Glob Host Surface
 4. Renderer API surface: keep the advertised output formats honest
 5. Priority 1: Numeric And Bytes Parity
 6. Priority 5: remaining Generic `as` / `is` / Typed Collection Retention
@@ -23,13 +23,13 @@ Priority 6 is deferred unless it becomes a direct blocker for one of the above s
 
 End-user blocker priority is based on "will a normal Pkl config author hit this?", not raw gold-match count.
 
-1. `for` / generators: real configs use list/map comprehensions and generated object bodies. The remaining generator DIFFs share one root problem: generated members must preserve whether they are properties, elements, or entries until the target object projects them.
-2. Resource / read / glob: file/resource access, `read*()`, and `import*` glob behavior are release blockers for multi-file configs and CLI usage.
+1. Resource / read / glob: file/resource access, `read*()`, and `import*` glob behavior are release blockers for multi-file configs and CLI usage.
+2. `for` / generators: completed for with-gold upstream fixtures. Keep this as a regression-sensitive area because real configs use list/map comprehensions and generated object bodies heavily.
 3. Renderer API surface: `api` has many DIFFs, but not all are equal. Treat public output formats as blockers only if we advertise them for this release. Keep `pcf` / `json` stable, then decide whether `yaml`, `properties`, XML, Protobuf, plist, and JSONNet are release-supported or experimental.
 4. Basic scalar / collection parity: `Int`, `Float`, `Bytes`, `DataSize`, `Duration`, and `Map` differences are real but narrower than generators/resource access.
 5. Deep stdlib / reflect parity: important for long-term compatibility, but not a first release blocker unless a public API or real package depends on it.
 
-For this release pass, continue `for` support before Resource / Glob. Element / entry generators, typed generator binding checks, function-body generators, and mixin generators are done; the lexical-scope case remains.
+For this release pass, move to Resource / Glob. Element / entry generators, typed generator binding checks, function-body generators, mixin generators, and lexical-scope generators are done.
 
 ## Current DIFF Snapshot
 
@@ -54,9 +54,7 @@ Measured from the release binary against Apple Pkl LanguageSnippetTests gold fil
 - `basic/readGlob`
 - `basic/underscore`
 
-`generators` remaining DIFFs:
-
-- `generators/forGeneratorLexicalScope`
+`generators` remaining DIFFs: none.
 
 Adjacent typed-collection DIFFs worth pulling into Priority 5:
 
@@ -121,7 +119,7 @@ Main dependencies:
 
 ## Priority 3: Shape-Aware Object Body Evaluation
 
-This is the current active slice. It is the main blocker for `generators` and larger than fixture-by-fixture patching.
+Status: completed for all with-gold `generators` fixtures. Keep the focused tests and smoke entries as regression coverage because this slice changed object-body member-kind and lexical-scope evaluation.
 
 Target fixtures:
 
@@ -143,6 +141,7 @@ Completed in this slice:
 - `generators/entryGeneratorsTyped`
 - `generators/forGeneratorInFunctionBody`
 - `generators/forGeneratorInMixins`
+- `generators/forGeneratorLexicalScope`
 
 Implemented work:
 
@@ -152,6 +151,7 @@ Implemented work:
 - Preserve typed `for` binding annotations in the AST and validate generated key/value bindings with Apple-compatible type diagnostics.
 - Split object-body lexical scope from implicit receiver scope so `for` source/key expressions keep function/lambda bindings while generated values can still read prior object properties.
 - Apply `Mixin` objects through `|>` for Listing / Mapping targets, including generated entries from `Mixin<Mapping<...>>`.
+- Clear deferred class-default diagnostics when constructor overrides make a re-evaluated default valid, covering nested generator access through `new App { n = _n }.list`.
 
 Execution plan:
 
@@ -160,7 +160,7 @@ Execution plan:
 3. Done: extend iteration binding semantics for one-var and two-var loops over `Listing`, `List`, `Set`, `IntSeq`, `Bytes`, `Mapping`, `Map`, and `Dynamic`.
 4. Done: add typed generator support now that untyped element / entry generators are stable.
 5. Done: handle `forGeneratorInFunctionBody` and `forGeneratorInMixins`.
-6. Next: handle `forGeneratorLexicalScope`; defer broader `outer` / const provenance unless this fixture requires it directly.
+6. Done: handle `forGeneratorLexicalScope`.
 
 Required work:
 
@@ -168,7 +168,7 @@ Required work:
 - Preserve property / element / entry kind through nested `for`, `when`, and spread.
 - Iterate `Listing`, `List`, `Set`, `IntSeq`, `Bytes`, `Mapping`, `Map`, and `Dynamic` with Apple-compatible one-var and two-var binding semantics.
 - Fix Dynamic iteration order: properties, elements, entries as Apple expects.
-- Preserve loop variables through nested lambdas and nested generators. Remaining known DIFF: class-default evaluation inside nested generator expressions (`forGeneratorLexicalScope`).
+- Preserve loop variables through nested lambdas and nested generators.
 
 Main dependencies:
 
@@ -179,7 +179,7 @@ Main dependencies:
 
 ## Priority 4: Spread And Predicate Member Semantics
 
-Status: completed by targeted member-kind preservation for predicate members and spread syntax. The broader member-stream redesign remains Priority 3.
+Status: completed by targeted member-kind preservation for predicate members and spread syntax.
 
 Completed in this slice:
 
@@ -278,8 +278,7 @@ Main dependencies:
 
 ## Suggested Release Path
 
-1. Finish Priority 3 `for` support with the remaining lexical-scope case.
-2. Follow with Priority 2 Resource / Glob so multi-file configs and CLI host reads behave predictably.
-3. Decide and document the release-supported renderer set. Fix only those API renderer fixtures as blockers; leave the rest marked experimental.
-4. Take Priority 1 for scalar / Bytes / Map parity.
-5. Return to remaining Priority 5 and Priority 6 edge cases only when they block a supported fixture or real package.
+1. Continue with Priority 2 Resource / Glob so multi-file configs and CLI host reads behave predictably.
+2. Decide and document the release-supported renderer set. Fix only those API renderer fixtures as blockers; leave the rest marked experimental.
+3. Take Priority 1 for scalar / Bytes / Map parity.
+4. Return to remaining Priority 5 and Priority 6 edge cases only when they block a supported fixture or real package.
