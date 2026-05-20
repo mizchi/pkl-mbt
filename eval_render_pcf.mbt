@@ -1,6 +1,9 @@
 ///|
 pub fn render_value(value : Value) -> String {
   let buf = StringBuilder::new()
+  if deferred_error_message(value) is Some(_) {
+    return "?"
+  }
   match value {
     ObjectValue(members) => render_pcf_module(members, buf)
     _ => render_pcf_inline(value, 0, buf)
@@ -29,8 +32,15 @@ fn pcf_is_block_value(value : Value) -> Bool {
   if render_directive_text(value) is Some(_) {
     return false
   }
+  if deferred_error_message(value) is Some(_) {
+    return false
+  }
   match value {
-    ObjectValue(_) | ListingValue(_) | MappingValue(_) => true
+    ObjectValue(_)
+    | ListingValue(_)
+    | DefaultedListingValue(_, _, _)
+    | MappingValue(_)
+    | DefaultedMappingValue(_, _, _) => true
     // PKL-148h: `ListValue` renders through the `List(...)` constructor
     // form (handled in `render_pcf_scalar`), not as a `new { ... }`
     // block — so callers must NOT prefix it with `new`.
@@ -87,6 +97,10 @@ fn render_pcf_scalar_with_indent(
   indent : Int,
   buf : StringBuilder,
 ) -> Unit {
+  if deferred_error_message(value) is Some(_) {
+    buf.write_string("?")
+    return
+  }
   match value {
     IntValue(n) => buf.write_string("\{n}")
     FloatValue(d) => buf.write_string(render_float_text(d))
@@ -183,7 +197,11 @@ fn render_pcf_scalar_with_indent(
       }
       buf.write_char(')')
     }
-    ObjectValue(_) | ListingValue(_) | MappingValue(_) =>
+    ObjectValue(_)
+    | ListingValue(_)
+    | DefaultedListingValue(_, _, _)
+    | MappingValue(_)
+    | DefaultedMappingValue(_, _, _) =>
       // Defensive: callers should route block values through
       // render_pcf_inline / render_pcf_block_body. Falling back keeps
       // diagnostics non-empty if we ever miss a case.
@@ -288,8 +306,11 @@ fn render_pcf_block_body(
   buf : StringBuilder,
 ) -> Unit {
   match value {
-    ObjectValue([]) | ListingValue([]) | MappingValue([]) =>
-      buf.write_string("{}")
+    ObjectValue([])
+    | ListingValue([])
+    | DefaultedListingValue(_, [], _)
+    | MappingValue([])
+    | DefaultedMappingValue(_, [], _) => buf.write_string("{}")
     ObjectValue(members) => {
       let visible = visible_members(members)
       if visible.length() == 0 {
@@ -345,7 +366,7 @@ fn render_pcf_block_body(
       write_pcf_indent(buf, indent)
       buf.write_char('}')
     }
-    ListingValue(elements) => {
+    ListingValue(elements) | DefaultedListingValue(_, elements, _) => {
       buf.write_string("{\n")
       for i = 0; i < elements.length(); i = i + 1 {
         if i > 0 {
@@ -358,7 +379,7 @@ fn render_pcf_block_body(
       write_pcf_indent(buf, indent)
       buf.write_char('}')
     }
-    MappingValue(entries) => {
+    MappingValue(entries) | DefaultedMappingValue(_, entries, _) => {
       buf.write_string("{\n")
       for i = 0; i < entries.length(); i = i + 1 {
         if i > 0 {

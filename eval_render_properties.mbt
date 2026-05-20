@@ -3,7 +3,8 @@ pub fn render_value_as_properties(value : Value) -> String {
   let buf = StringBuilder::new()
   match value {
     ObjectValue(members) => render_properties_members(members, "", buf)
-    MappingValue(entries) => render_properties_entries(entries, "", buf)
+    MappingValue(entries) | DefaultedMappingValue(_, entries, _) =>
+      render_properties_entries(entries, "", buf)
     _ => ()
   }
   buf.to_string()
@@ -48,13 +49,15 @@ fn render_properties_leaf(
       } else {
         render_properties_members(members, full_key, buf)
       }
-    MappingValue(entries) =>
+    MappingValue(entries) | DefaultedMappingValue(_, entries, _) =>
       if entries.length() == 0 {
         // Empty Mapping likewise has no leaves.
       } else {
         render_properties_entries(entries, full_key, buf)
       }
-    ListingValue(_) | FunctionValue(_, _, _, _, _) => {
+    ListingValue(_)
+    | DefaultedListingValue(_, _, _)
+    | FunctionValue(_, _, _, _, _) => {
       let compact = render_properties_compact_json(value)
       write_properties_key(full_key, buf)
       buf.write_string(" = ")
@@ -99,7 +102,7 @@ fn write_compact_json_value(value : Value, buf : StringBuilder) -> Unit {
       }
       buf.write_char('}')
     }
-    MappingValue(entries) => {
+    MappingValue(entries) | DefaultedMappingValue(_, entries, _) => {
       buf.write_char('{')
       for i = 0; i < entries.length(); i = i + 1 {
         if i > 0 {
@@ -111,7 +114,9 @@ fn write_compact_json_value(value : Value, buf : StringBuilder) -> Unit {
       }
       buf.write_char('}')
     }
-    ListingValue(elements) | ListValue(elements) => {
+    ListingValue(elements)
+    | DefaultedListingValue(_, elements, _)
+    | ListValue(elements) => {
       buf.write_char('[')
       for i = 0; i < elements.length(); i = i + 1 {
         if i > 0 {

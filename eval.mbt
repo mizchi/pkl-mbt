@@ -25,6 +25,14 @@ pub(all) enum Value {
   // distinct types).
   ListValue(Array[Value])
   MappingValue(Array[ValueEntry])
+  // Collection values that carry a Pkl `default` member. `raw_*`
+  // preserves the explicitly declared elements / entries; `materialized_*`
+  // is the user-visible projection after applying the current default.
+  // Keeping both lets `(xs) { default { ... } }` reapply a new default to
+  // old entries without treating values supplied by the previous default
+  // as explicit user fields.
+  DefaultedListingValue(Array[Value], Array[Value], Value)
+  DefaultedMappingValue(Array[ValueEntry], Array[ValueEntry], Value)
   // PKL-119a: Pair carries two ordered values with member access via
   // `.first` / `.second`. Previously collapsed into `ListingValue` of
   // size 2 (per the PKL-139 stop-gap), which lost the member-access
@@ -144,6 +152,30 @@ pub(all) struct ValueBinding {
 } derive(Eq, Debug)
 
 ///|
+fn deferred_error_value(message : String) -> Value {
+  ObjectValue([
+    {
+      name: error_member_name("@deferred"),
+      value: StringValue(message),
+      source: None,
+      annotations: [],
+    },
+  ])
+}
+
+///|
+fn deferred_error_message(value : Value) -> String? {
+  match value {
+    ObjectValue(members) =>
+      match lookup_member(members, error_member_name("@deferred")) {
+        Some(StringValue(message)) => Some(message)
+        _ => None
+      }
+    _ => None
+  }
+}
+
+///|
 priv struct ClassBinding {
   name : String
   parent_name : String?
@@ -253,6 +285,21 @@ fn strip_invisible_recursive(value : Value) -> Value {
       }
       ListingValue(kept)
     }
+    DefaultedListingValue(raw, elements, default_value) => {
+      let kept_raw : Array[Value] = []
+      for e in raw {
+        kept_raw.push(strip_invisible_recursive(e))
+      }
+      let kept_elements : Array[Value] = []
+      for e in elements {
+        kept_elements.push(strip_invisible_recursive(e))
+      }
+      DefaultedListingValue(
+        kept_raw,
+        kept_elements,
+        strip_invisible_recursive(default_value),
+      )
+    }
     ListValue(elements) => {
       let kept : Array[Value] = []
       for e in elements {
@@ -276,6 +323,27 @@ fn strip_invisible_recursive(value : Value) -> Value {
         })
       }
       MappingValue(kept)
+    }
+    DefaultedMappingValue(raw, entries, default_value) => {
+      let kept_raw : Array[ValueEntry] = []
+      for entry in raw {
+        kept_raw.push({
+          key: strip_invisible_recursive(entry.key),
+          value: strip_invisible_recursive(entry.value),
+        })
+      }
+      let kept_entries : Array[ValueEntry] = []
+      for entry in entries {
+        kept_entries.push({
+          key: strip_invisible_recursive(entry.key),
+          value: strip_invisible_recursive(entry.value),
+        })
+      }
+      DefaultedMappingValue(
+        kept_raw,
+        kept_entries,
+        strip_invisible_recursive(default_value),
+      )
     }
     MapValue(entries) => {
       let kept : Array[ValueEntry] = []
@@ -406,7 +474,7 @@ fn value_is_type(value : Value, type_name : String) -> Bool {
   match generic_argument_text(trimmed, "Listing") {
     Some(_) =>
       return match value {
-        ListingValue(_) => true
+        ListingValue(_) | DefaultedListingValue(_, _, _) => true
         _ => false
       }
     None => ()
@@ -414,7 +482,7 @@ fn value_is_type(value : Value, type_name : String) -> Bool {
   match generic_argument_text(trimmed, "Mapping") {
     Some(_) =>
       return match value {
-        MappingValue(_) => true
+        MappingValue(_) | DefaultedMappingValue(_, _, _) => true
         _ => false
       }
     None => ()
@@ -452,12 +520,12 @@ fn value_is_type(value : Value, type_name : String) -> Bool {
       }
     "Listing" =>
       match value {
-        ListingValue(_) => true
+        ListingValue(_) | DefaultedListingValue(_, _, _) => true
         _ => false
       }
     "Mapping" =>
       match value {
-        MappingValue(_) => true
+        MappingValue(_) | DefaultedMappingValue(_, _, _) => true
         _ => false
       }
     "Object" =>

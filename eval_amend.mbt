@@ -243,7 +243,10 @@ fn eval_resolved_collection_element_structural_rejection_message(
     match generic_argument_text(type_name, prefix) {
       Some(element_type) =>
         match value {
-          ListingValue(elements) | ListValue(elements) | SetValue(elements) =>
+          ListingValue(elements)
+          | DefaultedListingValue(_, elements, _)
+          | ListValue(elements)
+          | SetValue(elements) =>
             for element in elements {
               match
                 eval_resolved_annotation_structural_rejection_message(
@@ -271,7 +274,9 @@ fn eval_resolved_collection_element_structural_rejection_message(
         let key_type = parts[0]
         let value_type = parts[1]
         match value {
-          MappingValue(entries) | MapValue(entries) =>
+          MappingValue(entries)
+          | DefaultedMappingValue(_, entries, _)
+          | MapValue(entries) =>
             for entry in entries {
               match
                 eval_resolved_annotation_structural_rejection_message(
@@ -458,6 +463,108 @@ fn apply_predicate_members_to_object(
 }
 
 ///|
+fn value_after_collection_replacement(
+  value : Value,
+  old_value : Value,
+  new_value : Value,
+) -> Value? {
+  match (value, old_value, new_value) {
+    (StringValue(value_s), StringValue(old_s), StringValue(new_s)) =>
+      if old_s.length() > 0 && value_s.has_prefix(old_s) {
+        Some(
+          StringValue(
+            new_s +
+            String::unsafe_substring(
+              value_s,
+              start=old_s.length(),
+              end=value_s.length(),
+            ),
+          ),
+        )
+      } else {
+        None
+      }
+    (IntValue(value_i), IntValue(old_i), IntValue(new_i)) =>
+      if value_i == old_i + 1L {
+        Some(IntValue(new_i + 1L))
+      } else {
+        None
+      }
+    (ListValue(value_xs), ListValue(old_xs), ListValue(new_xs)) =>
+      replace_collection_prefix(value_xs, old_xs, new_xs, list_tag=true)
+    (ListingValue(value_xs), ListingValue(old_xs), ListingValue(new_xs)) =>
+      replace_collection_prefix(value_xs, old_xs, new_xs, list_tag=false)
+    _ => None
+  }
+}
+
+///|
+fn replace_collection_prefix(
+  value_xs : Array[Value],
+  old_xs : Array[Value],
+  new_xs : Array[Value],
+  list_tag~ : Bool,
+) -> Value? {
+  if old_xs.length() == 0 || value_xs.length() < old_xs.length() {
+    return None
+  }
+  for i = 0; i < old_xs.length(); i = i + 1 {
+    if !values_equal(value_xs[i], old_xs[i]) {
+      return None
+    }
+  }
+  let merged : Array[Value] = []
+  for v in new_xs {
+    merged.push(v)
+  }
+  for i = old_xs.length(); i < value_xs.length(); i = i + 1 {
+    merged.push(value_xs[i])
+  }
+  if list_tag {
+    Some(ListValue(merged))
+  } else {
+    Some(ListingValue(merged))
+  }
+}
+
+///|
+fn propagate_listing_replacement(
+  values : Array[Value],
+  old_value : Value,
+  new_value : Value,
+  skip_index : Int,
+) -> Unit {
+  for i = 0; i < values.length(); i = i + 1 {
+    if i == skip_index {
+      continue
+    }
+    match value_after_collection_replacement(values[i], old_value, new_value) {
+      Some(updated) => values[i] = updated
+      None => ()
+    }
+  }
+}
+
+///|
+fn propagate_mapping_replacement(
+  entries : Array[ValueEntry],
+  old_value : Value,
+  new_value : Value,
+  skip_index : Int,
+) -> Unit {
+  for i = 0; i < entries.length(); i = i + 1 {
+    if i == skip_index {
+      continue
+    }
+    match
+      value_after_collection_replacement(entries[i].value, old_value, new_value) {
+      Some(updated) => entries[i] = { key: entries[i].key, value: updated }
+      None => ()
+    }
+  }
+}
+
+///|
 fn eval_listing_subscript_amend(
   elements : Array[Value],
   members : Array[ObjectMember],
@@ -467,13 +574,45 @@ fn eval_listing_subscript_amend(
   cache : Array[ValueBinding],
   stack : Array[String],
   declarations : Array[Declaration],
+  default_value : Value?,
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value? {
-  let result : Array[Value] = []
+  let raw_result : Array[Value] = []
   for v in elements {
-    result.push(v)
+    raw_result.push(v)
   }
+  let base_length = raw_result.length()
+  let result : Array[Value] = match default_value {
+    Some(default_v) =>
+      match
+        materialize_listing_raw_elements(
+          raw_result, default_v, bindings, env, class_env, cache, stack, declarations,
+          diagnostics, resolve_import,
+        ) {
+        Some(materialized) => materialized
+        None => return None
+      }
+    None => {
+      let copied : Array[Value] = []
+      for v in raw_result {
+        copied.push(v)
+      }
+      copied
+    }
+  }
+  let base_raw_result : Array[Value] = []
+  for v in raw_result {
+    base_raw_result.push(v)
+  }
+  let base_result : Array[Value] = []
+  for v in result {
+    base_result.push(v)
+  }
+  let super_value = collection_this_listing_value(
+    base_raw_result, base_result, default_value,
+  )
+  let mut current_default = default_value
   // PKL-148av: hoist `@local$` / `@hidden$` members into the lazy
   // binding chain so a sibling element expression in the amend body
   // can reference them by bare name (`(x) { y; local y = "two" }` —
@@ -507,6 +646,56 @@ fn eval_listing_subscript_amend(
   }
   let bindings = augmented_bindings
   for field in members {
+    let eval_env = copy_value_bindings(env)
+    let eval_cache = copy_value_bindings(cache)
+    match current_default {
+      Some(default_v) => {
+        eval_env.push({ name: "default", value: default_v })
+        eval_cache.push({ name: "default", value: default_v })
+      }
+      None => ()
+    }
+    push_collection_binding(eval_env, eval_cache, "super", super_value)
+    push_collection_binding(
+      eval_env,
+      eval_cache,
+      "this",
+      collection_this_listing_value(raw_result, result, current_default),
+    )
+    let bare_field_name = strip_member_visibility_prefix(field.name)
+    if bare_field_name == "default" {
+      match
+        eval_collection_default_expr(
+          field.value,
+          bindings,
+          eval_env,
+          class_env,
+          eval_cache,
+          stack,
+          declarations,
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(new_default) => {
+          current_default = Some(new_default)
+          match
+            materialize_listing_raw_elements(
+              raw_result, new_default, bindings, eval_env, class_env, eval_cache,
+              stack, declarations, diagnostics, resolve_import,
+            ) {
+            Some(materialized) => {
+              result.clear()
+              for v in materialized {
+                result.push(v)
+              }
+            }
+            None => return None
+          }
+        }
+        None => return None
+      }
+      continue
+    }
     // PKL-148y: tolerate `when` / `for` / spread generator members
     // inside a listing-amend body (`(listing) { when (cond) { ... };
     // [N] = value }`). Evaluate the generator; splice any
@@ -522,18 +711,20 @@ fn eval_listing_subscript_amend(
         eval_expr_with_bindings(
           field.value,
           bindings,
-          env,
+          eval_env,
           class_env,
-          cache,
+          eval_cache,
           stack,
           declarations,
           diagnostics,
           resolve_import,
         ) {
         Some(ListingValue(extras))
+        | Some(DefaultedListingValue(_, extras, _))
         | Some(ListValue(extras))
         | Some(SetValue(extras)) =>
           for v in extras {
+            raw_result.push(v)
             result.push(v)
           }
         Some(NullValue) => ()
@@ -545,9 +736,28 @@ fn eval_listing_subscript_amend(
         // dropped "second" and "third" silently (the previous arm
         // expected a Listing payload and the `Some(_) => ()` catch-all
         // ate the scalar).
-        Some(scalar) =>
+        Some(_) =>
           if field.name.has_prefix("@element$") {
-            result.push(scalar)
+            match
+              eval_collection_body_expr(
+                field.value,
+                IntValue(raw_result.length().to_int64()),
+                current_default,
+                bindings,
+                eval_env,
+                class_env,
+                eval_cache,
+                stack,
+                declarations,
+                diagnostics,
+                resolve_import,
+              ) {
+              Some((raw, materialized)) => {
+                raw_result.push(raw)
+                result.push(materialized)
+              }
+              None => return None
+            }
           }
         None => return None
       }
@@ -638,16 +848,15 @@ fn eval_listing_subscript_amend(
       continue
     }
     if !field.name.has_prefix("@subscript$") {
-      // PKL-148av: Apple Pkl's `(listing) { default = 9 }` amends the
-      // Listing's `default` property (used when an out-of-bounds index
-      // is read) without touching the element sequence. pkl-mbt doesn't
-      // surface element-default slots, so a named property amend on a
-      // listing collapses to a no-op — the resulting Listing has the
-      // same elements, equal to the pre-amend value. Other named
-      // properties (`length`, predicates, etc.) are read-only at the
-      // language level, so silently skipping them matches Apple Pkl's
-      // observable behaviour on the gold fixtures.
-      continue
+      if is_invisible_member_name(field.name) {
+        continue
+      }
+      diagnostics.push(
+        diag(
+          "Object of type `Listing` cannot have a property (other than `default`).",
+        ),
+      )
+      return None
     }
     match field.value {
       CallExpr(Identifier("@__index_entry"), args) =>
@@ -658,45 +867,59 @@ fn eval_listing_subscript_amend(
           let key_value = eval_expr_with_bindings(
             args[0],
             bindings,
-            env,
+            eval_env,
             class_env,
-            cache,
+            eval_cache,
             stack,
             declarations,
             diagnostics,
             resolve_import,
           )
           match key_value {
-            Some(IntValue(idx64)) => {
-              let idx = idx64.to_int()
-              if idx < 0 || idx >= result.length() {
-                let upper = result.length() - 1
+            Some(IntValue(idx64)) =>
+              if idx64 < 0L || idx64 >= base_length.to_int64() {
+                let upper = base_length - 1
                 diagnostics.push(
                   diag(
-                    "Element index `\{idx64}` is out of range `0`..`\{upper}`.",
+                    "Element index `\{format_int_with_commas(idx64)}` is out of range `0`..`\{upper}`.",
                   ),
                 )
                 return None
               } else {
+                let idx = idx64.to_int()
                 match
-                  eval_expr_with_bindings(
+                  eval_collection_body_expr(
                     args[1],
+                    IntValue(idx64),
+                    current_default,
                     bindings,
-                    env,
+                    eval_env,
                     class_env,
-                    cache,
+                    eval_cache,
                     stack,
                     declarations,
                     diagnostics,
                     resolve_import,
                   ) {
-                  Some(new_value) => result[idx] = new_value
+                  Some((raw, new_value)) => {
+                    let old_value = result[idx]
+                    raw_result[idx] = raw
+                    result[idx] = new_value
+                    propagate_listing_replacement(
+                      raw_result, old_value, new_value, idx,
+                    )
+                    propagate_listing_replacement(
+                      result, old_value, new_value, idx,
+                    )
+                  }
                   None => return None
                 }
               }
-            }
-            Some(_) => {
-              diagnostics.push(diag("listing index expects Int"))
+            Some(other_key) => {
+              let actual = eval_value_type_name(other_key)
+              diagnostics.push(
+                diag("Expected key of type `Int`, but got type `\{actual}`."),
+              )
               return None
             }
             None => return None
@@ -708,7 +931,11 @@ fn eval_listing_subscript_amend(
       }
     }
   }
-  Some(ListingValue(result))
+  match current_default {
+    Some(default_v) =>
+      Some(DefaultedListingValue(raw_result, result, default_v))
+    None => Some(ListingValue(result))
+  }
 }
 
 ///|
@@ -729,13 +956,44 @@ fn eval_mapping_amend(
   cache : Array[ValueBinding],
   stack : Array[String],
   declarations : Array[Declaration],
+  default_value : Value?,
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value? {
-  let result : Array[ValueEntry] = []
+  let raw_result : Array[ValueEntry] = []
   for e in entries {
-    result.push(e)
+    raw_result.push(e)
   }
+  let result : Array[ValueEntry] = match default_value {
+    Some(default_v) =>
+      match
+        materialize_mapping_raw_entries(
+          raw_result, default_v, bindings, env, class_env, cache, stack, declarations,
+          diagnostics, resolve_import,
+        ) {
+        Some(materialized) => materialized
+        None => return None
+      }
+    None => {
+      let copied : Array[ValueEntry] = []
+      for e in raw_result {
+        copied.push(e)
+      }
+      copied
+    }
+  }
+  let base_raw_result : Array[ValueEntry] = []
+  for e in raw_result {
+    base_raw_result.push(e)
+  }
+  let base_result : Array[ValueEntry] = []
+  for e in result {
+    base_result.push(e)
+  }
+  let super_value = collection_this_mapping_value(
+    base_raw_result, base_result, default_value,
+  )
+  let mut current_default = default_value
   // PKL-148av: hoist `@local$` / `@hidden$` members in the amend body
   // so a sibling `[key] = expr` entry can reference them by bare name
   // (`(m) { ["x"] = y; local y = 2 }` — the bare `y` resolves to the
@@ -767,30 +1025,84 @@ fn eval_mapping_amend(
   }
   let bindings = augmented_bindings
   for field in members {
-    if field.name == "@when" || field.name == "@for" || field.name == "@spread" {
+    let eval_env = copy_value_bindings(env)
+    let eval_cache = copy_value_bindings(cache)
+    match current_default {
+      Some(default_v) => {
+        eval_env.push({ name: "default", value: default_v })
+        eval_cache.push({ name: "default", value: default_v })
+      }
+      None => ()
+    }
+    push_collection_binding(eval_env, eval_cache, "super", super_value)
+    push_collection_binding(
+      eval_env,
+      eval_cache,
+      "this",
+      collection_this_mapping_value(raw_result, result, current_default),
+    )
+    let bare_field_name = strip_member_visibility_prefix(field.name)
+    if bare_field_name == "default" {
       match
-        eval_expr_with_bindings(
+        eval_collection_default_expr(
           field.value,
           bindings,
-          env,
+          eval_env,
           class_env,
-          cache,
+          eval_cache,
           stack,
           declarations,
           diagnostics,
           resolve_import,
         ) {
-        Some(MappingValue(extras)) | Some(MapValue(extras)) =>
+        Some(new_default) => {
+          current_default = Some(new_default)
+          match
+            materialize_mapping_raw_entries(
+              raw_result, new_default, bindings, eval_env, class_env, eval_cache,
+              stack, declarations, diagnostics, resolve_import,
+            ) {
+            Some(materialized) => {
+              result.clear()
+              for e in materialized {
+                result.push(e)
+              }
+            }
+            None => return None
+          }
+        }
+        None => return None
+      }
+      continue
+    }
+    if field.name == "@when" || field.name == "@for" || field.name == "@spread" {
+      match
+        eval_expr_with_bindings(
+          field.value,
+          bindings,
+          eval_env,
+          class_env,
+          eval_cache,
+          stack,
+          declarations,
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(MappingValue(extras))
+        | Some(DefaultedMappingValue(_, extras, _))
+        | Some(MapValue(extras)) =>
           for e in extras {
             let mut replaced = false
             for i = 0; i < result.length(); i = i + 1 {
               if result[i].key == e.key {
                 result[i] = e
+                raw_result[i] = e
                 replaced = true
                 break
               }
             }
             if !replaced {
+              raw_result.push(e)
               result.push(e)
             }
           }
@@ -813,9 +1125,9 @@ fn eval_mapping_amend(
           let key_value = eval_expr_with_bindings(
             args[0],
             bindings,
-            env,
+            eval_env,
             class_env,
-            cache,
+            eval_cache,
             stack,
             declarations,
             diagnostics,
@@ -865,13 +1177,31 @@ fn eval_mapping_amend(
                     )
                   ListingValue(elems) | ListValue(elems) =>
                     eval_listing_subscript_amend(
-                      elems, body_members, bindings, env, class_env, cache, stack,
-                      declarations, diagnostics, resolve_import,
+                      elems,
+                      body_members,
+                      bindings,
+                      env,
+                      class_env,
+                      cache,
+                      stack,
+                      declarations,
+                      None,
+                      diagnostics,
+                      resolve_import,
                     )
                   MappingValue(inner_entries) =>
                     eval_mapping_amend(
-                      inner_entries, body_members, bindings, env, class_env, cache,
-                      stack, declarations, diagnostics, resolve_import,
+                      inner_entries,
+                      body_members,
+                      bindings,
+                      env,
+                      class_env,
+                      cache,
+                      stack,
+                      declarations,
+                      None,
+                      diagnostics,
+                      resolve_import,
                     )
                   _ =>
                     eval_expr_with_bindings(
@@ -880,20 +1210,34 @@ fn eval_mapping_amend(
                     )
                 }
                 match amended {
-                  Some(new_value) =>
+                  Some(new_value) => {
+                    let old_value = result[existing_idx].value
                     result[existing_idx] = { key: k, value: new_value }
+                    propagate_mapping_replacement(
+                      result, old_value, new_value, existing_idx,
+                    )
+                  }
                   None => return None
                 }
               } else {
                 match
-                  eval_expr_with_bindings(
-                    val_expr, bindings, env, class_env, cache, stack, declarations,
-                    diagnostics, resolve_import,
+                  eval_collection_body_expr(
+                    val_expr, k, current_default, bindings, eval_env, class_env,
+                    eval_cache, stack, declarations, diagnostics, resolve_import,
                   ) {
-                  Some(new_value) =>
+                  Some((raw_value, new_value)) =>
                     if existing_idx >= 0 {
+                      let old_value = result[existing_idx].value
+                      raw_result[existing_idx] = { key: k, value: raw_value }
                       result[existing_idx] = { key: k, value: new_value }
+                      propagate_mapping_replacement(
+                        raw_result, old_value, new_value, existing_idx,
+                      )
+                      propagate_mapping_replacement(
+                        result, old_value, new_value, existing_idx,
+                      )
                     } else {
+                      raw_result.push({ key: k, value: raw_value })
                       result.push({ key: k, value: new_value })
                     }
                   None => return None
@@ -906,7 +1250,11 @@ fn eval_mapping_amend(
       _ => ()
     }
   }
-  Some(MappingValue(result))
+  match current_default {
+    Some(default_v) =>
+      Some(DefaultedMappingValue(raw_result, result, default_v))
+    None => Some(MappingValue(result))
+  }
 }
 
 ///|

@@ -43,11 +43,16 @@ fn render_textproto_value(
   match value {
     ObjectValue(members) =>
       render_textproto_members(members, level, indent_text, buf)
-    ListingValue(elements) | ListValue(elements) | SetValue(elements) =>
+    ListingValue(elements)
+    | DefaultedListingValue(_, elements, _)
+    | ListValue(elements)
+    | SetValue(elements) =>
       render_textproto_elements_as_fields(
         "it", elements, level, indent_text, buf,
       )
-    MappingValue(entries) | MapValue(entries) =>
+    MappingValue(entries)
+    | DefaultedMappingValue(_, entries, _)
+    | MapValue(entries) =>
       render_textproto_entries_as_fields("it", entries, level, indent_text, buf)
     DurationValue(_, _) =>
       render_textproto_duration_body(value, level, indent_text, buf)
@@ -83,11 +88,16 @@ fn render_textproto_field(
 ) -> Unit {
   match value {
     NullValue => ()
-    ListingValue(elements) | ListValue(elements) | SetValue(elements) =>
+    ListingValue(elements)
+    | DefaultedListingValue(_, elements, _)
+    | ListValue(elements)
+    | SetValue(elements) =>
       render_textproto_elements_as_fields(
         name, elements, level, indent_text, buf,
       )
-    MappingValue(entries) | MapValue(entries) =>
+    MappingValue(entries)
+    | DefaultedMappingValue(_, entries, _)
+    | MapValue(entries) =>
       render_textproto_entries_as_fields(name, entries, level, indent_text, buf)
     _ => render_textproto_single_field(name, value, level, indent_text, buf)
   }
@@ -217,7 +227,10 @@ fn render_textproto_wrapped_collection_field(
   }
   buf.write_string(": {\n")
   match value {
-    ListingValue(elements) | ListValue(elements) | SetValue(elements) =>
+    ListingValue(elements)
+    | DefaultedListingValue(_, elements, _)
+    | ListValue(elements)
+    | SetValue(elements) =>
       render_textproto_elements_as_fields(
         "it",
         elements,
@@ -225,7 +238,9 @@ fn render_textproto_wrapped_collection_field(
         indent_text,
         buf,
       )
-    MappingValue(entries) | MapValue(entries) =>
+    MappingValue(entries)
+    | DefaultedMappingValue(_, entries, _)
+    | MapValue(entries) =>
       render_textproto_entries_as_fields(
         "it",
         entries,
@@ -243,9 +258,11 @@ fn render_textproto_wrapped_collection_field(
 fn textproto_needs_collection_wrapper(value : Value) -> Bool {
   match value {
     ListingValue(_)
+    | DefaultedListingValue(_, _, _)
     | ListValue(_)
     | SetValue(_)
     | MappingValue(_)
+    | DefaultedMappingValue(_, _, _)
     | MapValue(_) => true
     _ => false
   }
@@ -254,9 +271,13 @@ fn textproto_needs_collection_wrapper(value : Value) -> Bool {
 ///|
 fn textproto_collection_is_empty(value : Value) -> Bool {
   match value {
-    ListingValue(elements) | ListValue(elements) | SetValue(elements) =>
-      elements.length() == 0
-    MappingValue(entries) | MapValue(entries) => entries.length() == 0
+    ListingValue(elements)
+    | DefaultedListingValue(_, elements, _)
+    | ListValue(elements)
+    | SetValue(elements) => elements.length() == 0
+    MappingValue(entries)
+    | DefaultedMappingValue(_, entries, _)
+    | MapValue(entries) => entries.length() == 0
     _ => false
   }
 }
@@ -325,8 +346,10 @@ fn render_textproto_scalar(value : Value, buf : StringBuilder) -> Unit {
     }
     ObjectValue(_)
     | ListingValue(_)
+    | DefaultedListingValue(_, _, _)
     | ListValue(_)
     | MappingValue(_)
+    | DefaultedMappingValue(_, _, _)
     | SetValue(_)
     | MapValue(_) => buf.write_string("{}")
     FunctionValue(_, _, _, _, _) => buf.write_string("null")

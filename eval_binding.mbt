@@ -102,6 +102,21 @@ fn int_pow(base : Int64, exponent : Int64) -> Int64? {
   if exponent < 0L {
     return None
   }
+  if exponent == 0L {
+    return Some(1L)
+  }
+  if base == 0L {
+    return Some(0L)
+  }
+  if base == 1L {
+    return Some(1L)
+  }
+  if base == -1L {
+    return if exponent % 2L == 0L { Some(1L) } else { Some(-1L) }
+  }
+  if exponent > 62L {
+    return None
+  }
   let mut result = 1L
   let mut i = 0L
   while i < exponent {
@@ -201,7 +216,12 @@ fn resolve_binding_value(
         // (`res1: someModule = new { foo = "..." }`), promote the
         // RHS to `AmendExpr(Identifier(someModule), members)` so
         // the module's own defaults flow through.
-        let rewritten_value : Expr = match (binding.value, binding.type_name) {
+        let collection_rewritten_value = collection_literal_expr_for_type_annotation(
+          binding.value,
+          binding.type_name,
+        )
+        let rewritten_value : Expr = match
+          (collection_rewritten_value, binding.type_name) {
           (ObjectLiteral(members), Some(class_name)) =>
             match lookup_class_binding(class_env, class_name) {
               Some(_) => TypedObjectLiteral(class_name, members)
@@ -210,7 +230,7 @@ fn resolve_binding_value(
                   class_name.contains("<") ||
                   class_name.contains("(") ||
                   class_name.contains("?") {
-                  binding.value
+                  collection_rewritten_value
                 } else if class_name.contains("|") {
                   // PKL-148bh: union annotation (`*Foo | Baz`)
                   // — pick the starred branch and route through
@@ -231,17 +251,17 @@ fn resolve_binding_value(
                   }
                   match starred_class {
                     Some(name) => TypedObjectLiteral(name, members)
-                    None => binding.value
+                    None => collection_rewritten_value
                   }
                 } else if lookup_value(env, class_name) is Some(ObjectValue(_)) ||
                   lookup_value(cache, class_name) is Some(ObjectValue(_)) ||
                   find_binding(bindings, class_name) is Some(_) {
                   AmendExpr(Identifier(class_name), members)
                 } else {
-                  binding.value
+                  collection_rewritten_value
                 }
             }
-          _ => binding.value
+          _ => collection_rewritten_value
         }
         match
           eval_expr_with_bindings(
@@ -259,6 +279,18 @@ fn resolve_binding_value(
             let value = coerce_value_to_annotated_type(
               raw_value,
               binding.type_name,
+            )
+            let value = apply_collection_default_for_type(
+              value,
+              binding.type_name,
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
             )
             // PKL-148u: structural type rejection ahead of the
             // constraint cascade. Module-level bindings surface
@@ -555,9 +587,9 @@ fn eval_value_type_name(value : Value) -> String {
         Some(class_name) => class_name
         None => "Object"
       }
-    ListingValue(_) => "Listing"
+    ListingValue(_) | DefaultedListingValue(_, _, _) => "Listing"
     ListValue(_) => "List"
-    MappingValue(_) => "Mapping"
+    MappingValue(_) | DefaultedMappingValue(_, _, _) => "Mapping"
     FunctionValue(_, _, _, _, _) => "Function"
     DurationValue(_, _) => "Duration"
     DataSizeValue(_, _) => "DataSize"

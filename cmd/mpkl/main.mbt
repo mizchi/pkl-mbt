@@ -1699,14 +1699,15 @@ fn run_pkl_test(value : @pkl.Value) -> PklTestSummary {
   let mut failed = 0
   let facts : @pkl.Value? = lookup_module_member(value, "facts")
   match facts {
-    Some(@pkl.MappingValue(entries)) =>
+    Some(@pkl.MappingValue(entries))
+    | Some(@pkl.DefaultedMappingValue(_, entries, _)) =>
       for entry in entries {
         let name = match entry.key {
           @pkl.StringValue(s) => s
           _ => "<non-string key>"
         }
         let elements = match entry.value {
-          @pkl.ListingValue(xs) => xs
+          @pkl.ListingValue(xs) | @pkl.DefaultedListingValue(_, xs, _) => xs
           _ => []
         }
         let mut fact_failed = false
@@ -1808,7 +1809,8 @@ fn run_pkl_examples_test(
           lines.push("FAIL examples missing golden file \{golden_path}")
         } else if expected == rendered {
           let count = match examples_value {
-            @pkl.MappingValue(entries) => entries.length()
+            @pkl.MappingValue(entries)
+            | @pkl.DefaultedMappingValue(_, entries, _) => entries.length()
             _ => 0
           }
           lines.push("PASS examples (\{count} examples)")
@@ -2040,6 +2042,21 @@ fn strip_null_object_properties(value : @pkl.Value) -> @pkl.Value {
       }
       @pkl.ListingValue(mapped)
     }
+    @pkl.DefaultedListingValue(raw, elements, default_value) => {
+      let mapped_raw : Array[@pkl.Value] = []
+      for element in raw {
+        mapped_raw.push(strip_null_object_properties(element))
+      }
+      let mapped : Array[@pkl.Value] = []
+      for element in elements {
+        mapped.push(strip_null_object_properties(element))
+      }
+      @pkl.DefaultedListingValue(
+        mapped_raw,
+        mapped,
+        strip_null_object_properties(default_value),
+      )
+    }
     @pkl.MappingValue(entries) => {
       let mapped : Array[@pkl.ValueEntry] = []
       for entry in entries {
@@ -2049,6 +2066,27 @@ fn strip_null_object_properties(value : @pkl.Value) -> @pkl.Value {
         })
       }
       @pkl.MappingValue(mapped)
+    }
+    @pkl.DefaultedMappingValue(raw, entries, default_value) => {
+      let mapped_raw : Array[@pkl.ValueEntry] = []
+      for entry in raw {
+        mapped_raw.push({
+          key: entry.key,
+          value: strip_null_object_properties(entry.value),
+        })
+      }
+      let mapped : Array[@pkl.ValueEntry] = []
+      for entry in entries {
+        mapped.push({
+          key: entry.key,
+          value: strip_null_object_properties(entry.value),
+        })
+      }
+      @pkl.DefaultedMappingValue(
+        mapped_raw,
+        mapped,
+        strip_null_object_properties(default_value),
+      )
     }
     other => other
   }

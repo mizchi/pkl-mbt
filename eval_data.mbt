@@ -248,17 +248,42 @@ fn intseq_materialize(
 /// produce. Computed in Int64 so that ranges that span the full Int32
 /// width (`IntSeq(math.minInt, math.maxInt)`) don't overflow.
 fn intseq_length(start : Int64, end_v : Int64, step : Int64) -> Int64 {
+  let int64_max = 9223372036854775807L
+  let int64_min = 0L - int64_max - 1L
+  let saturating_distance = fn(lo : Int64, hi : Int64) -> Int64 {
+    if lo < 0L && hi > 0L {
+      if lo == int64_min {
+        return int64_max
+      }
+      let left = 0L - lo
+      if int64_max - left < hi {
+        int64_max
+      } else {
+        left + hi
+      }
+    } else {
+      hi - lo
+    }
+  }
+  let saturating_len = fn(distance : Int64, positive_step : Int64) -> Int64 {
+    let q = distance / positive_step
+    if q >= int64_max {
+      int64_max
+    } else {
+      q + 1L
+    }
+  }
   if step > 0L {
     if start > end_v {
       return 0L
     }
-    return (end_v - start) / step + 1L
+    return saturating_len(saturating_distance(start, end_v), step)
   }
   if step < 0L {
     if start < end_v {
       return 0L
     }
-    return (start - end_v) / -step + 1L
+    return saturating_len(saturating_distance(end_v, start), 0L - step)
   }
   0L
 }
@@ -272,8 +297,16 @@ fn values_equal(a : Value, b : Value) -> Bool {
     (ObjectValue(xs), ObjectValue(ys)) => object_values_equal(xs, ys)
     (MapValue(xs), MapValue(ys)) => map_entries_equal(xs, ys)
     (MappingValue(xs), MappingValue(ys)) => map_entries_equal(xs, ys)
+    (DefaultedMappingValue(_, xs, _), MappingValue(ys))
+    | (MappingValue(xs), DefaultedMappingValue(_, ys, _))
+    | (DefaultedMappingValue(_, xs, _), DefaultedMappingValue(_, ys, _)) =>
+      map_entries_equal(xs, ys)
     (SetValue(xs), SetValue(ys)) => set_values_equal(xs, ys)
     (ListingValue(xs), ListingValue(ys)) => value_arrays_equal(xs, ys)
+    (DefaultedListingValue(_, xs, _), ListingValue(ys))
+    | (ListingValue(xs), DefaultedListingValue(_, ys, _))
+    | (DefaultedListingValue(_, xs, _), DefaultedListingValue(_, ys, _)) =>
+      value_arrays_equal(xs, ys)
     (ListValue(xs), ListValue(ys)) => value_arrays_equal(xs, ys)
     (IntSeqValue(s1, e1, st1), IntSeqValue(s2, e2, st2)) =>
       intseq_value_equal(s1, e1, st1, s2, e2, st2)
@@ -404,6 +437,9 @@ fn intseq_value_equal(
   end_b : Int64,
   step_b : Int64,
 ) -> Bool {
+  if start_a == start_b && end_a == end_b && step_a == step_b {
+    return true
+  }
   let len_a = intseq_length(start_a, end_a, step_a)
   let len_b = intseq_length(start_b, end_b, step_b)
   if len_a != len_b {

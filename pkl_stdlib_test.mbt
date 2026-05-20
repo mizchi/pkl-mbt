@@ -82,13 +82,13 @@ test "pkl:math exposes Int range constants" {
         },
         ValueMember::{
           name: "max",
-          value: IntValue(2147483647),
+          value: IntValue(9223372036854775807),
           source: None,
           annotations: [],
         },
         ValueMember::{
           name: "min",
-          value: IntValue(-2147483648),
+          value: IntValue(-9223372036854775807 - 1),
           source: None,
           annotations: [],
         },
@@ -1251,6 +1251,115 @@ test "PKL-138: empty new {} coerces to MappingValue under Mapping" {
   guard members[0].value is MappingValue(_) else { panic() }
   guard members[1].value is ListingValue(ks) else { panic() }
   inspect(ks.length(), content="0")
+}
+
+///|
+test "PKL-148: Listing default reapplies to existing and new elements" {
+  let source =
+    #|class Person {
+    #|  name: String
+    #|  age: Int = 42
+    #|}
+    #|res1: Listing<Person> = new {
+    #|  new { name = "Pigeon" }
+    #|}
+    #|res2 = (res1) {
+    #|  default { age = 21 }
+    #|  new { name = "Parrot" }
+    #|}
+    #|res3 = (res2) {
+    #|  default { n -> age = n }
+    #|}
+    #|res4 = (res3) {
+    #|  (default.apply(5)) {
+    #|    name = "Barn Owl"
+    #|  }
+    #|}
+    #|res5 = (res4.getOrDefault(99)) {
+    #|  name = "Bald Eagle"
+    #|}
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  let rendered = render_value(value)
+  inspect(rendered.contains("name = \"Pigeon\"\n    age = 21"), content="true")
+  inspect(rendered.contains("name = \"Parrot\"\n    age = 21"), content="true")
+  inspect(rendered.contains("name = \"Barn Owl\"\n    age = 5"), content="true")
+  inspect(
+    rendered.contains("name = \"Bald Eagle\"\n  age = 99"),
+    content="true",
+  )
+}
+
+///|
+test "PKL-148: Mapping default supports keyed functions and getOrDefault" {
+  let source =
+    #|class Person {
+    #|  name: String
+    #|  age: Int
+    #|}
+    #|res1: Mapping<String, Person> = new {
+    #|  default { age = 42 }
+    #|  ["pigeon"] { name = "Pigeon" }
+    #|  ["parrot"] { name = "Parrot"; age = 50 }
+    #|}
+    #|res2 = (res1) {
+    #|  default { age = 45 }
+    #|}
+    #|res3: Mapping<String, Person> = new {
+    #|  default { key -> name = key }
+    #|  ["pigeon"] { age = 40 }
+    #|  ["susan"] { name = super.name + "!!!"; age = 60 }
+    #|}
+    #|res4 = (res3.getOrDefault("Bald Eagle")) {
+    #|  age = 99
+    #|}
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  let rendered = render_value(value)
+  inspect(
+    rendered.contains("[\"pigeon\"] {\n    name = \"Pigeon\"\n    age = 45"),
+    content="true",
+  )
+  inspect(
+    rendered.contains("[\"parrot\"] {\n    name = \"Parrot\"\n    age = 50"),
+    content="true",
+  )
+  inspect(
+    rendered.contains("[\"susan\"] {\n    name = \"susan!!!\"\n    age = 60"),
+    content="true",
+  )
+  inspect(
+    rendered.contains("res4 {\n  name = \"Bald Eagle\"\n  age = 99"),
+    content="true",
+  )
+}
+
+///|
+test "PKL-148: Listing and Mapping bodies bind this dynamically" {
+  let source =
+    #|list = new Listing {
+    #|  "one"
+    #|  this[0] + "!"
+    #|}
+    #|list2 = (list) {
+    #|  "three"
+    #|  this[2] + "!"
+    #|  super[0] + "?"
+    #|}
+    #|map = new Mapping {
+    #|  ["one"] = 1
+    #|  ["two"] = this["one"] + 1
+    #|}
+    #|map2 = (map) {
+    #|  ["one"] = super["one"] + 10
+    #|  ["three"] = this["one"] + 10
+    #|}
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  let rendered = render_value(value)
+  inspect(rendered.contains("\"one!\""), content="true")
+  inspect(rendered.contains("\"three!\""), content="true")
+  inspect(rendered.contains("\"one?\""), content="true")
+  inspect(rendered.contains("[\"two\"] = 2"), content="true")
+  inspect(rendered.contains("[\"one\"] = 11"), content="true")
+  inspect(rendered.contains("[\"three\"] = 21"), content="true")
 }
 
 ///|

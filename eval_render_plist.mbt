@@ -46,10 +46,11 @@ fn render_plist_value(value : Value, indent : Int, buf : StringBuilder) -> Unit 
       buf.write_string("</string>")
     }
     ObjectValue(members) => render_plist_dict_from_members(members, indent, buf)
-    MappingValue(entries) =>
+    MappingValue(entries) | DefaultedMappingValue(_, entries, _) =>
       render_plist_dict_from_entries(entries, indent, buf)
-    ListingValue(elements) | ListValue(elements) =>
-      render_plist_array(elements, indent, buf)
+    ListingValue(elements)
+    | DefaultedListingValue(_, elements, _)
+    | ListValue(elements) => render_plist_array(elements, indent, buf)
     FunctionValue(_, _, _, _, _) => {
       write_plist_indent(buf, indent)
       buf.write_string("<string></string>")

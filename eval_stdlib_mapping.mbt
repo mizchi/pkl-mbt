@@ -20,6 +20,7 @@ fn is_mapping_method_name(name : String) -> Bool {
   match name {
     "containsKey"
     | "getOrNull"
+    | "getOrDefault"
     | "fold"
     // PKL-134: identity conversion methods used by pkf / pkspec.
     | "toMap"
@@ -98,7 +99,7 @@ fn value_to_string_for_join(v : Value) -> String {
       }
       buf.to_string()
     }
-    ListingValue(elements) => {
+    ListingValue(elements) | DefaultedListingValue(_, elements, _) => {
       let buf = StringBuilder::new()
       buf.write_string("new Listing")
       if elements.length() == 0 {
@@ -115,7 +116,7 @@ fn value_to_string_for_join(v : Value) -> String {
       }
       buf.to_string()
     }
-    MappingValue(entries) => {
+    MappingValue(entries) | DefaultedMappingValue(_, entries, _) => {
       let buf = StringBuilder::new()
       buf.write_string("new Mapping")
       if entries.length() == 0 {
@@ -946,6 +947,20 @@ fn eval_map_method(
         "any" => Some(BoolValue(hit))
         "none" => Some(BoolValue(!hit))
         _ => None
+      }
+    }
+    "getOrDefault" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Mapping.getOrDefault expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match lookup_entry(entries, arg_values[0]) {
+        Some(v) => Some(v)
+        None => Some(NullValue)
       }
     }
     _ => {

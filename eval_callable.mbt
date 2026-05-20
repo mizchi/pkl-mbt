@@ -143,8 +143,10 @@ fn eval_value_accepts_type_annotation(
     // PKL-148bh: `unknown` is Apple Pkl's wildcard return type;
     // accept every runtime value (basic/newInAmendingModuleMethod).
     ("unknown", _) => true
-    ("Listing", ListingValue(_)) => true
-    ("Mapping", MappingValue(_)) => true
+    ("Listing", ListingValue(_))
+    | ("Listing", DefaultedListingValue(_, _, _)) => true
+    ("Mapping", MappingValue(_))
+    | ("Mapping", DefaultedMappingValue(_, _, _)) => true
     // PKL-148h: `List<T>` accepts the dedicated `ListValue`; the older
     // path accepting `ListingValue` is kept as a transitional aid for
     // codepaths that still produce `ListingValue` for list-shaped input
@@ -152,13 +154,20 @@ fn eval_value_accepts_type_annotation(
     // join of List + Set, so all three list-shaped variants satisfy it.
     // `Map` accepts both `MapValue` and `MappingValue` for the same
     // reason; the split slice for Mapping is separate.
-    ("List", ListValue(_)) | ("List", ListingValue(_)) => true
+    ("List", ListValue(_))
+    | ("List", ListingValue(_))
+    | ("List", DefaultedListingValue(_, _, _)) => true
     ("Collection", ListValue(_))
     | ("Collection", ListingValue(_))
+    | ("Collection", DefaultedListingValue(_, _, _))
     | ("Collection", SetValue(_)) => true
-    ("Map", MapValue(_)) | ("Map", MappingValue(_)) => true
-    ("Set", SetValue(_)) | ("Set", ListingValue(_)) | ("Set", ListValue(_)) =>
-      true
+    ("Map", MapValue(_))
+    | ("Map", MappingValue(_))
+    | ("Map", DefaultedMappingValue(_, _, _)) => true
+    ("Set", SetValue(_))
+    | ("Set", ListingValue(_))
+    | ("Set", DefaultedListingValue(_, _, _))
+    | ("Set", ListValue(_)) => true
     ("Pair", PairValue(_, _)) => true
     ("IntSeq", IntSeqValue(_, _, _)) => true
     ("Function", FunctionValue(_, _, _, _, _)) => true
@@ -324,6 +333,7 @@ fn eval_callable_argument_type_rejection_message(
           Some(element_type) =>
             match value {
               ListingValue(elements)
+              | DefaultedListingValue(_, elements, _)
               | ListValue(elements)
               | SetValue(elements) =>
                 for element in elements {
@@ -355,7 +365,9 @@ fn eval_callable_argument_type_rejection_message(
               let key_type = parts[0]
               let value_type = parts[1]
               match value {
-                MappingValue(entries) | MapValue(entries) =>
+                MappingValue(entries)
+                | DefaultedMappingValue(_, entries, _)
+                | MapValue(entries) =>
                   for entry in entries {
                     match
                       eval_callable_argument_type_rejection_message(
@@ -1609,6 +1621,7 @@ fn eval_callable_call(
                   resolve_import,
                 ) {
                 Some(ListingValue(elements))
+                | Some(DefaultedListingValue(_, elements, _))
                 | Some(ListValue(elements))
                 | Some(SetValue(elements)) =>
                   // Apply with pre-evaluated values by wrapping each

@@ -1725,9 +1725,13 @@ fn render_float_to_int_error_text(d : Double) -> String {
 /// PKL-150: format an Int with Apple Pkl-style "," thousand-grouping
 /// (e.g. `1,114,112`). Negative sign is preserved.
 fn format_int_with_commas(n : Int64) -> String {
-  let negative = n < 0L
-  let magnitude = if negative { 0L - n } else { n }
-  let raw = "\{magnitude}"
+  let raw_signed = "\{n}"
+  let negative = raw_signed.has_prefix("-")
+  let raw = if negative {
+    String::unsafe_substring(raw_signed, start=1, end=raw_signed.length())
+  } else {
+    raw_signed
+  }
   if raw.length() <= 3 {
     return if negative { "-\{raw}" } else { raw }
   }

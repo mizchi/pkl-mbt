@@ -1,4 +1,699 @@
 ///|
+fn collection_default_expr_from_listing_element(expr : Expr) -> Expr? {
+  match expr {
+    CallExpr(Identifier(name), args) =>
+      if name == collection_default_marker_name() && args.length() == 1 {
+        Some(args[0])
+      } else {
+        None
+      }
+    _ => None
+  }
+}
+
+///|
+fn collection_default_expr_from_mapping_entry(entry : MappingEntry) -> Expr? {
+  match entry.key {
+    Identifier(name) if name == collection_default_marker_name() =>
+      Some(entry.value)
+    _ => None
+  }
+}
+
+///|
+fn collection_default_parameters(
+  members : Array[ObjectMember],
+) -> Array[FunctionParameter]? {
+  for object_member in members {
+    if is_function_amend_parameter_member_name(object_member.name) {
+      match object_member.value {
+        LambdaExpr(parameters, _, _) =>
+          return Some(copy_function_parameters(parameters))
+        _ => ()
+      }
+    }
+  }
+  None
+}
+
+///|
+fn eval_collection_default_expr(
+  expr : Expr,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match expr {
+    ObjectLiteral(members) =>
+      match collection_default_parameters(members) {
+        Some(parameters) => {
+          let captured = capture_value_bindings(env, cache)
+          Some(
+            FunctionValue(
+              parameters,
+              ObjectLiteral(function_amend_regular_members(members)),
+              None,
+              captured,
+              fresh_function_id(),
+            ),
+          )
+        }
+        None =>
+          eval_expr_with_bindings(
+            expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
+          )
+      }
+    _ =>
+      eval_expr_with_bindings(
+        expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      )
+  }
+}
+
+///|
+fn eval_collection_default_for_key(
+  default_value : Value,
+  key : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match default_value {
+    FunctionValue(_, _, _, _, _) =>
+      apply_function_value(
+        "default.apply",
+        default_value,
+        [key],
+        bindings,
+        env,
+        class_env,
+        cache,
+        stack,
+        declarations,
+        diagnostics,
+        resolve_import,
+      )
+    _ => Some(default_value)
+  }
+}
+
+///|
+fn merge_collection_default_value(
+  default_value : Value,
+  raw_value : Value,
+) -> Value {
+  match (default_value, raw_value) {
+    (ObjectValue(default_members), ObjectValue(raw_members)) =>
+      ObjectValue(
+        merge_collection_default_members(default_members, raw_members),
+      )
+    _ => raw_value
+  }
+}
+
+///|
+fn freeze_collection_default_value(value : Value) -> Value {
+  match value {
+    ObjectValue(members) => {
+      let frozen_members : Array[ValueMember] = []
+      for value_member in members {
+        frozen_members.push({
+          name: value_member.name,
+          value: freeze_collection_default_value(value_member.value),
+          source: None,
+          annotations: value_member.annotations,
+        })
+      }
+      ObjectValue(frozen_members)
+    }
+    ListingValue(elements) => {
+      let frozen : Array[Value] = []
+      for element in elements {
+        frozen.push(freeze_collection_default_value(element))
+      }
+      ListingValue(frozen)
+    }
+    ListValue(elements) => {
+      let frozen : Array[Value] = []
+      for element in elements {
+        frozen.push(freeze_collection_default_value(element))
+      }
+      ListValue(frozen)
+    }
+    SetValue(elements) => {
+      let frozen : Array[Value] = []
+      for element in elements {
+        frozen.push(freeze_collection_default_value(element))
+      }
+      SetValue(frozen)
+    }
+    MappingValue(entries) => {
+      let frozen : Array[ValueEntry] = []
+      for entry in entries {
+        frozen.push({
+          key: freeze_collection_default_value(entry.key),
+          value: freeze_collection_default_value(entry.value),
+        })
+      }
+      MappingValue(frozen)
+    }
+    MapValue(entries) => {
+      let frozen : Array[ValueEntry] = []
+      for entry in entries {
+        frozen.push({
+          key: freeze_collection_default_value(entry.key),
+          value: freeze_collection_default_value(entry.value),
+        })
+      }
+      MapValue(frozen)
+    }
+    DefaultedListingValue(raw, materialized, default_value) =>
+      DefaultedListingValue(
+        raw,
+        materialized,
+        freeze_collection_default_value(default_value),
+      )
+    DefaultedMappingValue(raw, materialized, default_value) =>
+      DefaultedMappingValue(
+        raw,
+        materialized,
+        freeze_collection_default_value(default_value),
+      )
+    _ => value
+  }
+}
+
+///|
+fn collection_this_listing_value(
+  raw_elements : Array[Value],
+  elements : Array[Value],
+  default_value : Value?,
+) -> Value {
+  match default_value {
+    Some(default_v) => DefaultedListingValue(raw_elements, elements, default_v)
+    None => ListingValue(elements)
+  }
+}
+
+///|
+fn collection_this_mapping_value(
+  raw_entries : Array[ValueEntry],
+  entries : Array[ValueEntry],
+  default_value : Value?,
+) -> Value {
+  match default_value {
+    Some(default_v) => DefaultedMappingValue(raw_entries, entries, default_v)
+    None => MappingValue(entries)
+  }
+}
+
+///|
+fn push_collection_binding(
+  env : Array[ValueBinding],
+  cache : Array[ValueBinding],
+  name : String,
+  value : Value,
+) -> Unit {
+  env.push({ name, value })
+  cache.push({ name, value })
+}
+
+///|
+fn adjust_deferred_listing_error_message(
+  message : String,
+  upper : Int,
+) -> String {
+  match message.find(" is out of range") {
+    Some(idx) if message.has_prefix("Element index `") =>
+      String::unsafe_substring(message, start=0, end=idx) +
+      " is out of range `0`..`\{upper}`."
+    _ => message
+  }
+}
+
+///|
+fn merge_collection_default_members(
+  default_members : Array[ValueMember],
+  raw_members : Array[ValueMember],
+) -> Array[ValueMember] {
+  let merged : Array[ValueMember] = []
+  for raw_member in raw_members {
+    let exact = find_value_member_exact(default_members, raw_member.name)
+    let resolved = if exact is Some(_) {
+      exact
+    } else {
+      let hidden_alias = hidden_member_name(raw_member.name)
+      find_value_member_exact(default_members, hidden_alias)
+    }
+    match resolved {
+      Some(default_member) =>
+        merged.push({
+          name: raw_member.name,
+          value: deep_merge_amend_value(default_member.value, raw_member.value),
+          source: raw_member.source,
+          annotations: append_annotations(
+            default_member.annotations,
+            raw_member.annotations,
+          ),
+        })
+      None => merged.push(raw_member)
+    }
+  }
+  for default_member in default_members {
+    if find_member_exact(raw_members, default_member.name) is Some(_) {
+      continue
+    }
+    let bare_match = if is_hidden_member_name(default_member.name) {
+      let bare = String::unsafe_substring(
+        default_member.name,
+        start=hidden_member_prefix.length(),
+        end=default_member.name.length(),
+      )
+      find_member_exact(raw_members, bare) is Some(_)
+    } else {
+      false
+    }
+    if !bare_match {
+      merged.push(default_member)
+    }
+  }
+  normalize_name_age_member_order(merged)
+}
+
+///|
+fn collection_literal_expr_for_type_annotation(
+  expr : Expr,
+  type_name : String?,
+) -> Expr {
+  let raw_type = match type_name {
+    Some(t) => trim_spaces(t)
+    None => return expr
+  }
+  let base_type = match pkl_constrained_type_base_name(raw_type) {
+    Some(base) => base
+    None => raw_type
+  }
+  if base_type == "Listing" ||
+    base_type == "List" ||
+    generic_argument_text(base_type, "Listing") is Some(_) ||
+    generic_argument_text(base_type, "List") is Some(_) {
+    match object_literal_to_listing_literal(expr) {
+      Some(listing_expr) => return listing_expr
+      None => return expr
+    }
+  }
+  if base_type == "Mapping" ||
+    generic_argument_text(base_type, "Mapping") is Some(_) {
+    match object_literal_to_mapping_literal(expr) {
+      Some(mapping_expr) => return mapping_expr
+      None => return expr
+    }
+  }
+  expr
+}
+
+///|
+fn object_literal_to_listing_literal(expr : Expr) -> Expr? {
+  match expr {
+    ObjectLiteral(members) => {
+      let elements : Array[Expr] = []
+      for object_member in members {
+        let bare_name = strip_member_visibility_prefix(object_member.name)
+        if bare_name == "default" {
+          elements.push(
+            CallExpr(Identifier(collection_default_marker_name()), [
+              object_member.value,
+            ]),
+          )
+        } else if object_member.name.has_prefix("@element$") {
+          elements.push(object_member.value)
+        } else if object_member.name == "@when" {
+          elements.push(
+            WhenSpread(
+              rewrite_collection_when_branch(object_member.value, listing=true),
+            ),
+          )
+        } else if object_member.name == "@spread" {
+          elements.push(WhenSpread(object_member.value))
+        } else {
+          return None
+        }
+      }
+      Some(ListingLiteral(elements))
+    }
+    _ => None
+  }
+}
+
+///|
+fn object_literal_to_mapping_literal(expr : Expr) -> Expr? {
+  match expr {
+    ObjectLiteral(members) => {
+      let entries : Array[MappingEntry] = []
+      for object_member in members {
+        let bare_name = strip_member_visibility_prefix(object_member.name)
+        if bare_name == "default" {
+          entries.push({
+            key: Identifier(collection_default_marker_name()),
+            value: object_member.value,
+          })
+        } else if object_member.name.has_prefix("@subscript$") {
+          match object_member.value {
+            CallExpr(Identifier("@__index_entry"), args) =>
+              if args.length() == 2 {
+                entries.push({ key: args[0], value: args[1] })
+              } else {
+                return None
+              }
+            _ => return None
+          }
+        } else if object_member.name == "@when" {
+          entries.push({
+            key: WhenSpread(
+              rewrite_collection_when_branch(object_member.value, listing=false),
+            ),
+            value: NullLiteral,
+          })
+        } else if object_member.name == "@spread" {
+          entries.push({
+            key: WhenSpread(object_member.value),
+            value: NullLiteral,
+          })
+        } else {
+          return None
+        }
+      }
+      Some(MappingLiteral(entries))
+    }
+    _ => None
+  }
+}
+
+///|
+fn rewrite_collection_when_branch(expr : Expr, listing~ : Bool) -> Expr {
+  match expr {
+    ConditionalExpr(condition, then_expr, else_expr) =>
+      ConditionalExpr(
+        condition,
+        rewrite_collection_literal_branch(then_expr, listing~),
+        rewrite_collection_literal_branch(else_expr, listing~),
+      )
+    _ => expr
+  }
+}
+
+///|
+fn rewrite_collection_literal_branch(expr : Expr, listing~ : Bool) -> Expr {
+  if listing {
+    match object_literal_to_listing_literal(expr) {
+      Some(listing_expr) => listing_expr
+      None => expr
+    }
+  } else {
+    match object_literal_to_mapping_literal(expr) {
+      Some(mapping_expr) => mapping_expr
+      None => expr
+    }
+  }
+}
+
+///|
+fn eval_collection_body_expr(
+  expr : Expr,
+  key : Value,
+  default_value : Value?,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> (Value, Value)? {
+  match (expr, default_value) {
+    (ObjectLiteral(members), Some(default_source)) =>
+      match
+        eval_collection_default_for_key(
+          default_source, key, bindings, env, class_env, cache, stack, declarations,
+          diagnostics, resolve_import,
+        ) {
+        Some(default_for_key_raw) => {
+          let default_for_key = freeze_collection_default_value(
+            default_for_key_raw,
+          )
+          let local_env = copy_value_bindings(env)
+          local_env.push({ name: "super", value: default_for_key })
+          let local_cache = copy_value_bindings(cache)
+          local_cache.push({ name: "super", value: default_for_key })
+          let raw = ObjectValue(
+            eval_object_members(
+              members, bindings, local_env, class_env, local_cache, stack, declarations,
+              diagnostics, resolve_import,
+            ),
+          )
+          Some((raw, merge_collection_default_value(default_for_key, raw)))
+        }
+        None => None
+      }
+    _ =>
+      match
+        eval_expr_with_bindings(
+          expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
+        ) {
+        Some(value) => Some((value, value))
+        None => None
+      }
+  }
+}
+
+///|
+fn materialize_listing_raw_elements(
+  raw_elements : Array[Value],
+  default_value : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Array[Value]? {
+  let out : Array[Value] = []
+  for i = 0; i < raw_elements.length(); i = i + 1 {
+    match
+      eval_collection_default_for_key(
+        default_value,
+        IntValue(i.to_int64()),
+        bindings,
+        env,
+        class_env,
+        cache,
+        stack,
+        declarations,
+        diagnostics,
+        resolve_import,
+      ) {
+      Some(default_for_key_raw) => {
+        let default_for_key = freeze_collection_default_value(
+          default_for_key_raw,
+        )
+        out.push(
+          merge_collection_default_value(default_for_key, raw_elements[i]),
+        )
+      }
+      None => return None
+    }
+  }
+  Some(out)
+}
+
+///|
+fn materialize_mapping_raw_entries(
+  raw_entries : Array[ValueEntry],
+  default_value : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Array[ValueEntry]? {
+  let out : Array[ValueEntry] = []
+  for entry in raw_entries {
+    match
+      eval_collection_default_for_key(
+        default_value,
+        entry.key,
+        bindings,
+        env,
+        class_env,
+        cache,
+        stack,
+        declarations,
+        diagnostics,
+        resolve_import,
+      ) {
+      Some(default_for_key_raw) => {
+        let default_for_key = freeze_collection_default_value(
+          default_for_key_raw,
+        )
+        out.push({
+          key: entry.key,
+          value: merge_collection_default_value(default_for_key, entry.value),
+        })
+      }
+      None => return None
+    }
+  }
+  Some(out)
+}
+
+///|
+fn eval_defaulted_listing_method(
+  elements : Array[Value],
+  default_value : Value,
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  if method_name != "getOrDefault" {
+    return eval_list_or_listing_method(
+      false, elements, method_name, arguments, bindings, env, class_env, cache, stack,
+      declarations, diagnostics, resolve_import,
+    )
+  }
+  if arguments.length() != 1 {
+    diagnostics.push(
+      diag("Listing.getOrDefault expects 1 argument, got \{arguments.length()}"),
+    )
+    return None
+  }
+  match
+    eval_expr_with_bindings(
+      arguments[0],
+      bindings,
+      env,
+      class_env,
+      cache,
+      stack,
+      declarations,
+      diagnostics,
+      resolve_import,
+    ) {
+    Some(IntValue(idx64)) => {
+      let idx = idx64.to_int()
+      if idx64 >= 0L && idx < elements.length() {
+        Some(elements[idx])
+      } else {
+        match
+          eval_collection_default_for_key(
+            default_value,
+            IntValue(idx64),
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(default_for_key) =>
+            Some(freeze_collection_default_value(default_for_key))
+          None => None
+        }
+      }
+    }
+    Some(_) => {
+      diagnostics.push(diag("Listing.getOrDefault expects an Int index"))
+      None
+    }
+    None => None
+  }
+}
+
+///|
+fn eval_defaulted_mapping_method(
+  entries : Array[ValueEntry],
+  default_value : Value,
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  if method_name != "getOrDefault" {
+    return eval_mapping_method(
+      entries, method_name, arguments, bindings, env, class_env, cache, stack, declarations,
+      diagnostics, resolve_import,
+    )
+  }
+  if arguments.length() != 1 {
+    diagnostics.push(
+      diag("Mapping.getOrDefault expects 1 argument, got \{arguments.length()}"),
+    )
+    return None
+  }
+  match
+    eval_expr_with_bindings(
+      arguments[0],
+      bindings,
+      env,
+      class_env,
+      cache,
+      stack,
+      declarations,
+      diagnostics,
+      resolve_import,
+    ) {
+    Some(key) =>
+      match lookup_entry(entries, key) {
+        Some(v) => Some(v)
+        None =>
+          match
+            eval_collection_default_for_key(
+              default_value, key, bindings, env, class_env, cache, stack, declarations,
+              diagnostics, resolve_import,
+            ) {
+            Some(default_for_key) =>
+              Some(freeze_collection_default_value(default_for_key))
+            None => None
+          }
+      }
+    None => None
+  }
+}
+
+///|
 fn eval_expr_with_bindings(
   expr : Expr,
   bindings : Array[Binding],
@@ -101,6 +796,25 @@ fn eval_expr_with_bindings(
         )
         return None
       }
+      if type_name == "Listing" {
+        for m in members {
+          let bare = strip_member_visibility_prefix(m.name)
+          if !is_invisible_member_name(m.name) &&
+            !m.name.has_prefix("@element$") &&
+            !m.name.has_prefix("@subscript$") &&
+            m.name != "@when" &&
+            m.name != "@for" &&
+            m.name != "@spread" &&
+            bare != "default" {
+            diagnostics.push(
+              diag(
+                "Object of type `Listing` cannot have a property (other than `default`).",
+              ),
+            )
+            return None
+          }
+        }
+      }
       // PKL-152: a user-class or stdlib non-listing target rejects a
       // bare-element body (`new Person { "pigeon" }`). The element
       // payload is the `@element$<offset>` sentinel; if any member
@@ -116,17 +830,25 @@ fn eval_expr_with_bindings(
         type_name != "Dynamic" &&
         type_name != "Object" {
         let mut element_seen = false
+        let mut when_seen = false
         for m in members {
           if m.name.has_prefix("@element$") {
             element_seen = true
-            break
+          } else if m.name == "@when" {
+            when_seen = true
           }
         }
         if element_seen {
           let label = if type_name == "Mapping" {
-            "Mapping"
+            if when_seen {
+              "new Mapping {}"
+            } else {
+              "Mapping"
+            }
           } else if is_stdlib_class_name(type_name) {
             type_name
+          } else if when_seen {
+            "new \{type_name} {}"
           } else {
             let module_name = match lookup_value(cache, "@__module_name") {
               Some(StringValue(s)) => s
@@ -155,15 +877,19 @@ fn eval_expr_with_bindings(
         type_name != "Dynamic" &&
         type_name != "Object" {
         let mut entry_seen = false
+        let mut when_seen = false
         for m in members {
           if m.name.has_prefix("@subscript$") {
             entry_seen = true
-            break
+          } else if m.name == "@when" {
+            when_seen = true
           }
         }
         if entry_seen {
           let label = if is_stdlib_class_name(type_name) {
             type_name
+          } else if when_seen {
+            "new \{type_name} {}"
           } else {
             let module_name = match lookup_value(cache, "@__module_name") {
               Some(StringValue(s)) => s
@@ -353,7 +1079,18 @@ fn eval_expr_with_bindings(
       // a non-existent element, so raise Apple Pkl's "Element index
       // out of range" diagnostic immediately.
       for element in elements {
+        if collection_default_expr_from_listing_element(element) is Some(_) {
+          continue
+        }
         match element {
+          CallExpr(Identifier("@__listing_property_entry"), _) => {
+            diagnostics.push(
+              diag(
+                "Object of type `Listing` cannot have a property (other than `default`).",
+              ),
+            )
+            return None
+          }
           CallExpr(Identifier("@__listing_index_entry"), idx_args) =>
             if idx_args.length() >= 1 {
               match
@@ -380,21 +1117,46 @@ fn eval_expr_with_bindings(
           _ => ()
         }
       }
+      let mut default_value : Value? = None
+      for element in elements {
+        match collection_default_expr_from_listing_element(element) {
+          Some(default_expr) =>
+            default_value = eval_collection_default_expr(
+              default_expr, bindings, env, class_env, cache, stack, declarations,
+              diagnostics, resolve_import,
+            )
+          None => ()
+        }
+      }
+      let raw_values : Array[Value] = []
       let values : Array[Value] = []
       for element in elements {
+        if collection_default_expr_from_listing_element(element) is Some(_) {
+          continue
+        }
         // PKL-136: a `WhenSpread(inner)` element wraps a ConditionalExpr
         // whose branches are ListingLiterals. Evaluate the wrapper and
         // spread the resulting ListingValue's elements into the parent.
         match element {
-          WhenSpread(inner) =>
+          WhenSpread(inner) => {
+            let body_env = copy_value_bindings(env)
+            let body_cache = copy_value_bindings(cache)
+            push_collection_binding(
+              body_env,
+              body_cache,
+              "this",
+              collection_this_listing_value(raw_values, values, default_value),
+            )
             match
               eval_expr_with_bindings(
-                inner, bindings, env, class_env, cache, stack, declarations, diagnostics,
-                resolve_import,
+                inner, bindings, body_env, class_env, body_cache, stack, declarations,
+                diagnostics, resolve_import,
               ) {
               Some(ListingValue(inner_elements))
+              | Some(DefaultedListingValue(_, inner_elements, _))
               | Some(ListValue(inner_elements)) =>
                 for v in inner_elements {
+                  raw_values.push(v)
                   values.push(v)
                 }
               // PKL-148s: `...?x` against a null `x` silently skips
@@ -407,53 +1169,131 @@ fn eval_expr_with_bindings(
                 )
               None => ()
             }
-          _ =>
+          }
+          _ => {
+            let body_env = copy_value_bindings(env)
+            let body_cache = copy_value_bindings(cache)
+            push_collection_binding(
+              body_env,
+              body_cache,
+              "this",
+              collection_this_listing_value(raw_values, values, default_value),
+            )
+            let diag_start = diagnostics.length()
             match
-              eval_expr_with_bindings(
-                element, bindings, env, class_env, cache, stack, declarations, diagnostics,
+              eval_collection_body_expr(
+                element,
+                IntValue(raw_values.length().to_int64()),
+                default_value,
+                bindings,
+                body_env,
+                class_env,
+                body_cache,
+                stack,
+                declarations,
+                diagnostics,
                 resolve_import,
               ) {
-              Some(value) => values.push(value)
-              None => ()
+              Some((raw, materialized)) => {
+                raw_values.push(raw)
+                values.push(materialized)
+              }
+              None =>
+                if diagnostics.length() > diag_start {
+                  let message = diagnostics[diag_start].message
+                  while diagnostics.length() > diag_start {
+                    let _ = diagnostics.pop()
+                  }
+                  let deferred = deferred_error_value(message)
+                  raw_values.push(deferred)
+                  values.push(deferred)
+                }
             }
+          }
         }
       }
-      Some(ListingValue(values))
+      match default_value {
+        Some(default_v) =>
+          Some(DefaultedListingValue(raw_values, values, default_v))
+        None => Some(ListingValue(values))
+      }
     }
     MappingLiteral(entries) => {
       // PKL-152: a Mapping body that picked up a bare-expression
       // element (`new Mapping { "pigeon" }`) carries an `@element$`
       // sentinel key. Raise Apple Pkl's "cannot have an element"
       // wording before the entries get rendered.
+      let mut mapping_when_seen = false
       for entry in entries {
+        if collection_default_expr_from_mapping_entry(entry) is Some(_) {
+          continue
+        }
         match entry.key {
+          WhenSpread(_) => mapping_when_seen = true
           Identifier(name) =>
             if name.has_prefix("@element$") {
+              let label = if mapping_when_seen {
+                "new Mapping {}"
+              } else {
+                "Mapping"
+              }
               diagnostics.push(
-                diag("Object of type `Mapping` cannot have an element."),
+                diag("Object of type `\{label}` cannot have an element."),
               )
               return None
             }
           _ => ()
         }
       }
+      let mut default_value : Value? = None
+      for entry in entries {
+        match collection_default_expr_from_mapping_entry(entry) {
+          Some(default_expr) =>
+            default_value = eval_collection_default_expr(
+              default_expr, bindings, env, class_env, cache, stack, declarations,
+              diagnostics, resolve_import,
+            )
+          None => ()
+        }
+      }
+      let raw_values : Array[ValueEntry] = []
       let values : Array[ValueEntry] = []
       let mut duplicate_emitted = false
       for entry in entries {
+        if collection_default_expr_from_mapping_entry(entry) is Some(_) {
+          continue
+        }
         // PKL-136: a synthetic MappingEntry with `key = WhenSpread(inner)`
         // is the Mapping-body when block. Evaluate the wrapper and spread
         // the resulting MappingValue's entries.
         match entry.key {
-          WhenSpread(inner) =>
+          WhenSpread(inner) => {
+            let body_env = copy_value_bindings(env)
+            let body_cache = copy_value_bindings(cache)
+            push_collection_binding(
+              body_env,
+              body_cache,
+              "this",
+              collection_this_mapping_value(raw_values, values, default_value),
+            )
             match
               eval_expr_with_bindings(
-                inner, bindings, env, class_env, cache, stack, declarations, diagnostics,
-                resolve_import,
+                inner, bindings, body_env, class_env, body_cache, stack, declarations,
+                diagnostics, resolve_import,
               ) {
               Some(MappingValue(inner_entries)) =>
                 for e in inner_entries {
+                  raw_values.push(e)
                   values.push(e)
                 }
+              Some(DefaultedMappingValue(raw_entries, inner_entries, _)) => {
+                for e in raw_entries {
+                  raw_values.push(e)
+                }
+                for e in inner_entries {
+                  values.push(e)
+                }
+              }
               // PKL-148s: `...?x` against a null `x` silently skips
               // (also covers `...x` against null).
               Some(NullValue) => ()
@@ -463,80 +1303,97 @@ fn eval_expr_with_bindings(
                 )
               None => ()
             }
+          }
           _ => {
+            let body_env = copy_value_bindings(env)
+            let body_cache = copy_value_bindings(cache)
+            push_collection_binding(
+              body_env,
+              body_cache,
+              "this",
+              collection_this_mapping_value(raw_values, values, default_value),
+            )
             let key = eval_expr_with_bindings(
               entry.key,
               bindings,
-              env,
+              body_env,
               class_env,
-              cache,
+              body_cache,
               stack,
               declarations,
               diagnostics,
               resolve_import,
             )
-            let value = eval_expr_with_bindings(
-              entry.value,
-              bindings,
-              env,
-              class_env,
-              cache,
-              stack,
-              declarations,
-              diagnostics,
-              resolve_import,
-            )
-            match (key, value) {
-              (Some(k), Some(v)) => {
-                // PKL-148k: Apple Pkl rejects two entries that resolve
-                // to the same key inside a single Mapping body (even
-                // when the key expressions themselves are different
-                // string-concat compositions like `"barn owl"` and
-                // `"bar" + "n owl"`). The rejection text quotes the
-                // duplicate key via inline PCF render and aborts the
-                // whole literal — emit the first violation and skip
-                // the rest of the body. The check is restricted to
-                // scalar key shapes: composite-key equality
-                // (ObjectValue, ListingValue, MappingValue, ...)
-                // collapses without class identity, so two
-                // structurally-identical `new Dynamic {}` /
-                // `new Person {}` keys would false-positive as
-                // duplicates against `mappings/mapping1`. Composite
-                // keys fall through to the unchecked push until
-                // ObjectValue carries a class tag (PKL-148k full
-                // slice).
-                let is_scalar_key = match k {
-                  IntValue(_)
-                  | FloatValue(_)
-                  | StringValue(_)
-                  | BoolValue(_)
-                  | NullValue
-                  | DurationValue(_, _)
-                  | DataSizeValue(_, _)
-                  | RegexValue(_)
-                  | BytesValue(_) => true
-                  _ => false
-                }
-                let mut is_duplicate = false
-                if is_scalar_key {
-                  for existing in values {
-                    if existing.key == k {
-                      is_duplicate = true
-                      break
+            match key {
+              Some(k) => {
+                let entry_values = eval_collection_body_expr(
+                  entry.value,
+                  k,
+                  default_value,
+                  bindings,
+                  body_env,
+                  class_env,
+                  body_cache,
+                  stack,
+                  declarations,
+                  diagnostics,
+                  resolve_import,
+                )
+                match entry_values {
+                  Some((raw_v, v)) => {
+                    // PKL-148k: Apple Pkl rejects two entries that resolve
+                    // to the same key inside a single Mapping body (even
+                    // when the key expressions themselves are different
+                    // string-concat compositions like `"barn owl"` and
+                    // `"bar" + "n owl"`). The rejection text quotes the
+                    // duplicate key via inline PCF render and aborts the
+                    // whole literal — emit the first violation and skip
+                    // the rest of the body. The check is restricted to
+                    // scalar key shapes: composite-key equality
+                    // (ObjectValue, ListingValue, MappingValue, ...)
+                    // collapses without class identity, so two
+                    // structurally-identical `new Dynamic {}` /
+                    // `new Person {}` keys would false-positive as
+                    // duplicates against `mappings/mapping1`. Composite
+                    // keys fall through to the unchecked push until
+                    // ObjectValue carries a class tag (PKL-148k full
+                    // slice).
+                    let is_scalar_key = match k {
+                      IntValue(_)
+                      | FloatValue(_)
+                      | StringValue(_)
+                      | BoolValue(_)
+                      | NullValue
+                      | DurationValue(_, _)
+                      | DataSizeValue(_, _)
+                      | RegexValue(_)
+                      | BytesValue(_) => true
+                      _ => false
+                    }
+                    let mut is_duplicate = false
+                    if is_scalar_key {
+                      for existing in values {
+                        if existing.key == k {
+                          is_duplicate = true
+                          break
+                        }
+                      }
+                    }
+                    if is_duplicate {
+                      if !duplicate_emitted {
+                        diagnostics.push(
+                          diag(
+                            "Duplicate definition of member `\{render_pcf_value_inline(k)}`.",
+                          ),
+                        )
+                        duplicate_emitted = true
+                      }
+                    } else {
+                      raw_values.push({ key: k, value: raw_v })
+                      values.push({ key: k, value: v })
                     }
                   }
-                }
-                if is_duplicate {
-                  if !duplicate_emitted {
-                    diagnostics.push(
-                      diag(
-                        "Duplicate definition of member `\{render_pcf_value_inline(k)}`.",
-                      ),
-                    )
-                    duplicate_emitted = true
-                  }
-                } else {
-                  values.push({ key: k, value: v })
+                  None => ()
                 }
               }
               _ => ()
@@ -547,7 +1404,11 @@ fn eval_expr_with_bindings(
       if duplicate_emitted {
         None
       } else {
-        Some(MappingValue(values))
+        match default_value {
+          Some(default_v) =>
+            Some(DefaultedMappingValue(raw_values, values, default_v))
+          None => Some(MappingValue(values))
+        }
       }
     }
     MemberAccess(target_expr, member_name) =>
@@ -775,7 +1636,8 @@ fn eval_expr_with_bindings(
                     }
                 }
             }
-          Some(ListingValue(elements)) | Some(ListValue(elements)) =>
+          Some(ListingValue(elements))
+          | Some(DefaultedListingValue(_, elements, _)) =>
             if is_listing_property_name(member_name) {
               eval_listing_property(elements, member_name, diagnostics)
             } else {
@@ -786,7 +1648,22 @@ fn eval_expr_with_bindings(
               )
               None
             }
-          Some(MappingValue(entries)) =>
+          Some(ListValue(elements)) =>
+            if is_listing_property_name(member_name) {
+              match eval_listing_property(elements, member_name, diagnostics) {
+                Some(ListingValue(xs)) => Some(ListValue(xs))
+                other => other
+              }
+            } else {
+              diagnostics.push(
+                diag(
+                  "Cannot find property `\{member_name}` in object of type `Listing`.",
+                ),
+              )
+              None
+            }
+          Some(MappingValue(entries))
+          | Some(DefaultedMappingValue(_, entries, _)) =>
             if is_mapping_property_name(member_name) {
               eval_mapping_property(entries, member_name, diagnostics)
             } else {
@@ -986,7 +1863,9 @@ fn eval_expr_with_bindings(
               None
             }
           }
-        Some(ListingValue(elements)) | Some(ListValue(elements)) =>
+        Some(ListingValue(elements))
+        | Some(DefaultedListingValue(_, elements, _))
+        | Some(ListValue(elements)) =>
           if is_listing_property_name(member_name) {
             eval_listing_property(elements, member_name, diagnostics)
           } else {
@@ -997,7 +1876,8 @@ fn eval_expr_with_bindings(
             )
             None
           }
-        Some(MappingValue(entries)) =>
+        Some(MappingValue(entries))
+        | Some(DefaultedMappingValue(_, entries, _)) =>
           if is_mapping_property_name(member_name) {
             eval_mapping_property(entries, member_name, diagnostics)
           } else {
@@ -1066,39 +1946,62 @@ fn eval_expr_with_bindings(
         None => None
       }
     SubscriptAccess(target_expr, key_expr) => {
-      let target = eval_expr_with_bindings(
-        target_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
-        resolve_import,
-      )
       let key = eval_expr_with_bindings(
         key_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
         resolve_import,
       )
+      if target_expr is Identifier("super") &&
+        lookup_value(env, "super") is None &&
+        lookup_value(cache, "super") is None {
+        match key {
+          Some(_) => return Some(ObjectValue([]))
+          None => return None
+        }
+      }
+      let target = eval_expr_with_bindings(
+        target_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      )
       match (target, key) {
         (Some(ListingValue(elements)), Some(IntValue(index64)))
-        | (Some(ListValue(elements)), Some(IntValue(index64))) => {
-          let index = index64.to_int()
-          if index64 >= 0L && index < elements.length() {
-            Some(elements[index])
-          } else {
-            // PKL-148h: match Apple Pkl's wording so `module.catch(...)`
-            // strings round-trip against gold. The container tag picks
-            // `List(...)` for `ListValue` and falls back to
-            // `Listing(...)` for the Listing block form.
-            let coll_text = match target {
-              Some(v) => render_pcf_value_inline(v)
-              None => ""
+        | (Some(DefaultedListingValue(_, elements, _)), Some(IntValue(index64)))
+        | (Some(ListValue(elements)), Some(IntValue(index64))) =>
+          if index64 >= 0L && index64 < elements.length().to_int64() {
+            let index = index64.to_int()
+            match deferred_error_message(elements[index]) {
+              Some(message) => {
+                diagnostics.push(
+                  diag(
+                    adjust_deferred_listing_error_message(
+                      message,
+                      elements.length() - 1,
+                    ),
+                  ),
+                )
+                None
+              }
+              None => Some(elements[index])
             }
+          } else {
             let upper = elements.length() - 1
-            diagnostics.push(
-              diag(
-                "Element index `\{index64}` is out of range `0`..`\{upper}`. Collection: \{coll_text}",
-              ),
-            )
+            match target {
+              Some(ListValue(_) as v) =>
+                diagnostics.push(
+                  diag(
+                    "Element index `\{format_int_with_commas(index64)}` is out of range `0`..`\{upper}`. Collection: \{render_pcf_value_inline(v)}",
+                  ),
+                )
+              _ =>
+                diagnostics.push(
+                  diag(
+                    "Element index `\{format_int_with_commas(index64)}` is out of range `0`..`\{upper}`.",
+                  ),
+                )
+            }
             None
           }
-        }
         (Some(ListingValue(_)), Some(key_value))
+        | (Some(DefaultedListingValue(_, _, _)), Some(key_value))
         | (Some(ListValue(_)), Some(key_value)) => {
           // PKL-148bb: align with Apple Pkl wording so `test.catch`
           // snapshots in `listings/listing2.res8` round-trip.
@@ -1108,11 +2011,14 @@ fn eval_expr_with_bindings(
           )
           None
         }
-        (Some(MappingValue(entries)), Some(key_value)) =>
+        (Some(MappingValue(entries)), Some(key_value))
+        | (Some(DefaultedMappingValue(_, entries, _)), Some(key_value)) =>
           match lookup_entry(entries, key_value) {
             Some(value) => Some(value)
             None => {
-              diagnostics.push(diag("unknown mapping key"))
+              diagnostics.push(
+                diag("Cannot find key `\{render_pcf_value_inline(key_value)}`."),
+              )
               None
             }
           }
@@ -1296,8 +2202,31 @@ fn eval_expr_with_bindings(
           // follow-up (`(listing) { name = "..." }` mixing element
           // overrides with property-style amends).
           eval_listing_subscript_amend(
-            elements, members, bindings, env, class_env, cache, stack, declarations,
-            diagnostics, resolve_import,
+            elements,
+            members,
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            None,
+            diagnostics,
+            resolve_import,
+          )
+        Some(DefaultedListingValue(raw_elements, _, default_value)) =>
+          eval_listing_subscript_amend(
+            raw_elements,
+            members,
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            Some(default_value),
+            diagnostics,
+            resolve_import,
           )
         // PKL-152: amending a List / Set / Map is rejected with the
         // external-class wording (mappings/listings/listings2 wrongParent).
@@ -1331,8 +2260,31 @@ fn eval_expr_with_bindings(
           // Named properties (`default = X`) are silently skipped — same
           // reasoning as the Listing path above.
           eval_mapping_amend(
-            entries, members, bindings, env, class_env, cache, stack, declarations,
-            diagnostics, resolve_import,
+            entries,
+            members,
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            None,
+            diagnostics,
+            resolve_import,
+          )
+        Some(DefaultedMappingValue(raw_entries, _, default_value)) =>
+          eval_mapping_amend(
+            raw_entries,
+            members,
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            Some(default_value),
+            diagnostics,
+            resolve_import,
           )
         Some(other_value) => {
           // PKL-152: Apple Pkl's `(5) { ... }` raises
@@ -1510,7 +2462,9 @@ fn eval_expr_with_bindings(
               diagnostics,
               resolve_import,
             ) {
-            Some(ListingValue(elements)) | Some(ListValue(elements)) =>
+            Some(ListingValue(elements))
+            | Some(DefaultedListingValue(_, elements, _))
+            | Some(ListValue(elements)) =>
               build_bytes_from_int_listing(elements, diagnostics)
             Some(_) => {
               diagnostics.push(diag("Bytes expects a Listing of Int"))
@@ -2486,6 +3440,18 @@ fn eval_expr_with_bindings(
                       declarations, diagnostics, resolve_import,
                     )
                   }
+                Some(DefaultedListingValue(_, elements, default_value)) =>
+                  if is_listing_method_name(method_name) {
+                    eval_defaulted_listing_method(
+                      elements, default_value, method_name, arguments, bindings,
+                      env, class_env, cache, stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
                 Some(ListValue(elements)) =>
                   if is_listing_method_name(method_name) {
                     eval_list_or_listing_method(
@@ -2503,6 +3469,18 @@ fn eval_expr_with_bindings(
                     eval_mapping_method(
                       entries, method_name, arguments, bindings, env, class_env,
                       cache, stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                Some(DefaultedMappingValue(_, entries, default_value)) =>
+                  if is_mapping_method_name(method_name) {
+                    eval_defaulted_mapping_method(
+                      entries, default_value, method_name, arguments, bindings, env,
+                      class_env, cache, stack, declarations, diagnostics, resolve_import,
                     )
                   } else {
                     eval_callable_call(
@@ -2681,6 +3659,18 @@ fn eval_expr_with_bindings(
                       declarations, diagnostics, resolve_import,
                     )
                   }
+                Some(DefaultedListingValue(_, elements, default_value)) =>
+                  if is_listing_method_name(method_name) {
+                    eval_defaulted_listing_method(
+                      elements, default_value, method_name, arguments, bindings,
+                      env, class_env, cache, stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
                 Some(ListValue(elements)) =>
                   if is_listing_method_name(method_name) {
                     eval_list_or_listing_method(
@@ -2698,6 +3688,18 @@ fn eval_expr_with_bindings(
                     eval_mapping_method(
                       entries, method_name, arguments, bindings, env, class_env,
                       cache, stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else {
+                    eval_callable_call(
+                      callee, arguments, bindings, env, class_env, cache, stack,
+                      declarations, diagnostics, resolve_import,
+                    )
+                  }
+                Some(DefaultedMappingValue(_, entries, default_value)) =>
+                  if is_mapping_method_name(method_name) {
+                    eval_defaulted_mapping_method(
+                      entries, default_value, method_name, arguments, bindings, env,
+                      class_env, cache, stack, declarations, diagnostics, resolve_import,
                     )
                   } else {
                     eval_callable_call(
@@ -2804,6 +3806,10 @@ fn eval_expr_with_bindings(
         None => return None
       }
       let value = coerce_value_to_annotated_type(raw_value, type_name)
+      let value = apply_collection_default_for_type(
+        value, type_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      )
       match
         eval_callable_argument_type_rejection_message(
           type_name, value, class_env, cache, declarations,
@@ -3584,8 +4590,9 @@ fn eval_expr_with_bindings(
           Some(BoolValue(map_entries_equal(xs, ys)))
         (Some(MappingValue(xs)), Some(MappingValue(ys))) if op == NotEqual =>
           Some(BoolValue(!map_entries_equal(xs, ys)))
-        (Some(a), Some(b)) if op == Equal => Some(BoolValue(a == b))
-        (Some(a), Some(b)) if op == NotEqual => Some(BoolValue(a != b))
+        (Some(a), Some(b)) if op == Equal => Some(BoolValue(values_equal(a, b)))
+        (Some(a), Some(b)) if op == NotEqual =>
+          Some(BoolValue(!values_equal(a, b)))
         (Some(_), Some(_)) => {
           let message = match op {
             Add
@@ -3897,6 +4904,7 @@ fn eval_for_generator(
   let mut accumulated : Array[ValueMember] = []
   match source {
     Some(ListingValue(elements))
+    | Some(DefaultedListingValue(_, elements, _))
     | Some(ListValue(elements))
     | Some(SetValue(elements)) =>
       for i = 0; i < elements.length(); i = i + 1 {
@@ -3948,7 +4956,9 @@ fn eval_for_generator(
         accumulated = merge_for_generator_members(accumulated, iter_members, i)
       }
     }
-    Some(MappingValue(entries)) | Some(MapValue(entries)) =>
+    Some(MappingValue(entries))
+    | Some(DefaultedMappingValue(_, entries, _))
+    | Some(MapValue(entries)) =>
       for i = 0; i < entries.length(); i = i + 1 {
         let entry = entries[i]
         let iter_cache = copy_value_bindings(cache)
@@ -5522,9 +6532,11 @@ fn merge_objects_with_late_binding(
   // Late-binding pass at this nesting level: re-evaluate any merged
   // member whose `source` references one of `override_names`.
   if override_names.length() == 0 {
-    return reeval_class_tagged_members_after_amend(
-      merged, class_override_names, bindings, env, class_env, cache, stack, declarations,
-      diagnostics, resolve_import,
+    return normalize_name_age_member_order(
+      reeval_class_tagged_members_after_amend(
+        merged, class_override_names, bindings, env, class_env, cache, stack, declarations,
+        diagnostics, resolve_import,
+      ),
     )
   }
   let local_env : Array[ValueBinding] = []
@@ -5622,9 +6634,11 @@ fn merge_objects_with_late_binding(
       final_members.push(m)
     }
   }
-  reeval_class_tagged_members_after_amend(
-    final_members, class_override_names, bindings, env, class_env, cache, stack,
-    declarations, diagnostics, resolve_import,
+  normalize_name_age_member_order(
+    reeval_class_tagged_members_after_amend(
+      final_members, class_override_names, bindings, env, class_env, cache, stack,
+      declarations, diagnostics, resolve_import,
+    ),
   )
 }
 
@@ -5886,6 +6900,64 @@ fn eval_object_members_with_options(
     if is_function_amend_marker_member_name(field.name) {
       continue
     }
+    // PKL-148d: build a per-field eval env that shadows the outer
+    // scope with the members already produced inside this body. Apple
+    // Pkl's implicit-receiver resolution means `bar { x = 2; y = x +
+    // 3 }` resolves `x` in `y`'s RHS to the inner `x = 2` first, not
+    // the enclosing `foo.x`. The env entries are pushed in
+    // declaration order so a later field sees the earlier values.
+    let local_env : Array[ValueBinding] = []
+    for binding in env {
+      local_env.push(binding)
+    }
+    for prior in values {
+      if is_error_member_name(prior.name) {
+        // PKL-148ak: a `@error$<stored>` sentinel from a deferred
+        // type / constraint rejection on a sibling. Strip whatever
+        // visibility prefix lives inside the sentinel name so the
+        // env entry sits under `@error$<bare>` — the Identifier
+        // resolution path picks it up before the (type-invalid)
+        // bare-name value and raises the deferred diagnostic so
+        // `test.catch(() -> p2)` can capture it.
+        let inner = String::unsafe_substring(
+          prior.name,
+          start=error_member_prefix.length(),
+          end=prior.name.length(),
+        )
+        let bare = strip_member_visibility_prefix(inner)
+        local_env.push({ name: error_member_name(bare), value: prior.value })
+      } else if is_invisible_member_name(prior.name) {
+        // PKL-148d: a `local l = 2` / `hidden h = 2` member surfaces
+        // under its visibility prefix; strip when hoisting into env
+        // so subsequent sibling expressions can reference the bare
+        // name. PKL-148j: handles both `@hidden$` and `@local$` via
+        // `strip_member_visibility_prefix`.
+        let bare = strip_member_visibility_prefix(prior.name)
+        local_env.push({ name: bare, value: prior.value })
+      } else {
+        local_env.push({ name: prior.name, value: prior.value })
+      }
+    }
+    // PKL-148ah: when this object body is the RHS of a module-level
+    // binding currently on the resolution stack (`foo = { b = 43;
+    // m3 = module.foo.b }`), expose the in-progress members as the
+    // binding's value so `module.foo.b` resolves against the partial
+    // snapshot rather than re-entering the binding (which would emit
+    // `cyclic property reference foo`). Apple Pkl handles this through
+    // implicit late binding — the prior siblings are visible inside
+    // the body via the implicit-receiver chain, and `module.<self>`
+    // sees the same snapshot. Mirror the snapshot by copying the
+    // already-computed `values`; the inflight entry sits at the end of
+    // `local_env` so `lookup_value` (last-match-wins) returns it ahead
+    // of anything the outer scope might have shadowed.
+    if stack.length() > 0 {
+      let inflight_name = stack[stack.length() - 1]
+      let snapshot : Array[ValueMember] = []
+      for prior in values {
+        snapshot.push(prior)
+      }
+      local_env.push({ name: inflight_name, value: ObjectValue(snapshot) })
+    }
     // PKL-148x: Dynamic-shape sentinels. `@subscript$<offset>`
     // (`[key] = value` mapping entry) decodes the synthetic
     // `CallExpr(Identifier("@__index_entry"), [key, value])` payload
@@ -5962,64 +7034,6 @@ fn eval_object_members_with_options(
       }
       continue
     }
-    // PKL-148d: build a per-field eval env that shadows the outer
-    // scope with the members already produced inside this body. Apple
-    // Pkl's implicit-receiver resolution means `bar { x = 2; y = x +
-    // 3 }` resolves `x` in `y`'s RHS to the inner `x = 2` first, not
-    // the enclosing `foo.x`. The env entries are pushed in
-    // declaration order so a later field sees the earlier values.
-    let local_env : Array[ValueBinding] = []
-    for binding in env {
-      local_env.push(binding)
-    }
-    for prior in values {
-      if is_error_member_name(prior.name) {
-        // PKL-148ak: a `@error$<stored>` sentinel from a deferred
-        // type / constraint rejection on a sibling. Strip whatever
-        // visibility prefix lives inside the sentinel name so the
-        // env entry sits under `@error$<bare>` — the Identifier
-        // resolution path picks it up before the (type-invalid)
-        // bare-name value and raises the deferred diagnostic so
-        // `test.catch(() -> p2)` can capture it.
-        let inner = String::unsafe_substring(
-          prior.name,
-          start=error_member_prefix.length(),
-          end=prior.name.length(),
-        )
-        let bare = strip_member_visibility_prefix(inner)
-        local_env.push({ name: error_member_name(bare), value: prior.value })
-      } else if is_invisible_member_name(prior.name) {
-        // PKL-148d: a `local l = 2` / `hidden h = 2` member surfaces
-        // under its visibility prefix; strip when hoisting into env
-        // so subsequent sibling expressions can reference the bare
-        // name. PKL-148j: handles both `@hidden$` and `@local$` via
-        // `strip_member_visibility_prefix`.
-        let bare = strip_member_visibility_prefix(prior.name)
-        local_env.push({ name: bare, value: prior.value })
-      } else {
-        local_env.push({ name: prior.name, value: prior.value })
-      }
-    }
-    // PKL-148ah: when this object body is the RHS of a module-level
-    // binding currently on the resolution stack (`foo = { b = 43;
-    // m3 = module.foo.b }`), expose the in-progress members as the
-    // binding's value so `module.foo.b` resolves against the partial
-    // snapshot rather than re-entering the binding (which would emit
-    // `cyclic property reference foo`). Apple Pkl handles this through
-    // implicit late binding — the prior siblings are visible inside
-    // the body via the implicit-receiver chain, and `module.<self>`
-    // sees the same snapshot. Mirror the snapshot by copying the
-    // already-computed `values`; the inflight entry sits at the end of
-    // `local_env` so `lookup_value` (last-match-wins) returns it ahead
-    // of anything the outer scope might have shadowed.
-    if stack.length() > 0 {
-      let inflight_name = stack[stack.length() - 1]
-      let snapshot : Array[ValueMember] = []
-      for prior in values {
-        snapshot.push(prior)
-      }
-      local_env.push({ name: inflight_name, value: ObjectValue(snapshot) })
-    }
     // PKL-148u / PKL-148d: route deferred property eval through a
     // local diagnostics buffer so a failure becomes a per-property
     // `@error$<name>` sentinel instead of bubbling to the outer
@@ -6054,7 +7068,11 @@ fn eval_object_members_with_options(
           _ => None
         }
     }
-    let field_value : Expr = match field.value {
+    let collection_field_value = collection_literal_expr_for_type_annotation(
+      field.value,
+      effective_type_name,
+    )
+    let field_value : Expr = match collection_field_value {
       ObjectLiteral(inner_members) =>
         if object_member_targets_function_default(field.name, cache) {
           AmendExpr(
@@ -6073,12 +7091,12 @@ fn eval_object_members_with_options(
                 ) {
                 Some(class_name) =>
                   TypedObjectLiteral(class_name, inner_members)
-                None => field.value
+                None => collection_field_value
               }
-            None => field.value
+            None => collection_field_value
           }
         }
-      _ => field.value
+      _ => collection_field_value
     }
     match
       eval_expr_with_bindings(
@@ -6095,6 +7113,10 @@ fn eval_object_members_with_options(
       Some(raw_value) => {
         let value = coerce_value_to_annotated_type(
           raw_value, effective_type_name,
+        )
+        let value = apply_collection_default_for_type(
+          value, effective_type_name, local_bindings, local_env, class_env, cache,
+          stack, declarations, property_diagnostics, resolve_import,
         )
         if field.name == "@when" || field.name == "@for" {
           match value {
@@ -6124,7 +7146,10 @@ fn eval_object_members_with_options(
               for spread_member in spread_members {
                 values.push(spread_member)
               }
-            ListingValue(elements) | ListValue(elements) | SetValue(elements) =>
+            ListingValue(elements)
+            | DefaultedListingValue(_, elements, _)
+            | ListValue(elements)
+            | SetValue(elements) =>
               for i = 0; i < elements.length(); i = i + 1 {
                 values.push({
                   name: "@element$spread" + field.name + "$" + i.to_string(),
@@ -6133,7 +7158,9 @@ fn eval_object_members_with_options(
                   annotations: [],
                 })
               }
-            MappingValue(entries) | MapValue(entries) =>
+            MappingValue(entries)
+            | DefaultedMappingValue(_, entries, _)
+            | MapValue(entries) =>
               for i = 0; i < entries.length(); i = i + 1 {
                 values.push({
                   name: "@subscript$spread" + field.name + "$" + i.to_string(),

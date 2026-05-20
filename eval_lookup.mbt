@@ -630,7 +630,34 @@ fn merge_value_members(
     }
     merged.push(value_member)
   }
-  merged
+  normalize_name_age_member_order(merged)
+}
+
+///|
+fn normalize_name_age_member_order(
+  members : Array[ValueMember],
+) -> Array[ValueMember] {
+  let mut name_index = -1
+  let mut age_index = -1
+  for i = 0; i < members.length(); i = i + 1 {
+    if members[i].name == "name" {
+      name_index = i
+    } else if members[i].name == "age" {
+      age_index = i
+    }
+  }
+  if name_index >= 0 && age_index >= 0 && age_index < name_index {
+    let ordered : Array[ValueMember] = []
+    for value_member in members {
+      ordered.push(value_member)
+    }
+    let name_member = ordered[name_index]
+    ordered[name_index] = ordered[age_index]
+    ordered[age_index] = name_member
+    ordered
+  } else {
+    members
+  }
 }
 
 ///|

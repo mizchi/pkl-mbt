@@ -47,6 +47,7 @@ fn is_listing_method_name(name : String) -> Bool {
     // PKL-148: pkl:base Listing surface — `getOrNull(idx)`,
     // `startsWith(other)`, `endsWith(other)`, `min` / `max` / `sum`.
     | "getOrNull"
+    | "getOrDefault"
     | "startsWith"
     | "endsWith"
     // PKL-148b: Listing.isDistinctBy(keyFn) — checks whether elements
@@ -535,6 +536,30 @@ fn eval_listing_method(
         }
       }
     }
+    "getOrDefault" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.getOrDefault expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match arg_values[0] {
+        IntValue(idx64) => {
+          let idx = idx64.to_int()
+          if idx64 >= 0L && idx < elements.length() {
+            Some(elements[idx])
+          } else {
+            Some(NullValue)
+          }
+        }
+        _ => {
+          diagnostics.push(diag("Listing.getOrDefault expects an Int index"))
+          None
+        }
+      }
+    }
     // PKL-148: pkl:base Listing.startsWith(other) / endsWith(other) —
     // structural prefix / suffix match against another Listing.
     "startsWith" | "endsWith" => {
@@ -547,7 +572,10 @@ fn eval_listing_method(
         return None
       }
       match arg_values[0] {
-        ListingValue(other) | ListValue(other) | SetValue(other) =>
+        ListingValue(other)
+        | DefaultedListingValue(_, other, _)
+        | ListValue(other)
+        | SetValue(other) =>
           if other.length() > elements.length() {
             Some(BoolValue(false))
           } else {
@@ -816,7 +844,9 @@ fn eval_listing_method(
             diagnostics,
             resolve_import,
           ) {
-          Some(ListingValue(inner)) | Some(ListValue(inner)) =>
+          Some(ListingValue(inner))
+          | Some(DefaultedListingValue(_, inner, _))
+          | Some(ListValue(inner)) =>
             for v in inner {
               result.push(v)
             }

@@ -1066,7 +1066,10 @@ fn value_has_member_annotations(value : Value) -> Bool {
       }
       false
     }
-    ListingValue(elements) | ListValue(elements) | SetValue(elements) => {
+    ListingValue(elements)
+    | DefaultedListingValue(_, elements, _)
+    | ListValue(elements)
+    | SetValue(elements) => {
       for element in elements {
         if value_has_member_annotations(element) {
           return true
@@ -1074,7 +1077,9 @@ fn value_has_member_annotations(value : Value) -> Bool {
       }
       false
     }
-    MappingValue(entries) | MapValue(entries) => {
+    MappingValue(entries)
+    | DefaultedMappingValue(_, entries, _)
+    | MapValue(entries) => {
       for entry in entries {
         if value_has_member_annotations(entry.key) ||
           value_has_member_annotations(entry.value) {
@@ -1459,6 +1464,18 @@ fn transform_convert_property_value(
       }
       ListingValue(next)
     }
+    DefaultedListingValue(raw, elements, default_value) => {
+      let next : Array[Value] = []
+      for element in elements {
+        next.push(
+          transform_convert_property_value(
+            element, renderer_value, transformers, bindings, env, class_env, cache,
+            declarations, diagnostics, resolve_import,
+          ),
+        )
+      }
+      DefaultedListingValue(raw, next, default_value)
+    }
     ListValue(elements) => {
       let next : Array[Value] = []
       for element in elements {
@@ -1524,6 +1541,27 @@ fn transform_convert_property_value(
         })
       }
       MappingValue(next)
+    }
+    DefaultedMappingValue(raw, entries, default_value) => {
+      let next : Array[ValueEntry] = []
+      for entry in entries {
+        next.push({
+          key: entry.key,
+          value: transform_convert_property_value(
+            entry.value,
+            renderer_value,
+            transformers,
+            bindings,
+            env,
+            class_env,
+            cache,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ),
+        })
+      }
+      DefaultedMappingValue(raw, next, default_value)
     }
     PairValue(first, second) =>
       PairValue(
@@ -1890,6 +1928,18 @@ fn walk_class_converter(
       }
       ListingValue(next)
     }
+    DefaultedListingValue(raw, xs, default_value) => {
+      let next : Array[Value] = []
+      for x in xs {
+        next.push(
+          walk_class_converter(
+            x, converters, bindings, env, class_env, cache, declarations, diagnostics,
+            resolve_import,
+          ),
+        )
+      }
+      DefaultedListingValue(raw, next, default_value)
+    }
     ListValue(xs) => {
       let next : Array[Value] = []
       for x in xs {
@@ -1933,6 +1983,26 @@ fn walk_class_converter(
         })
       }
       MappingValue(next)
+    }
+    DefaultedMappingValue(raw, entries, default_value) => {
+      let next : Array[ValueEntry] = []
+      for e in entries {
+        next.push({
+          key: e.key,
+          value: walk_class_converter(
+            e.value,
+            converters,
+            bindings,
+            env,
+            class_env,
+            cache,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ),
+        })
+      }
+      DefaultedMappingValue(raw, next, default_value)
     }
     _ => value
   }
@@ -2190,7 +2260,7 @@ fn rewrite_walk(
         }
         ObjectValue(next)
       }
-      MappingValue(entries) => {
+      MappingValue(entries) | DefaultedMappingValue(_, entries, _) => {
         let next : Array[ValueEntry] = []
         for entry in entries {
           let key_matches = match entry.key {

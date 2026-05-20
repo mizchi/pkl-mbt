@@ -331,6 +331,120 @@ fn coerce_value_to_annotated_type(value : Value, type_name : String?) -> Value {
 }
 
 ///|
+fn apply_collection_default_for_type(
+  value : Value,
+  type_name : String?,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  let annotation = match type_name {
+    Some(t) => t
+    None => return value
+  }
+  let aliases = eval_type_alias_bindings(declarations)
+  let resolved = eval_resolved_type_alias(annotation, aliases)
+  let base = match pkl_constrained_type_base_name(resolved) {
+    Some(b) => b
+    None => resolved
+  }
+  match generic_argument_text(base, "Listing") {
+    Some(element_type) =>
+      match value {
+        ListingValue(raw_elements) =>
+          match
+            synthesize_default_for_type(
+              Some(element_type),
+              bindings,
+              env,
+              class_env,
+              cache,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ) {
+            Some(default_value) => {
+              if collection_default_value_is_empty(default_value) {
+                return value
+              }
+              match
+                materialize_listing_raw_elements(
+                  raw_elements, default_value, bindings, env, class_env, cache, stack,
+                  declarations, diagnostics, resolve_import,
+                ) {
+                Some(materialized) =>
+                  return DefaultedListingValue(
+                    raw_elements, materialized, default_value,
+                  )
+                None => return value
+              }
+            }
+            None => return value
+          }
+        _ => return value
+      }
+    None => ()
+  }
+  match generic_argument_text(base, "Mapping") {
+    Some(inner_text) => {
+      let parts = split_top_level_generic_arguments(inner_text)
+      if parts.length() != 2 {
+        return value
+      }
+      let value_type = parts[1]
+      match value {
+        MappingValue(raw_entries) =>
+          match
+            synthesize_default_for_type(
+              Some(value_type),
+              bindings,
+              env,
+              class_env,
+              cache,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ) {
+            Some(default_value) => {
+              if collection_default_value_is_empty(default_value) {
+                return value
+              }
+              match
+                materialize_mapping_raw_entries(
+                  raw_entries, default_value, bindings, env, class_env, cache, stack,
+                  declarations, diagnostics, resolve_import,
+                ) {
+                Some(materialized) =>
+                  return DefaultedMappingValue(
+                    raw_entries, materialized, default_value,
+                  )
+                None => return value
+              }
+            }
+            None => return value
+          }
+        _ => return value
+      }
+    }
+    None => ()
+  }
+  value
+}
+
+///|
+fn collection_default_value_is_empty(value : Value) -> Bool {
+  match value {
+    ObjectValue(members) => visible_members(members).length() == 0
+    _ => false
+  }
+}
+
+///|
 fn eval_constrained_type_annotation_value_is_valid(
   type_name : String?,
   value : Value,
@@ -737,7 +851,10 @@ fn eval_collection_element_constraint_rejection_message(
       match inner_constraint {
         Some(constraint_text) =>
           match value {
-            ListingValue(elements) | ListValue(elements) | SetValue(elements) =>
+            ListingValue(elements)
+            | DefaultedListingValue(_, elements, _)
+            | ListValue(elements)
+            | SetValue(elements) =>
               for element in elements {
                 let parts = pkl_split_constraint_arguments(constraint_text)
                 for part in parts {

@@ -351,6 +351,8 @@ pub(all) enum Value {
   ListingValue(Array[Value])
   ListValue(Array[Value])
   MappingValue(Array[ValueEntry])
+  DefaultedListingValue(Array[Value], Array[Value], Value)
+  DefaultedMappingValue(Array[ValueEntry], Array[ValueEntry], Value)
   PairValue(Value, Value)
   IntSeqValue(Int64, Int64, Int64)
   SetValue(Array[Value])

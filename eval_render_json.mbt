@@ -16,10 +16,11 @@ fn render_json_value(value : Value, indent : Int, buf : StringBuilder) -> Unit {
     StringValue(s) => render_json_string(s, buf)
     ObjectValue(members) =>
       render_json_object_from_members(members, indent, buf)
-    MappingValue(entries) =>
+    MappingValue(entries) | DefaultedMappingValue(_, entries, _) =>
       render_json_object_from_entries(entries, indent, buf)
-    ListingValue(elements) | ListValue(elements) =>
-      render_json_array(elements, indent, buf)
+    ListingValue(elements)
+    | DefaultedListingValue(_, elements, _)
+    | ListValue(elements) => render_json_array(elements, indent, buf)
     FunctionValue(_, _, _, _, _) => buf.write_string("null")
     // Upstream Pkl projects Duration / DataSize to a literal-style string
     // (e.g. `"5.min"`) in JSON / YAML / Properties. Match that shape until

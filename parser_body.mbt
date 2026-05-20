@@ -73,7 +73,24 @@ fn Parser::parse_listing_body(self : Parser) -> Expr {
         name: "",
         value: CallExpr(Identifier("@__listing_index_entry"), [key_expr]),
       })
+    } else if self.at(identifier()) && self.peek().text() == "default" {
+      match self.parse_collection_default_expr() {
+        Some(default_expr) =>
+          items.push({
+            kind: ElementItem,
+            name: "",
+            value: CallExpr(Identifier(collection_default_marker_name()), [
+              default_expr,
+            ]),
+          })
+        None => ()
+      }
     } else if self.at_property_decl() || is_decl_text(self.peek().text()) {
+      items.push({
+        kind: ElementItem,
+        name: "",
+        value: CallExpr(Identifier("@__listing_property_entry"), []),
+      })
       self.skip_unknown_member()
     } else {
       items.push({ kind: ElementItem, name: "", value: self.parse_expr() })
@@ -83,6 +100,29 @@ fn Parser::parse_listing_body(self : Parser) -> Expr {
   ignore(self.expect(rbrace(), "}"))
   self.builder.finish_node()
   build_listing_body(items)
+}
+
+///|
+fn collection_default_marker_name() -> String {
+  "@collectionDefault"
+}
+
+///|
+fn Parser::parse_collection_default_expr(self : Parser) -> Expr? {
+  if !self.at(identifier()) || self.peek().text() != "default" {
+    return None
+  }
+  ignore(self.bump())
+  self.skip_whitespace()
+  if self.at(eq()) {
+    ignore(self.bump())
+    self.skip_whitespace()
+    Some(self.parse_expr())
+  } else if self.at(lbrace()) {
+    Some(self.parse_object_body())
+  } else {
+    Some(UnsupportedExpr)
+  }
 }
 
 ///|
@@ -257,12 +297,16 @@ fn Parser::parse_mapping_body(self : Parser) -> Expr {
           )
         None => ()
       }
+    } else if self.at(identifier()) && self.peek().text() == "default" {
+      match self.parse_collection_default_expr() {
+        Some(default_expr) =>
+          entries.push({
+            key: Identifier(collection_default_marker_name()),
+            value: default_expr,
+          })
+        None => ()
+      }
     } else if self.at_property_decl() {
-      // PKL-148av: `default = X` style property assignment on a
-      // Mapping body — Apple Pkl honours `default` (and silently
-      // drops unknown property names on the gold fixtures). Skip
-      // through so the surrounding mapping eval keeps its current
-      // shape; this matches the pre-PKL-152 behaviour.
       self.skip_unknown_member()
     } else {
       // PKL-152: a bare expression at Mapping-body position is illegal
@@ -1130,7 +1174,14 @@ fn Parser::parse_object_member(self : Parser) -> ObjectMember? {
     // dispatcher so a `converters { ["k"] = v }` mapping inside a
     // renderer object isn't silently dropped (object-body parsing
     // would skip the bracket-keyed entries as unknown members).
-    let mut body = self.parse_inferred_new_body()
+    // `default { n -> ... }` is collection-default syntax, not a
+    // Listing body. Route it through object-body parsing so the function
+    // amend signature marker is preserved for the evaluator.
+    let mut body = if name == "default" {
+      self.parse_object_body()
+    } else {
+      self.parse_inferred_new_body()
+    }
     // PKL-148ap: chain trailing `{ ... }` bodies as additional amend
     // layers, mirroring the module-level property amend chain.
     // `baz { "first" } { "second" "third" } { "forth" }` inside an

@@ -16,13 +16,15 @@ fn render_yaml_root(value : Value, buf : StringBuilder) -> Unit {
         render_yaml_mapping_members(visible, 0, buf)
       }
     }
-    MappingValue(entries) =>
+    MappingValue(entries) | DefaultedMappingValue(_, entries, _) =>
       if entries.length() == 0 {
         buf.write_string("{}\n")
       } else {
         render_yaml_mapping_entries(entries, 0, buf)
       }
-    ListingValue(elements) | ListValue(elements) =>
+    ListingValue(elements)
+    | DefaultedListingValue(_, elements, _)
+    | ListValue(elements) =>
       if elements.length() == 0 {
         buf.write_string("[]\n")
       } else {
@@ -80,14 +82,16 @@ fn render_yaml_block_value(
         render_yaml_mapping_members(visible, indent + 2, buf)
       }
     }
-    MappingValue(entries) =>
+    MappingValue(entries) | DefaultedMappingValue(_, entries, _) =>
       if entries.length() == 0 {
         buf.write_string(" {}\n")
       } else {
         buf.write_char('\n')
         render_yaml_mapping_entries(entries, indent + 2, buf)
       }
-    ListingValue(elements) | ListValue(elements) =>
+    ListingValue(elements)
+    | DefaultedListingValue(_, elements, _)
+    | ListValue(elements) =>
       if elements.length() == 0 {
         buf.write_string(" []\n")
       } else {
@@ -189,7 +193,7 @@ fn render_yaml_seq_item(
         }
       }
     }
-    MappingValue(entries) =>
+    MappingValue(entries) | DefaultedMappingValue(_, entries, _) =>
       if entries.length() == 0 {
         buf.write_string(" {}\n")
       } else {
@@ -204,7 +208,9 @@ fn render_yaml_seq_item(
           render_yaml_block_value(entries[i].value, indent, buf)
         }
       }
-    ListingValue(elements) | ListValue(elements) =>
+    ListingValue(elements)
+    | DefaultedListingValue(_, elements, _)
+    | ListValue(elements) =>
       if elements.length() == 0 {
         buf.write_string(" []\n")
       } else {

@@ -176,7 +176,9 @@ fn render_xml_children(
         render_xml_member(field, level, indent_text, buf)
         first = false
       }
-    MappingValue(entries) | MapValue(entries) =>
+    MappingValue(entries)
+    | DefaultedMappingValue(_, entries, _)
+    | MapValue(entries) =>
       for entry in entries {
         if entry.value is NullValue {
           continue
@@ -193,7 +195,10 @@ fn render_xml_children(
         )
         first = false
       }
-    ListingValue(elements) | ListValue(elements) | SetValue(elements) =>
+    ListingValue(elements)
+    | DefaultedListingValue(_, elements, _)
+    | ListValue(elements)
+    | SetValue(elements) =>
       for element in elements {
         if element is NullValue {
           continue
@@ -316,9 +321,12 @@ fn render_xml_fragment_value(
             render_xml_inline_content(value, buf)
           }
       }
-    MappingValue(_) | MapValue(_) =>
+    MappingValue(_) | DefaultedMappingValue(_, _, _) | MapValue(_) =>
       render_xml_children(value, level, indent_text, buf)
-    ListingValue(elements) | ListValue(elements) | SetValue(elements) =>
+    ListingValue(elements)
+    | DefaultedListingValue(_, elements, _)
+    | ListValue(elements)
+    | SetValue(elements) =>
       for element in elements {
         render_xml_fragment_value(element, level, indent_text, buf)
       }
@@ -386,11 +394,16 @@ fn render_xml_inline_content(value : Value, buf : StringBuilder) -> Unit {
             render_xml_inline_content(field.value, buf)
           }
       }
-    ListingValue(elements) | ListValue(elements) | SetValue(elements) =>
+    ListingValue(elements)
+    | DefaultedListingValue(_, elements, _)
+    | ListValue(elements)
+    | SetValue(elements) =>
       for element in elements {
         render_xml_inline_content(element, buf)
       }
-    MappingValue(entries) | MapValue(entries) =>
+    MappingValue(entries)
+    | DefaultedMappingValue(_, entries, _)
+    | MapValue(entries) =>
       for entry in entries {
         render_xml_inline_content(entry.value, buf)
       }
@@ -430,8 +443,13 @@ fn xml_value_is_block(value : Value) -> Bool {
           false
         }
       }
-    MappingValue(entries) | MapValue(entries) => entries.length() > 0
-    ListingValue(elements) | ListValue(elements) | SetValue(elements) => {
+    MappingValue(entries)
+    | DefaultedMappingValue(_, entries, _)
+    | MapValue(entries) => entries.length() > 0
+    ListingValue(elements)
+    | DefaultedListingValue(_, elements, _)
+    | ListValue(elements)
+    | SetValue(elements) => {
       for element in elements {
         if xml_value_is_block(element) || xml_value_is_xml_special(element) {
           return true
@@ -455,7 +473,9 @@ fn xml_value_is_empty_block(value : Value) -> Bool {
       }
       true
     }
-    MappingValue(entries) | MapValue(entries) => entries.length() == 0
+    MappingValue(entries)
+    | DefaultedMappingValue(_, entries, _)
+    | MapValue(entries) => entries.length() == 0
     _ => false
   }
 }

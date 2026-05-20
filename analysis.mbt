@@ -256,9 +256,7 @@ fn builtin_stdlib_source(uri : String) -> String? {
       // `eval.mbt` intercepts those names and computes the result via
       // MoonBit's `math` module.
       //
-      // `maxInt` / `minInt` track our 32-bit `Int` representation; once
-      // a 64-bit slot exists, they expand to match the Java-derived
-      // Apple Pkl bounds.
+      // `maxInt` / `minInt` track Apple Pkl's 64-bit Int range.
       //
       // The helpers are declared as top-level lambda bindings rather
       // than `function` declarations because the parser marks
@@ -268,8 +266,8 @@ fn builtin_stdlib_source(uri : String) -> String? {
       let source =
         #|maxInt32 = 2147483647
         #|minInt32 = 0 - 2147483647 - 1
-        #|maxInt = 2147483647
-        #|minInt = 0 - 2147483647 - 1
+        #|maxInt = 9223372036854775807
+        #|minInt = 0 - 9223372036854775807 - 1
         #|pi = 3.141592653589793
         #|e = 2.718281828459045
         #|maxFiniteFloat = 1.7976931348623157E308
