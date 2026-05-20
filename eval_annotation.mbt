@@ -814,6 +814,37 @@ fn rewrite_implicit_this_in_expr(
 }
 
 ///|
+fn push_constraint_enclosing_member_bindings(
+  target_env : Array[ValueBinding],
+  members : Array[ValueMember],
+  excluded_name : String,
+) -> Unit {
+  for value_member in members {
+    if value_member.name == excluded_name {
+      continue
+    }
+    if !is_invisible_member_name(value_member.name) {
+      target_env.push({ name: value_member.name, value: value_member.value })
+    } else if value_member.name.has_prefix(local_member_prefix) ||
+      value_member.name.has_prefix(hidden_member_prefix) {
+      let prefix_len = if value_member.name.has_prefix(local_member_prefix) {
+        local_member_prefix.length()
+      } else {
+        hidden_member_prefix.length()
+      }
+      let bare = String::unsafe_substring(
+        value_member.name,
+        start=prefix_len,
+        end=value_member.name.length(),
+      )
+      if bare != excluded_name {
+        target_env.push({ name: bare, value: value_member.value })
+      }
+    }
+  }
+}
+
+///|
 /// PKL-148bb: element-wise constraint cascade for collection-typed
 /// class properties. When the type is `Listing<Inner(pred)>` /
 /// `List<Inner(pred)>` / `Set<Inner(pred)>` / `Mapping<K,
@@ -823,8 +854,11 @@ fn rewrite_implicit_this_in_expr(
 /// \`<pred>\` violated. Value: <element>` on the first miss; None
 /// when every element satisfies (or the type has no inner predicate).
 fn eval_collection_element_constraint_rejection_message(
+  class_name : String,
+  property_name : String,
   type_name : String,
   value : Value,
+  enclosing_members : Array[ValueMember],
   bindings : Array[Binding],
   env : Array[ValueBinding],
   class_env : Array[ClassBinding],
@@ -862,19 +896,76 @@ fn eval_collection_element_constraint_rejection_message(
                     Some(e) => e
                     None => continue
                   }
-                  let pred_env : Array[ValueBinding] = []
-                  for b in env {
-                    pred_env.push(b)
-                  }
+                  let pred_env = copy_value_bindings(env)
                   pred_env.push({ name: "this", value: element })
+                  let super_diags : Array[Diagnostic] = []
+                  match lookup_class_binding(class_env, class_name) {
+                    Some(class_binding) =>
+                      match class_binding.parent_name {
+                        Some(parent_name) => {
+                          let aliases = eval_type_alias_bindings(declarations)
+                          let resolved_parent = eval_resolved_type_alias(
+                            parent_name, aliases,
+                          )
+                          let super_members = eval_class_default_members(
+                            resolved_parent, bindings, env, class_env, cache, stack,
+                            declarations, super_diags, resolve_import,
+                          )
+                          pred_env.push({
+                            name: "super",
+                            value: ObjectValue(super_members),
+                          })
+                        }
+                        None => ()
+                      }
+                    None => ()
+                  }
+                  match element {
+                    ObjectValue(receiver_members) =>
+                      for value_member in receiver_members {
+                        if !is_invisible_member_name(value_member.name) {
+                          pred_env.push({
+                            name: value_member.name,
+                            value: value_member.value,
+                          })
+                        }
+                      }
+                    _ => ()
+                  }
+                  push_constraint_enclosing_member_bindings(
+                    pred_env, enclosing_members, property_name,
+                  )
                   let rewritten = rewrite_implicit_this_in_expr(
                     pred_expr, bindings, pred_env, cache,
                   )
                   let probe_diags : Array[Diagnostic] = []
-                  let probe = eval_expr_with_bindings(
+                  let mut probe = eval_expr_with_bindings(
                     rewritten, bindings, pred_env, class_env, cache, stack, declarations,
                     probe_diags, resolve_import,
                   )
+                  if probe is Some(FunctionValue(_, _, _, _, _)) {
+                    let apply_diags : Array[Diagnostic] = []
+                    let apply_result = eval_expr_with_bindings(
+                      CallExpr(MemberAccess(rewritten, "apply"), [
+                        Identifier("this"),
+                      ]),
+                      bindings,
+                      pred_env,
+                      class_env,
+                      cache,
+                      stack,
+                      declarations,
+                      apply_diags,
+                      resolve_import,
+                    )
+                    if apply_diags.length() == 0 {
+                      probe = apply_result
+                    } else if apply_diags[0].message.has_prefix(
+                        "Expected value of type",
+                      ) {
+                      return Some(apply_diags[0].message)
+                    }
+                  }
                   match probe {
                     Some(BoolValue(true)) => continue
                     Some(BoolValue(false)) =>
@@ -946,8 +1037,8 @@ fn eval_runtime_constraint_for_property(
   // `classes/setConstraints1` exercises `ys: Set<Int(this < 0)>`.
   match
     eval_collection_element_constraint_rejection_message(
-      source_name, property_value, bindings, env, class_env, cache, stack, declarations,
-      resolve_import,
+      class_name, property_name, source_name, property_value, enclosing_members,
+      bindings, env, class_env, cache, stack, declarations, resolve_import,
     ) {
     Some(message) => return Some(message)
     None => ()
@@ -1004,35 +1095,15 @@ fn eval_runtime_constraint_for_property(
         }
       _ => ()
     }
-    for value_member in enclosing_members {
-      if value_member.name == property_name {
-        continue
-      }
-      if !is_invisible_member_name(value_member.name) {
-        new_env.push({ name: value_member.name, value: value_member.value })
-      } else if value_member.name.has_prefix(local_member_prefix) ||
-        value_member.name.has_prefix(hidden_member_prefix) {
-        // PKL-148b: a class body's `local` / `hidden` declarations are
-        // visible inside that class's constraint expressions, e.g.
-        // `local isValid = (n) -> n > x; y: Int(isValid)`. The members
-        // sit in `enclosing_members` under their storage-prefixed name
-        // (`@local$isValid` / `@hidden$isValid`); strip the prefix so
-        // bare-name resolution inside the constraint succeeds.
-        let prefix_len = if value_member.name.has_prefix(local_member_prefix) {
-          local_member_prefix.length()
-        } else {
-          hidden_member_prefix.length()
-        }
-        let bare = String::unsafe_substring(
-          value_member.name,
-          start=prefix_len,
-          end=value_member.name.length(),
-        )
-        if bare != property_name {
-          new_env.push({ name: bare, value: value_member.value })
-        }
-      }
-    }
+    // PKL-148b: a class body's `local` / `hidden` declarations are
+    // visible inside that class's constraint expressions, e.g.
+    // `local isValid = (n) -> n > x; y: Int(isValid)`. The members
+    // sit in `enclosing_members` under their storage-prefixed name
+    // (`@local$isValid` / `@hidden$isValid`); strip the prefix so
+    // bare-name resolution inside the constraint succeeds.
+    push_constraint_enclosing_member_bindings(
+      new_env, enclosing_members, property_name,
+    )
     // PKL-148c: rewrite bare `Identifier(name)` nodes inside the
     // constraint expression to `MemberAccess(Identifier("this"), name)`
     // when `name` is neither a binding nor in env. Apple Pkl treats

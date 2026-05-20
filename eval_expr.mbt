@@ -2523,11 +2523,11 @@ fn eval_expr_with_bindings(
           // cascade at construction; AmendExpr needs to repeat it so
           // `test.catch` can capture predicate / type-annotation
           // violations on amend chains (constraints11, constraints12).
-          let amend_class_name = typed_object_class_name_for_expr(
-            base_expr,
-            bindings,
-            [],
-          )
+          let amend_class_name = match
+            typed_object_class_name_for_expr(base_expr, bindings, []) {
+            Some(name) => Some(name)
+            None => find_object_class_tag(base_members)
+          }
           let mut violation_emitted = false
           match amend_class_name {
             Some(type_name) =>

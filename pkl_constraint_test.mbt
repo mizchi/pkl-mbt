@@ -1968,6 +1968,74 @@ test "Pkl Listing element constraint propagates String predicates" {
 }
 
 ///|
+test "Pkl Listing element constraint resolves class-local predicate" {
+  let session = AnalysisSession::new()
+  let source =
+    #|local class TheClass {
+    #|  local isLongString = (it) -> it.length > 10
+    #|
+    #|  prop: Listing<String(isLongString)>
+    #|}
+    #|
+    #|out = module.catch(() -> new TheClass { prop { "too short" } }.prop[0])
+  session.set_source("main.pkl", source)
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "out",
+          value: StringValue(
+            "Type constraint `isLongString` violated. Value: \"too short\"",
+          ),
+          source: None,
+          annotations: [],
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl Listing element constraint resolves amended receiver members" {
+  let session = AnalysisSession::new()
+  let source =
+    #|local class TheClass2 {
+    #|  hidden requiredLength: Int
+    #|
+    #|  prop: Listing<String(length > requiredLength)>
+    #|}
+    #|
+    #|out = new {
+    #|  local base: TheClass2 = new {
+    #|    requiredLength = 5
+    #|  }
+    #|  module.catch(() -> (base) {
+    #|    requiredLength = 10
+    #|    prop { "too short" }
+    #|  }.prop[0])
+    #|}
+  session.set_source("main.pkl", source)
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "out",
+          value: ListingValue([
+            StringValue(
+              "Type constraint `length > requiredLength` violated. Value: \"too short\"",
+            ),
+          ]),
+          source: None,
+          annotations: [],
+        },
+      ]),
+    ),
+  )
+}
+
+///|
 test "Pkl explicit Listing parent enforces element type on access" {
   let session = AnalysisSession::new()
   session.set_source(
