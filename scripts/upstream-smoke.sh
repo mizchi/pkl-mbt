@@ -180,6 +180,7 @@ GOLD_FIXTURES=(
   "basic/letTyped"
   "basic/constModifier4"
   "basic/localTypedClassMember"
+  "basic/localTypedObjectMember"
   "api/pcfRenderer1"
   "basic/rawString"
   "basic/stringMultiline"

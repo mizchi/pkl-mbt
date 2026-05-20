@@ -1115,6 +1115,38 @@ test "PKL-148d: local properties hoist into env with their bare name" {
 }
 
 ///|
+test "PKL-148d: unused typed object local does not force rejection" {
+  let session = AnalysisSession::new()
+  let source =
+    #|foo {
+    #|  local bad: Int = "nope"
+    #|  ok = 1
+    #|}
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(@pkl.render_value(value), content="foo {\n  ok = 1\n}")
+}
+
+///|
+test "PKL-148d: typed object local rejection surfaces on reference" {
+  let session = AnalysisSession::new()
+  let source =
+    #|import "pkl:test"
+    #|foo {
+    #|  local bad: Int = "nope"
+    #|  caught = test.catch(() -> bad)
+    #|}
+  let expected =
+    #|foo {
+    #|  caught = "Expected value of type `Int`, but got type `String`. Value: \"nope\""
+    #|}
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered, content=expected)
+}
+
+///|
 test "PKL-148d: class name as value projects to a Class mirror" {
   let session = AnalysisSession::new()
   session.set_source(

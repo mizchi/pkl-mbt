@@ -31,10 +31,11 @@ MPKL="_build/native/release/build/cmd/mpkl/mpkl.exe"
 # diagnostic.
 PKG_CACHE="third_party/apple-pkl/pkl-commons-test/src/main/files/packages"
 
-if [ ! -x "$MPKL" ]; then
-  echo "building $MPKL ..." >&2
-  moon build --target native --release >/dev/null 2>&1
-fi
+# Keep the release binary aligned with the current sources. `pkf run
+# coverage` keys the task on MoonBit sources, but this script executes the
+# release artifact directly for speed; only checking for existence can reuse a
+# stale binary after source edits.
+moon build --target native --release >/dev/null 2>&1
 
 PROBE="$(mktemp)"
 STATUS="$(mktemp)"

@@ -5916,13 +5916,16 @@ fn eval_object_members_with_options(
       }
       local_env.push({ name: inflight_name, value: ObjectValue(snapshot) })
     }
-    // PKL-148u: when `defer_property_errors` is true, route each
-    // property's eval through a local diagnostics buffer so a
-    // failure becomes a per-property `@error$<name>` sentinel
-    // instead of bubbling to the outer diagnostics array. Sentinel
-    // members are picked up by the ObjectValue access path
-    // (`lookup_pending_error_message`) at access time.
-    let property_diagnostics : Array[Diagnostic] = if defer_property_errors {
+    // PKL-148u / PKL-148d: route deferred property eval through a
+    // local diagnostics buffer so a failure becomes a per-property
+    // `@error$<name>` sentinel instead of bubbling to the outer
+    // diagnostics array. Class defaults opt in for every property;
+    // ordinary object bodies opt in only for `local` members so an
+    // unused typed local does not reject the whole object, while a
+    // later bare-name reference still surfaces the stored diagnostic.
+    let defer_field_errors = defer_property_errors ||
+      is_local_member_name(field.name)
+    let property_diagnostics : Array[Diagnostic] = if defer_field_errors {
       []
     } else {
       diagnostics
@@ -6090,16 +6093,17 @@ fn eval_object_members_with_options(
       }
       None => ()
     }
-    // PKL-148u: post-process the per-property buffer when deferring.
-    // Any diagnostic landed during this property's eval becomes a
-    // `@error$<name>` sentinel that the ObjectValue access path
-    // surfaces lazily; the outer diagnostics array stays untouched
-    // so a sibling property's eval has its own clean slate. If the
-    // property failed without producing a member (e.g. function-call
-    // rejection that returned `None`), push a `NullValue` placeholder
-    // so external `.X` access doesn't surface "Cannot find property"
-    // before the pending-error intercept fires.
-    if defer_property_errors && property_diagnostics.length() > 0 {
+    // PKL-148u / PKL-148d: post-process the per-property buffer when
+    // deferring. Any diagnostic landed during this property's eval
+    // becomes a `@error$<name>` sentinel that the ObjectValue access
+    // path or the local-env hoist surfaces lazily; the outer
+    // diagnostics array stays untouched so a sibling property's eval
+    // has its own clean slate. If the property failed without
+    // producing a member (e.g. function-call rejection that returned
+    // `None`), push a `NullValue` placeholder so access doesn't
+    // surface "Cannot find property" before the pending-error
+    // intercept fires.
+    if defer_field_errors && property_diagnostics.length() > 0 {
       let mut already_present = false
       for entry in values {
         if entry.name == field.name {
