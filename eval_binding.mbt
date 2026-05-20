@@ -760,6 +760,7 @@ fn is_stdlib_class_name(name : String) -> Bool {
     | "List"
     | "Pair"
     | "IntSeq"
+    | "Mixin"
     | "Dynamic"
     | "Typed"
     | "Object"

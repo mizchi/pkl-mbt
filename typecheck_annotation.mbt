@@ -103,7 +103,8 @@ fn builtin_type_from_annotation(name : String) -> Type? {
     | "XmlRenderer"
     | "ProtobufRenderer"
     | "JsonnetRenderer"
-    | "PklBinaryRenderer" => Some(ClassType(name, []))
+    | "PklBinaryRenderer"
+    | "Mixin" => Some(ClassType(name, []))
     // PKL-137: a quoted string literal in type position
     // (`typealias Severity = "critical" | "major"`) is Apple Pkl's
     // string-literal type. pkl-mbt approximates each literal as the
@@ -454,6 +455,10 @@ fn type_from_annotation(name : String, type_env : Array[TypeBinding]) -> Type? {
         _ => return None
       }
     }
+    None => ()
+  }
+  match generic_argument_text(name, "Mixin") {
+    Some(_) => return Some(ClassType("Mixin", []))
     None => ()
   }
   // PKL-115: generic typealias instantiation. `Box<Int>` looks up the

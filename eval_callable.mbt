@@ -170,6 +170,9 @@ fn eval_value_accepts_type_annotation(
     | ("Set", ListValue(_)) => true
     ("Pair", PairValue(_, _)) => true
     ("IntSeq", IntSeqValue(_, _, _)) => true
+    ("Mixin", ObjectValue(members)) =>
+      object_class_tag_matches(members, "Mixin") ||
+      object_members_are_mixin_body(members)
     ("Function", FunctionValue(_, _, _, _, _)) => true
     ("Duration", DurationValue(_, _)) => true
     ("DataSize", DataSizeValue(_, _)) => true

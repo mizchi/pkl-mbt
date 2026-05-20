@@ -1,12 +1,12 @@
 # Release TODO
 
-Current coverage: 279 / 391 PCF gold-match (71.4%).
+Current coverage: 281 / 391 PCF gold-match (71.9%).
 Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-05-21.
 
 Release focus:
 
 - `basic`: 70 PASS / 16 DIFF
-- `generators`: 18 PASS / 3 DIFF
+- `generators`: 20 PASS / 1 DIFF
 
 Planned order:
 
@@ -29,7 +29,7 @@ End-user blocker priority is based on "will a normal Pkl config author hit this?
 4. Basic scalar / collection parity: `Int`, `Float`, `Bytes`, `DataSize`, `Duration`, and `Map` differences are real but narrower than generators/resource access.
 5. Deep stdlib / reflect parity: important for long-term compatibility, but not a first release blocker unless a public API or real package depends on it.
 
-For this release pass, continue `for` support before Resource / Glob. Element / entry generators and typed generator binding checks are done; function-body, mixin, and lexical-scope cases remain.
+For this release pass, continue `for` support before Resource / Glob. Element / entry generators, typed generator binding checks, function-body generators, and mixin generators are done; the lexical-scope case remains.
 
 ## Current DIFF Snapshot
 
@@ -56,8 +56,6 @@ Measured from the release binary against Apple Pkl LanguageSnippetTests gold fil
 
 `generators` remaining DIFFs:
 
-- `generators/forGeneratorInFunctionBody`
-- `generators/forGeneratorInMixins`
 - `generators/forGeneratorLexicalScope`
 
 Adjacent typed-collection DIFFs worth pulling into Priority 5:
@@ -143,6 +141,8 @@ Completed in this slice:
 - `generators/entryGenerators`
 - `generators/elementGeneratorsTyped`
 - `generators/entryGeneratorsTyped`
+- `generators/forGeneratorInFunctionBody`
+- `generators/forGeneratorInMixins`
 
 Implemented work:
 
@@ -150,6 +150,8 @@ Implemented work:
 - Normalize `for` sources into `(key, value)` iteration entries: Listing/List/Set/IntSeq/Bytes use numeric indexes, Mapping/Map use entry keys, and Dynamic/Object iterates properties, entries, then elements.
 - Reject duplicate generated Dynamic entry keys with Apple-compatible `Duplicate definition of member ...` diagnostics.
 - Preserve typed `for` binding annotations in the AST and validate generated key/value bindings with Apple-compatible type diagnostics.
+- Split object-body lexical scope from implicit receiver scope so `for` source/key expressions keep function/lambda bindings while generated values can still read prior object properties.
+- Apply `Mixin` objects through `|>` for Listing / Mapping targets, including generated entries from `Mixin<Mapping<...>>`.
 
 Execution plan:
 
@@ -157,7 +159,8 @@ Execution plan:
 2. Done: introduce the smallest member-stream representation needed for object-body `for`, without rewriting unrelated amend/eval paths.
 3. Done: extend iteration binding semantics for one-var and two-var loops over `Listing`, `List`, `Set`, `IntSeq`, `Bytes`, `Mapping`, `Map`, and `Dynamic`.
 4. Done: add typed generator support now that untyped element / entry generators are stable.
-5. Next: handle `forGeneratorInFunctionBody`, `forGeneratorInMixins`, and `forGeneratorLexicalScope`; defer broader `outer` / const provenance unless these fixtures require it directly.
+5. Done: handle `forGeneratorInFunctionBody` and `forGeneratorInMixins`.
+6. Next: handle `forGeneratorLexicalScope`; defer broader `outer` / const provenance unless this fixture requires it directly.
 
 Required work:
 
@@ -165,7 +168,7 @@ Required work:
 - Preserve property / element / entry kind through nested `for`, `when`, and spread.
 - Iterate `Listing`, `List`, `Set`, `IntSeq`, `Bytes`, `Mapping`, `Map`, and `Dynamic` with Apple-compatible one-var and two-var binding semantics.
 - Fix Dynamic iteration order: properties, elements, entries as Apple expects.
-- Preserve loop variables through nested lambdas and nested generators.
+- Preserve loop variables through nested lambdas and nested generators. Remaining known DIFF: class-default evaluation inside nested generator expressions (`forGeneratorLexicalScope`).
 
 Main dependencies:
 
@@ -275,7 +278,7 @@ Main dependencies:
 
 ## Suggested Release Path
 
-1. Continue Priority 3 `for` support with function/mixin/lexical-scope cases.
+1. Finish Priority 3 `for` support with the remaining lexical-scope case.
 2. Follow with Priority 2 Resource / Glob so multi-file configs and CLI host reads behave predictably.
 3. Decide and document the release-supported renderer set. Fix only those API renderer fixtures as blockers; leave the rest marked experimental.
 4. Take Priority 1 for scalar / Bytes / Map parity.

@@ -1996,6 +1996,61 @@ test "PKL-148ay: typed for bindings validate index and value" {
 }
 
 ///|
+test "PKL-148az: for source and key keep lexical function scope" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|function make(arg) = new Dynamic {
+      #|  arg = "property"
+      #|  for (key, value in List("one", arg)) {
+      #|    [Pair(arg, key)] = Pair(arg, value)
+      #|  }
+      #|}
+      #|res = make("two")
+      #|
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered.contains("[Pair(\"two\", 0)] = Pair(\"property\", \"one\")"),
+    content="true",
+  )
+  inspect(
+    rendered.contains("[Pair(\"two\", 1)] = Pair(\"property\", \"two\")"),
+    content="true",
+  )
+}
+
+///|
+test "PKL-148ba: Mixin pipe applies generated elements and entries" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|function addItems(env: Dynamic) = new Mixin {
+      #|  for (k, v in env) {
+      #|    new { name = k; value = v }
+      #|  }
+      #|}
+      #|function addEntries(keys: List<String>): Mixin<Mapping<String, String>> = new {
+      #|  for (key in keys) { [key] = key }
+      #|}
+      #|items = new Listing {} |> addItems(new Dynamic { a = "A"; b = "B" })
+      #|entries = new Mapping<String, String> { ["base"] = "base" } |> addEntries(List("next"))
+      #|
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("name = \"a\""), content="true")
+  inspect(rendered.contains("value = \"B\""), content="true")
+  inspect(rendered.contains("[\"base\"] = \"base\""), content="true")
+  inspect(rendered.contains("[\"next\"] = \"next\""), content="true")
+}
+
+///|
 test "PKL-148ar: Dynamic.toMap projects bracket entries" {
   let session = AnalysisSession::new()
   session.set_source(

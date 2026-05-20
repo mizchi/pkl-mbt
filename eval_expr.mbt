@@ -1308,6 +1308,107 @@ fn append_mapping_spread_value(
 }
 
 ///|
+fn apply_mixin_pipe_value(
+  left_value : Value,
+  mixin_members : Array[ValueMember],
+  diagnostics : Array[Diagnostic],
+) -> Value? {
+  let mixin_value = ObjectValue(mixin_members)
+  match left_value {
+    ListingValue(elements) | ListValue(elements) | SetValue(elements) => {
+      let raw : Array[Value] = []
+      let values : Array[Value] = []
+      for element in elements {
+        raw.push(element)
+        values.push(element)
+      }
+      if append_listing_spread_value(mixin_value, raw, values, diagnostics) {
+        Some(ListingValue(values))
+      } else {
+        None
+      }
+    }
+    DefaultedListingValue(raw_elements, elements, default_value) => {
+      let raw : Array[Value] = []
+      let values : Array[Value] = []
+      for element in raw_elements {
+        raw.push(element)
+      }
+      for element in elements {
+        values.push(element)
+      }
+      if append_listing_spread_value(mixin_value, raw, values, diagnostics) {
+        Some(DefaultedListingValue(raw, values, default_value))
+      } else {
+        None
+      }
+    }
+    MappingValue(entries) | MapValue(entries) => {
+      let raw : Array[ValueEntry] = []
+      let values : Array[ValueEntry] = []
+      for entry in entries {
+        raw.push(entry)
+        values.push(entry)
+      }
+      if append_mapping_spread_value(mixin_value, raw, values, diagnostics) {
+        Some(MappingValue(values))
+      } else {
+        None
+      }
+    }
+    DefaultedMappingValue(raw_entries, entries, default_value) => {
+      let raw : Array[ValueEntry] = []
+      let values : Array[ValueEntry] = []
+      for entry in raw_entries {
+        raw.push(entry)
+      }
+      for entry in entries {
+        values.push(entry)
+      }
+      if append_mapping_spread_value(mixin_value, raw, values, diagnostics) {
+        Some(DefaultedMappingValue(raw, values, default_value))
+      } else {
+        None
+      }
+    }
+    ObjectValue(members) => {
+      let merged : Array[ValueMember] = []
+      for value_member in members {
+        merged.push(value_member)
+      }
+      let mut ok = true
+      for value_member in mixin_members {
+        if !is_invisible_member_name(value_member.name) && ok {
+          ok = push_dynamic_object_member(merged, value_member, diagnostics)
+        }
+      }
+      if ok {
+        Some(ObjectValue(merged))
+      } else {
+        None
+      }
+    }
+    _ => None
+  }
+}
+
+///|
+fn object_members_are_mixin_body(members : Array[ValueMember]) -> Bool {
+  let mut has_visible = false
+  for value_member in members {
+    if is_invisible_member_name(value_member.name) {
+      continue
+    }
+    has_visible = true
+    if !value_member.name.has_prefix("@element$") &&
+      !value_member.name.has_prefix("@subscript$") {
+      return false
+    }
+  }
+  has_visible
+}
+
+///|
 fn render_bytes_value_inline(bytes : Bytes) -> String {
   let buf = StringBuilder::new()
   buf.write_string("Bytes(")
@@ -5663,6 +5764,24 @@ fn eval_expr_with_bindings(
                 resolve_import,
               )
             Some(right_val) => {
+              match right_val {
+                ObjectValue(mixin_members) =>
+                  if object_class_tag_matches(mixin_members, "Mixin") ||
+                    object_members_are_mixin_body(mixin_members) {
+                    let left_value = eval_expr_with_bindings(
+                      left_expr, bindings, env, class_env, cache, stack, declarations,
+                      diagnostics, resolve_import,
+                    )
+                    match left_value {
+                      Some(left_val) =>
+                        return apply_mixin_pipe_value(
+                          left_val, mixin_members, diagnostics,
+                        )
+                      None => return None
+                    }
+                  }
+                _ => ()
+              }
               let left_value = eval_expr_with_bindings(
                 left_expr, bindings, env, class_env, cache, stack, declarations,
                 diagnostics, resolve_import,
@@ -6138,7 +6257,7 @@ fn eval_expr_with_bindings(
     ForGenerator(var1, var2, source_expr, body_members, var1_type, var2_type) =>
       eval_for_generator(
         var1, var2, source_expr, body_members, var1_type, var2_type, bindings, env,
-        class_env, cache, stack, declarations, diagnostics, resolve_import,
+        env, class_env, cache, stack, declarations, diagnostics, resolve_import,
       )
     ErrorExpr(message) => {
       diagnostics.push(diag(message))
@@ -6378,6 +6497,7 @@ fn eval_for_generator(
   var2_type : String?,
   bindings : Array[Binding],
   env : Array[ValueBinding],
+  body_implicit_env : Array[ValueBinding],
   class_env : Array[ClassBinding],
   cache : Array[ValueBinding],
   stack : Array[String],
@@ -6404,9 +6524,18 @@ fn eval_for_generator(
               Some(iter_cache) => iter_cache
               None => return None
             }
-            let iter_members = eval_object_members(
-              body_members, bindings, env, class_env, iter_cache, stack, declarations,
-              diagnostics, resolve_import,
+            let iter_members = eval_object_members_with_implicit_env(
+              body_members,
+              bindings,
+              env,
+              body_implicit_env,
+              class_env,
+              iter_cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+              defer_property_errors=false,
             )
             accumulated = merge_for_generator_members(
               accumulated, iter_members, i,
@@ -8332,9 +8461,10 @@ fn eval_object_members(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Array[ValueMember] {
-  eval_object_members_with_options(
+  eval_object_members_with_implicit_env(
     members,
     bindings,
+    env,
     env,
     class_env,
     cache,
@@ -8494,6 +8624,62 @@ fn eval_object_members_with_options(
   resolve_import : (String) -> EvalResult?,
   defer_property_errors~ : Bool,
 ) -> Array[ValueMember] {
+  eval_object_members_with_implicit_env(
+    members,
+    bindings,
+    env,
+    env,
+    class_env,
+    cache,
+    stack,
+    declarations,
+    diagnostics,
+    resolve_import,
+    defer_property_errors~,
+  )
+}
+
+///|
+fn push_prior_member_into_env(
+  target : Array[ValueBinding],
+  prior : ValueMember,
+  include_receiver_members~ : Bool,
+) -> Unit {
+  if is_error_member_name(prior.name) {
+    let inner = String::unsafe_substring(
+      prior.name,
+      start=error_member_prefix.length(),
+      end=prior.name.length(),
+    )
+    let bare = strip_member_visibility_prefix(inner)
+    target.push({ name: error_member_name(bare), value: prior.value })
+  } else if is_local_member_name(prior.name) {
+    let bare = strip_member_visibility_prefix(prior.name)
+    target.push({ name: bare, value: prior.value })
+  } else if include_receiver_members {
+    if is_invisible_member_name(prior.name) {
+      let bare = strip_member_visibility_prefix(prior.name)
+      target.push({ name: bare, value: prior.value })
+    } else {
+      target.push({ name: prior.name, value: prior.value })
+    }
+  }
+}
+
+///|
+fn eval_object_members_with_implicit_env(
+  members : Array[ObjectMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  implicit_env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+  defer_property_errors~ : Bool,
+) -> Array[ValueMember] {
   // PKL-148e: pre-register every sibling member as a binding so a
   // forward reference (`x = 1 + y; y = 2`) resolves through the
   // bindings-driven lazy lookup path. Cycle detection still kicks in
@@ -8536,43 +8722,29 @@ fn eval_object_members_with_options(
     if is_function_amend_marker_member_name(field.name) {
       continue
     }
-    // PKL-148d: build a per-field eval env that shadows the outer
-    // scope with the members already produced inside this body. Apple
-    // Pkl's implicit-receiver resolution means `bar { x = 2; y = x +
-    // 3 }` resolves `x` in `y`'s RHS to the inner `x = 2` first, not
-    // the enclosing `foo.x`. The env entries are pushed in
-    // declaration order so a later field sees the earlier values.
-    let local_env : Array[ValueBinding] = []
+    // PKL-148d / PKL-148az: keep lexical scope separate from the
+    // implicit receiver. Computed entry keys and `for` sources resolve
+    // lexical names (plus prior `local` members), while ordinary member
+    // values see the implicit receiver with prior properties/elements.
+    let lexical_env : Array[ValueBinding] = []
     for binding in env {
+      lexical_env.push(binding)
+    }
+    let local_env : Array[ValueBinding] = []
+    for binding in implicit_env {
       local_env.push(binding)
     }
     for prior in values {
-      if is_error_member_name(prior.name) {
-        // PKL-148ak: a `@error$<stored>` sentinel from a deferred
-        // type / constraint rejection on a sibling. Strip whatever
-        // visibility prefix lives inside the sentinel name so the
-        // env entry sits under `@error$<bare>` — the Identifier
-        // resolution path picks it up before the (type-invalid)
-        // bare-name value and raises the deferred diagnostic so
-        // `test.catch(() -> p2)` can capture it.
-        let inner = String::unsafe_substring(
-          prior.name,
-          start=error_member_prefix.length(),
-          end=prior.name.length(),
-        )
-        let bare = strip_member_visibility_prefix(inner)
-        local_env.push({ name: error_member_name(bare), value: prior.value })
-      } else if is_invisible_member_name(prior.name) {
-        // PKL-148d: a `local l = 2` / `hidden h = 2` member surfaces
-        // under its visibility prefix; strip when hoisting into env
-        // so subsequent sibling expressions can reference the bare
-        // name. PKL-148j: handles both `@hidden$` and `@local$` via
-        // `strip_member_visibility_prefix`.
-        let bare = strip_member_visibility_prefix(prior.name)
-        local_env.push({ name: bare, value: prior.value })
-      } else {
-        local_env.push({ name: prior.name, value: prior.value })
-      }
+      push_prior_member_into_env(
+        lexical_env,
+        prior,
+        include_receiver_members=false,
+      )
+      push_prior_member_into_env(
+        local_env,
+        prior,
+        include_receiver_members=true,
+      )
     }
     // PKL-148ah: when this object body is the RHS of a module-level
     // binding currently on the resolution stack (`foo = { b = 43;
@@ -8592,6 +8764,7 @@ fn eval_object_members_with_options(
       for prior in values {
         snapshot.push(prior)
       }
+      lexical_env.push({ name: inflight_name, value: ObjectValue(snapshot) })
       local_env.push({ name: inflight_name, value: ObjectValue(snapshot) })
     }
     // PKL-148x: Dynamic-shape sentinels. `@subscript$<offset>`
@@ -8609,7 +8782,7 @@ fn eval_object_members_with_options(
             let key = eval_expr_with_bindings(
               args[0],
               local_bindings,
-              local_env,
+              lexical_env,
               class_env,
               cache_for_nested_object_value(field.value, cache, values),
               stack,
@@ -8699,6 +8872,55 @@ fn eval_object_members_with_options(
       []
     } else {
       diagnostics
+    }
+    if field.name == "@for" {
+      match field.value {
+        ForGenerator(
+          var1,
+          var2,
+          source_expr,
+          body_members,
+          var1_type,
+          var2_type
+        ) => {
+          match
+            eval_for_generator(
+              var1,
+              var2,
+              source_expr,
+              body_members,
+              var1_type,
+              var2_type,
+              local_bindings,
+              lexical_env,
+              local_env,
+              class_env,
+              cache_for_nested_object_value(field.value, cache, values),
+              stack,
+              declarations,
+              property_diagnostics,
+              resolve_import,
+            ) {
+            Some(ObjectValue(branch_members)) => {
+              let mut ok = true
+              for branch_member in branch_members {
+                if ok {
+                  ok = push_dynamic_object_member(
+                    values, branch_member, property_diagnostics,
+                  )
+                }
+              }
+            }
+            Some(_) =>
+              property_diagnostics.push(
+                diag("object-body generator must produce an object body"),
+              )
+            None => ()
+          }
+          continue
+        }
+        _ => ()
+      }
     }
     // PKL-148bg: see eval_binding.mbt — when a member declares a
     // user-class annotation (`local base: TheClass2 = new { ... }`)

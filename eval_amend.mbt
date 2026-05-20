@@ -958,7 +958,14 @@ fn eval_listing_subscript_amend(
     }
     if field.name == "@for" {
       match field.value {
-        ForGenerator(var1, var2, source_expr, body_members, _, _) => {
+        ForGenerator(
+          var1,
+          var2,
+          source_expr,
+          body_members,
+          var1_type,
+          var2_type
+        ) => {
           let source = eval_expr_with_bindings(
             source_expr, bindings, eval_env, class_env, eval_cache, stack, declarations,
             diagnostics, resolve_import,
@@ -990,81 +997,26 @@ fn eval_listing_subscript_amend(
             }
           }
           match source {
-            Some(ListingValue(iter_values))
-            | Some(DefaultedListingValue(_, iter_values, _))
-            | Some(ListValue(iter_values))
-            | Some(SetValue(iter_values)) =>
-              for i = 0; i < iter_values.length(); i = i + 1 {
-                let iter_cache = copy_value_bindings(eval_cache)
-                match var2 {
-                  Some(name2) => {
-                    iter_cache.push({
-                      name: var1,
-                      value: IntValue(i.to_int64()),
-                    })
-                    iter_cache.push({ name: name2, value: iter_values[i] })
+            Some(source_value) =>
+              match for_generator_iteration_entries(source_value) {
+                Some(iter_entries) =>
+                  for entry in iter_entries {
+                    match
+                      bind_for_generator_iteration(
+                        var1, var2, var1_type, var2_type, entry, eval_cache, class_env,
+                        declarations, diagnostics,
+                      ) {
+                      Some(iter_cache) => apply_iteration(iter_cache)
+                      None => ok = false
+                    }
                   }
-                  None => iter_cache.push({ name: var1, value: iter_values[i] })
-                }
-                apply_iteration(iter_cache)
-              }
-            Some(IntSeqValue(start_v, end_v, step_v)) => {
-              let iter_values : Array[Value] = []
-              if step_v > 0L {
-                let mut v = start_v
-                while v <= end_v {
-                  iter_values.push(IntValue(v))
-                  v = v + step_v
-                }
-              } else if step_v < 0L {
-                let mut v = start_v
-                while v >= end_v {
-                  iter_values.push(IntValue(v))
-                  v = v + step_v
+                None => {
+                  diagnostics.push(
+                    diag("for-generator source must be Listing or Mapping"),
+                  )
+                  ok = false
                 }
               }
-              for i = 0; i < iter_values.length(); i = i + 1 {
-                let iter_cache = copy_value_bindings(eval_cache)
-                match var2 {
-                  Some(name2) => {
-                    iter_cache.push({
-                      name: var1,
-                      value: IntValue(i.to_int64()),
-                    })
-                    iter_cache.push({ name: name2, value: iter_values[i] })
-                  }
-                  None => iter_cache.push({ name: var1, value: iter_values[i] })
-                }
-                apply_iteration(iter_cache)
-              }
-            }
-            Some(MappingValue(iter_entries))
-            | Some(DefaultedMappingValue(_, iter_entries, _))
-            | Some(MapValue(iter_entries)) =>
-              for entry in iter_entries {
-                let iter_cache = copy_value_bindings(eval_cache)
-                match var2 {
-                  Some(name2) => {
-                    iter_cache.push({ name: var1, value: entry.key })
-                    iter_cache.push({ name: name2, value: entry.value })
-                  }
-                  None => {
-                    diagnostics.push(
-                      diag(
-                        "for-generator over Mapping requires two variables (key, value)",
-                      ),
-                    )
-                    ok = false
-                  }
-                }
-                apply_iteration(iter_cache)
-              }
-            Some(_) => {
-              diagnostics.push(
-                diag("for-generator source must be Listing or Mapping"),
-              )
-              ok = false
-            }
             None => ok = false
           }
           if !ok {
@@ -1556,7 +1508,14 @@ fn eval_mapping_amend(
     }
     if field.name == "@for" {
       match field.value {
-        ForGenerator(var1, var2, source_expr, body_members, _, _) => {
+        ForGenerator(
+          var1,
+          var2,
+          source_expr,
+          body_members,
+          var1_type,
+          var2_type
+        ) => {
           let source = eval_expr_with_bindings(
             source_expr, bindings, eval_env, class_env, eval_cache, stack, declarations,
             diagnostics, resolve_import,
@@ -1588,81 +1547,26 @@ fn eval_mapping_amend(
             }
           }
           match source {
-            Some(ListingValue(iter_values))
-            | Some(DefaultedListingValue(_, iter_values, _))
-            | Some(ListValue(iter_values))
-            | Some(SetValue(iter_values)) =>
-              for i = 0; i < iter_values.length(); i = i + 1 {
-                let iter_cache = copy_value_bindings(eval_cache)
-                match var2 {
-                  Some(name2) => {
-                    iter_cache.push({
-                      name: var1,
-                      value: IntValue(i.to_int64()),
-                    })
-                    iter_cache.push({ name: name2, value: iter_values[i] })
+            Some(source_value) =>
+              match for_generator_iteration_entries(source_value) {
+                Some(iter_entries) =>
+                  for entry in iter_entries {
+                    match
+                      bind_for_generator_iteration(
+                        var1, var2, var1_type, var2_type, entry, eval_cache, class_env,
+                        declarations, diagnostics,
+                      ) {
+                      Some(iter_cache) => apply_iteration(iter_cache)
+                      None => ok = false
+                    }
                   }
-                  None => iter_cache.push({ name: var1, value: iter_values[i] })
-                }
-                apply_iteration(iter_cache)
-              }
-            Some(IntSeqValue(start_v, end_v, step_v)) => {
-              let iter_values : Array[Value] = []
-              if step_v > 0L {
-                let mut v = start_v
-                while v <= end_v {
-                  iter_values.push(IntValue(v))
-                  v = v + step_v
-                }
-              } else if step_v < 0L {
-                let mut v = start_v
-                while v >= end_v {
-                  iter_values.push(IntValue(v))
-                  v = v + step_v
+                None => {
+                  diagnostics.push(
+                    diag("for-generator source must be Listing or Mapping"),
+                  )
+                  ok = false
                 }
               }
-              for i = 0; i < iter_values.length(); i = i + 1 {
-                let iter_cache = copy_value_bindings(eval_cache)
-                match var2 {
-                  Some(name2) => {
-                    iter_cache.push({
-                      name: var1,
-                      value: IntValue(i.to_int64()),
-                    })
-                    iter_cache.push({ name: name2, value: iter_values[i] })
-                  }
-                  None => iter_cache.push({ name: var1, value: iter_values[i] })
-                }
-                apply_iteration(iter_cache)
-              }
-            }
-            Some(MappingValue(iter_entries))
-            | Some(DefaultedMappingValue(_, iter_entries, _))
-            | Some(MapValue(iter_entries)) =>
-              for entry in iter_entries {
-                let iter_cache = copy_value_bindings(eval_cache)
-                match var2 {
-                  Some(name2) => {
-                    iter_cache.push({ name: var1, value: entry.key })
-                    iter_cache.push({ name: name2, value: entry.value })
-                  }
-                  None => {
-                    diagnostics.push(
-                      diag(
-                        "for-generator over Mapping requires two variables (key, value)",
-                      ),
-                    )
-                    ok = false
-                  }
-                }
-                apply_iteration(iter_cache)
-              }
-            Some(_) => {
-              diagnostics.push(
-                diag("for-generator source must be Listing or Mapping"),
-              )
-              ok = false
-            }
             None => ok = false
           }
           if !ok {
