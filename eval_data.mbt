@@ -244,6 +244,15 @@ fn intseq_materialize(
 }
 
 ///|
+fn bytes_materialize(bytes : Bytes) -> Array[Value] {
+  let result : Array[Value] = []
+  for i = 0; i < bytes.length(); i = i + 1 {
+    result.push(IntValue(bytes[i].to_int().to_int64()))
+  }
+  result
+}
+
+///|
 /// Number of elements an IntSeq with the given start/end/step would
 /// produce. Computed in Int64 so that ranges that span the full Int32
 /// width (`IntSeq(math.minInt, math.maxInt)`) don't overflow.

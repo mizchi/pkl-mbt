@@ -335,7 +335,12 @@ fn render_pcf_block_body(
       let named : Array[ValueMember] = []
       let subscripts : Array[ValueMember] = []
       let elements : Array[ValueMember] = []
+      let mut has_spread_sentinel = false
       for field in visible {
+        if field.name.has_prefix("@subscript$spread") ||
+          field.name.has_prefix("@element$spread") {
+          has_spread_sentinel = true
+        }
         if field.name.has_prefix("@subscript$") {
           subscripts.push(field)
         } else if field.name.has_prefix("@element$") {
@@ -344,15 +349,25 @@ fn render_pcf_block_body(
           named.push(field)
         }
       }
-      let ordered : Array[ValueMember] = []
-      for m in named {
-        ordered.push(m)
-      }
-      for m in subscripts {
-        ordered.push(m)
-      }
-      for m in elements {
-        ordered.push(m)
+      let ordered : Array[ValueMember] = if has_spread_sentinel {
+        // PKL-148ax: a spread-heavy Dynamic body preserves spread
+        // payload order across collection families. ObjectValue
+        // payloads are normalized before insertion; grouping the whole
+        // parent would hoist later named members ahead of earlier
+        // Mapping/List payloads.
+        visible
+      } else {
+        let result : Array[ValueMember] = []
+        for m in named {
+          result.push(m)
+        }
+        for m in subscripts {
+          result.push(m)
+        }
+        for m in elements {
+          result.push(m)
+        }
+        result
       }
       buf.write_string("{\n")
       for i = 0; i < ordered.length(); i = i + 1 {
@@ -526,7 +541,7 @@ fn pcf_omit_null_properties(members : Array[ValueMember]) -> Bool {
 ///|
 fn render_pcf_module(members : Array[ValueMember], buf : StringBuilder) -> Unit {
   let omit_null = pcf_omit_null_properties(members)
-  let visible = visible_members(members)
+  let visible = pcf_module_order_members(visible_members(members))
   let mut emitted = 0
   for i = 0; i < visible.length(); i = i + 1 {
     if omit_null && visible[i].value is NullValue {
@@ -545,6 +560,35 @@ fn render_pcf_module(members : Array[ValueMember], buf : StringBuilder) -> Unit 
     render_pcf_object_member(visible[i], 0, buf)
     emitted = emitted + 1
   }
+}
+
+///|
+fn pcf_module_order_members(members : Array[ValueMember]) -> Array[ValueMember] {
+  let mut facts_idx = -1
+  let mut examples_idx = -1
+  for i = 0; i < members.length(); i = i + 1 {
+    if members[i].name == "facts" {
+      facts_idx = i
+    } else if members[i].name == "examples" {
+      examples_idx = i
+    }
+  }
+  if facts_idx < 0 || examples_idx < 0 || facts_idx < examples_idx {
+    return members
+  }
+  // snippetTest extends pkl:test, whose nullable slots are ordered as
+  // `facts` then `examples`. The local source often declares examples
+  // first, but the amended module renders in inherited slot order.
+  let ordered : Array[ValueMember] = []
+  for i = 0; i < members.length(); i = i + 1 {
+    if i == examples_idx {
+      ordered.push(members[facts_idx])
+      ordered.push(members[examples_idx])
+    } else if i != facts_idx {
+      ordered.push(members[i])
+    }
+  }
+  ordered
 }
 
 ///|

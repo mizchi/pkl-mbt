@@ -117,7 +117,7 @@ fn Parser::parse_local_decl(self : Parser) -> Binding? {
       self.at(eq())
     }) {
     ignore(self.bump())
-    self.parse_expr()
+    self.parse_expr_with_expected_type(type_name)
   } else if ({
       self.skip_whitespace()
       self.at(lbrace())
@@ -813,7 +813,7 @@ fn Parser::parse_property_decl(self : Parser) -> Binding? {
       self.at(eq())
     }) {
     ignore(self.bump())
-    self.parse_expr()
+    self.parse_expr_with_expected_type(type_name)
   } else {
     abstract_slot = true
     NullLiteral

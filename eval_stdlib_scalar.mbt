@@ -292,7 +292,20 @@ fn eval_typed_method_dispatch(
       }
       let entries : Array[ValueEntry] = []
       for m in receiver_members {
-        if !is_invisible_member_name(m.name) {
+        if m.name.has_prefix("@subscript$") {
+          match m.value {
+            ObjectValue(pair_members) =>
+              match
+                (
+                  lookup_member(pair_members, "@key"),
+                  lookup_member(pair_members, "@value"),
+                ) {
+                (Some(key), Some(value)) => entries.push({ key, value })
+                _ => ()
+              }
+            _ => ()
+          }
+        } else if !is_invisible_member_name(m.name) {
           entries.push({ key: StringValue(m.name), value: m.value })
         }
       }

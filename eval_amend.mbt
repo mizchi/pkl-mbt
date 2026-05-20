@@ -565,6 +565,211 @@ fn propagate_mapping_replacement(
 }
 
 ///|
+fn int_array_contains(values : Array[Int], target : Int) -> Bool {
+  for value in values {
+    if value == target {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn value_array_contains(values : Array[Value], target : Value) -> Bool {
+  for value in values {
+    if value == target {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn concat_values(left : Array[Value], right : Array[Value]) -> Array[Value] {
+  let out : Array[Value] = []
+  for value in left {
+    out.push(value)
+  }
+  for value in right {
+    out.push(value)
+  }
+  out
+}
+
+///|
+fn merge_mapping_entry_object_amend_value(
+  base : Value,
+  replacement : Value,
+) -> Value {
+  match (base, replacement) {
+    (ObjectValue(base_members), ObjectValue(over_members)) =>
+      ObjectValue(
+        merge_mapping_entry_object_amend_members(base_members, over_members),
+      )
+    (ListingValue(base_elements), ListingValue(over_elements))
+    | (ListingValue(base_elements), ListValue(over_elements))
+    | (ListValue(base_elements), ListingValue(over_elements))
+    | (ListValue(base_elements), ListValue(over_elements)) =>
+      ListingValue(concat_values(base_elements, over_elements))
+    _ => replacement
+  }
+}
+
+///|
+fn merge_mapping_entry_object_amend_members(
+  base : Array[ValueMember],
+  overrides : Array[ValueMember],
+) -> Array[ValueMember] {
+  let merged : Array[ValueMember] = []
+  for value_member in base {
+    let exact = find_value_member_exact(overrides, value_member.name)
+    let resolved = if exact is Some(_) {
+      exact
+    } else if is_hidden_member_name(value_member.name) {
+      let bare = String::unsafe_substring(
+        value_member.name,
+        start=hidden_member_prefix.length(),
+        end=value_member.name.length(),
+      )
+      find_value_member_exact(overrides, bare)
+    } else {
+      None
+    }
+    match resolved {
+      Some(value) =>
+        merged.push({
+          name: value_member.name,
+          value: merge_mapping_entry_object_amend_value(
+            value_member.value,
+            value.value,
+          ),
+          source: None,
+          annotations: append_annotations(
+            value_member.annotations,
+            value.annotations,
+          ),
+        })
+      None => merged.push(value_member)
+    }
+  }
+  for value_member in overrides {
+    if find_member_exact(base, value_member.name) is Some(_) {
+      continue
+    }
+    let hidden_alias = hidden_member_name(value_member.name)
+    if find_member_exact(base, hidden_alias) is Some(_) {
+      continue
+    }
+    merged.push(value_member)
+  }
+  merged
+}
+
+///|
+fn replace_listing_amend_state_from_value(
+  raw_result : Array[Value],
+  result : Array[Value],
+  value : Value,
+) -> (Bool, Value?) {
+  match value {
+    ListingValue(elements) => {
+      raw_result.clear()
+      result.clear()
+      for element in elements {
+        raw_result.push(element)
+        result.push(element)
+      }
+      (true, None)
+    }
+    DefaultedListingValue(raw_elements, elements, default_value) => {
+      raw_result.clear()
+      result.clear()
+      for element in raw_elements {
+        raw_result.push(element)
+      }
+      for element in elements {
+        result.push(element)
+      }
+      (true, Some(default_value))
+    }
+    _ => (false, None)
+  }
+}
+
+///|
+fn replace_mapping_amend_state_from_value(
+  raw_result : Array[ValueEntry],
+  result : Array[ValueEntry],
+  value : Value,
+) -> (Bool, Value?) {
+  match value {
+    MappingValue(entries) => {
+      raw_result.clear()
+      result.clear()
+      for entry in entries {
+        raw_result.push(entry)
+        result.push(entry)
+      }
+      (true, None)
+    }
+    DefaultedMappingValue(raw_entries, entries, default_value) => {
+      raw_result.clear()
+      result.clear()
+      for entry in raw_entries {
+        raw_result.push(entry)
+      }
+      for entry in entries {
+        result.push(entry)
+      }
+      (true, Some(default_value))
+    }
+    _ => (false, None)
+  }
+}
+
+///|
+fn dynamic_mapping_entries_from_members(
+  members : Array[ValueMember],
+) -> Array[ValueEntry]? {
+  let entries : Array[ValueEntry] = []
+  for value_member in members {
+    if is_invisible_member_name(value_member.name) {
+      continue
+    }
+    if !value_member.name.has_prefix("@subscript$") {
+      return None
+    }
+    match value_member.value {
+      ObjectValue(pair_members) =>
+        match
+          (
+            lookup_member(pair_members, "@key"),
+            lookup_member(pair_members, "@value"),
+          ) {
+          (Some(key), Some(value)) => entries.push({ key, value })
+          _ => return None
+        }
+      _ => return None
+    }
+  }
+  Some(entries)
+}
+
+///|
+fn amend_members_need_mapping_member_semantics(
+  members : Array[ObjectMember],
+) -> Bool {
+  for object_member in members {
+    if object_member.name.has_prefix("@predicate$") ||
+      object_member.name == "@for" ||
+      object_member.name == "@when" {
+      return true
+    }
+  }
+  false
+}
+
+///|
 fn eval_listing_subscript_amend(
   elements : Array[Value],
   members : Array[ObjectMember],
@@ -613,6 +818,7 @@ fn eval_listing_subscript_amend(
     base_raw_result, base_result, default_value,
   )
   let mut current_default = default_value
+  let amended_indices : Array[Int] = []
   // PKL-148av: hoist `@local$` / `@hidden$` members into the lazy
   // binding chain so a sibling element expression in the amend body
   // can reference them by bare name (`(x) { y; local y = "two" }` —
@@ -696,6 +902,179 @@ fn eval_listing_subscript_amend(
       }
       continue
     }
+    if field.name == "@when" {
+      match field.value {
+        ConditionalExpr(
+          condition,
+          ObjectLiteral(then_members),
+          ObjectLiteral(else_members)
+        ) => {
+          let selected_members = match
+            eval_expr_with_bindings(
+              condition, bindings, eval_env, class_env, eval_cache, stack, declarations,
+              diagnostics, resolve_import,
+            ) {
+            Some(BoolValue(true)) => then_members
+            Some(BoolValue(false)) => else_members
+            Some(NullValue) => {
+              diagnostics.push(
+                diag("Expected value of type `Boolean`, but got `null`."),
+              )
+              return None
+            }
+            Some(other) => {
+              diagnostics.push(
+                diag(
+                  "Expected value of type `Boolean`, but got type `\{eval_value_type_name(other)}`. Value: \{render_pcf_value_inline(other)}",
+                ),
+              )
+              return None
+            }
+            None => return None
+          }
+          match
+            eval_listing_subscript_amend(
+              raw_result, selected_members, bindings, eval_env, class_env, eval_cache,
+              stack, declarations, current_default, diagnostics, resolve_import,
+            ) {
+            Some(amended) => {
+              let (ok, next_default) = replace_listing_amend_state_from_value(
+                raw_result, result, amended,
+              )
+              if !ok {
+                diagnostics.push(
+                  diag("when block inside Listing must produce a Listing"),
+                )
+                return None
+              }
+              current_default = next_default
+            }
+            None => return None
+          }
+          continue
+        }
+        _ => ()
+      }
+    }
+    if field.name == "@for" {
+      match field.value {
+        ForGenerator(var1, var2, source_expr, body_members) => {
+          let source = eval_expr_with_bindings(
+            source_expr, bindings, eval_env, class_env, eval_cache, stack, declarations,
+            diagnostics, resolve_import,
+          )
+          let mut ok = true
+          let apply_iteration = fn(iter_cache : Array[ValueBinding]) -> Unit {
+            if !ok {
+              return
+            }
+            match
+              eval_listing_subscript_amend(
+                raw_result, body_members, bindings, eval_env, class_env, iter_cache,
+                stack, declarations, current_default, diagnostics, resolve_import,
+              ) {
+              Some(amended) => {
+                let (state_ok, next_default) = replace_listing_amend_state_from_value(
+                  raw_result, result, amended,
+                )
+                if state_ok {
+                  current_default = next_default
+                } else {
+                  diagnostics.push(
+                    diag("for-generator inside Listing must produce a Listing"),
+                  )
+                  ok = false
+                }
+              }
+              None => ok = false
+            }
+          }
+          match source {
+            Some(ListingValue(iter_values))
+            | Some(DefaultedListingValue(_, iter_values, _))
+            | Some(ListValue(iter_values))
+            | Some(SetValue(iter_values)) =>
+              for i = 0; i < iter_values.length(); i = i + 1 {
+                let iter_cache = copy_value_bindings(eval_cache)
+                match var2 {
+                  Some(name2) => {
+                    iter_cache.push({
+                      name: var1,
+                      value: IntValue(i.to_int64()),
+                    })
+                    iter_cache.push({ name: name2, value: iter_values[i] })
+                  }
+                  None => iter_cache.push({ name: var1, value: iter_values[i] })
+                }
+                apply_iteration(iter_cache)
+              }
+            Some(IntSeqValue(start_v, end_v, step_v)) => {
+              let iter_values : Array[Value] = []
+              if step_v > 0L {
+                let mut v = start_v
+                while v <= end_v {
+                  iter_values.push(IntValue(v))
+                  v = v + step_v
+                }
+              } else if step_v < 0L {
+                let mut v = start_v
+                while v >= end_v {
+                  iter_values.push(IntValue(v))
+                  v = v + step_v
+                }
+              }
+              for i = 0; i < iter_values.length(); i = i + 1 {
+                let iter_cache = copy_value_bindings(eval_cache)
+                match var2 {
+                  Some(name2) => {
+                    iter_cache.push({
+                      name: var1,
+                      value: IntValue(i.to_int64()),
+                    })
+                    iter_cache.push({ name: name2, value: iter_values[i] })
+                  }
+                  None => iter_cache.push({ name: var1, value: iter_values[i] })
+                }
+                apply_iteration(iter_cache)
+              }
+            }
+            Some(MappingValue(iter_entries))
+            | Some(DefaultedMappingValue(_, iter_entries, _))
+            | Some(MapValue(iter_entries)) =>
+              for entry in iter_entries {
+                let iter_cache = copy_value_bindings(eval_cache)
+                match var2 {
+                  Some(name2) => {
+                    iter_cache.push({ name: var1, value: entry.key })
+                    iter_cache.push({ name: name2, value: entry.value })
+                  }
+                  None => {
+                    diagnostics.push(
+                      diag(
+                        "for-generator over Mapping requires two variables (key, value)",
+                      ),
+                    )
+                    ok = false
+                  }
+                }
+                apply_iteration(iter_cache)
+              }
+            Some(_) => {
+              diagnostics.push(
+                diag("for-generator source must be Listing or Mapping"),
+              )
+              ok = false
+            }
+            None => ok = false
+          }
+          if !ok {
+            return None
+          }
+          continue
+        }
+        _ => ()
+      }
+    }
     // PKL-148y: tolerate `when` / `for` / spread generator members
     // inside a listing-amend body (`(listing) { when (cond) { ... };
     // [N] = value }`). Evaluate the generator; splice any
@@ -719,24 +1098,7 @@ fn eval_listing_subscript_amend(
           diagnostics,
           resolve_import,
         ) {
-        Some(ListingValue(extras))
-        | Some(DefaultedListingValue(_, extras, _))
-        | Some(ListValue(extras))
-        | Some(SetValue(extras)) =>
-          for v in extras {
-            raw_result.push(v)
-            result.push(v)
-          }
-        Some(NullValue) => ()
-        // PKL-148ap: a bare element value at amend position appends
-        // one element. Apple Pkl's `(listing) { "a"; "b" }` extends
-        // the listing by two elements; only the @when / @for / @spread
-        // generator branches expect a container payload to splice.
-        // Without this arm `bar { "first" } { "second"; "third" }`
-        // dropped "second" and "third" silently (the previous arm
-        // expected a Listing payload and the `Some(_) => ()` catch-all
-        // ate the scalar).
-        Some(_) =>
+        Some(value) =>
           if field.name.has_prefix("@element$") {
             match
               eval_collection_body_expr(
@@ -758,6 +1120,10 @@ fn eval_listing_subscript_amend(
               }
               None => return None
             }
+          } else if !append_listing_spread_value(
+              value, raw_result, result, diagnostics,
+            ) {
+            return None
           }
         None => return None
       }
@@ -777,7 +1143,7 @@ fn eval_listing_subscript_amend(
           } else {
             let pred_expr = args[0]
             let body_expr = args[1]
-            for i = 0; i < result.length(); i = i + 1 {
+            for i = 0; i < base_length; i = i + 1 {
               let element = result[i]
               let pred_env = copy_value_bindings(env)
               pred_env.push({ name: "this", value: element })
@@ -801,7 +1167,13 @@ fn eval_listing_subscript_amend(
                   pred_expr, bindings, pred_env, class_env, cache, stack, declarations,
                   diagnostics, resolve_import,
                 ) {
-                Some(BoolValue(true)) =>
+                Some(BoolValue(true)) => {
+                  if int_array_contains(amended_indices, i) {
+                    diagnostics.push(
+                      diag("Duplicate definition of member `\{i}`."),
+                    )
+                    return None
+                  }
                   match body_expr {
                     ObjectLiteral(body_members) => {
                       let amended_cache = copy_value_bindings(cache)
@@ -815,6 +1187,8 @@ fn eval_listing_subscript_amend(
                           result[i] = ObjectValue(
                             merge_value_members(elem_members, body_values),
                           )
+                          raw_result[i] = result[i]
+                          amended_indices.push(i)
                         }
                         _ => ()
                       }
@@ -825,10 +1199,15 @@ fn eval_listing_subscript_amend(
                           body_expr, bindings, pred_env, class_env, cache, stack,
                           declarations, diagnostics, resolve_import,
                         ) {
-                        Some(new_value) => result[i] = new_value
+                        Some(new_value) => {
+                          result[i] = new_value
+                          raw_result[i] = new_value
+                          amended_indices.push(i)
+                        }
                         None => return None
                       }
                   }
+                }
                 Some(BoolValue(false)) => ()
                 Some(_) => {
                   diagnostics.push(
@@ -887,23 +1266,39 @@ fn eval_listing_subscript_amend(
                 return None
               } else {
                 let idx = idx64.to_int()
-                match
-                  eval_collection_body_expr(
-                    args[1],
-                    IntValue(idx64),
-                    current_default,
-                    bindings,
-                    eval_env,
-                    class_env,
-                    eval_cache,
-                    stack,
-                    declarations,
-                    diagnostics,
-                    resolve_import,
-                  ) {
-                  Some((raw, new_value)) => {
+                if int_array_contains(amended_indices, idx) {
+                  diagnostics.push(
+                    diag("Duplicate definition of member `\{idx}`."),
+                  )
+                  return None
+                }
+                let body_is_amend_block = match args[1] {
+                  ObjectLiteral(_) => true
+                  _ => false
+                }
+                let amended = if body_is_amend_block {
+                  match (result[idx], args[1]) {
+                    (ObjectValue(base_members), ObjectLiteral(body_members)) =>
+                      Some(
+                        ObjectValue(
+                          merge_value_members(
+                            base_members,
+                            eval_object_members(
+                              body_members, bindings, eval_env, class_env, eval_cache,
+                              stack, declarations, diagnostics, resolve_import,
+                            ),
+                          ),
+                        ),
+                      )
+                    _ => None
+                  }
+                } else {
+                  None
+                }
+                match amended {
+                  Some(new_value) => {
                     let old_value = result[idx]
-                    raw_result[idx] = raw
+                    raw_result[idx] = new_value
                     result[idx] = new_value
                     propagate_listing_replacement(
                       raw_result, old_value, new_value, idx,
@@ -911,8 +1306,37 @@ fn eval_listing_subscript_amend(
                     propagate_listing_replacement(
                       result, old_value, new_value, idx,
                     )
+                    amended_indices.push(idx)
                   }
-                  None => return None
+                  None =>
+                    match
+                      eval_collection_body_expr(
+                        args[1],
+                        IntValue(idx64),
+                        current_default,
+                        bindings,
+                        eval_env,
+                        class_env,
+                        eval_cache,
+                        stack,
+                        declarations,
+                        diagnostics,
+                        resolve_import,
+                      ) {
+                      Some((raw, new_value)) => {
+                        let old_value = result[idx]
+                        raw_result[idx] = raw
+                        result[idx] = new_value
+                        propagate_listing_replacement(
+                          raw_result, old_value, new_value, idx,
+                        )
+                        propagate_listing_replacement(
+                          result, old_value, new_value, idx,
+                        )
+                        amended_indices.push(idx)
+                      }
+                      None => return None
+                    }
                 }
               }
             Some(other_key) => {
@@ -994,6 +1418,7 @@ fn eval_mapping_amend(
     base_raw_result, base_result, default_value,
   )
   let mut current_default = default_value
+  let amended_keys : Array[Value] = []
   // PKL-148av: hoist `@local$` / `@hidden$` members in the amend body
   // so a sibling `[key] = expr` entry can reference them by bare name
   // (`(m) { ["x"] = y; local y = 2 }` — the bare `y` resolves to the
@@ -1075,6 +1500,179 @@ fn eval_mapping_amend(
       }
       continue
     }
+    if field.name == "@when" {
+      match field.value {
+        ConditionalExpr(
+          condition,
+          ObjectLiteral(then_members),
+          ObjectLiteral(else_members)
+        ) => {
+          let selected_members = match
+            eval_expr_with_bindings(
+              condition, bindings, eval_env, class_env, eval_cache, stack, declarations,
+              diagnostics, resolve_import,
+            ) {
+            Some(BoolValue(true)) => then_members
+            Some(BoolValue(false)) => else_members
+            Some(NullValue) => {
+              diagnostics.push(
+                diag("Expected value of type `Boolean`, but got `null`."),
+              )
+              return None
+            }
+            Some(other) => {
+              diagnostics.push(
+                diag(
+                  "Expected value of type `Boolean`, but got type `\{eval_value_type_name(other)}`. Value: \{render_pcf_value_inline(other)}",
+                ),
+              )
+              return None
+            }
+            None => return None
+          }
+          match
+            eval_mapping_amend(
+              raw_result, selected_members, bindings, eval_env, class_env, eval_cache,
+              stack, declarations, current_default, diagnostics, resolve_import,
+            ) {
+            Some(amended) => {
+              let (ok, next_default) = replace_mapping_amend_state_from_value(
+                raw_result, result, amended,
+              )
+              if !ok {
+                diagnostics.push(
+                  diag("when block inside Mapping must produce a Mapping"),
+                )
+                return None
+              }
+              current_default = next_default
+            }
+            None => return None
+          }
+          continue
+        }
+        _ => ()
+      }
+    }
+    if field.name == "@for" {
+      match field.value {
+        ForGenerator(var1, var2, source_expr, body_members) => {
+          let source = eval_expr_with_bindings(
+            source_expr, bindings, eval_env, class_env, eval_cache, stack, declarations,
+            diagnostics, resolve_import,
+          )
+          let mut ok = true
+          let apply_iteration = fn(iter_cache : Array[ValueBinding]) -> Unit {
+            if !ok {
+              return
+            }
+            match
+              eval_mapping_amend(
+                raw_result, body_members, bindings, eval_env, class_env, iter_cache,
+                stack, declarations, current_default, diagnostics, resolve_import,
+              ) {
+              Some(amended) => {
+                let (state_ok, next_default) = replace_mapping_amend_state_from_value(
+                  raw_result, result, amended,
+                )
+                if state_ok {
+                  current_default = next_default
+                } else {
+                  diagnostics.push(
+                    diag("for-generator inside Mapping must produce a Mapping"),
+                  )
+                  ok = false
+                }
+              }
+              None => ok = false
+            }
+          }
+          match source {
+            Some(ListingValue(iter_values))
+            | Some(DefaultedListingValue(_, iter_values, _))
+            | Some(ListValue(iter_values))
+            | Some(SetValue(iter_values)) =>
+              for i = 0; i < iter_values.length(); i = i + 1 {
+                let iter_cache = copy_value_bindings(eval_cache)
+                match var2 {
+                  Some(name2) => {
+                    iter_cache.push({
+                      name: var1,
+                      value: IntValue(i.to_int64()),
+                    })
+                    iter_cache.push({ name: name2, value: iter_values[i] })
+                  }
+                  None => iter_cache.push({ name: var1, value: iter_values[i] })
+                }
+                apply_iteration(iter_cache)
+              }
+            Some(IntSeqValue(start_v, end_v, step_v)) => {
+              let iter_values : Array[Value] = []
+              if step_v > 0L {
+                let mut v = start_v
+                while v <= end_v {
+                  iter_values.push(IntValue(v))
+                  v = v + step_v
+                }
+              } else if step_v < 0L {
+                let mut v = start_v
+                while v >= end_v {
+                  iter_values.push(IntValue(v))
+                  v = v + step_v
+                }
+              }
+              for i = 0; i < iter_values.length(); i = i + 1 {
+                let iter_cache = copy_value_bindings(eval_cache)
+                match var2 {
+                  Some(name2) => {
+                    iter_cache.push({
+                      name: var1,
+                      value: IntValue(i.to_int64()),
+                    })
+                    iter_cache.push({ name: name2, value: iter_values[i] })
+                  }
+                  None => iter_cache.push({ name: var1, value: iter_values[i] })
+                }
+                apply_iteration(iter_cache)
+              }
+            }
+            Some(MappingValue(iter_entries))
+            | Some(DefaultedMappingValue(_, iter_entries, _))
+            | Some(MapValue(iter_entries)) =>
+              for entry in iter_entries {
+                let iter_cache = copy_value_bindings(eval_cache)
+                match var2 {
+                  Some(name2) => {
+                    iter_cache.push({ name: var1, value: entry.key })
+                    iter_cache.push({ name: name2, value: entry.value })
+                  }
+                  None => {
+                    diagnostics.push(
+                      diag(
+                        "for-generator over Mapping requires two variables (key, value)",
+                      ),
+                    )
+                    ok = false
+                  }
+                }
+                apply_iteration(iter_cache)
+              }
+            Some(_) => {
+              diagnostics.push(
+                diag("for-generator source must be Listing or Mapping"),
+              )
+              ok = false
+            }
+            None => ok = false
+          }
+          if !ok {
+            return None
+          }
+          continue
+        }
+        _ => ()
+      }
+    }
     if field.name == "@when" || field.name == "@for" || field.name == "@spread" {
       match
         eval_expr_with_bindings(
@@ -1111,6 +1709,98 @@ fn eval_mapping_amend(
       }
       continue
     }
+    if field.name.has_prefix("@predicate$") {
+      match field.value {
+        CallExpr(Identifier("@__predicate_entry"), args) =>
+          if args.length() != 2 {
+            diagnostics.push(diag("object amendment expects Object"))
+            return None
+          } else {
+            let pred_expr = args[0]
+            let body_expr = args[1]
+            for i = 0; i < base_result.length(); i = i + 1 {
+              let entry = result[i]
+              let entry_value = entry.value
+              let pred_env = copy_value_bindings(env)
+              pred_env.push({ name: "this", value: entry_value })
+              pred_env.push({ name: "key", value: entry.key })
+              pred_env.push({ name: "value", value: entry_value })
+              match entry_value {
+                ObjectValue(elem_members) =>
+                  for m in elem_members {
+                    if !is_invisible_member_name(m.name) {
+                      pred_env.push({ name: m.name, value: m.value })
+                    }
+                  }
+                _ => ()
+              }
+              match
+                eval_expr_with_bindings(
+                  pred_expr, bindings, pred_env, class_env, cache, stack, declarations,
+                  diagnostics, resolve_import,
+                ) {
+                Some(BoolValue(true)) => {
+                  if value_array_contains(amended_keys, entry.key) {
+                    diagnostics.push(
+                      diag(
+                        "Duplicate definition of member `\{render_pcf_value_inline(entry.key)}`.",
+                      ),
+                    )
+                    return None
+                  }
+                  match body_expr {
+                    ObjectLiteral(body_members) => {
+                      let amended_cache = copy_value_bindings(cache)
+                      amended_cache.push({ name: "this", value: entry_value })
+                      match entry_value {
+                        ObjectValue(elem_members) => {
+                          let body_values = eval_object_members(
+                            body_members, bindings, pred_env, class_env, amended_cache,
+                            stack, declarations, diagnostics, resolve_import,
+                          )
+                          let new_value = ObjectValue(
+                            merge_value_members(elem_members, body_values),
+                          )
+                          raw_result[i] = { key: entry.key, value: new_value }
+                          result[i] = { key: entry.key, value: new_value }
+                          amended_keys.push(entry.key)
+                        }
+                        _ => ()
+                      }
+                    }
+                    _ =>
+                      match
+                        eval_expr_with_bindings(
+                          body_expr, bindings, pred_env, class_env, cache, stack,
+                          declarations, diagnostics, resolve_import,
+                        ) {
+                        Some(new_value) => {
+                          raw_result[i] = { key: entry.key, value: new_value }
+                          result[i] = { key: entry.key, value: new_value }
+                          amended_keys.push(entry.key)
+                        }
+                        None => return None
+                      }
+                  }
+                }
+                Some(BoolValue(false)) => ()
+                Some(_) => {
+                  diagnostics.push(
+                    diag("predicate member expression must produce a Boolean"),
+                  )
+                  return None
+                }
+                None => return None
+              }
+            }
+          }
+        _ => {
+          diagnostics.push(diag("object amendment expects Object"))
+          return None
+        }
+      }
+      continue
+    }
     if !field.name.has_prefix("@subscript$") {
       // PKL-148av: a named property amend on a Mapping (`default = X`)
       // no-ops at the entry level. Apple Pkl tracks the default slot
@@ -1143,6 +1833,14 @@ fn eval_mapping_amend(
                   break
                 }
               }
+              if value_array_contains(amended_keys, k) {
+                diagnostics.push(
+                  diag(
+                    "Duplicate definition of member `\{render_pcf_value_inline(k)}`.",
+                  ),
+                )
+                return None
+              }
               let body_is_amend_block = match val_expr {
                 ObjectLiteral(_) => true
                 _ => false
@@ -1166,7 +1864,7 @@ fn eval_mapping_amend(
                   ObjectValue(base_members) =>
                     Some(
                       ObjectValue(
-                        merge_value_members(
+                        merge_mapping_entry_object_amend_members(
                           base_members,
                           eval_object_members(
                             body_members, bindings, env, class_env, cache, stack,
@@ -1213,9 +1911,11 @@ fn eval_mapping_amend(
                   Some(new_value) => {
                     let old_value = result[existing_idx].value
                     result[existing_idx] = { key: k, value: new_value }
+                    raw_result[existing_idx] = { key: k, value: new_value }
                     propagate_mapping_replacement(
                       result, old_value, new_value, existing_idx,
                     )
+                    amended_keys.push(k)
                   }
                   None => return None
                 }
@@ -1236,9 +1936,11 @@ fn eval_mapping_amend(
                       propagate_mapping_replacement(
                         result, old_value, new_value, existing_idx,
                       )
+                      amended_keys.push(k)
                     } else {
                       raw_result.push({ key: k, value: raw_value })
                       result.push({ key: k, value: new_value })
+                      amended_keys.push(k)
                     }
                   None => return None
                 }

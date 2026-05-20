@@ -809,15 +809,57 @@ fn eval_listing_method(
       }
       Some(ListValue(elements))
     }
-    "toMap" => {
-      if arg_values.length() != 0 {
+    "toMap" =>
+      if arg_values.length() == 0 {
+        Some(MappingValue([]))
+      } else if arg_values.length() == 2 {
+        let entries : Array[ValueEntry] = []
+        for element in elements {
+          let key = match
+            apply_function_value(
+              "Listing.toMap keyFn",
+              arg_values[0],
+              [element],
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ) {
+            Some(v) => v
+            None => return None
+          }
+          let value = match
+            apply_function_value(
+              "Listing.toMap valueFn",
+              arg_values[1],
+              [element],
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ) {
+            Some(v) => v
+            None => return None
+          }
+          entries.push({ key, value })
+        }
+        Some(MapValue(entries))
+      } else {
         diagnostics.push(
-          diag("Listing.toMap expects 0 arguments, got \{arg_values.length()}"),
+          diag(
+            "Listing.toMap expects 0 or 2 arguments, got \{arg_values.length()}",
+          ),
         )
-        return None
+        None
       }
-      Some(MappingValue([]))
-    }
     // PKL-135: flatMap concatenates the listing results of each element's
     // transform call. Upstream allows Collection<Result> (List | Listing | Set);
     // pkl-mbt collapses those into ListingValue, so the shape stays consistent.

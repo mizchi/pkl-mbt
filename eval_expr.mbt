@@ -345,6 +345,8 @@ fn object_literal_to_listing_literal(expr : Expr) -> Expr? {
               rewrite_collection_when_branch(object_member.value, listing=true),
             ),
           )
+        } else if object_member.name == "@for" {
+          elements.push(WhenSpread(object_member.value))
         } else if object_member.name == "@spread" {
           elements.push(WhenSpread(object_member.value))
         } else {
@@ -384,6 +386,11 @@ fn object_literal_to_mapping_literal(expr : Expr) -> Expr? {
             key: WhenSpread(
               rewrite_collection_when_branch(object_member.value, listing=false),
             ),
+            value: NullLiteral,
+          })
+        } else if object_member.name == "@for" {
+          entries.push({
+            key: WhenSpread(object_member.value),
             value: NullLiteral,
           })
         } else if object_member.name == "@spread" {
@@ -831,6 +838,234 @@ fn listing_union_annotation_rejection_message(
   Some(
     "Expected value of type `\{pretty_listing_union_type_name(type_name)}`, but got a different `Listing`. Value: \{render_listing_union_rejection_value(elements)}",
   )
+}
+
+///|
+fn append_listing_spread_value(
+  value : Value,
+  raw_values : Array[Value],
+  values : Array[Value],
+  diagnostics : Array[Diagnostic],
+) -> Bool {
+  let append_elements = fn(elements : Array[Value]) -> Unit {
+    for v in elements {
+      raw_values.push(v)
+      values.push(v)
+    }
+  }
+  match value {
+    ListingValue(elements)
+    | DefaultedListingValue(_, elements, _)
+    | ListValue(elements)
+    | SetValue(elements) => {
+      append_elements(elements)
+      true
+    }
+    IntSeqValue(start_v, end_v, step_v) => {
+      append_elements(intseq_materialize(start_v, end_v, step_v))
+      true
+    }
+    BytesValue(bytes) => {
+      append_elements(bytes_materialize(bytes))
+      true
+    }
+    ObjectValue(object_members) => {
+      for value_member in object_members {
+        if is_invisible_member_name(value_member.name) {
+          continue
+        }
+        if value_member.name.has_prefix("@element$") {
+          raw_values.push(value_member.value)
+          values.push(value_member.value)
+        } else if value_member.name.has_prefix("@subscript$") {
+          diagnostics.push(
+            diag(
+              "Cannot spread object containing entries into object of type `Listing`.",
+            ),
+          )
+          return false
+        } else {
+          diagnostics.push(
+            diag(
+              "Cannot spread object containing properties into object of type `Listing`.",
+            ),
+          )
+          return false
+        }
+      }
+      true
+    }
+    MappingValue(_) | DefaultedMappingValue(_, _, _) => {
+      diagnostics.push(
+        diag(
+          "Cannot spread object containing entries into object of type `Listing`.",
+        ),
+      )
+      false
+    }
+    NullValue => true
+    _ => {
+      diagnostics.push(
+        diag(
+          "Cannot spread value of type `\{eval_value_type_name(value)}` into object of type `Listing`. Value: \{render_pcf_value_inline(value)}",
+        ),
+      )
+      false
+    }
+  }
+}
+
+///|
+fn append_mapping_spread_entry(
+  entry : ValueEntry,
+  raw_values : Array[ValueEntry],
+  values : Array[ValueEntry],
+  diagnostics : Array[Diagnostic],
+) -> Bool {
+  for existing in values {
+    if existing.key == entry.key {
+      diagnostics.push(
+        diag(
+          "Cannot spread object because the enclosing object already has a declaration of entry key `\{render_pcf_value_inline(entry.key)}`.",
+        ),
+      )
+      return false
+    }
+  }
+  raw_values.push(entry)
+  values.push(entry)
+  true
+}
+
+///|
+fn append_mapping_spread_value(
+  value : Value,
+  raw_values : Array[ValueEntry],
+  values : Array[ValueEntry],
+  diagnostics : Array[Diagnostic],
+) -> Bool {
+  match value {
+    MappingValue(entries) | MapValue(entries) => {
+      for entry in entries {
+        if !append_mapping_spread_entry(entry, raw_values, values, diagnostics) {
+          return false
+        }
+      }
+      true
+    }
+    DefaultedMappingValue(raw_entries, entries, _) => {
+      for i = 0; i < entries.length(); i = i + 1 {
+        for existing in values {
+          if existing.key == entries[i].key {
+            diagnostics.push(
+              diag(
+                "Cannot spread object because the enclosing object already has a declaration of entry key `\{render_pcf_value_inline(entries[i].key)}`.",
+              ),
+            )
+            return false
+          }
+        }
+        if i < raw_entries.length() {
+          raw_values.push(raw_entries[i])
+        } else {
+          raw_values.push(entries[i])
+        }
+        values.push(entries[i])
+      }
+      true
+    }
+    ObjectValue(object_members) => {
+      for value_member in object_members {
+        if is_invisible_member_name(value_member.name) {
+          continue
+        }
+        if !value_member.name.has_prefix("@element$") &&
+          !value_member.name.has_prefix("@subscript$") {
+          diagnostics.push(
+            diag(
+              "Cannot spread object containing properties into object of type `Mapping`.",
+            ),
+          )
+          return false
+        }
+      }
+      for value_member in object_members {
+        if is_invisible_member_name(value_member.name) {
+          continue
+        }
+        if value_member.name.has_prefix("@element$") {
+          diagnostics.push(
+            diag(
+              "Cannot spread object containing elements into object of type `Mapping`.",
+            ),
+          )
+          return false
+        }
+      }
+      for value_member in object_members {
+        if is_invisible_member_name(value_member.name) ||
+          !value_member.name.has_prefix("@subscript$") {
+          continue
+        }
+        match value_member.value {
+          ObjectValue(pair_members) =>
+            match
+              (
+                lookup_member(pair_members, "@key"),
+                lookup_member(pair_members, "@value"),
+              ) {
+              (Some(key), Some(value)) =>
+                if !append_mapping_spread_entry(
+                    { key, value },
+                    raw_values,
+                    values,
+                    diagnostics,
+                  ) {
+                  return false
+                }
+              _ => ()
+            }
+          _ => ()
+        }
+      }
+      true
+    }
+    ListingValue(_) | DefaultedListingValue(_, _, _) => {
+      diagnostics.push(
+        diag(
+          "Cannot spread object containing elements into object of type `Mapping`.",
+        ),
+      )
+      false
+    }
+    NullValue => true
+    _ => {
+      let rendered = match value {
+        BytesValue(bytes) => render_bytes_value_inline(bytes)
+        _ => render_pcf_value_inline(value)
+      }
+      diagnostics.push(
+        diag(
+          "Cannot spread value of type `\{eval_value_type_name(value)}` into object of type `Mapping`. Value: \{rendered}",
+        ),
+      )
+      false
+    }
+  }
+}
+
+///|
+fn render_bytes_value_inline(bytes : Bytes) -> String {
+  let buf = StringBuilder::new()
+  buf.write_string("Bytes(")
+  for i = 0; i < bytes.length(); i = i + 1 {
+    if i > 0 {
+      buf.write_string(", ")
+    }
+    buf.write_string(bytes[i].to_int().to_string())
+  }
+  buf.write_char(')')
+  buf.to_string()
 }
 
 ///|
@@ -1560,21 +1795,12 @@ fn eval_expr_with_bindings(
                 inner, bindings, body_env, class_env, body_cache, stack, declarations,
                 diagnostics, resolve_import,
               ) {
-              Some(ListingValue(inner_elements))
-              | Some(DefaultedListingValue(_, inner_elements, _))
-              | Some(ListValue(inner_elements)) =>
-                for v in inner_elements {
-                  raw_values.push(v)
-                  values.push(v)
+              Some(value) =>
+                if !append_listing_spread_value(
+                    value, raw_values, values, diagnostics,
+                  ) {
+                  return None
                 }
-              // PKL-148s: `...?x` against a null `x` silently skips
-              // (also covers `...x` against null — see the matching
-              // arm in `eval_object_members` for the rationale).
-              Some(NullValue) => ()
-              Some(_) =>
-                diagnostics.push(
-                  diag("when block inside Listing must produce a Listing"),
-                )
               None => ()
             }
           }
@@ -1689,26 +1915,12 @@ fn eval_expr_with_bindings(
                 inner, bindings, body_env, class_env, body_cache, stack, declarations,
                 diagnostics, resolve_import,
               ) {
-              Some(MappingValue(inner_entries)) =>
-                for e in inner_entries {
-                  raw_values.push(e)
-                  values.push(e)
+              Some(value) =>
+                if !append_mapping_spread_value(
+                    value, raw_values, values, diagnostics,
+                  ) {
+                  return None
                 }
-              Some(DefaultedMappingValue(raw_entries, inner_entries, _)) => {
-                for e in raw_entries {
-                  raw_values.push(e)
-                }
-                for e in inner_entries {
-                  values.push(e)
-                }
-              }
-              // PKL-148s: `...?x` against a null `x` silently skips
-              // (also covers `...x` against null).
-              Some(NullValue) => ()
-              Some(_) =>
-                diagnostics.push(
-                  diag("when block inside Mapping must produce a Mapping"),
-                )
               None => ()
             }
           }
@@ -2483,6 +2695,29 @@ fn eval_expr_with_bindings(
           // base-members snapshot is a reasonable approximation for
           // properties that don't require the not-yet-merged overrides.
           amend_cache.push({ name: "this", value: ObjectValue(base_members) })
+          // Dynamic objects that contain only bracket entries behave like a
+          // Mapping for predicate members and generator-scoped predicate
+          // members. Route that shape through the Mapping amend path so
+          // `new Dynamic { ["k"] { ... } }` preserves key/value semantics.
+          if amend_members_need_mapping_member_semantics(members) {
+            match dynamic_mapping_entries_from_members(base_members) {
+              Some(entries) =>
+                return eval_mapping_amend(
+                  entries,
+                  members,
+                  bindings,
+                  env,
+                  class_env,
+                  amend_cache,
+                  stack,
+                  declarations,
+                  None,
+                  diagnostics,
+                  resolve_import,
+                )
+              None => ()
+            }
+          }
           // PKL-148ar: `[[ pred ]] { body }` predicate-member fires
           // against the base's Dynamic-shape entries (`@element$` for
           // bare elements, `@subscript$` for `[key]` entries). Split
@@ -2881,10 +3116,13 @@ fn eval_expr_with_bindings(
       } else if callee is Identifier("Bytes") &&
         !stack_contains_binding(stack, "Bytes") &&
         find_binding(bindings, "Bytes") is None {
-        // PKL-083: `Bytes(<Listing of Int>)` constructor. Each element
-        // is validated 0..=255 inside `build_bytes_from_int_listing`;
-        // anything else records a diagnostic and bails.
-        if arguments.length() == 1 {
+        // PKL-083 / PKL-148ax: `Bytes(...)` accepts either the legacy
+        // `Bytes(<Listing of Int>)` shape or Apple Pkl's varargs form.
+        // Each element is validated 0..=255 inside
+        // `build_bytes_from_int_listing`.
+        if arguments.length() == 0 {
+          build_bytes_from_int_listing([], diagnostics)
+        } else if arguments.length() == 1 {
           match
             eval_expr_with_bindings(
               arguments[0],
@@ -2901,6 +3139,8 @@ fn eval_expr_with_bindings(
             | Some(DefaultedListingValue(_, elements, _))
             | Some(ListValue(elements)) =>
               build_bytes_from_int_listing(elements, diagnostics)
+            Some(IntValue(n)) =>
+              build_bytes_from_int_listing([IntValue(n)], diagnostics)
             Some(_) => {
               diagnostics.push(diag("Bytes expects a Listing of Int"))
               None
@@ -2908,8 +3148,27 @@ fn eval_expr_with_bindings(
             None => None
           }
         } else {
-          diagnostics.push(diag("Bytes expects exactly one argument"))
-          None
+          let elements : Array[Value] = []
+          let mut ok = true
+          for argument in arguments {
+            match
+              eval_expr_with_bindings(
+                argument, bindings, env, class_env, cache, stack, declarations, diagnostics,
+                resolve_import,
+              ) {
+              Some(IntValue(n)) => elements.push(IntValue(n))
+              Some(_) => {
+                diagnostics.push(diag("Bytes expects Int arguments"))
+                ok = false
+              }
+              None => ok = false
+            }
+          }
+          if ok {
+            build_bytes_from_int_listing(elements, diagnostics)
+          } else {
+            None
+          }
         }
       } else if callee is MemberAccess(Identifier("Bytes"), "fromBase64") &&
         !stack_contains_binding(stack, "Bytes") &&
@@ -7577,10 +7836,29 @@ fn eval_object_members_with_options(
           // but the AST-level required-vs-optional distinction isn't
           // worth the bookkeeping until a gold fixture exercises it).
           match value {
-            ObjectValue(spread_members) =>
+            ObjectValue(spread_members) => {
+              let named : Array[ValueMember] = []
+              let subscripts : Array[ValueMember] = []
+              let elements : Array[ValueMember] = []
               for spread_member in spread_members {
+                if spread_member.name.has_prefix("@subscript$") {
+                  subscripts.push(spread_member)
+                } else if spread_member.name.has_prefix("@element$") {
+                  elements.push(spread_member)
+                } else {
+                  named.push(spread_member)
+                }
+              }
+              for spread_member in named {
                 values.push(spread_member)
               }
+              for spread_member in subscripts {
+                values.push(spread_member)
+              }
+              for spread_member in elements {
+                values.push(spread_member)
+              }
+            }
             ListingValue(elements)
             | DefaultedListingValue(_, elements, _)
             | ListValue(elements)
@@ -7593,6 +7871,28 @@ fn eval_object_members_with_options(
                   annotations: [],
                 })
               }
+            IntSeqValue(start_v, end_v, step_v) => {
+              let elements = intseq_materialize(start_v, end_v, step_v)
+              for i = 0; i < elements.length(); i = i + 1 {
+                values.push({
+                  name: "@element$spread" + field.name + "$" + i.to_string(),
+                  value: elements[i],
+                  source: None,
+                  annotations: [],
+                })
+              }
+            }
+            BytesValue(bytes) => {
+              let elements = bytes_materialize(bytes)
+              for i = 0; i < elements.length(); i = i + 1 {
+                values.push({
+                  name: "@element$spread" + field.name + "$" + i.to_string(),
+                  value: elements[i],
+                  source: None,
+                  annotations: [],
+                })
+              }
+            }
             MappingValue(entries)
             | DefaultedMappingValue(_, entries, _)
             | MapValue(entries) =>

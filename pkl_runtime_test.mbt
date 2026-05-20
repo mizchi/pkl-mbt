@@ -1631,6 +1631,270 @@ test "PKL-147: nested amend body in mapping entry preserves listing elements" {
 }
 
 ///|
+test "PKL-148ar: predicate members amend mapping entries" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|hidden people = new Mapping {
+      #|  ["Pigeon"] { name = "Pigeon"; age = 42 }
+      #|  ["Barn Owl"] { name = "Barn Owl"; age = 21 }
+      #|}
+      #|res = (people) {
+      #|  [[name == "Barn Owl"]] { age = 99 }
+      #|}
+      #|
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("[\"Barn Owl\"] {"), content="true")
+  inspect(rendered.contains("age = 99"), content="true")
+  inspect(rendered.contains("age = 42"), content="true")
+}
+
+///|
+test "PKL-148ar: predicate members ignore same-block listing additions" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|hidden people = new Listing {
+      #|  new { name = "Pigeon"; age = 42 }
+      #|}
+      #|res = (people) {
+      #|  new { name = "Albatross"; age = 4 }
+      #|  [[name == "Albatross"]] { age = 9 }
+      #|}
+      #|
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("name = \"Albatross\""), content="true")
+  inspect(rendered.contains("age = 4"), content="true")
+  inspect(rendered.contains("age = 9"), content="false")
+}
+
+///|
+test "PKL-148ar: predicate members inside for amend listing entries" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|hidden people = new Listing {
+      #|  new { name = "Pigeon"; age = 42 }
+      #|  new { name = "Parrot"; age = 33 }
+      #|}
+      #|res = (people) {
+      #|  for (target in List("Pigeon", "Parrot")) {
+      #|    [[name == target]] { age = 99 }
+      #|  }
+      #|}
+      #|
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("name = \"Pigeon\""), content="true")
+  inspect(rendered.contains("name = \"Parrot\""), content="true")
+  inspect(rendered.contains("age = 99"), content="true")
+  inspect(rendered.contains("age = 42"), content="false")
+  inspect(rendered.contains("age = 33"), content="false")
+}
+
+///|
+test "PKL-148ar: Dynamic.toMap projects bracket entries" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|hidden people = new Dynamic {
+      #|  ["Pigeon"] { name = "Pigeon"; age = 42 }
+      #|}
+      #|age = people.toMap().values.first.age
+      #|
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("age = 42"), content="true")
+}
+
+///|
+test "PKL-148ax: Dynamic annotation preserves mixed inferred new body" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|hidden dynamic: Dynamic = new {
+      #|  1
+      #|  ["foo"] = 0
+      #|  foo = "foo"
+      #|}
+      #|res = new Dynamic { ...dynamic }
+      #|
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let expected =
+    #|res {
+    #|  foo = "foo"
+    #|  ["foo"] = 0
+    #|  1
+    #|}
+  inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
+test "PKL-148ax: Bytes accepts varargs" {
+  guard eval_source("bytes = Bytes(1, 2, 3, 4)") is EvalOk(value) else {
+    panic()
+  }
+  inspect(
+    @pkl.render_value(value),
+    content="bytes = Bytes(new Listing { 1; 2; 3; 4 })",
+  )
+}
+
+///|
+test "PKL-148ax: Dynamic spread materializes IntSeq and Bytes" {
+  guard eval_source(
+      (
+        #|res = new Dynamic {
+        #|  ...IntSeq(0, 5).step(2)
+        #|  ...Bytes(1, 2)
+        #|}
+      ),
+    )
+    is EvalOk(value) else {
+    panic()
+  }
+  let expected =
+    #|res {
+    #|  0
+    #|  2
+    #|  4
+    #|  1
+    #|  2
+    #|}
+  inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
+test "PKL-148ax: legacy Dynamic constructor is not a class mirror amend" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|hidden dynamic: Dynamic = new {
+      #|  1
+      #|  ["foo"] = 0
+      #|  foo = "foo"
+      #|}
+      #|res = (Dynamic) { ...dynamic }
+      #|
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("simpleName = \"Dynamic\""), content="false")
+  inspect(rendered.contains("foo = \"foo\""), content="true")
+  inspect(rendered.contains("[\"foo\"] = 0"), content="true")
+}
+
+///|
+test "PKL-148ay: Listing spread materializes Set IntSeq and Bytes" {
+  guard eval_source(
+      (
+        #|res = new Listing {
+        #|  ...Set(10, 20)
+        #|  ...IntSeq(0, 4).step(2)
+        #|  ...Bytes(1, 2)
+        #|}
+      ),
+    )
+    is EvalOk(value) else {
+    panic()
+  }
+  let expected =
+    #|res {
+    #|  10
+    #|  20
+    #|  0
+    #|  2
+    #|  4
+    #|  1
+    #|  2
+    #|}
+  inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
+test "PKL-148ay: Listing spread rejects Map with Apple wording" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:test"
+      #|res = test.catch(() -> new Listing { ...Map("a", 1, "b", 2) })
+      #|
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered.contains(
+      "Cannot spread value of type `Map` into object of type `Listing`.",
+    ),
+    content="true",
+  )
+}
+
+///|
+test "PKL-148az: Mapping spread accepts Map values and rejects element collections" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:test"
+      #|res = new Mapping {
+      #|  ...Map("a", 1, "b", 2)
+      #|}
+      #|err = test.catch(() -> new Mapping { ...List(1, 2, 3) })
+      #|
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("[\"a\"] = 1"), content="true")
+  inspect(rendered.contains("[\"b\"] = 2"), content="true")
+  inspect(
+    rendered.contains(
+      "Cannot spread value of type `List` into object of type `Mapping`.",
+    ),
+    content="true",
+  )
+}
+
+///|
+test "PKL-148az: Listing.toMap accepts key and value lambdas" {
+  guard eval_source(
+      (
+        #|res = List("bar").toMap((name) -> name, (name) -> new {
+        #|  label = name
+        #|}).toMapping()
+      ),
+    )
+    is EvalOk(value) else {
+    panic()
+  }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("[\"bar\"] {"), content="true")
+  inspect(rendered.contains("label = \"bar\""), content="true")
+}
+
+///|
 test "PKL-147: module.catch routes through the test.catch intercept" {
   // The CallExpr dispatcher recognises both `test.catch(...)` and
   // `module.catch(...)`. snippetTest fixtures use the `module` form to

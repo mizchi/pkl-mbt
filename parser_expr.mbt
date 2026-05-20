@@ -572,6 +572,9 @@ fn Parser::parse_primary_expr(self : Parser) -> Expr {
       if self.function_literal_at_current() {
         return self.parse_lambda_expr()
       }
+      if self.legacy_dynamic_constructor_at_current() {
+        return self.parse_legacy_dynamic_constructor()
+      }
       if self.paren_expr_looks_unsupported() {
         return self.parse_unsupported_expr()
       }
@@ -584,6 +587,38 @@ fn Parser::parse_primary_expr(self : Parser) -> Expr {
     }
     _ => self.parse_unsupported_expr()
   }
+}
+
+///|
+fn Parser::legacy_dynamic_constructor_at_current(self : Parser) -> Bool {
+  if !self.at(lparen()) {
+    return false
+  }
+  let name_idx = self.skip_trivia_from(self.pos + 1)
+  if name_idx >= self.len ||
+    self.tokens[name_idx].kind() != identifier() ||
+    self.tokens[name_idx].text() != "Dynamic" {
+    return false
+  }
+  let close_idx = self.skip_trivia_from(name_idx + 1)
+  if close_idx >= self.len || self.tokens[close_idx].kind() != rparen() {
+    return false
+  }
+  let body_idx = self.skip_trivia_from(close_idx + 1)
+  body_idx < self.len && self.tokens[body_idx].kind() == lbrace()
+}
+
+///|
+fn Parser::parse_legacy_dynamic_constructor(self : Parser) -> Expr {
+  self.builder.start_node(object_expr())
+  ignore(self.expect(lparen(), "("))
+  self.skip_whitespace()
+  ignore(self.expect(identifier(), "Dynamic"))
+  self.skip_whitespace()
+  ignore(self.expect(rparen(), ")"))
+  let members = self.parse_object_body_members()
+  self.builder.finish_node()
+  TypedObjectLiteral("Dynamic", members)
 }
 
 ///|
@@ -766,6 +801,36 @@ fn Parser::parse_import_expr(self : Parser) -> Expr {
 
 ///|
 fn Parser::parse_object_expr(self : Parser) -> Expr {
+  self.parse_object_expr_with_expected_type(None)
+}
+
+///|
+fn Parser::parse_expr_with_expected_type(
+  self : Parser,
+  type_name : String?,
+) -> Expr {
+  self.skip_whitespace()
+  if type_name == Some("Dynamic") && self.at_bare_new_body() {
+    self.parse_object_expr_with_expected_type(type_name)
+  } else {
+    self.parse_expr()
+  }
+}
+
+///|
+fn Parser::at_bare_new_body(self : Parser) -> Bool {
+  if !self.at(new_kw()) {
+    return false
+  }
+  let body_idx = self.skip_trivia_from(self.pos + 1)
+  body_idx < self.len && self.tokens[body_idx].kind() == lbrace()
+}
+
+///|
+fn Parser::parse_object_expr_with_expected_type(
+  self : Parser,
+  expected_type_name : String?,
+) -> Expr {
   self.builder.start_node(object_expr())
   ignore(self.expect(new_kw(), "new"))
   self.skip_whitespace()
@@ -787,11 +852,20 @@ fn Parser::parse_object_expr(self : Parser) -> Expr {
   } else if type_name == "Mapping" || type_name.has_prefix("Mapping<") {
     self.parse_mapping_body()
   } else if type_name == "" {
-    // PKL-138: peek the first significant token inside `{` to decide
-    // whether `new { ... }` is a listing, mapping, or object body. The
-    // binding's type annotation isn't visible at parse time, so we
-    // infer from the body's first item shape.
-    self.parse_inferred_new_body()
+    match expected_type_name {
+      Some("Dynamic") =>
+        // PKL-148ax: `local x: Dynamic = new { 1; foo = "foo" }`
+        // is a Dynamic body, not a Listing with an illegal property.
+        // The declared type is the only place that disambiguates this
+        // mixed element/property body before evaluation.
+        TypedObjectLiteral("Dynamic", self.parse_object_body_members())
+      _ =>
+        // PKL-138: peek the first significant token inside `{` to
+        // decide whether `new { ... }` is a listing, mapping, or object
+        // body. Without an expected Dynamic annotation, infer from the
+        // body's first item shape.
+        self.parse_inferred_new_body()
+    }
   } else {
     TypedObjectLiteral(type_name, self.parse_object_body_members())
   }

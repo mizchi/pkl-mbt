@@ -1,6 +1,6 @@
 # Test SPEC
 
-266 tests across 2 module(s) — 201 pending, 65 active
+269 tests across 2 module(s) — 203 pending, 66 active
 
 ## `specs/`
 
@@ -322,7 +322,7 @@
   > Adds class-as-value semantics — a bare class identifier (`Person`) projects to a `pkl:reflect.Class` mirror; member access on the mirror reports `Cannot find property \\\\\\\`X\\\\\\\` in object of type \\\\\\\`Class\\\\\\\`.` and call-form access reports `Cannot find method \\\\\\\`X\\\\\\\` in class \\\\\\\`Class\\\\\\\`.`. Lexical scope now wins over module-level bindings: `resolve_binding_value` checks `env` before the module's `bindings` / `cache`, and `eval_object_members` hoists each prior member (including `local` properties whose `@hidden$` prefix gets stripped during the hoist) into a per-field env so a nested `bar { x = 2; y = x + 3 }` resolves `x` to the inner `2` rather than the enclosing `foo.x = 1` or module-level `x = 0`. Amend operations now deep-merge ObjectValue members rather than wholesale-replacing them — `(x) { foo { bar { num1 = 11 } } }` keeps `foo.bar.num2` and `foo.baz` from the base. Constraint diagnostics that quote a class-typed value render with the host class name (`new Address { street = "Garlic Blvd." }` rather than the multi-line PCF block form). Lifts gold-match from 43 to 50 PCF (`basic/localProperty1`, `basic/localPropertyOverride3`, `classes/class4`, `classes/constraints3`, `objects/configureObjectAssign`, `objects/implicitReceiver1`, `objects/implicitReceiver2`).
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-148c
-  - decisions: 4 entry(ies)
+  - decisions: 6 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **cli format subcommand** — verifies: PKL-099 — tags: cli, renderer, format
@@ -361,10 +361,10 @@
   - body: _not yet implemented_
 
 - [ ] **deferred property error sentinel hides from output and fires on bare identifier reads** (minor) — verifies: PKL-148ak — tags: evaluator, diagnostics, upstream, compat
-  > Apple Pkl evaluates class-default property bodies lazily: a typed local whose RHS violates the annotation (`local p2: Int = "foo"`) doesn't fail the surrounding class — the rejection is deferred and only raised when the property is actually read, so `test.catch(() -> p2)` captures the diagnostic message verbatim while siblings that never touch `p2` evaluate cleanly. pkl-mbt's `defer_property_errors` mode (PKL-148u) already stamps a `@error$<stored>` sentinel next to each rejected member, but the wiring was one-sided. The sentinel had no invisibility marker, so the PCF renderer projected entries like `@error$@local$p2 = "Expected value of type \`Int\`, but got type \`String\`. Value: \"foo\""` next to the legitimate `res*` members. And `local` member hoisting only pushed the bare name + (type-invalid) value into the per-field `local_env`; an Identifier reference to `p2` from a sibling — including the lambda body of `test.catch(() -> p2)` — read the value silently with no diagnostic, so `test.catch` reported `Expected an exception, but none was thrown.` instead of the gold message. Three coordinated changes. (1) Moved the `@error$` prefix out of `eval.mbt` into `parser.mbt` (`error_member_prefix` / `error_member_name` / `is_error_member_name`) and extended `is_invisible_member_name` to include it, so every existing renderer / equality / iteration site picks up the filter without per-site touch-ups. (2) `eval_object_members`'s hoisting loop now recognises `@error$<stored>` entries and re-emits them as `@error$<bare>` env bindings (with whatever inner visibility prefix stripped), so the sentinel sits in env alongside the bare-name value. (3) `eval_expr_with_bindings`'s Identifier arm checks `lookup_value(env, error_member_name(name))` first; when present it pushes the message and returns None, mirroring the `lookup_pending_error_message` short-circuit that the member-access arm already runs. Lambdas closed over the env (including the `test.catch(() -> p2)` body) see the same intercept. +1 fixture (`basic/localTypedClassMember`), 143 → 144; basic category 55.8% → 57.0%.
+  > Apple Pkl evaluates class-default property bodies lazily: a typed local whose RHS violates the annotation (`local p2: Int = "foo"`) doesn't fail the surrounding class — the rejection is deferred and only raised when the property is actually read, so `test.catch(() -> p2)` captures the diagnostic message verbatim while siblings that never touch `p2` evaluate cleanly. pkl-mbt's `defer_property_errors` mode (PKL-148u) already stamps a `@error$<stored>` sentinel next to each rejected member, but the wiring was one-sided. The sentinel had no invisibility marker, so the PCF renderer projected entries like `@error$@local$p2 = "Expected value of type \`Int\`, but got type \`String\`. Value: \"foo\""` next to the legitimate `res*` members. And `local` member hoisting only pushed the bare name + (type-invalid) value into the per-field `local_env`; an Identifier reference to `p2` from a sibling — including the lambda body of `test.catch(() -> p2)` — read the value silently with no diagnostic, so `test.catch` reported `Expected an exception, but none was thrown.` instead of the gold message. Three coordinated changes. (1) Moved the `@error$` prefix out of `eval.mbt` into `parser.mbt` (`error_member_prefix` / `error_member_name` / `is_error_member_name`) and extended `is_invisible_member_name` to include it, so every existing renderer / equality / iteration site picks up the filter without per-site touch-ups. (2) `eval_object_members`'s hoisting loop now recognises `@error$<stored>` entries and re-emits them as `@error$<bare>` env bindings (with whatever inner visibility prefix stripped), so the sentinel sits in env alongside the bare-name value. (3) `eval_expr_with_bindings`'s Identifier arm checks `lookup_value(env, error_member_name(name))` first; when present it pushes the message and returns None, mirroring the `lookup_pending_error_message` short-circuit that the member-access arm already runs. Lambdas closed over the env (including the `test.catch(() -> p2)` body) see the same intercept. Ordinary object bodies now opt their `local` members into the same per-field buffer, leaving visible members eager while preventing an unused typed local from rejecting its enclosing object. Fixtures added: `basic/localTypedClassMember` and `basic/localTypedObjectMember`; PCF gold-match is now 244 / 391 and the basic category is 63 / 86.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-148aj
-  - decisions: 3 entry(ies)
+  - decisions: 4 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **diagnostic message text upstream alignment** — verifies: PKL-108 — tags: diagnostics, compatibility
@@ -730,10 +730,10 @@
   - body: _not yet implemented_
 
 - [ ] **module-level super dispatch for extends** (minor) — verifies: PKL-148ac — tags: evaluator, upstream, compat
-  > Apple Pkl's `module B extends A` rebinds `super` to the parent module's evaluated members at the module-level — so `super.X` (property access) and `super.X(...)` (method call) inside the child's bindings / hidden properties / functions dispatch through the parent's binding cache, not just through a class-scoped `@current_class` marker. pkl-mbt's `eval_super_method_call` checked `@current_class` first and bailed with `super.<m> used outside a class body` when called from module top-level; the bare `super.X` property read hit `Cannot find property \`super\`.` because `Identifier("super")` had no env / cache entry. The fix is two-step: (1) at the start of `eval_program`, when `program.module_relation` is set, eagerly run `eval_module_relation` to materialise the parent's members and push `super = ObjectValue(parent_members)` into the cache (not env) so module-level `LambdaExpr → FunctionValue` evaluations capture it via `capture_value_bindings(env, cache)`, and so class-default evaluation (PKL-148aa) which pushes its own class-scoped `super` later still wins via the last-pushed-wins lookup. (2) `eval_super_method_call` falls back when `@current_class` is missing: look up `method_name` in the super-bound `ObjectValue` (trying both the bare and `hidden_member_name(...)` keys — module functions are stored under the hidden prefix), and when it resolves to a `FunctionValue`, hand it to `apply_function_value` with the evaluated arguments. The follow-up for `modules/supercalls3` preserves module binding source expressions, records hidden module metadata for each evaluated module, and binds inherited / `super` FunctionValues to the current child module receiver while keeping the defining module's own `super` chain; this lets `supercalls2` and `supercalls1` late-bind `prefix = "Oh "` from `supercalls3`. +4 fixtures (`modules/supercalls2`, `modules/supercalls3`, `modules/amendModule4`, `modules/extendModule1`).
+  > Apple Pkl's `module B extends A` rebinds `super` to the parent module's evaluated members at the module-level — so `super.X` (property access) and `super.X(...)` (method call) inside the child's bindings / hidden properties / functions dispatch through the parent's binding cache, not just through a class-scoped `@current_class` marker. pkl-mbt's first slice pushed `super = ObjectValue(parent_members)` into the module cache and added the module-level fallback in `eval_super_method_call`, which covered direct parent dispatch. The `modules/supercalls3` follow-up preserves module binding source expressions, records hidden module metadata for each evaluated module, and binds inherited / `super` FunctionValues to the current child module receiver while keeping the defining module's own `super` chain; this lets `supercalls2` and `supercalls1` late-bind `prefix = "Oh "` from `supercalls3`. +4 fixtures (`modules/supercalls2`, `modules/supercalls3`, `modules/amendModule4`, `modules/extendModule1`).
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-148ab
-  - decisions: 4 entry(ies)
+  - decisions: 5 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **mpkl stdlib coverage probe** — verifies: PKL-141 — tags: cli, stdlib, verification
@@ -984,6 +984,13 @@
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-048, PKL-047, PKL-044
   - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **protobuf text renderer** — verifies: PKL-126c — tags: renderer, protobuf, textproto, cli
+  > The protobuf renderer emits Protocol Buffers text format (`textproto`), matching Apple Pkl's current experimental `pkl:protobuf.Renderer` surface. The CLI accepts `-f textproto`, and `output { renderer = new protobuf.Renderer { ... } }` is detected from the AST like the JSON / YAML / plist / XML renderer drivers. Scalar properties render as `name: value`; nested typed objects render as `name: { ... }`; Listing / List / Set values become repeated fields; Mapping / Map values become repeated `{ key: ..., value: ... }` messages; Duration projects to `{ seconds: ..., nanos: ... }`; `RenderDirective` values write their text verbatim; `indent` controls nested indentation. `protobuf.Property { name = ... }` is handled through the convert-property pass so field rename annotations survive before text rendering. The upstream `api/protobuf3.txtpb` fixture now byte-matches its `.txtpb` gold file and is pinned by `scripts/upstream-smoke.sh`'s `TEXTPROTO_GOLD_FIXTURES` list. Remaining protobuf parity gaps are type-annotation-driven oneof/subtype field naming, top-level invalid-type diagnostics, unsupported DataSize / Bytes diagnostics, and binary protobuf output if upstream ever exposes it.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-124, PKL-126a, PKL-126b, PKL-153
+  - decisions: 2 entry(ies)
   - body: _not yet implemented_
 
 - [ ] **provide a usable CLI** — verifies: PKL-009
@@ -1391,6 +1398,13 @@
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
+- [ ] **xml renderer** — verifies: PKL-126b — tags: renderer, xml, cli
+  > The XML renderer emits a standard XML document with an XML prolog, a configurable root element (`rootElementName`, default `root`), configurable indentation (`indent`, default two spaces), and XML-escaped text nodes. Object and Mapping members render as child elements; Listing / List / Set scalar elements concatenate inside their containing element; Null members are omitted. The CLI accepts `-f xml`, and `output { renderer = new xml.Renderer { ... } }` is detected from the AST just like the JSON / YAML / plist renderer drivers. The `pkl:xml` module now exposes the renderer-support classes needed by the first upstream fixtures (`Renderer`, `Element`, `Inline`, `CData`, `Comment`, `Property`). `xml.Element("name")` can override the emitted element name for a value, and direct `xml.CData(...)` / `xml.Comment(...)` member sources preserve their DOM identity at render time. The upstream `api/xmlRenderer1.xml`, `api/xmlRendererCData.xml`, and `api/xmlRendererElement.xml` fixtures now byte-match their `.xml` gold files and are pinned by `scripts/upstream-smoke.sh`'s `XML_GOLD_FIXTURES` list. Remaining XML renderer parity gaps are converter class coverage, nested helper identity through wrapper functions, validation diagnostics, attributes, and HTML-style inline formatting.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-124, PKL-126a
+  - decisions: 1 entry(ies)
+  - body: _not yet implemented_
+
 ### `Test.pkl`
 
 - [x] **cli amends base merge** — verifies: PKL-137 — tags: moonbit, cli, evaluator, amends, pkf-pkspec, contract
@@ -1577,6 +1591,10 @@
   > The native CLI evaluates a fixture that instantiates every renderer-driver class the `output { renderer = ... }` path looks up. `JsonRenderer`, `YamlRenderer`, `PcfRenderer`, `PropertiesRenderer`, and `PListRenderer` are reached unqualified (pkl:base re-exports seeded into `builtin_type_from_annotation`); `xml.Renderer` and `protobuf.Renderer` come through the synthetic `pkl:xml` / `pkl:protobuf` stdlib modules; `json.Parser` rides on the synthetic `pkl:json` module. The rendered output shows each renderer's default-only field surface plus the user-supplied overrides, confirming both typecheck visibility and the import-binding round-trip.
   - body: `cmd` (exit 0 expected)
 
+- [x] **cli renderer textproto** — verifies: PKL-126c — tags: moonbit, cli, renderer, protobuf, textproto, contract
+  > The native CLI accepts `-f textproto` and renders typed Pkl objects through the protobuf text-format renderer. Scalar properties render as `name: value`, nested typed objects render as `name: { ... }`, listings become repeated fields, and mappings become repeated `{ key: ..., value: ... }` messages.
+  - body: `cmd` (exit 0 expected)
+
 - [x] **cli sandbox flags** — verifies: PKL-106 — tags: moonbit, cli, sandbox, prop, contract
   > The native CLI accepts `-p NAME=VALUE` (repeatable) to populate the `prop:` resolver. The fixture reads two props via `read("prop:NAME")` and the rendered output binds the values back onto module keys so the contract can pattern-match on them. The flag lifts `prop:` into the `read` allow-list alongside `env:`; without the flag the same `read` call surfaces `read: prop <name> is not set`.
   - body: `cmd` (exit 0 expected)
@@ -1645,8 +1663,8 @@
   > MoonBit unit tests verify the initial parser, interpreter, typechecker, and ripple-backed analysis session.
   - body: `cmd` (exit 0 expected)
 
-- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d, PKL-148e, PKL-148f, PKL-148g, PKL-148h, PKL-148i, PKL-148j, PKL-148k, PKL-148l, PKL-148m, PKL-148n, PKL-148o, PKL-148p, PKL-148q, PKL-148r, PKL-148s, PKL-148t, PKL-148u, PKL-148v, PKL-148w, PKL-148x, PKL-148y, PKL-148aa, PKL-148ab, PKL-148ac, PKL-148ad, PKL-148ae, PKL-148af, PKL-148ag, PKL-148ah, PKL-148ai, PKL-148aj, PKL-148ak, PKL-148al, PKL-148an, PKL-148ao, PKL-148ap, PKL-148aq, PKL-148ar, PKL-148as, PKL-148at, PKL-148au, PKL-148av — tags: moonbit, upstream, compatibility, contract
-  > Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF and JSON).
+- [x] **upstream apple pkl fixture smoke** — verifies: PKL-011, PKL-012, PKL-013, PKL-014, PKL-060, PKL-096, PKL-097, PKL-109, PKL-126a, PKL-126b, PKL-126c, PKL-144, PKL-147, PKL-148, PKL-148b, PKL-148c, PKL-148d, PKL-148e, PKL-148f, PKL-148g, PKL-148h, PKL-148i, PKL-148j, PKL-148k, PKL-148l, PKL-148m, PKL-148n, PKL-148o, PKL-148p, PKL-148q, PKL-148r, PKL-148s, PKL-148t, PKL-148u, PKL-148v, PKL-148w, PKL-148x, PKL-148y, PKL-148aa, PKL-148ab, PKL-148ac, PKL-148ad, PKL-148ae, PKL-148af, PKL-148ag, PKL-148ah, PKL-148ai, PKL-148aj, PKL-148ak, PKL-148al, PKL-148an, PKL-148ao, PKL-148ap, PKL-148aq, PKL-148ar, PKL-148as, PKL-148at, PKL-148au, PKL-148av — tags: moonbit, upstream, compatibility, contract
+  > Curated `pkl eval` fixtures from the apple/pkl submodule run through the native CLI and diff byte-for-byte against the upstream gold output (PCF plus selected renderer gold files).
   - body: `cmd` (exit 0 expected)
 
 - [x] **upstream apple pkl parser suite** — verifies: PKL-015 — tags: moonbit, upstream, parser, compatibility, contract
@@ -1934,6 +1952,11 @@
   - test: `specs/Test.pkl` — cli yaml block scalars
 - **PKL-126a** — plist renderer
   - test: `specs/Test.pkl` — cli renderer plist
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-126b** — xml renderer
+  - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
+- **PKL-126c** — protobuf text renderer
+  - test: `specs/Test.pkl` — cli renderer textproto
   - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
 - **PKL-128a** — string interpolation
   - test: `specs/Test.pkl` — cli string interpolation
