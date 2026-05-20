@@ -28,6 +28,7 @@ fn main {
   ignore(@zlib.crc32(b""))
   ignore(@async.now)
   ignore(@utf8.decode(b""[:]) catch { _ => "" })
+  ignore(@env.current_dir)
   let _json_path_ref : @json.JsonPath? = None
   ignore(_json_path_ref)
   ignore(@crypto.sha256(b""))

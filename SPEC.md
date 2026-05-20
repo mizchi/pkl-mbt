@@ -1528,7 +1528,7 @@
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli listing mapping stdlib** — verifies: PKL-134 — tags: moonbit, cli, stdlib, pkf-pkspec, contract
-  > The native CLI evaluates a fixture that exercises Listing.toList / length / isEmpty, Mapping.toMap / length / keys / values, and the `List<T>` type annotation. Each method returns the expected value and the rendered PCF matches the equivalent literal.
+  > The native CLI evaluates a fixture that exercises Listing.toList / length / isEmpty, Mapping.toMap / length / keys / values, and the `List<T>` type annotation. Mapping.keys renders as Set<K>, Mapping.values renders as Listing<V>, and the rendered PCF matches the equivalent literal.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli map value** — verifies: PKL-119d — tags: moonbit, cli, evaluator, typechecker, stdlib, contract
@@ -1540,7 +1540,7 @@
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli new body inference** — verifies: PKL-138 — tags: moonbit, cli, parser, evaluator, pkf-pkspec, contract
-  > The native CLI evaluates a fixture that exercises bare `new { ... }` literals dispatched into listing / mapping / object bodies by the first significant token, plus empty `new {}` literals coerced to ListingValue / MappingValue via the binding's type annotation. Chained methods (`emptyListing.toList().map(...)`, `emptyMapping.keys`) succeed because the coercion runs before the method dispatch.
+  > The native CLI evaluates a fixture that exercises bare `new { ... }` literals dispatched into listing / mapping / object bodies by the first significant token, plus empty `new {}` literals coerced to ListingValue / MappingValue via the binding's type annotation. Chained methods (`emptyListing.toList().map(...)`, `emptyMapping.keys`) succeed because the coercion runs before the method dispatch; `emptyMapping.keys` renders as an empty Set.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli output renderer driver** — verifies: PKL-104 — tags: moonbit, cli, renderer, output, contract

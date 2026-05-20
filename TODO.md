@@ -94,7 +94,7 @@ Main dependencies:
 
 ## Priority 2: Resource And Glob Host Surface
 
-Mostly CLI / host service work. Useful for release because it affects real-world file/resource use.
+Status: in progress. This is mostly CLI / host service work and remains useful for release because it affects real-world file/resource use.
 
 Target fixtures:
 
@@ -104,11 +104,15 @@ Target fixtures:
 
 Required work:
 
-- Match Apple Pkl `read()` resource shape: `uri`, `text`, `base64`.
-- Support `env:` and `prop:` reads with Apple-compatible missing-resource diagnostics.
-- Canonicalize file URIs and encode unsafe URI characters.
-- Implement `read*()` globstar, character classes, empty glob behavior, and directory diagnostics.
-- Implement `import*` glob ordering and inferred keys.
+- [x] Match file-backed `read()` resource shape for the current sandbox cache: `uri`, `text`, `base64`.
+- [x] Support `env:` and `prop:` reads with Apple-compatible missing-resource diagnostics.
+- [x] Add `read*()` Mapping results for file cache, `env:` glob, and `prop:` glob.
+- [x] Add CLI file globstar suffix scanning, simple character classes, deterministic ordering, and unsafe URI character encoding for file resources.
+- [ ] Finish `read*()` empty glob behavior and directory diagnostics.
+- [ ] Implement package-backed `read*()` / `import*()` glob cases.
+- [ ] Implement `import*` module-value parity beyond ordered key discovery.
+- [ ] Reconcile upstream fixture URI rendering where Apple gold uses `$snippetsDir` placeholders.
+- [ ] Decide whether direct `file:` / `https:` / `package:` `read()` should be release-supported or stay sandbox-blocked.
 - Extend package-cache path to package glob cases if needed.
 
 Main dependencies:

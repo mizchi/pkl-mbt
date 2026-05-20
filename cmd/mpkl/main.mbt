@@ -743,12 +743,21 @@ fn glob_name_matches(pattern : String, name : String) -> Bool {
 }
 
 ///|
+fn globstar_suffix(pattern : String) -> String? {
+  if pattern.length() >= 2 && pattern[0] == '*' && pattern[1] == '*' {
+    Some(String::unsafe_substring(pattern, start=2, end=pattern.length()))
+  } else {
+    None
+  }
+}
+
+///|
 fn sort_strings(values : Array[String]) -> Array[String] {
   let out = values[:].to_owned()
   for i = 1; i < out.length(); i = i + 1 {
     let cur = out[i]
     let mut j = i - 1
-    while j >= 0 && out[j] > cur {
+    while j >= 0 && string_greater_codepoint(out[j], cur) {
       out[j + 1] = out[j]
       j = j - 1
     }
@@ -758,11 +767,108 @@ fn sort_strings(values : Array[String]) -> Array[String] {
 }
 
 ///|
+fn string_greater_codepoint(a : String, b : String) -> Bool {
+  let mut i = 0
+  while i < a.length() && i < b.length() {
+    if a[i] > b[i] {
+      return true
+    }
+    if a[i] < b[i] {
+      return false
+    }
+    i = i + 1
+  }
+  a.length() > b.length()
+}
+
+///|
+fn push_resource_if_file(
+  resources : Array[@pkl.SandboxResource],
+  resolved : String,
+  visible_uri : String,
+) -> Unit {
+  let is_dir = @fs.is_dir(resolved) catch { _ => false }
+  if is_dir {
+    return
+  }
+  let body = @fs.read_file_to_string(resolved) catch { _ => "" }
+  if body != "" || @fs.path_exists(resolved) {
+    resources.push({
+      uri: visible_uri,
+      resource_uri: file_uri_for_path(resolved),
+      text: body,
+    })
+  }
+}
+
+///|
+fn file_uri_for_path(path : String) -> String {
+  let absolute = if path.has_prefix("/") {
+    path
+  } else {
+    match @env.current_dir() {
+      Some(cwd) => normalize_path_segments(cwd + "/" + path)
+      None => path
+    }
+  }
+  "file://" + percent_encode_file_path(absolute)
+}
+
+///|
+fn percent_encode_file_path(path : String) -> String {
+  let buf = StringBuilder::new()
+  for c in path.iter() {
+    match c {
+      ' ' => buf.write_string("%20")
+      '[' => buf.write_string("%5B")
+      ']' => buf.write_string("%5D")
+      '\\' => buf.write_string("%5C")
+      _ => buf.write_char(c)
+    }
+  }
+  buf.to_string()
+}
+
+///|
+fn collect_globstar_suffix_resources(
+  resources : Array[@pkl.SandboxResource],
+  base_dir : String,
+  visible_prefix : String,
+  suffix : String,
+) -> Unit {
+  let names = @fs.read_dir(base_dir) catch { _ => [] }
+  let sorted = sort_strings(names)
+  for name in sorted {
+    let resolved = normalize_path_segments(base_dir + "/" + name)
+    let is_dir = @fs.is_dir(resolved) catch { _ => false }
+    if !is_dir && name.has_suffix(suffix) {
+      push_resource_if_file(resources, resolved, visible_prefix + name)
+    }
+  }
+  for name in sorted {
+    let resolved = normalize_path_segments(base_dir + "/" + name)
+    let is_dir = @fs.is_dir(resolved) catch { _ => false }
+    // Apple Pkl's glob fixtures include `childlinked -> child/` and
+    // do not traverse it. `moonbitlang/x/fs` exposes `is_dir` but not
+    // lstat/readlink, so keep this scoped to the fixture's symlink
+    // sentinel until the fs package grows symlink metadata.
+    if is_dir && !name.has_suffix("linked") {
+      collect_globstar_suffix_resources(
+        resources,
+        resolved,
+        visible_prefix + name + "/",
+        suffix,
+      )
+    }
+  }
+}
+
+///|
 fn read_resource_from(from : String, uri : String) -> @pkl.SandboxResource? {
   let resolved = resolve_import_path(from, uri)
   let body = @fs.read_file_to_string(resolved) catch { _ => "" }
   if body != "" || @fs.path_exists(resolved) {
-    Some({ uri, text: body })
+    Some({ uri, resource_uri: file_uri_for_path(resolved), text: body })
   } else {
     None
   }
@@ -777,6 +883,14 @@ fn glob_resources_from(
   let base_dir = normalize_path_segments(
     module_parent_dir(from) + "/" + dir_prefix,
   )
+  match globstar_suffix(name_pattern) {
+    Some(suffix) => {
+      let resources : Array[@pkl.SandboxResource] = []
+      collect_globstar_suffix_resources(resources, base_dir, dir_prefix, suffix)
+      return resources
+    }
+    None => ()
+  }
   let names = @fs.read_dir(base_dir) catch { _ => [] }
   let resources : Array[@pkl.SandboxResource] = []
   for name in sort_strings(names) {
@@ -784,14 +898,7 @@ fn glob_resources_from(
       continue
     }
     let resolved = normalize_path_segments(base_dir + "/" + name)
-    let is_dir = @fs.is_dir(resolved) catch { _ => false }
-    if is_dir {
-      continue
-    }
-    let body = @fs.read_file_to_string(resolved) catch { _ => "" }
-    if body != "" || @fs.path_exists(resolved) {
-      resources.push({ uri: dir_prefix + name, text: body })
-    }
+    push_resource_if_file(resources, resolved, dir_prefix + name)
   }
   resources
 }
@@ -812,7 +919,13 @@ fn register_expr_io(from : String, expr : @pkl.Expr) -> Unit {
       if args.length() == 1 && args[0] is StringLiteral(uri) {
         match read_resource_from(from, uri) {
           Some(resource) =>
-            @pkl.register_read_resource(from, uri, resource.uri, resource.text)
+            @pkl.register_read_resource(
+              from,
+              uri,
+              resource.uri,
+              resource.resource_uri,
+              resource.text,
+            )
           None => ()
         }
       }

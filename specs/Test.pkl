@@ -342,20 +342,20 @@ local cliAnyType = new Test {
 local cliListingMappingStdlib = new Test {
   name = "cli listing mapping stdlib"
   description =
-    "The native CLI evaluates a fixture that exercises Listing.toList / length / isEmpty, Mapping.toMap / length / keys / values, and the `List<T>` type annotation. Each method returns the expected value and the rendered PCF matches the equivalent literal."
+    "The native CLI evaluates a fixture that exercises Listing.toList / length / isEmpty, Mapping.toMap / length / keys / values, and the `List<T>` type annotation. Mapping.keys renders as Set<K>, Mapping.values renders as Listing<V>, and the rendered PCF matches the equivalent literal."
   tags { "moonbit"; "cli"; "stdlib"; "pkf-pkspec"; "contract" }
   specRef { "PKL-134" }
   cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_listing_mapping_stdlib.pkl"
   workdir = ".."
   expectStdoutContains {
     "xs {"
-    "ys {"
+    "ys = List("
     "listLen = 3"
     "listEmpty = false"
     "m {"
     "m2 {"
     "mapLen = 2"
-    "mapKeys {"
+    "mapKeys = Set("
     "\"a\""
     "\"b\""
     "mapValues {"
@@ -1058,7 +1058,7 @@ local cliPkspecPolish = new Test {
 local cliNewBodyInference = new Test {
   name = "cli new body inference"
   description =
-    "The native CLI evaluates a fixture that exercises bare `new { ... }` literals dispatched into listing / mapping / object bodies by the first significant token, plus empty `new {}` literals coerced to ListingValue / MappingValue via the binding's type annotation. Chained methods (`emptyListing.toList().map(...)`, `emptyMapping.keys`) succeed because the coercion runs before the method dispatch."
+    "The native CLI evaluates a fixture that exercises bare `new { ... }` literals dispatched into listing / mapping / object bodies by the first significant token, plus empty `new {}` literals coerced to ListingValue / MappingValue via the binding's type annotation. Chained methods (`emptyListing.toList().map(...)`, `emptyMapping.keys`) succeed because the coercion runs before the method dispatch; `emptyMapping.keys` renders as an empty Set."
   tags { "moonbit"; "cli"; "parser"; "evaluator"; "pkf-pkspec"; "contract" }
   specRef { "PKL-138" }
   cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_new_body_inference.pkl"
@@ -1072,7 +1072,7 @@ local cliNewBodyInference = new Test {
     "listingLen = 3"
     "mappingLen = 2"
     "emptyChained = List()"
-    "emptyMapKeys {}"
+    "emptyMapKeys = Set()"
   }
   timeoutSec = 120
 }

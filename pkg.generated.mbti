@@ -29,7 +29,7 @@ pub fn register_import_glob(String, String, Array[String]) -> Unit
 
 pub fn register_read_glob(String, String, Array[SandboxResource]) -> Unit
 
-pub fn register_read_resource(String, String, String, String) -> Unit
+pub fn register_read_resource(String, String, String, String, String) -> Unit
 
 pub fn register_triple_dot_resolution(String, String, String) -> Unit
 
@@ -275,6 +275,7 @@ pub(all) struct Program {
 
 pub(all) struct SandboxResource {
   uri : String
+  resource_uri : String
   text : String
 } derive(Eq, @debug.Debug)
 

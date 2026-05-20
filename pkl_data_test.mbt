@@ -826,30 +826,102 @@ test "read built-in rejects URIs without a scheme" {
 test "read and import glob forms use current module resource cache" {
   reset_sandbox_io_cache()
   register_read_resource(
-    "fixtures/main.pkl", "日本語.pkl", "日本語.pkl", "resource body",
+    "fixtures/main.pkl", "日本語.pkl", "日本語.pkl", "file:///fixtures/%E6%97%A5%E6%9C%AC%E8%AA%9E.pkl",
+    "resource body",
   )
   register_read_glob("fixtures/main.pkl", "./日*.pkl", [
-    { uri: "./日本語.pkl", text: "resource body" },
-    { uri: "./日本語_error.pkl", text: "error body" },
+    {
+      uri: "./日本語.pkl",
+      resource_uri: "./日本語.pkl",
+      text: "resource body",
+    },
+    {
+      uri: "./日本語_error.pkl",
+      resource_uri: "./日本語_error.pkl",
+      text: "error body",
+    },
   ])
   register_import_glob("fixtures/main.pkl", "./日*.pkl", [
     "./日本語.pkl", "./日本語_error.pkl",
   ])
   let source =
     #|readOne = read("日本語.pkl").text
-    #|readGlob = read*("./日*.pkl").keys
-    #|importGlob = import*("./日*.pkl").keys
+    #|readUri = read("日本語.pkl").uri
+    #|readBase64 = read("日本語.pkl").base64
+    #|readGlob = read*("./日*.pkl")
+    #|importGlob = import*("./日*.pkl").keys.toListing()
 
   let expected =
     #|readOne = "resource body"
-    #|readGlob = Set("./日本語.pkl", "./日本語_error.pkl")
-    #|importGlob = Set("./日本語.pkl", "./日本語_error.pkl")
+    #|readUri = "file:///fixtures/%E6%97%A5%E6%9C%AC%E8%AA%9E.pkl"
+    #|readBase64 = "cmVzb3VyY2UgYm9keQ=="
+    #|readGlob {
+    #|  ["./日本語.pkl"] {
+    #|    uri = "./日本語.pkl"
+    #|    text = "resource body"
+    #|    base64 = "cmVzb3VyY2UgYm9keQ=="
+    #|  }
+    #|  ["./日本語_error.pkl"] {
+    #|    uri = "./日本語_error.pkl"
+    #|    text = "error body"
+    #|    base64 = "ZXJyb3IgYm9keQ=="
+    #|  }
+    #|}
+    #|importGlob {
+    #|  "./日本語.pkl"
+    #|  "./日本語_error.pkl"
+    #|}
 
   let session = AnalysisSession::new()
   session.set_source("fixtures/main.pkl", source)
   guard session.eval_path("fixtures/main.pkl") is EvalOk(value) else { panic() }
   inspect(render_value(value), content=expected)
   reset_sandbox_io_cache()
+}
+
+///|
+test "read glob resolves env and prop schemes" {
+  @env.set_env_var("PKL_MBT_GLOB_NAME1", "value1")
+  @env.set_env_var("PKL_MBT_GLOB_NAME2", "value2")
+  @env.set_env_var("PKL_MBT_GLOB_OTHER", "other")
+  configure_sandbox_props({
+    "name1": "value1",
+    "name2": "value2",
+    "/foo/bar": "foobar",
+    "foo bar": "foo bar",
+  })
+  let result = eval_source(
+    (
+      #|envs = read*("env:PKL_MBT_GLOB_NAME[1-2]")
+      #|props = read*("prop:name[1-2]")
+      #|slash = read*("prop:/foo/*")
+      #|space = read*("prop:foo%20*")
+    ),
+  )
+  guard result is EvalOk(value) else { panic() }
+  inspect(
+    render_value(value),
+    content=(
+      #|envs {
+      #|  ["env:PKL_MBT_GLOB_NAME1"] = "value1"
+      #|  ["env:PKL_MBT_GLOB_NAME2"] = "value2"
+      #|}
+      #|props {
+      #|  ["prop:name1"] = "value1"
+      #|  ["prop:name2"] = "value2"
+      #|}
+      #|slash {
+      #|  ["prop:/foo/bar"] = "foobar"
+      #|}
+      #|space {
+      #|  ["prop:foo%20bar"] = "foo bar"
+      #|}
+    ),
+  )
+  @env.unset_env_var("PKL_MBT_GLOB_NAME1")
+  @env.unset_env_var("PKL_MBT_GLOB_NAME2")
+  @env.unset_env_var("PKL_MBT_GLOB_OTHER")
+  configure_sandbox_props(Map([], capacity=8))
 }
 
 ///|

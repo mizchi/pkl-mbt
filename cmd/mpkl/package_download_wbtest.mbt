@@ -102,3 +102,20 @@ test "zip reader inflates deflated entries" {
   inspect(entries[0].path, content="dir/hello.pkl")
   inspect(@utf8.decode(entries[0].content[:]), content="x = 1\n")
 }
+
+///|
+test "read glob scanner supports recursive globstar" {
+  let resources = glob_resources_from(
+    "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/basic/readGlob.pkl",
+    "../../input-helper/globtest/**.pkl",
+  )
+  inspect(resources.length(), content="4")
+  inspect(
+    resources[0].uri,
+    content="../../input-helper/globtest/module with [weird] ~!characters.pkl",
+  )
+  inspect(
+    resources[3].uri,
+    content="../../input-helper/globtest/child/moduleC.pkl",
+  )
+}

@@ -43,6 +43,7 @@ priv struct SandboxConfig {
 ///|
 pub(all) struct SandboxResource {
   uri : String
+  resource_uri : String
   text : String
 } derive(Eq, Debug)
 
@@ -83,7 +84,145 @@ pub fn configure_sandbox_module_paths(dirs : Array[String]) -> Unit {
 /// `None` when the key is absent, which `eval_read_uri` translates
 /// into a diagnostic mirroring the `env:` missing-variable path.
 fn sandbox_lookup_prop(name : String) -> String? {
-  sandbox_config.props.get(name)
+  sandbox_config.props.get(sandbox_percent_decode(name))
+}
+
+///|
+fn sandbox_prop_entries() -> Array[(String, String)] {
+  sandbox_config.props.to_array()
+}
+
+///|
+fn sandbox_hex_value(c : UInt16) -> Int? {
+  if c >= '0' && c <= '9' {
+    Some(c.to_int() - '0'.to_int())
+  } else if c >= 'a' && c <= 'f' {
+    Some(c.to_int() - 'a'.to_int() + 10)
+  } else if c >= 'A' && c <= 'F' {
+    Some(c.to_int() - 'A'.to_int() + 10)
+  } else {
+    None
+  }
+}
+
+///|
+fn sandbox_percent_decode(s : String) -> String {
+  let buf = StringBuilder::new()
+  let mut i = 0
+  while i < s.length() {
+    if s[i] == '%' && i + 2 < s.length() {
+      match (sandbox_hex_value(s[i + 1]), sandbox_hex_value(s[i + 2])) {
+        (Some(hi), Some(lo)) => {
+          buf.write_char((hi * 16 + lo).unsafe_to_char())
+          i = i + 3
+          continue
+        }
+        _ => ()
+      }
+    }
+    buf.write_char(s[i].to_int().unsafe_to_char())
+    i = i + 1
+  }
+  buf.to_string()
+}
+
+///|
+fn sandbox_percent_encode_resource_key(s : String) -> String {
+  let buf = StringBuilder::new()
+  for c in s.iter() {
+    match c {
+      ' ' => buf.write_string("%20")
+      '[' => buf.write_string("%5B")
+      ']' => buf.write_string("%5D")
+      '\\' => buf.write_string("%5C")
+      _ => buf.write_char(c)
+    }
+  }
+  buf.to_string()
+}
+
+///|
+fn sandbox_glob_matches(pattern : String, text : String) -> Bool {
+  sandbox_glob_matches_at(pattern, 0, text, 0)
+}
+
+///|
+fn sandbox_glob_matches_at(
+  pattern : String,
+  pi : Int,
+  text : String,
+  ti : Int,
+) -> Bool {
+  if pi >= pattern.length() {
+    return ti >= text.length()
+  }
+  if pattern[pi] == '*' {
+    if pi + 1 < pattern.length() && pattern[pi + 1] == '*' {
+      let mut j = ti
+      while j <= text.length() {
+        if sandbox_glob_matches_at(pattern, pi + 2, text, j) {
+          return true
+        }
+        j = j + 1
+      }
+      return false
+    }
+    let mut j = ti
+    while j <= text.length() {
+      if sandbox_glob_matches_at(pattern, pi + 1, text, j) {
+        return true
+      }
+      if j >= text.length() || text[j] == '/' {
+        return false
+      }
+      j = j + 1
+    }
+    false
+  } else if pattern[pi] == '[' {
+    match sandbox_match_char_class(pattern, pi, text, ti) {
+      Some(next_pi) => sandbox_glob_matches_at(pattern, next_pi, text, ti + 1)
+      None => false
+    }
+  } else if ti < text.length() && pattern[pi] == text[ti] {
+    sandbox_glob_matches_at(pattern, pi + 1, text, ti + 1)
+  } else {
+    false
+  }
+}
+
+///|
+fn sandbox_match_char_class(
+  pattern : String,
+  pi : Int,
+  text : String,
+  ti : Int,
+) -> Int? {
+  if ti >= text.length() {
+    return None
+  }
+  let mut i = pi + 1
+  let c = text[ti]
+  let mut matched = false
+  while i < pattern.length() && pattern[i] != ']' {
+    if i + 2 < pattern.length() &&
+      pattern[i + 1] == '-' &&
+      pattern[i + 2] != ']' {
+      if c >= pattern[i] && c <= pattern[i + 2] {
+        matched = true
+      }
+      i = i + 3
+    } else {
+      if c == pattern[i] {
+        matched = true
+      }
+      i = i + 1
+    }
+  }
+  if i < pattern.length() && pattern[i] == ']' && matched {
+    Some(i + 1)
+  } else {
+    None
+  }
 }
 
 ///|
@@ -179,10 +318,12 @@ pub fn register_read_resource(
   from : String,
   uri : String,
   visible_uri : String,
+  resource_uri : String,
   text : String,
 ) -> Unit {
   sandbox_config.read_resources[sandbox_io_key(from, uri)] = {
     uri: visible_uri,
+    resource_uri,
     text,
   }
 }

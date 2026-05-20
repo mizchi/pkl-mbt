@@ -390,7 +390,7 @@ fn sandbox_resource_value(resource : SandboxResource) -> Value {
   ObjectValue([
     {
       name: "uri",
-      value: StringValue(resource.uri),
+      value: StringValue(resource.resource_uri),
       source: None,
       annotations: [],
     },
@@ -400,7 +400,139 @@ fn sandbox_resource_value(resource : SandboxResource) -> Value {
       source: None,
       annotations: [],
     },
+    {
+      name: "base64",
+      value: StringValue(@base64.encode(@utf8.encode(resource.text))),
+      source: None,
+      annotations: [],
+    },
   ])
+}
+
+///|
+fn sort_value_entries_by_string_key(
+  entries : Array[ValueEntry],
+) -> Array[ValueEntry] {
+  let out = entries[:].to_owned()
+  for i = 1; i < out.length(); i = i + 1 {
+    let cur = out[i]
+    let cur_key = value_entry_string_key(cur)
+    let mut j = i - 1
+    while j >= 0 &&
+          string_greater_codepoint(value_entry_string_key(out[j]), cur_key) {
+      out[j + 1] = out[j]
+      j = j - 1
+    }
+    out[j + 1] = cur
+  }
+  out
+}
+
+///|
+fn string_greater_codepoint(a : String, b : String) -> Bool {
+  let mut i = 0
+  while i < a.length() && i < b.length() {
+    if a[i] > b[i] {
+      return true
+    }
+    if a[i] < b[i] {
+      return false
+    }
+    i = i + 1
+  }
+  a.length() > b.length()
+}
+
+///|
+fn value_entry_string_key(entry : ValueEntry) -> String {
+  match entry.key {
+    StringValue(s) => s
+    _ => value_to_string_for_join(entry.key)
+  }
+}
+
+///|
+fn env_read_glob_entries(rest_pattern : String) -> Array[ValueEntry] {
+  let entries : Array[ValueEntry] = []
+  for pair in @env.get_env_vars().to_array() {
+    let (name, value) = pair
+    let visible_name = sandbox_percent_encode_resource_key(name)
+    if sandbox_glob_matches(rest_pattern, visible_name) {
+      entries.push({
+        key: StringValue("env:" + visible_name),
+        value: StringValue(value),
+      })
+    }
+  }
+  sort_value_entries_by_string_key(entries)
+}
+
+///|
+fn prop_read_glob_entries(rest_pattern : String) -> Array[ValueEntry] {
+  let entries : Array[ValueEntry] = []
+  for pair in sandbox_prop_entries() {
+    let (name, value) = pair
+    let visible_name = sandbox_percent_encode_resource_key(name)
+    if sandbox_glob_matches(rest_pattern, visible_name) {
+      entries.push({
+        key: StringValue("prop:" + visible_name),
+        value: StringValue(value),
+      })
+    }
+  }
+  sort_value_entries_by_string_key(entries)
+}
+
+///|
+fn eval_read_glob(
+  pattern : String,
+  current_module_path : String?,
+  diagnostics : Array[Diagnostic],
+) -> Value? {
+  match pattern.find(":") {
+    Some(idx) => {
+      let scheme = String::unsafe_substring(pattern, start=0, end=idx)
+      let rest = String::unsafe_substring(
+        pattern,
+        start=idx + 1,
+        end=pattern.length(),
+      )
+      if scheme == "env" {
+        Some(MappingValue(env_read_glob_entries(rest)))
+      } else if scheme == "prop" {
+        Some(MappingValue(prop_read_glob_entries(rest)))
+      } else {
+        diagnostics.push(
+          diag("read: scheme \{scheme}: is not allowed by the sandbox policy"),
+        )
+        None
+      }
+    }
+    None =>
+      match current_module_path {
+        Some(path) =>
+          match sandbox_lookup_read_glob(path, pattern) {
+            Some(resources) => {
+              let entries : Array[ValueEntry] = []
+              for resource in resources {
+                entries.push({
+                  key: StringValue(resource.uri),
+                  value: sandbox_resource_value(resource),
+                })
+              }
+              Some(MappingValue(entries))
+            }
+            None => {
+              diagnostics.push(diag("Cannot find module `\{pattern}`."))
+              None
+            }
+          }
+        None => {
+          diagnostics.push(diag("Cannot find module `\{pattern}`."))
+          None
+        }
+      }
+  }
 }
 
 ///|

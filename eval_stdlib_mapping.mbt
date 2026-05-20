@@ -163,7 +163,7 @@ fn eval_mapping_property(
       for entry in entries {
         keys.push(entry.key)
       }
-      Some(ListingValue(keys))
+      Some(SetValue(keys))
     }
     "values" => {
       let values : Array[Value] = []

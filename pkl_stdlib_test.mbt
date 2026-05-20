@@ -1249,7 +1249,7 @@ test "PKL-138: empty new {} coerces to MappingValue under Mapping" {
     panic()
   }
   guard members[0].value is MappingValue(_) else { panic() }
-  guard members[1].value is ListingValue(ks) else { panic() }
+  guard members[1].value is SetValue(ks) else { panic() }
   inspect(ks.length(), content="0")
 }
 

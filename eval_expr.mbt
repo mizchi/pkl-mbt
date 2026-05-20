@@ -4274,29 +4274,11 @@ fn eval_expr_with_bindings(
               resolve_import,
             ) {
             Some(StringValue(pattern)) =>
-              match current_module_path_from_cache(cache) {
-                Some(path) =>
-                  match sandbox_lookup_read_glob(path, pattern) {
-                    Some(resources) => {
-                      let entries : Array[ValueEntry] = []
-                      for resource in resources {
-                        entries.push({
-                          key: StringValue(resource.uri),
-                          value: sandbox_resource_value(resource),
-                        })
-                      }
-                      Some(MapValue(entries))
-                    }
-                    None => {
-                      diagnostics.push(diag("Cannot find module `\{pattern}`."))
-                      None
-                    }
-                  }
-                None => {
-                  diagnostics.push(diag("Cannot find module `\{pattern}`."))
-                  None
-                }
-              }
+              eval_read_glob(
+                pattern,
+                current_module_path_from_cache(cache),
+                diagnostics,
+              )
             Some(_) => {
               diagnostics.push(diag("read* expects a String argument"))
               None

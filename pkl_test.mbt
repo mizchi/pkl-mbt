@@ -1459,11 +1459,9 @@ test "Mapping.length and isEmpty are properties" {
 }
 
 ///|
-test "Mapping.keys and values project to Listings" {
-  // Apple Pkl exposes `keys` as a `Set<K>`; we don't have a distinct Set
-  // value yet, so the projection lands as a `Listing<K>` preserving the
-  // declaration order. `values` returns a `Listing<V>` in declaration order
-  // too.
+test "Mapping.keys projects to Set and values project to Listing" {
+  // Apple Pkl exposes `keys` as a `Set<K>` and `values` as a listing-like
+  // projection in declaration order.
   assert_true(
     eval_source(
       "m = new Mapping { [\"a\"] = 1; [\"b\"] = 2; [\"c\"] = 3 }\nks = m.keys\nvs = m.values",
@@ -1482,11 +1480,7 @@ test "Mapping.keys and values project to Listings" {
         },
         ValueMember::{
           name: "ks",
-          value: ListingValue([
-            StringValue("a"),
-            StringValue("b"),
-            StringValue("c"),
-          ]),
+          value: SetValue([StringValue("a"), StringValue("b"), StringValue("c")]),
           source: None,
           annotations: [],
         },
