@@ -863,6 +863,22 @@ fn globstar_suffix(pattern : String) -> String? {
 }
 
 ///|
+fn globstar_parent_root(prefix : String) -> String? {
+  let marker = "**/../"
+  if prefix.has_suffix(marker) {
+    Some(
+      String::unsafe_substring(
+        prefix,
+        start=0,
+        end=prefix.length() - marker.length(),
+      ),
+    )
+  } else {
+    None
+  }
+}
+
+///|
 fn sort_strings(values : Array[String]) -> Array[String] {
   let out = values[:].to_owned()
   for i = 1; i < out.length(); i = i + 1 {
@@ -909,6 +925,51 @@ fn push_resource_if_file(
       resource_uri: file_uri_for_path(resolved),
       text: body,
     })
+  }
+}
+
+///|
+fn collect_matching_file_resources(
+  resources : Array[@pkl.SandboxResource],
+  base_dir : String,
+  visible_prefix : String,
+  name_pattern : String,
+) -> Unit {
+  let names = @fs.read_dir(base_dir) catch { _ => [] }
+  for name in sort_strings(names) {
+    if !glob_name_matches(name_pattern, name) {
+      continue
+    }
+    let resolved = normalize_path_segments(base_dir + "/" + name)
+    push_resource_if_file(resources, resolved, visible_prefix + name)
+  }
+}
+
+///|
+fn collect_globstar_parent_resources(
+  resources : Array[@pkl.SandboxResource],
+  root_dir : String,
+  root_visible_prefix : String,
+  relative_dir : String,
+  name_pattern : String,
+) -> Unit {
+  let current_dir = normalize_path_segments(root_dir + "/" + relative_dir)
+  let names = @fs.read_dir(current_dir) catch { _ => [] }
+  for name in sort_strings(names) {
+    let child_dir = normalize_path_segments(current_dir + "/" + name)
+    let is_dir = @fs.is_dir(child_dir) catch { _ => false }
+    if is_dir && !name.has_suffix("linked") {
+      let child_relative = relative_dir + name + "/"
+      collect_matching_file_resources(
+        resources,
+        normalize_path_segments(root_dir + "/" + child_relative + "../"),
+        root_visible_prefix + child_relative + "../",
+        name_pattern,
+      )
+      collect_globstar_parent_resources(
+        resources, root_dir, root_visible_prefix, child_relative, name_pattern,
+      )
+    }
   }
 }
 
@@ -1166,6 +1227,19 @@ fn glob_resources_from(
   let base_dir = normalize_path_segments(
     module_parent_dir(from) + "/" + dir_prefix,
   )
+  match globstar_parent_root(dir_prefix) {
+    Some(root_prefix) => {
+      let resources : Array[@pkl.SandboxResource] = []
+      let root_dir = normalize_path_segments(
+        module_parent_dir(from) + "/" + root_prefix,
+      )
+      collect_globstar_parent_resources(
+        resources, root_dir, root_prefix, "", name_pattern,
+      )
+      return resources
+    }
+    None => ()
+  }
   match globstar_suffix(name_pattern) {
     Some(suffix) => {
       let resources : Array[@pkl.SandboxResource] = []
@@ -1174,15 +1248,8 @@ fn glob_resources_from(
     }
     None => ()
   }
-  let names = @fs.read_dir(base_dir) catch { _ => [] }
   let resources : Array[@pkl.SandboxResource] = []
-  for name in sort_strings(names) {
-    if !glob_name_matches(name_pattern, name) {
-      continue
-    }
-    let resolved = normalize_path_segments(base_dir + "/" + name)
-    push_resource_if_file(resources, resolved, dir_prefix + name)
-  }
+  collect_matching_file_resources(resources, base_dir, dir_prefix, name_pattern)
   resources
 }
 

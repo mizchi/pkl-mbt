@@ -112,7 +112,7 @@ Required work:
 - [x] Implement top-level `import* ... as name` clause binding and inferred-name binding.
 - [ ] Finish `read*()` empty glob behavior and directory diagnostics.
 - [ ] Finish lazy `import*` module-value parity for file glob amends and package URI globs.
-- [ ] Preserve Apple-compatible visible URI normalization for globstar parent segments such as `**/../`.
+- [x] Preserve Apple-compatible visible URI normalization for globstar parent segments such as `**/../`.
 - [ ] Resolve package-glob module bodies through dependency aliases instead of the current key-only fallback.
 - [ ] Reconcile upstream fixture URI rendering where Apple gold uses `$snippetsDir` placeholders.
 - [ ] Decide whether direct `file:` / `https:` / `package:` `read()` should be release-supported or stay sandbox-blocked.

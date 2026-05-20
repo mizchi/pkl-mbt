@@ -121,6 +121,23 @@ test "read glob scanner supports recursive globstar" {
 }
 
 ///|
+test "read glob scanner preserves globstar parent visible prefix" {
+  let resources = glob_resources_from(
+    "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/basic/importGlob.pkl",
+    "../../input-helper/globtest/**/../*.pkl",
+  )
+  inspect(resources.length(), content="3")
+  inspect(
+    resources[0].uri,
+    content="../../input-helper/globtest/child/../module with [weird] ~!characters.pkl",
+  )
+  inspect(
+    resources[2].uri,
+    content="../../input-helper/globtest/child/../moduleB.pkl",
+  )
+}
+
+///|
 test "read glob scanner supports package globstar" {
   @pkl.configure_sandbox_package_caches([
     "third_party/apple-pkl/pkl-commons-test/src/main/files/packages",
