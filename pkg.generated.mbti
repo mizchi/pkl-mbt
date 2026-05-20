@@ -227,6 +227,7 @@ pub(all) struct FunctionParameter {
 pub(all) struct ImportDecl {
   uri : String
   import_name : String
+  is_glob : Bool
 } derive(Eq, @debug.Debug)
 
 pub(all) struct LintFinding {

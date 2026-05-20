@@ -37,22 +37,24 @@ fn add_imported_class_bindings(
   resolve_import_classes : (String) -> Array[ClassExport]?,
 ) -> Unit {
   for decl in imports {
-    match resolve_import_classes(decl.uri) {
-      Some(exports) =>
-        for class_export in exports {
-          let parent_name = match class_export.parent_name {
-            Some(parent) =>
-              Some(imported_class_parent_name(decl.import_name, parent))
-            None => None
+    if !decl.is_glob {
+      match resolve_import_classes(decl.uri) {
+        Some(exports) =>
+          for class_export in exports {
+            let parent_name = match class_export.parent_name {
+              Some(parent) =>
+                Some(imported_class_parent_name(decl.import_name, parent))
+              None => None
+            }
+            class_env.push({
+              name: "\{decl.import_name}.\{class_export.name}",
+              parent_name,
+              properties: class_export.properties,
+              methods: class_export.methods,
+            })
           }
-          class_env.push({
-            name: "\{decl.import_name}.\{class_export.name}",
-            parent_name,
-            properties: class_export.properties,
-            methods: class_export.methods,
-          })
-        }
-      None => ()
+        None => ()
+      }
     }
   }
 }
@@ -78,18 +80,32 @@ fn class_exports_from_parse_result(parsed : ParseResult) -> Array[ClassExport] {
 ///|
 fn eval_imports(
   imports : Array[ImportDecl],
+  current_module_path : String?,
   env : Array[ValueBinding],
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Unit {
   for decl in imports {
-    match resolve_import(decl.uri) {
-      Some(EvalOk(value)) => env.push({ name: decl.import_name, value })
-      Some(EvalError(errors)) =>
-        for error in errors {
-          diagnostics.push(error)
-        }
-      None => diagnostics.push(diag("Cannot find module `\{decl.uri}`."))
+    if decl.is_glob {
+      match
+        eval_import_glob_value(
+          decl.uri,
+          current_module_path,
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(value) => env.push({ name: decl.import_name, value })
+        None => ()
+      }
+    } else {
+      match resolve_import(decl.uri) {
+        Some(EvalOk(value)) => env.push({ name: decl.import_name, value })
+        Some(EvalError(errors)) =>
+          for error in errors {
+            diagnostics.push(error)
+          }
+        None => diagnostics.push(diag("Cannot find module `\{decl.uri}`."))
+      }
     }
   }
 }
@@ -508,6 +524,35 @@ fn eval_cached_read_glob(
 }
 
 ///|
+fn eval_import_glob_value(
+  pattern : String,
+  current_module_path : String?,
+  diagnostics : Array[Diagnostic],
+  _resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match current_module_path {
+    Some(path) =>
+      match sandbox_lookup_import_glob(path, pattern) {
+        Some(uris) => {
+          let entries : Array[ValueEntry] = []
+          for visible_uri in uris {
+            entries.push({ key: StringValue(visible_uri), value: NullValue })
+          }
+          Some(MappingValue(entries))
+        }
+        None => {
+          diagnostics.push(diag("Cannot find module `\{pattern}`."))
+          None
+        }
+      }
+    None => {
+      diagnostics.push(diag("Cannot find module `\{pattern}`."))
+      None
+    }
+  }
+}
+
+///|
 fn eval_read_glob(
   pattern : String,
   current_module_path : String?,
@@ -832,7 +877,13 @@ fn eval_program(
   let module_parent_members : Array[ValueMember] = []
   let bindings = all_eval_bindings(program)
   add_current_module_class_binding(class_env, program.bindings)
-  eval_imports(program.imports, env, diagnostics, resolve_import)
+  eval_imports(
+    program.imports,
+    current_module_path,
+    env,
+    diagnostics,
+    resolve_import,
+  )
   add_imported_class_bindings(
     program.imports,
     class_env,

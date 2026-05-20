@@ -86,7 +86,7 @@ fn infer_expr_with_bindings(
           UnknownType
         }
       }
-    ImportGlobExpr(_) => MapType([])
+    ImportGlobExpr(_) => MappingType([])
     ObjectLiteral(members) =>
       ObjectType(
         infer_object_members(
@@ -759,14 +759,28 @@ fn infer_imports(
   resolve_import : (String) -> TypecheckResult?,
 ) -> Unit {
   for decl in imports {
-    match resolve_import(decl.uri) {
-      Some(TypeOk(typ)) =>
-        env.push({ name: decl.import_name, typ, alias_decl: None, bound: None })
-      Some(TypeError(errors)) =>
-        for error in errors {
-          diagnostics.push(error)
-        }
-      None => diagnostics.push(diag("unresolved import \{decl.uri}"))
+    if decl.is_glob {
+      env.push({
+        name: decl.import_name,
+        typ: MappingType([]),
+        alias_decl: None,
+        bound: None,
+      })
+    } else {
+      match resolve_import(decl.uri) {
+        Some(TypeOk(typ)) =>
+          env.push({
+            name: decl.import_name,
+            typ,
+            alias_decl: None,
+            bound: None,
+          })
+        Some(TypeError(errors)) =>
+          for error in errors {
+            diagnostics.push(error)
+          }
+        None => diagnostics.push(diag("unresolved import \{decl.uri}"))
+      }
     }
   }
 }

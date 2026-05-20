@@ -109,18 +109,20 @@ Required work:
 - [x] Add `read*()` Mapping results for file cache, `env:` glob, and `prop:` glob.
 - [x] Add CLI file globstar suffix scanning, simple character classes, deterministic ordering, and unsafe URI character encoding for file resources.
 - [x] Add package-cache-backed `read*()` resources and `import*()` ordered key discovery for package URI globs.
+- [x] Implement top-level `import* ... as name` clause binding and inferred-name binding.
 - [ ] Finish `read*()` empty glob behavior and directory diagnostics.
-- [ ] Implement top-level `import* ... as name` clause loading.
-- [ ] Implement `import*` module-value parity beyond ordered key discovery.
+- [ ] Finish lazy `import*` module-value parity for file glob amends and package URI globs.
+- [ ] Preserve Apple-compatible visible URI normalization for globstar parent segments such as `**/../`.
+- [ ] Resolve package-glob module bodies through dependency aliases instead of the current key-only fallback.
 - [ ] Reconcile upstream fixture URI rendering where Apple gold uses `$snippetsDir` placeholders.
 - [ ] Decide whether direct `file:` / `https:` / `package:` `read()` should be release-supported or stay sandbox-blocked.
-- Extend package-cache path to package glob cases if needed.
 
 Main dependencies:
 
 - CLI sandbox/resource policy.
 - Glob implementation.
 - Existing package cache / `package://` resolver.
+- Package metadata alias resolution for globbed package module bodies.
 
 ## Priority 3: Shape-Aware Object Body Evaluation
 

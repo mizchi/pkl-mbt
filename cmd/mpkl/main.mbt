@@ -1332,7 +1332,21 @@ async fn load_expr_imports(
         push_stack(stack, from),
         loaded,
       )
-    ImportGlobExpr(_) => ()
+    ImportGlobExpr(pattern) => {
+      let visible_uris = glob_visible_uris_from(from, pattern)
+      @pkl.register_import_glob(from, pattern, visible_uris)
+      for visible_uri in visible_uris {
+        if is_package_uri_like(visible_uri) {
+          continue
+        }
+        load_path(
+          session,
+          resolve_import_path(from, visible_uri),
+          push_stack(stack, from),
+          loaded,
+        )
+      }
+    }
     ObjectLiteral(members) =>
       for field in members {
         load_expr_imports(session, from, field.value, stack, loaded)
@@ -1506,12 +1520,28 @@ async fn load_path(
     None => ()
   }
   for decl in parsed.program.imports {
-    load_path(
-      session,
-      resolve_import_path(path, decl.uri),
-      push_stack(stack, path),
-      loaded,
-    )
+    if decl.is_glob {
+      let visible_uris = glob_visible_uris_from(path, decl.uri)
+      @pkl.register_import_glob(path, decl.uri, visible_uris)
+      for visible_uri in visible_uris {
+        if is_package_uri_like(visible_uri) {
+          continue
+        }
+        load_path(
+          session,
+          resolve_import_path(path, visible_uri),
+          push_stack(stack, path),
+          loaded,
+        )
+      }
+    } else {
+      load_path(
+        session,
+        resolve_import_path(path, decl.uri),
+        push_stack(stack, path),
+        loaded,
+      )
+    }
   }
   match parsed.program.module_relation {
     Some(relation) =>

@@ -122,6 +122,7 @@ pub(all) struct MappingEntry {
 pub(all) struct ImportDecl {
   uri : String
   import_name : String
+  is_glob : Bool
 } derive(Eq, Debug)
 
 ///|

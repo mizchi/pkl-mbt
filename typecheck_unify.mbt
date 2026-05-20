@@ -876,17 +876,19 @@ fn imported_type_bindings(
 ) -> Array[TypeBinding] {
   let bindings : Array[TypeBinding] = []
   for decl in imports {
-    match resolve_import_types(decl.uri) {
-      Some(exports) =>
-        for type_export in exports {
-          bindings.push({
-            name: "\{decl.import_name}.\{type_export.name}",
-            typ: qualify_imported_type(decl.import_name, type_export),
-            alias_decl: None,
-            bound: None,
-          })
-        }
-      None => ()
+    if !decl.is_glob {
+      match resolve_import_types(decl.uri) {
+        Some(exports) =>
+          for type_export in exports {
+            bindings.push({
+              name: "\{decl.import_name}.\{type_export.name}",
+              typ: qualify_imported_type(decl.import_name, type_export),
+              alias_decl: None,
+              bound: None,
+            })
+          }
+        None => ()
+      }
     }
   }
   bindings

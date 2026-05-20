@@ -306,11 +306,30 @@ fn is_ident_char(c : Char) -> Bool {
 }
 
 ///|
+fn inferred_glob_import_name(name : String) -> String {
+  if name == "" {
+    return name
+  }
+  let first = name[0].to_int().unsafe_to_char()
+  if first >= '0' && first <= '9' {
+    return "`\{name}`"
+  }
+  for c in name.iter() {
+    if !is_ident_char(c) {
+      return "`\{name}`"
+    }
+  }
+  name
+}
+
+///|
 fn Parser::parse_import_decl(self : Parser) -> ImportDecl? {
   self.builder.start_node(import_decl())
   ignore(self.expect(import_kw(), "import"))
   self.skip_whitespace()
+  let mut is_glob = false
   if self.at(star()) {
+    is_glob = true
     ignore(self.bump())
   }
   self.skip_whitespace()
@@ -330,13 +349,18 @@ fn Parser::parse_import_decl(self : Parser) -> ImportDecl? {
       None => ""
     }
   } else {
-    import_alias_from_uri(uri)
+    let inferred = import_alias_from_uri(uri)
+    if is_glob {
+      inferred_glob_import_name(inferred)
+    } else {
+      inferred
+    }
   }
   self.builder.finish_node()
   if uri == "" || import_name == "" {
     None
   } else {
-    Some({ uri, import_name })
+    Some({ uri, import_name, is_glob })
   }
 }
 

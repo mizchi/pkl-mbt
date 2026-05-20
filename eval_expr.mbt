@@ -2261,26 +2261,12 @@ fn eval_expr_with_bindings(
           }
       }
     ImportGlobExpr(uri) =>
-      match current_module_path_from_cache(cache) {
-        Some(path) =>
-          match sandbox_lookup_import_glob(path, uri) {
-            Some(uris) => {
-              let entries : Array[ValueEntry] = []
-              for visible_uri in uris {
-                entries.push({ key: StringValue(visible_uri), value: NullValue })
-              }
-              Some(MapValue(entries))
-            }
-            None => {
-              diagnostics.push(diag("Cannot find module `\{uri}`."))
-              None
-            }
-          }
-        None => {
-          diagnostics.push(diag("Cannot find module `\{uri}`."))
-          None
-        }
-      }
+      eval_import_glob_value(
+        uri,
+        current_module_path_from_cache(cache),
+        diagnostics,
+        resolve_import,
+      )
     ObjectLiteral(members) => {
       // PKL-148bh: tag the body with the current Dynamic-class marker
       // so a bare `getClass()` inside an untyped `new { ... }` body

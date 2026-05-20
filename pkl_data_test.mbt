@@ -874,6 +874,87 @@ test "read and import glob forms use current module resource cache" {
 
   let session = AnalysisSession::new()
   session.set_source("fixtures/main.pkl", source)
+  session.set_source("fixtures/日本語.pkl", "name = \"日本語\"")
+  session.set_source(
+    "fixtures/日本語_error.pkl", "name = \"日本語_error\"",
+  )
+  guard session.eval_path("fixtures/main.pkl") is EvalOk(value) else { panic() }
+  inspect(render_value(value), content=expected)
+  reset_sandbox_io_cache()
+}
+
+///|
+test "top-level import glob clause binds glob map" {
+  reset_sandbox_io_cache()
+  register_import_glob("fixtures/main.pkl", "*.pkl", [
+    "./日本語.pkl", "./日本語_error.pkl",
+  ])
+  let source =
+    #|import* "*.pkl" as globbed
+    #|import* "*.pkl"
+    #|result = globbed.keys.toListing()
+    #|inferred = `*`.keys.toListing()
+
+  let expected =
+    #|result {
+    #|  "./日本語.pkl"
+    #|  "./日本語_error.pkl"
+    #|}
+    #|inferred {
+    #|  "./日本語.pkl"
+    #|  "./日本語_error.pkl"
+    #|}
+
+  let session = AnalysisSession::new()
+  session.set_source("fixtures/main.pkl", source)
+  session.set_source("fixtures/日本語.pkl", "name = \"日本語\"")
+  session.set_source(
+    "fixtures/日本語_error.pkl", "name = \"日本語_error\"",
+  )
+  guard session.eval_path("fixtures/main.pkl") is EvalOk(value) else { panic() }
+  inspect(render_value(value), content=expected)
+  reset_sandbox_io_cache()
+}
+
+///|
+test "package import glob keeps visible keys without eager module load" {
+  reset_sandbox_io_cache()
+  let pattern = "package://localhost:0/birds@0.5.0#/*.pkl"
+  let visible = "package://localhost:0/birds@0.5.0#/Bird.pkl"
+  register_import_glob("fixtures/main.pkl", pattern, [visible])
+  let source = "import* \"\{pattern}\" as modules\nresult = modules"
+
+  let expected =
+    #|result {
+    #|  ["package://localhost:0/birds@0.5.0#/Bird.pkl"] = null
+    #|}
+
+  let session = AnalysisSession::new()
+  session.set_source("fixtures/main.pkl", source)
+  guard session.eval_path("fixtures/main.pkl") is EvalOk(value) else { panic() }
+  inspect(render_value(value), content=expected)
+  reset_sandbox_io_cache()
+}
+
+///|
+test "import glob keys do not evaluate matched modules eagerly" {
+  reset_sandbox_io_cache()
+  register_import_glob("fixtures/main.pkl", "./日*.pkl", [
+    "./日本語.pkl", "./日本語_error.pkl",
+  ])
+  let source = "result = import*(\"./日*.pkl\").keys.toListing()"
+  let expected =
+    #|result {
+    #|  "./日本語.pkl"
+    #|  "./日本語_error.pkl"
+    #|}
+
+  let session = AnalysisSession::new()
+  session.set_source("fixtures/main.pkl", source)
+  session.set_source("fixtures/日本語.pkl", "name = \"日本語\"")
+  session.set_source(
+    "fixtures/日本語_error.pkl", "name = throw(\"should not load\")",
+  )
   guard session.eval_path("fixtures/main.pkl") is EvalOk(value) else { panic() }
   inspect(render_value(value), content=expected)
   reset_sandbox_io_cache()
