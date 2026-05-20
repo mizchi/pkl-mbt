@@ -6387,94 +6387,174 @@ fn eval_for_generator(
     source_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
     resolve_import,
   )
-  let mut accumulated : Array[ValueMember] = []
   match source {
-    Some(ListingValue(elements))
-    | Some(DefaultedListingValue(_, elements, _))
-    | Some(ListValue(elements))
-    | Some(SetValue(elements)) =>
-      for i = 0; i < elements.length(); i = i + 1 {
-        let iter_cache = copy_value_bindings(cache)
-        match var2 {
-          Some(name2) => {
-            iter_cache.push({ name: var1, value: IntValue(i.to_int64()) })
-            iter_cache.push({ name: name2, value: elements[i] })
-          }
-          None => iter_cache.push({ name: var1, value: elements[i] })
-        }
-        let iter_members = eval_object_members(
-          body_members, bindings, env, class_env, iter_cache, stack, declarations,
-          diagnostics, resolve_import,
-        )
-        accumulated = merge_for_generator_members(accumulated, iter_members, i)
-      }
-    // PKL-148bb: `IntSeq(a, b)` iterates `a..=b` inclusive. The
-    // single-var form binds the current integer; the two-var form
-    // binds (index, value) like Listing.
-    Some(IntSeqValue(start_v, end_v, step_v)) => {
-      let elements : Array[Value] = []
-      if step_v > 0L {
-        let mut v = start_v
-        while v <= end_v {
-          elements.push(IntValue(v))
-          v = v + step_v
-        }
-      } else if step_v < 0L {
-        let mut v = start_v
-        while v >= end_v {
-          elements.push(IntValue(v))
-          v = v + step_v
-        }
-      }
-      for i = 0; i < elements.length(); i = i + 1 {
-        let iter_cache = copy_value_bindings(cache)
-        match var2 {
-          Some(name2) => {
-            iter_cache.push({ name: var1, value: IntValue(i.to_int64()) })
-            iter_cache.push({ name: name2, value: elements[i] })
-          }
-          None => iter_cache.push({ name: var1, value: elements[i] })
-        }
-        let iter_members = eval_object_members(
-          body_members, bindings, env, class_env, iter_cache, stack, declarations,
-          diagnostics, resolve_import,
-        )
-        accumulated = merge_for_generator_members(accumulated, iter_members, i)
-      }
-    }
-    Some(MappingValue(entries))
-    | Some(DefaultedMappingValue(_, entries, _))
-    | Some(MapValue(entries)) =>
-      for i = 0; i < entries.length(); i = i + 1 {
-        let entry = entries[i]
-        let iter_cache = copy_value_bindings(cache)
-        match var2 {
-          Some(name2) => {
-            iter_cache.push({ name: var1, value: entry.key })
-            iter_cache.push({ name: name2, value: entry.value })
-          }
-          None => {
-            diagnostics.push(
-              diag(
-                "for-generator over Mapping requires two variables (key, value)",
-              ),
+    Some(source_value) =>
+      match for_generator_iteration_entries(source_value) {
+        Some(entries) => {
+          let mut accumulated : Array[ValueMember] = []
+          for i = 0; i < entries.length(); i = i + 1 {
+            let entry = entries[i]
+            let iter_cache = copy_value_bindings(cache)
+            match var2 {
+              Some(name2) => {
+                iter_cache.push({ name: var1, value: entry.key })
+                iter_cache.push({ name: name2, value: entry.value })
+              }
+              None => iter_cache.push({ name: var1, value: entry.value })
+            }
+            let iter_members = eval_object_members(
+              body_members, bindings, env, class_env, iter_cache, stack, declarations,
+              diagnostics, resolve_import,
             )
-            return None
+            accumulated = merge_for_generator_members(
+              accumulated, iter_members, i,
+            )
           }
+          Some(ObjectValue(accumulated))
         }
-        let iter_members = eval_object_members(
-          body_members, bindings, env, class_env, iter_cache, stack, declarations,
-          diagnostics, resolve_import,
-        )
-        accumulated = merge_for_generator_members(accumulated, iter_members, i)
+        None => {
+          diagnostics.push(
+            diag("for-generator source must be Listing or Mapping"),
+          )
+          None
+        }
       }
-    Some(_) => {
-      diagnostics.push(diag("for-generator source must be Listing or Mapping"))
-      return None
-    }
-    None => return None
+    None => None
   }
-  Some(ObjectValue(accumulated))
+}
+
+///|
+fn indexed_for_generator_entries(elements : Array[Value]) -> Array[ValueEntry] {
+  let entries : Array[ValueEntry] = []
+  for i = 0; i < elements.length(); i = i + 1 {
+    entries.push({ key: IntValue(i.to_int64()), value: elements[i] })
+  }
+  entries
+}
+
+///|
+fn subscript_value_entry(value : Value) -> ValueEntry? {
+  match value {
+    ObjectValue(pair_members) =>
+      match
+        (
+          lookup_member(pair_members, "@key"),
+          lookup_member(pair_members, "@value"),
+        ) {
+        (Some(key), Some(value)) => Some({ key, value })
+        _ => None
+      }
+    _ => None
+  }
+}
+
+///|
+fn value_member_subscript_key(value_member : ValueMember) -> Value? {
+  if !value_member.name.has_prefix("@subscript$") {
+    return None
+  }
+  match subscript_value_entry(value_member.value) {
+    Some(entry) => Some(entry.key)
+    None => None
+  }
+}
+
+///|
+fn push_dynamic_object_member(
+  values : Array[ValueMember],
+  value_member : ValueMember,
+  diagnostics : Array[Diagnostic],
+) -> Bool {
+  match value_member_subscript_key(value_member) {
+    Some(key) => {
+      for existing in values {
+        match value_member_subscript_key(existing) {
+          Some(existing_key) =>
+            if existing_key == key {
+              diagnostics.push(
+                diag(
+                  "Duplicate definition of member `\{render_pcf_value_inline(key)}`.",
+                ),
+              )
+              return false
+            }
+          None => ()
+        }
+      }
+      values.push(value_member)
+      true
+    }
+    None => {
+      values.push(value_member)
+      true
+    }
+  }
+}
+
+///|
+fn dynamic_object_for_generator_entries(
+  members : Array[ValueMember],
+) -> Array[ValueEntry] {
+  let properties : Array[ValueEntry] = []
+  let entries : Array[ValueEntry] = []
+  let elements : Array[ValueEntry] = []
+  let mut element_index = 0
+  for value_member in members {
+    if is_invisible_member_name(value_member.name) {
+      continue
+    }
+    if value_member.name.has_prefix("@subscript$") {
+      match subscript_value_entry(value_member.value) {
+        Some(entry) => entries.push(entry)
+        None => ()
+      }
+    } else if value_member.name.has_prefix("@element$") {
+      elements.push({
+        key: IntValue(element_index.to_int64()),
+        value: value_member.value,
+      })
+      element_index = element_index + 1
+    } else {
+      properties.push({
+        key: StringValue(strip_member_visibility_prefix(value_member.name)),
+        value: value_member.value,
+      })
+    }
+  }
+  let out : Array[ValueEntry] = []
+  for entry in properties {
+    out.push(entry)
+  }
+  for entry in entries {
+    out.push(entry)
+  }
+  for entry in elements {
+    out.push(entry)
+  }
+  out
+}
+
+///|
+fn for_generator_iteration_entries(value : Value) -> Array[ValueEntry]? {
+  match value {
+    ListingValue(elements)
+    | DefaultedListingValue(_, elements, _)
+    | ListValue(elements)
+    | SetValue(elements) => Some(indexed_for_generator_entries(elements))
+    IntSeqValue(start_v, end_v, step_v) =>
+      Some(
+        indexed_for_generator_entries(
+          intseq_materialize(start_v, end_v, step_v),
+        ),
+      )
+    BytesValue(bytes) =>
+      Some(indexed_for_generator_entries(bytes_materialize(bytes)))
+    MappingValue(entries)
+    | DefaultedMappingValue(_, entries, _)
+    | MapValue(entries) => Some(entries)
+    ObjectValue(members) => Some(dynamic_object_for_generator_entries(members))
+    _ => None
+  }
 }
 
 ///|
@@ -8480,15 +8560,31 @@ fn eval_object_members_with_options(
             )
             match (key, val) {
               (Some(k), Some(v)) =>
-                values.push({
-                  name: field.name,
-                  value: ObjectValue([
-                    { name: "@key", value: k, source: None, annotations: [] },
-                    { name: "@value", value: v, source: None, annotations: [] },
-                  ]),
-                  source: None,
-                  annotations: [],
-                })
+                ignore(
+                  push_dynamic_object_member(
+                    values,
+                    {
+                      name: field.name,
+                      value: ObjectValue([
+                        {
+                          name: "@key",
+                          value: k,
+                          source: None,
+                          annotations: [],
+                        },
+                        {
+                          name: "@value",
+                          value: v,
+                          source: None,
+                          annotations: [],
+                        },
+                      ]),
+                      source: None,
+                      annotations: [],
+                    },
+                    diagnostics,
+                  ),
+                )
               _ => ()
             }
           }
@@ -8606,10 +8702,16 @@ fn eval_object_members_with_options(
         )
         if field.name == "@when" || field.name == "@for" {
           match value {
-            ObjectValue(branch_members) =>
+            ObjectValue(branch_members) => {
+              let mut ok = true
               for branch_member in branch_members {
-                values.push(branch_member)
+                if ok {
+                  ok = push_dynamic_object_member(
+                    values, branch_member, property_diagnostics,
+                  )
+                }
               }
+            }
             _ =>
               property_diagnostics.push(
                 diag("object-body generator must produce an object body"),
@@ -8641,14 +8743,27 @@ fn eval_object_members_with_options(
                   named.push(spread_member)
                 }
               }
+              let mut ok = true
               for spread_member in named {
-                values.push(spread_member)
+                if ok {
+                  ok = push_dynamic_object_member(
+                    values, spread_member, property_diagnostics,
+                  )
+                }
               }
               for spread_member in subscripts {
-                values.push(spread_member)
+                if ok {
+                  ok = push_dynamic_object_member(
+                    values, spread_member, property_diagnostics,
+                  )
+                }
               }
               for spread_member in elements {
-                values.push(spread_member)
+                if ok {
+                  ok = push_dynamic_object_member(
+                    values, spread_member, property_diagnostics,
+                  )
+                }
               }
             }
             ListingValue(elements)
@@ -8689,25 +8804,34 @@ fn eval_object_members_with_options(
             | DefaultedMappingValue(_, entries, _)
             | MapValue(entries) =>
               for i = 0; i < entries.length(); i = i + 1 {
-                values.push({
-                  name: "@subscript$spread" + field.name + "$" + i.to_string(),
-                  value: ObjectValue([
+                ignore(
+                  push_dynamic_object_member(
+                    values,
                     {
-                      name: "@key",
-                      value: entries[i].key,
+                      name: "@subscript$spread" +
+                      field.name +
+                      "$" +
+                      i.to_string(),
+                      value: ObjectValue([
+                        {
+                          name: "@key",
+                          value: entries[i].key,
+                          source: None,
+                          annotations: [],
+                        },
+                        {
+                          name: "@value",
+                          value: entries[i].value,
+                          source: None,
+                          annotations: [],
+                        },
+                      ]),
                       source: None,
                       annotations: [],
                     },
-                    {
-                      name: "@value",
-                      value: entries[i].value,
-                      source: None,
-                      annotations: [],
-                    },
-                  ]),
-                  source: None,
-                  annotations: [],
-                })
+                    property_diagnostics,
+                  ),
+                )
               }
             // PKL-148bb: Apple Pkl silently drops non-collection
             // spreads (`parser/spread` exercises `...super.bar` where

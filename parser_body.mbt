@@ -23,6 +23,28 @@ fn Parser::parse_listing_body(self : Parser) -> Expr {
         type_name: None,
         value: self.parse_listing_when(),
       })
+    } else if self.at(for_kw()) {
+      match self.parse_for_header() {
+        Some((var1, var2, source)) => {
+          let body = self.parse_listing_body()
+          items.push({
+            kind: ElementItem,
+            name: "",
+            type_name: None,
+            value: WhenSpread(
+              ForGenerator(var1, var2, source, [
+                {
+                  name: "@spread",
+                  type_name: None,
+                  value: body,
+                  annotations: [],
+                },
+              ]),
+            ),
+          })
+        }
+        None => ()
+      }
     } else if self.at_local_function_decl() {
       match self.parse_local_function_binding_expr() {
         Some((name, value)) =>
@@ -347,6 +369,26 @@ fn Parser::parse_mapping_body(self : Parser) -> Expr {
       // `value` is `NullLiteral` (never consulted — the evaluator spreads
       // the selected branch's entries before reading any value).
       entries.push({ key: self.parse_mapping_when(), value: NullLiteral })
+    } else if self.at(for_kw()) {
+      match self.parse_for_header() {
+        Some((var1, var2, source)) => {
+          let body = self.parse_mapping_body()
+          entries.push({
+            key: WhenSpread(
+              ForGenerator(var1, var2, source, [
+                {
+                  name: "@spread",
+                  type_name: None,
+                  value: body,
+                  annotations: [],
+                },
+              ]),
+            ),
+            value: NullLiteral,
+          })
+        }
+        None => ()
+      }
     } else if self.at_triple_dot() {
       // PKL-148s: `...x` / `...?x` inside a Mapping body. Reuse the
       // same `WhenSpread(payload)`-keyed synthetic-entry encoding so
@@ -1170,8 +1212,7 @@ fn Parser::skip_for_binding_type_annotation(self : Parser) -> Unit {
 }
 
 ///|
-fn Parser::parse_for_member(self : Parser) -> ObjectMember? {
-  self.builder.start_node(object_member())
+fn Parser::parse_for_header(self : Parser) -> (String, String?, Expr)? {
   ignore(self.expect(for_kw(), "for"))
   self.skip_trivia()
   ignore(self.expect(lparen(), "("))
@@ -1210,10 +1251,21 @@ fn Parser::parse_for_member(self : Parser) -> ObjectMember? {
   self.skip_trivia()
   ignore(self.expect(rparen(), ")"))
   self.skip_trivia()
-  let body_members = self.parse_object_body_members()
-  self.builder.finish_node()
   if var1 == "" {
     return None
+  }
+  Some((var1, var2, source))
+}
+
+///|
+fn Parser::parse_for_member(self : Parser) -> ObjectMember? {
+  self.builder.start_node(object_member())
+  let header = self.parse_for_header()
+  let body_members = self.parse_object_body_members()
+  self.builder.finish_node()
+  let (var1, var2, source) = match header {
+    Some(parts) => parts
+    None => return None
   }
   Some({
     name: "@for",

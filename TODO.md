@@ -1,12 +1,12 @@
 # Release TODO
 
-Current coverage: 275 / 391 PCF gold-match (70.3%).
+Current coverage: 277 / 391 PCF gold-match (70.8%).
 Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-05-21.
 
 Release focus:
 
 - `basic`: 70 PASS / 16 DIFF
-- `generators`: 14 PASS / 7 DIFF
+- `generators`: 16 PASS / 5 DIFF
 
 Planned order:
 
@@ -29,7 +29,7 @@ End-user blocker priority is based on "will a normal Pkl config author hit this?
 4. Basic scalar / collection parity: `Int`, `Float`, `Bytes`, `DataSize`, `Duration`, and `Map` differences are real but narrower than generators/resource access.
 5. Deep stdlib / reflect parity: important for long-term compatibility, but not a first release blocker unless a public API or real package depends on it.
 
-For this release pass, start with `for` support before Resource / Glob. The first target is untyped element / entry generators; typed generators and lexical-scope cases follow after member-kind preservation is stable.
+For this release pass, continue `for` support before Resource / Glob. Untyped element / entry generators are done; typed generators and lexical-scope cases follow after member-kind preservation is stable.
 
 ## Current DIFF Snapshot
 
@@ -56,9 +56,7 @@ Measured from the release binary against Apple Pkl LanguageSnippetTests gold fil
 
 `generators` remaining DIFFs:
 
-- `generators/elementGenerators`
 - `generators/elementGeneratorsTyped`
-- `generators/entryGenerators`
 - `generators/entryGeneratorsTyped`
 - `generators/forGeneratorInFunctionBody`
 - `generators/forGeneratorInMixins`
@@ -131,9 +129,7 @@ This is the current active slice. It is the main blocker for `generators` and la
 
 Target fixtures:
 
-- `generators/elementGenerators`
 - `generators/elementGeneratorsTyped`
-- `generators/entryGenerators`
 - `generators/entryGeneratorsTyped`
 - `generators/forGeneratorInFunctionBody`
 - `generators/forGeneratorInMixins`
@@ -145,12 +141,23 @@ Problem:
 
 Current `@for` evaluation eventually collapses generated content into `ObjectValue`. Apple Pkl effectively evaluates object bodies as a member stream that preserves whether each member is a property, element, or entry. Listing, Mapping, and Dynamic then project that stream differently.
 
+Completed in this slice:
+
+- `generators/elementGenerators`
+- `generators/entryGenerators`
+
+Implemented work:
+
+- Parse `for` inside explicit Listing / Mapping bodies as Listing / Mapping body streams, not as ordinary unsupported expressions.
+- Normalize `for` sources into `(key, value)` iteration entries: Listing/List/Set/IntSeq/Bytes use numeric indexes, Mapping/Map use entry keys, and Dynamic/Object iterates properties, entries, then elements.
+- Reject duplicate generated Dynamic entry keys with Apple-compatible `Duplicate definition of member ...` diagnostics.
+
 Execution plan:
 
-1. Red: pin direct upstream diffs for `generators/elementGenerators` and `generators/entryGenerators`, plus focused unit tests for generated element vs entry preservation.
-2. Green: introduce the smallest member-stream representation needed for object-body `for`, without rewriting unrelated amend/eval paths.
-3. Extend iteration binding semantics for one-var and two-var loops over `Listing`, `List`, `Set`, `IntSeq`, `Mapping`, `Map`, and `Dynamic`.
-4. Add typed generator support once untyped element / entry generators are stable.
+1. Done: pin direct upstream diffs for `generators/elementGenerators` and `generators/entryGenerators`, plus focused unit tests for generated element vs entry preservation.
+2. Done: introduce the smallest member-stream representation needed for object-body `for`, without rewriting unrelated amend/eval paths.
+3. Done: extend iteration binding semantics for one-var and two-var loops over `Listing`, `List`, `Set`, `IntSeq`, `Bytes`, `Mapping`, `Map`, and `Dynamic`.
+4. Next: add typed generator support now that untyped element / entry generators are stable.
 5. Then handle `forGeneratorInFunctionBody`, `forGeneratorInMixins`, and `forGeneratorLexicalScope`; defer broader `outer` / const provenance unless these fixtures require it directly.
 
 Required work:

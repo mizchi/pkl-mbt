@@ -1879,6 +1879,81 @@ test "PKL-148ar: predicate members inside for amend listing entries" {
 }
 
 ///|
+test "PKL-148aw: for iterates mapping values bytes and dynamic member stream" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|out = new {
+      #|  mappingValues = new Listing {
+      #|    for (v in new Mapping { ["one"] = 1; ["two"] = 2 }) { v }
+      #|  }
+      #|  mapValues = new Listing {
+      #|    for (v in Map("one", 1, "two", 2)) { v }
+      #|  }
+      #|  byteValues = new Listing {
+      #|    for (v in Bytes(1, 2, 3)) { v }
+      #|  }
+      #|  dynamicKeyValues = new Listing {
+      #|    for (k, v in new Dynamic {
+      #|      prop = "value"
+      #|      ["entry"] = "mapped"
+      #|      "element"
+      #|    }) {
+      #|      "\(k) -> \(v)"
+      #|    }
+      #|  }
+      #|}
+      #|
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered.contains("mappingValues {\n    1\n    2\n  }"),
+    content="true",
+  )
+  inspect(rendered.contains("mapValues {\n    1\n    2\n  }"), content="true")
+  inspect(
+    rendered.contains("byteValues {\n    1\n    2\n    3\n  }"),
+    content="true",
+  )
+  inspect(
+    rendered.contains(
+      "dynamicKeyValues {\n    \"prop -> value\"\n    \"entry -> mapped\"\n    \"0 -> element\"\n  }",
+    ),
+    content="true",
+  )
+}
+
+///|
+test "PKL-148aw: for-generated dynamic entries reject duplicate keys" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:test"
+      #|
+      #|result = test.catch(() -> new Dynamic {
+      #|  for (v in new Dynamic {
+      #|    first = "same"
+      #|    ["second"] = "same"
+      #|  }) {
+      #|    [v] = v
+      #|  }
+      #|})
+      #|
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered.contains("Duplicate definition of member `\\\"same\\\"`."),
+    content="true",
+  )
+}
+
+///|
 test "PKL-148ar: Dynamic.toMap projects bracket entries" {
   let session = AnalysisSession::new()
   session.set_source(
