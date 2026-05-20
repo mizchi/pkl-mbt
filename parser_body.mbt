@@ -22,6 +22,12 @@ fn Parser::parse_listing_body(self : Parser) -> Expr {
         name: "",
         value: self.parse_listing_when(),
       })
+    } else if self.at_local_function_decl() {
+      match self.parse_local_function_binding_expr() {
+        Some((name, value)) =>
+          items.push({ kind: LocalBindingItem, name, value })
+        None => ()
+      }
     } else if self.at(local_kw()) {
       match self.parse_local_decl() {
         Some(binding) =>
@@ -136,6 +142,8 @@ fn Parser::parse_collection_default_expr(self : Parser) -> Expr? {
 /// no-ops gracefully when the supposed class name doesn't resolve.
 fn rewrite_typed_object_literal(value : Expr, type_name : String?) -> Expr {
   match (value, type_name) {
+    (_, Some(name)) if collection_annotation_uses_listing_marker(name) =>
+      CallExpr(Identifier("@__typed_listing"), [StringLiteral(name), value])
     (ObjectLiteral(members), Some(name)) =>
       // Only rewrite when the annotation looks like a plain class name
       // — generic parameters / unions / function shapes keep the
@@ -148,7 +156,98 @@ fn rewrite_typed_object_literal(value : Expr, type_name : String?) -> Expr {
       } else {
         TypedObjectLiteral(name, members)
       }
+    _ => mark_lazy_collection_lambda_expr(value)
+  }
+}
+
+///|
+fn mark_lazy_collection_lambda_expr(value : Expr) -> Expr {
+  match value {
+    LambdaExpr(parameters, body, return_type_name) => {
+      let marked_parameters : Array[FunctionParameter] = []
+      for parameter in parameters {
+        marked_parameters.push({
+          name: parameter.name,
+          type_name: mark_lazy_collection_annotation_opt(parameter.type_name),
+        })
+      }
+      LambdaExpr(
+        marked_parameters,
+        body,
+        mark_lazy_collection_annotation_opt(return_type_name),
+      )
+    }
     _ => value
+  }
+}
+
+///|
+fn collection_annotation_uses_listing_marker(name : String) -> Bool {
+  let trimmed = pkl_strip_default_type_marker(pkl_constraint_trim(name))
+  let unwrapped = if trimmed.has_suffix("?") {
+    String::unsafe_substring(trimmed, start=0, end=trimmed.length() - 1)
+  } else {
+    trimmed
+  }
+  unwrapped.contains("Listing<") ||
+  unwrapped.contains("List<") ||
+  unwrapped.contains("Set<") ||
+  unwrapped.contains("Collection<")
+}
+
+///|
+fn Parser::at_local_function_decl(self : Parser) -> Bool {
+  if !self.at(local_kw()) {
+    return false
+  }
+  let next = self.skip_trivia_from(self.pos + 1)
+  next < self.len &&
+  self.tokens[next].kind() == identifier() &&
+  self.tokens[next].text() == "function"
+}
+
+///|
+fn Parser::parse_local_function_binding_expr(self : Parser) -> (String, Expr)? {
+  ignore(self.expect(local_kw(), "local"))
+  self.skip_whitespace()
+  match self.parse_function_decl() {
+    Some(decl) => {
+      let body = match decl.body {
+        Some(expr) => expr
+        None => UnsupportedExpr
+      }
+      let parameters : Array[FunctionParameter] = []
+      for parameter in decl.parameters {
+        parameters.push({
+          name: parameter.name,
+          type_name: mark_lazy_collection_annotation_opt(parameter.type_name),
+        })
+      }
+      Some(
+        (
+          decl.name,
+          LambdaExpr(
+            parameters,
+            body,
+            mark_lazy_collection_annotation_opt(decl.return_type_name),
+          ),
+        ),
+      )
+    }
+    None => None
+  }
+}
+
+///|
+fn mark_lazy_collection_annotation_opt(type_name : String?) -> String? {
+  match type_name {
+    Some(name) =>
+      if collection_annotation_uses_listing_marker(name) {
+        Some(mark_lazy_collection_annotation(name))
+      } else {
+        type_name
+      }
+    None => None
   }
 }
 
@@ -278,6 +377,11 @@ fn Parser::parse_mapping_body(self : Parser) -> Expr {
     } else if self.at(lbracket()) {
       match self.parse_mapping_entry() {
         Some(entry) => entries.push(entry)
+        None => ()
+      }
+    } else if self.at_local_function_decl() {
+      match self.parse_local_function_binding_expr() {
+        Some((name, value)) => locals.push((name, value))
         None => ()
       }
     } else if self.at(local_kw()) {

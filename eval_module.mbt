@@ -583,11 +583,15 @@ fn eval_pkl_test_catch_outcome(
           body, bindings, env, class_env, cache, stack, declarations, caught_diagnostics,
           resolve_import,
         ) {
-        Some(_value) =>
-          if caught_diagnostics.length() > 0 {
-            Some(ThrewOutcome(caught_diagnostics[0].message))
-          } else {
-            Some(NoThrowOutcome)
+        Some(value) =>
+          match deferred_error_message(value) {
+            Some(message) => Some(ThrewOutcome(message))
+            None =>
+              if caught_diagnostics.length() > 0 {
+                Some(ThrewOutcome(caught_diagnostics[0].message))
+              } else {
+                Some(NoThrowOutcome)
+              }
           }
         None =>
           if caught_diagnostics.length() > 0 {

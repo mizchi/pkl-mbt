@@ -1816,6 +1816,77 @@ test "Pkl String constraint length.isPositive rejects empty strings" {
 }
 
 ///|
+test "Pkl String constraint length.isOdd accepts odd length and rejects even length" {
+  let accepting = AnalysisSession::new()
+  accepting.set_source("main.pkl", "name: String(length.isOdd) = \"owl\"")
+  assert_true(
+    accepting.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "name",
+          value: StringValue("owl"),
+          source: None,
+          annotations: [],
+        },
+      ]),
+    ),
+  )
+  let rejecting = AnalysisSession::new()
+  rejecting.set_source("main.pkl", "name: String(length.isOdd) = \"even\"")
+  match rejecting.eval_path("main.pkl") {
+    EvalError(diagnostics) => {
+      let mut found = false
+      for d in diagnostics {
+        if d.message.contains("length.isOdd") && d.message.contains("violated") {
+          found = true
+        }
+      }
+      assert_true(found)
+    }
+    EvalOk(_) => assert_true(false)
+  }
+}
+
+///|
+test "Pkl String constraint this equals capitalize accepts and rejects" {
+  let accepting = AnalysisSession::new()
+  accepting.set_source(
+    "main.pkl", "name: String(this == capitalize()) = \"Hawk\"",
+  )
+  assert_true(
+    accepting.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "name",
+          value: StringValue("Hawk"),
+          source: None,
+          annotations: [],
+        },
+      ]),
+    ),
+  )
+  let rejecting = AnalysisSession::new()
+  rejecting.set_source(
+    "main.pkl", "name: String(this == capitalize()) = \"hawk\"",
+  )
+  match rejecting.eval_path("main.pkl") {
+    EvalError(diagnostics) => {
+      let mut found = false
+      for d in diagnostics {
+        if d.message.contains("this == capitalize()") &&
+          d.message.contains("violated") {
+          found = true
+        }
+      }
+      assert_true(found)
+    }
+    EvalOk(_) => assert_true(false)
+  }
+}
+
+///|
 test "Pkl String constraint negated matches rejects matching values" {
   let rejecting = AnalysisSession::new()
   rejecting.set_source(
@@ -1894,6 +1965,231 @@ test "Pkl Listing element constraint propagates String predicates" {
     }
     EvalOk(_) => assert_true(false)
   }
+}
+
+///|
+test "Pkl explicit Listing parent enforces element type on access" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "local names = new Listing<String> { 1 }\nvalue = names[0]",
+  )
+  match session.eval_path("main.pkl") {
+    EvalError(diagnostics) => {
+      let mut found = false
+      for d in diagnostics {
+        if d.message.contains("Expected value of type `String`") &&
+          d.message.contains("got type `Int`") {
+          found = true
+        }
+      }
+      assert_true(found)
+    }
+    EvalOk(_) => assert_true(false)
+  }
+}
+
+///|
+test "Pkl explicit Listing parent enforces element constraint on access" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "local names = new Listing<String(this == capitalize())> { \"hawk\" }\nvalue = names[0]",
+  )
+  match session.eval_path("main.pkl") {
+    EvalError(diagnostics) => {
+      let mut found = false
+      for d in diagnostics {
+        if d.message.contains("this == capitalize()") &&
+          d.message.contains("violated") {
+          found = true
+        }
+      }
+      assert_true(found)
+    }
+    EvalOk(_) => assert_true(false)
+  }
+}
+
+///|
+test "Pkl listing body local annotation enforces inferred Listing element type on access" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "out = new {\n  local names: Listing<String> = new { 1 }\n  module.catch(() -> names[0])\n}",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "out",
+          value: ListingValue([
+            StringValue(
+              "Expected value of type `String`, but got type `Int`. Value: 1",
+            ),
+          ]),
+          source: None,
+          annotations: [],
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl listing body List annotation propagates nested Listing element constraints" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "out = new {\n  local xs: List<Listing<String(length.isOdd)>> = List(new Listing<String(this == capitalize())> { \"Ba\"; \"bar\" })\n  module.catch(() -> xs[0][0])\n  module.catch(() -> xs[0][1])\n}",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "out",
+          value: ListingValue([
+            StringValue(
+              "Type constraint `length.isOdd` violated. Value: \"Ba\"",
+            ),
+            StringValue(
+              "Type constraint `this == capitalize()` violated. Value: \"bar\"",
+            ),
+          ]),
+          source: None,
+          annotations: [],
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl nullable Listing annotation propagates element constraints" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "out = new {\n  local xs: Listing<String(length.isOdd)>? = new Listing<String(this == capitalize())> { \"Ba\"; \"bar\" }\n  module.catch(() -> xs!![0])\n  module.catch(() -> xs!![1])\n}",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "out",
+          value: ListingValue([
+            StringValue(
+              "Type constraint `length.isOdd` violated. Value: \"Ba\"",
+            ),
+            StringValue(
+              "Type constraint `this == capitalize()` violated. Value: \"bar\"",
+            ),
+          ]),
+          source: None,
+          annotations: [],
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl listing body local function is visible to following elements" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "out = new {\n  local function id(x) = x\n  id(41)\n}",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "out",
+          value: ListingValue([IntValue(41)]),
+          source: None,
+          annotations: [],
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl listing body local function parameter annotation overlays Listing elements" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "out = new {\n  local xs = new Listing<String(this == capitalize())> { \"Ba\"; \"bar\" }\n  local function id(listing: Listing<String(length.isOdd)>) = listing\n  module.catch(() -> id(xs)[0])\n  module.catch(() -> id(xs)[1])\n}",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "out",
+          value: ListingValue([
+            StringValue(
+              "Type constraint `length.isOdd` violated. Value: \"Ba\"",
+            ),
+            StringValue(
+              "Type constraint `this == capitalize()` violated. Value: \"bar\"",
+            ),
+          ]),
+          source: None,
+          annotations: [],
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl listing body local lambda parameter annotation overlays Listing elements" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "out = new {\n  local xs = new Listing<String(this == capitalize())> { \"Ba\"; \"bar\" }\n  local id = (listing: Listing<String(length.isOdd)>) -> listing\n  module.catch(() -> id.apply(xs)[0])\n  module.catch(() -> id.apply(xs)[1])\n}",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "out",
+          value: ListingValue([
+            StringValue(
+              "Type constraint `length.isOdd` violated. Value: \"Ba\"",
+            ),
+            StringValue(
+              "Type constraint `this == capitalize()` violated. Value: \"bar\"",
+            ),
+          ]),
+          source: None,
+          annotations: [],
+        },
+      ]),
+    ),
+  )
+}
+
+///|
+test "Pkl listing body union Listing annotation rejects when no branch matches the whole Listing" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "out = new {\n  local xs: Listing<String(length.isOdd)>|Listing<String(length == 4)> = new Listing<String(this == capitalize())> { \"Ba\"; \"bar\"; \"Bazz\"; \"Qux\" }\n  module.catch(() -> xs)\n}",
+  )
+  assert_true(
+    session.eval_path("main.pkl") ==
+    EvalOk(
+      ObjectValue([
+        ValueMember::{
+          name: "out",
+          value: ListingValue([
+            StringValue(
+              "Expected value of type `Listing<String(length.isOdd)>|Listing<String(length == 4)>`, but got a different `Listing`. Value: new Listing { \"Ba\"; ?; ?; ? }",
+            ),
+          ]),
+          source: None,
+          annotations: [],
+        },
+      ]),
+    ),
+  )
 }
 
 ///|

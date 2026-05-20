@@ -777,8 +777,13 @@ fn Parser::parse_object_expr(self : Parser) -> Expr {
   // TypedObjectLiteral arm because `parse_type_text` returns the full
   // generic form (`Listing<String>`). Normalise the prefix so the body
   // parses as a listing / mapping body either way.
-  let value = if type_name == "Listing" || type_name.has_prefix("Listing<") {
+  let value = if type_name == "Listing" {
     self.parse_listing_body()
+  } else if type_name.has_prefix("Listing<") {
+    CallExpr(Identifier("@__typed_listing"), [
+      StringLiteral(type_name),
+      self.parse_listing_body(),
+    ])
   } else if type_name == "Mapping" || type_name.has_prefix("Mapping<") {
     self.parse_mapping_body()
   } else if type_name == "" {

@@ -864,20 +864,34 @@ fn eval_callable_return_value(
   label : String,
   return_type_name : String?,
   value : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
   class_env : Array[ClassBinding],
   cache : Array[ValueBinding],
+  stack : Array[String],
   declarations : Array[Declaration],
   diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
 ) -> Value? {
+  let clean_return_type_name = strip_lazy_collection_annotation_marker_opt(
+    return_type_name,
+  )
+  let (return_value, overlaid) = overlay_collection_annotation_if_possible(
+    return_type_name, value, bindings, env, class_env, cache, stack, declarations,
+    resolve_import,
+  )
+  if overlaid {
+    return Some(return_value)
+  }
   match
     eval_callable_return_rejection_message(
-      label, return_type_name, value, class_env, cache, declarations,
+      label, clean_return_type_name, return_value, class_env, cache, declarations,
     ) {
     Some(message) => {
       diagnostics.push(diag(message))
       None
     }
-    None => Some(value)
+    None => Some(return_value)
   }
 }
 
@@ -924,65 +938,69 @@ fn eval_lambda_application(
   let call_cache = copy_value_bindings(captured_env)
   push_module_metadata_from_cache(call_cache, cache)
   for i = 0; i < parameters.length(); i = i + 1 {
-    match
-      eval_callable_argument_type_rejection_message(
-        parameters[i].type_name,
-        argument_values[i],
-        class_env,
-        call_cache,
-        declarations,
-      ) {
-      Some(message) => {
-        diagnostics.push(diag(message))
-        return None
+    let parameter_type_name = strip_lazy_collection_annotation_marker_opt(
+      parameters[i].type_name,
+    )
+    let (argument_value, overlaid) = overlay_collection_annotation_if_possible(
+      parameters[i].type_name,
+      argument_values[i],
+      bindings,
+      call_cache,
+      class_env,
+      call_cache,
+      stack,
+      declarations,
+      resolve_import,
+    )
+    if !overlaid {
+      match
+        eval_callable_argument_type_rejection_message(
+          parameter_type_name, argument_value, class_env, call_cache, declarations,
+        ) {
+        Some(message) => {
+          diagnostics.push(diag(message))
+          return None
+        }
+        None => ()
       }
-      None => ()
-    }
-    match
-      eval_callable_argument_rejection_message(
-        parameters[i].type_name,
-        argument_values[i],
-        declarations,
-      ) {
-      Some(message) => {
-        // PKL-148o: Apple Pkl emits the bare constraint message
-        // (`Type constraint `isPositive` violated. Value: -1`) for
-        // callable-parameter constraint failures — no `<label>
-        // argument N` prefix. Drop the wrapper across all three
-        // call sites (this lambda application, `apply_function_value`,
-        // and the class-method dispatch in `eval_member_access_call`)
-        // so `test.catch(() -> f(-1))` round-trips the upstream
-        // wording byte-for-byte. `label` is preserved here in case a
-        // future diagnostic needs the caller's identity, but isn't
-        // included in the user-facing message.
-        let _ = label
-        diagnostics.push(diag(message))
-        return None
+      match
+        eval_callable_argument_rejection_message(
+          parameter_type_name, argument_value, declarations,
+        ) {
+        Some(message) => {
+          // PKL-148o: Apple Pkl emits the bare constraint message
+          // (`Type constraint `isPositive` violated. Value: -1`) for
+          // callable-parameter constraint failures — no `<label>
+          // argument N` prefix. Drop the wrapper across all three
+          // call sites (this lambda application, `apply_function_value`,
+          // and the class-method dispatch in `eval_member_access_call`)
+          // so `test.catch(() -> f(-1))` round-trips the upstream
+          // wording byte-for-byte. `label` is preserved here in case a
+          // future diagnostic needs the caller's identity, but isn't
+          // included in the user-facing message.
+          let _ = label
+          diagnostics.push(diag(message))
+          return None
+        }
+        None => ()
       }
-      None => ()
-    }
-    // PKL-148bh: runtime predicate check using the captured env —
-    // see `apply_function_value` for the rationale. Hooks the same
-    // diagnostic format Apple Pkl prints for `String(length > n)`-
-    // style parameter constraints (lambdas/typedLambdas).
-    match
-      eval_callable_runtime_constraint_message(
-        parameters[i].type_name,
-        argument_values[i],
-        bindings,
-        class_env,
-        captured_env,
-        stack,
-        declarations,
-        resolve_import,
-      ) {
-      Some(message) => {
-        diagnostics.push(diag(message))
-        return None
+      // PKL-148bh: runtime predicate check using the captured env —
+      // see `apply_function_value` for the rationale. Hooks the same
+      // diagnostic format Apple Pkl prints for `String(length > n)`-
+      // style parameter constraints (lambdas/typedLambdas).
+      match
+        eval_callable_runtime_constraint_message(
+          parameter_type_name, argument_value, bindings, class_env, captured_env,
+          stack, declarations, resolve_import,
+        ) {
+        Some(message) => {
+          diagnostics.push(diag(message))
+          return None
+        }
+        None => ()
       }
-      None => ()
     }
-    call_cache.push({ name: parameters[i].name, value: argument_values[i] })
+    call_cache.push({ name: parameters[i].name, value: argument_value })
   }
   match body {
     LambdaExpr(lambda_parameters, lambda_body, lambda_return_type_name) =>
@@ -996,10 +1014,14 @@ fn eval_lambda_application(
           copy_value_bindings(call_cache),
           fresh_function_id(),
         ),
+        bindings,
+        call_cache,
         class_env,
         call_cache,
+        stack,
         declarations,
         diagnostics,
+        resolve_import,
       )
     _ => {
       // PKL-148d: same lexical-isolation as `apply_function_value`.
@@ -1034,8 +1056,8 @@ fn eval_lambda_application(
         ) {
         Some(value) =>
           eval_callable_return_value(
-            label, return_type_name, value, class_env, call_cache, declarations,
-            diagnostics,
+            label, return_type_name, value, bindings, call_cache, class_env, call_cache,
+            stack, declarations, diagnostics, resolve_import,
           )
         None => None
       }
@@ -1077,60 +1099,64 @@ fn apply_function_value(
       // values, but read/reflect paths inside the body still need them.
       push_module_metadata_from_cache(call_cache, caller_cache)
       for i = 0; i < parameters.length(); i = i + 1 {
-        match
-          eval_callable_argument_type_rejection_message(
-            parameters[i].type_name,
-            args[i],
-            class_env,
-            call_cache,
-            declarations,
-          ) {
-          Some(message) => {
-            diagnostics.push(diag(message))
-            return None
+        let parameter_type_name = strip_lazy_collection_annotation_marker_opt(
+          parameters[i].type_name,
+        )
+        let (argument_value, overlaid) = overlay_collection_annotation_if_possible(
+          parameters[i].type_name,
+          args[i],
+          bindings,
+          call_cache,
+          class_env,
+          call_cache,
+          stack,
+          declarations,
+          resolve_import,
+        )
+        if !overlaid {
+          match
+            eval_callable_argument_type_rejection_message(
+              parameter_type_name, argument_value, class_env, call_cache, declarations,
+            ) {
+            Some(message) => {
+              diagnostics.push(diag(message))
+              return None
+            }
+            None => ()
           }
-          None => ()
-        }
-        match
-          eval_callable_argument_rejection_message(
-            parameters[i].type_name,
-            args[i],
-            declarations,
-          ) {
-          Some(message) => {
-            // PKL-148o: bare upstream wording — see
-            // `eval_lambda_application` for the rationale.
-            let _ = label
-            diagnostics.push(diag(message))
-            return None
+          match
+            eval_callable_argument_rejection_message(
+              parameter_type_name, argument_value, declarations,
+            ) {
+            Some(message) => {
+              // PKL-148o: bare upstream wording — see
+              // `eval_lambda_application` for the rationale.
+              let _ = label
+              diagnostics.push(diag(message))
+              return None
+            }
+            None => ()
           }
-          None => ()
-        }
-        // PKL-148bh: runtime predicate check for parameter
-        // constraints (`(str: String(length > n)) -> str` where
-        // `n` comes from the captured env — lambdas/typedLambdas).
-        // The static cascade only handles closed-form integer
-        // predicates; once the predicate references the captured
-        // env we have to evaluate the constraint expression with
-        // `this` bound to the argument.
-        match
-          eval_callable_runtime_constraint_message(
-            parameters[i].type_name,
-            args[i],
-            bindings,
-            class_env,
-            captured_env,
-            stack,
-            declarations,
-            resolve_import,
-          ) {
-          Some(message) => {
-            diagnostics.push(diag(message))
-            return None
+          // PKL-148bh: runtime predicate check for parameter
+          // constraints (`(str: String(length > n)) -> str` where
+          // `n` comes from the captured env — lambdas/typedLambdas).
+          // The static cascade only handles closed-form integer
+          // predicates; once the predicate references the captured
+          // env we have to evaluate the constraint expression with
+          // `this` bound to the argument.
+          match
+            eval_callable_runtime_constraint_message(
+              parameter_type_name, argument_value, bindings, class_env, captured_env,
+              stack, declarations, resolve_import,
+            ) {
+            Some(message) => {
+              diagnostics.push(diag(message))
+              return None
+            }
+            None => ()
           }
-          None => ()
         }
-        call_cache.push({ name: parameters[i].name, value: args[i] })
+        call_cache.push({ name: parameters[i].name, value: argument_value })
       }
       // PKL-148d: a lambda's body sees its captured_env + parameters
       // (both in `call_cache`) plus the module-level bindings; the
@@ -1169,8 +1195,8 @@ fn apply_function_value(
         ) {
         Some(value) =>
           eval_callable_return_value(
-            label, return_type_name, value, class_env, call_cache, declarations,
-            diagnostics,
+            label, return_type_name, value, bindings, call_cache, class_env, call_cache,
+            stack, declarations, diagnostics, resolve_import,
           )
         None => None
       }
@@ -1299,10 +1325,14 @@ fn eval_class_method_call(
                         "method \{method_name}",
                         function_decl.return_type_name,
                         value,
+                        bindings,
+                        method_cache,
                         class_env,
                         method_cache,
+                        stack,
                         declarations,
                         diagnostics,
+                        resolve_import,
                       )
                     None => None
                   }

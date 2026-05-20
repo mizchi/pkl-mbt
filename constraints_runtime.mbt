@@ -419,20 +419,24 @@ priv enum ConstraintStringLengthOp {
 priv enum ConstraintStringPredicate {
   StringLengthIsBetween(Int, Int)
   StringLengthIsPositive
+  StringLengthIsOdd
   StringLengthIsGreaterThan(Int)
   StringLengthIsLessThan(Int)
   StringLengthCompare(ConstraintStringLengthOp, Int)
   StringMatchesRegex(String)
+  StringEqualsCapitalize
   StringIsEmpty
   StringStartsWith(String)
   StringEndsWith(String)
   StringContains(String)
   NotStringLengthIsBetween(Int, Int)
   NotStringLengthIsPositive
+  NotStringLengthIsOdd
   NotStringLengthIsGreaterThan(Int)
   NotStringLengthIsLessThan(Int)
   NotStringLengthCompare(ConstraintStringLengthOp, Int)
   NotStringMatchesRegex(String)
+  NotStringEqualsCapitalize
   NotStringIsEmpty
   NotStringStartsWith(String)
   NotStringEndsWith(String)
@@ -581,6 +585,26 @@ fn pkl_string_length_dot_method_predicate(
 }
 
 ///|
+fn pkl_string_this_equals_capitalize_predicate(
+  text : String,
+) -> ConstraintStringPredicate? {
+  match pkl_constraint_split_at_operator(text, "==") {
+    Some((lhs, rhs)) => {
+      let left = pkl_constraint_trim(lhs)
+      let right = pkl_constraint_trim(rhs)
+      if left == "this" && right == "capitalize()" {
+        Some(StringEqualsCapitalize)
+      } else if left == "capitalize()" && right == "this" {
+        Some(StringEqualsCapitalize)
+      } else {
+        None
+      }
+    }
+    None => None
+  }
+}
+
+///|
 fn pkl_string_matches_regex_inner(text : String) -> String? {
   let prefix = "matches(Regex(\""
   let suffix = "\"))"
@@ -608,6 +632,7 @@ fn pkl_string_constraint_predicate(text : String) -> ConstraintStringPredicate? 
       Some(StringLengthIsBetween(lower, upper)) =>
         return Some(NotStringLengthIsBetween(lower, upper))
       Some(StringLengthIsPositive) => return Some(NotStringLengthIsPositive)
+      Some(StringLengthIsOdd) => return Some(NotStringLengthIsOdd)
       Some(StringLengthIsGreaterThan(n)) =>
         return Some(NotStringLengthIsGreaterThan(n))
       Some(StringLengthIsLessThan(n)) =>
@@ -616,6 +641,7 @@ fn pkl_string_constraint_predicate(text : String) -> ConstraintStringPredicate? 
         return Some(NotStringLengthCompare(op, n))
       Some(StringMatchesRegex(pattern)) =>
         return Some(NotStringMatchesRegex(pattern))
+      Some(StringEqualsCapitalize) => return Some(NotStringEqualsCapitalize)
       Some(StringIsEmpty) => return Some(NotStringIsEmpty)
       Some(StringStartsWith(arg)) => return Some(NotStringStartsWith(arg))
       Some(StringEndsWith(arg)) => return Some(NotStringEndsWith(arg))
@@ -688,7 +714,14 @@ fn pkl_string_constraint_predicate(text : String) -> ConstraintStringPredicate? 
     Some(predicate) => return Some(predicate)
     None => ()
   }
+  if trimmed == "length.isOdd" || trimmed == "this.length.isOdd" {
+    return Some(StringLengthIsOdd)
+  }
   match pkl_string_length_comparison_predicate(trimmed) {
+    Some(predicate) => return Some(predicate)
+    None => ()
+  }
+  match pkl_string_this_equals_capitalize_predicate(trimmed) {
     Some(predicate) => return Some(predicate)
     None => ()
   }
@@ -743,21 +776,25 @@ fn pkl_string_constraint_name(predicate : ConstraintStringPredicate) -> String {
   match predicate {
     StringLengthIsBetween(lo, hi) => "length.isBetween(\{lo}, \{hi})"
     StringLengthIsPositive => "length.isPositive"
+    StringLengthIsOdd => "length.isOdd"
     StringLengthIsGreaterThan(t) => "length.isGreaterThan(\{t})"
     StringLengthIsLessThan(t) => "length.isLessThan(\{t})"
     StringLengthCompare(op, t) => "length \{pkl_string_length_op_text(op)} \{t}"
     StringMatchesRegex(pattern) => "matches(Regex(\"\{pattern}\"))"
+    StringEqualsCapitalize => "this == capitalize()"
     StringIsEmpty => "isEmpty"
     StringStartsWith(arg) => "startsWith(\"\{arg}\")"
     StringEndsWith(arg) => "endsWith(\"\{arg}\")"
     StringContains(arg) => "contains(\"\{arg}\")"
     NotStringLengthIsBetween(lo, hi) => "!length.isBetween(\{lo}, \{hi})"
     NotStringLengthIsPositive => "!length.isPositive"
+    NotStringLengthIsOdd => "!length.isOdd"
     NotStringLengthIsGreaterThan(t) => "!length.isGreaterThan(\{t})"
     NotStringLengthIsLessThan(t) => "!length.isLessThan(\{t})"
     NotStringLengthCompare(op, t) =>
       "!(length \{pkl_string_length_op_text(op)} \{t})"
     NotStringMatchesRegex(pattern) => "!matches(Regex(\"\{pattern}\"))"
+    NotStringEqualsCapitalize => "!(this == capitalize())"
     NotStringIsEmpty => "!isEmpty"
     NotStringStartsWith(arg) => "!startsWith(\"\{arg}\")"
     NotStringEndsWith(arg) => "!endsWith(\"\{arg}\")"
@@ -790,6 +827,7 @@ fn pkl_string_predicate_accepts(
   match predicate {
     StringLengthIsBetween(lower, upper) => len >= lower && len <= upper
     StringLengthIsPositive => len > 0
+    StringLengthIsOdd => len % 2 == 1
     StringLengthIsGreaterThan(threshold) => len > threshold
     StringLengthIsLessThan(threshold) => len < threshold
     StringLengthCompare(op, threshold) =>
@@ -805,8 +843,10 @@ fn pkl_string_predicate_accepts(
         // sees the constraint name plus the bad pattern.
         _ => false
       }
+    StringEqualsCapitalize => value == capitalize_first(value, true)
     NotStringLengthIsBetween(lower, upper) => !(len >= lower && len <= upper)
     NotStringLengthIsPositive => !(len > 0)
+    NotStringLengthIsOdd => len % 2 == 0
     NotStringLengthIsGreaterThan(threshold) => !(len > threshold)
     NotStringLengthIsLessThan(threshold) => !(len < threshold)
     NotStringLengthCompare(op, threshold) =>
@@ -819,6 +859,7 @@ fn pkl_string_predicate_accepts(
       } catch {
         _ => true
       }
+    NotStringEqualsCapitalize => value != capitalize_first(value, true)
     StringIsEmpty => len == 0
     NotStringIsEmpty => len > 0
     StringStartsWith(arg) => value.has_prefix(arg)

@@ -523,6 +523,414 @@ fn materialize_listing_raw_elements(
 }
 
 ///|
+fn collection_element_type_from_annotation(
+  type_name : String,
+  declarations : Array[Declaration],
+) -> String? {
+  let aliases = eval_type_alias_bindings(declarations)
+  let source = strip_lazy_collection_annotation_marker(type_name)
+  let resolved = eval_resolved_type_alias(source, aliases)
+  let normalized = {
+    let trimmed = pkl_strip_default_type_marker(pkl_constraint_trim(resolved))
+    if trimmed.has_suffix("?") {
+      String::unsafe_substring(trimmed, start=0, end=trimmed.length() - 1)
+    } else {
+      trimmed
+    }
+  }
+  let base = match pkl_constrained_type_base_name(normalized) {
+    Some(b) => b
+    None => normalized
+  }
+  for prefix in ["Listing", "List", "Set", "Collection"] {
+    match generic_argument_text(base, prefix) {
+      Some(element_type) => return Some(element_type)
+      None => ()
+    }
+  }
+  None
+}
+
+///|
+fn lazy_collection_annotation_marker_prefix() -> String {
+  "@__lazy_collection:"
+}
+
+///|
+fn mark_lazy_collection_annotation(type_name : String) -> String {
+  lazy_collection_annotation_marker_prefix() + type_name
+}
+
+///|
+fn strip_lazy_collection_annotation_marker(type_name : String) -> String {
+  let prefix = lazy_collection_annotation_marker_prefix()
+  if type_name.has_prefix(prefix) {
+    String::unsafe_substring(
+      type_name,
+      start=prefix.length(),
+      end=type_name.length(),
+    )
+  } else {
+    type_name
+  }
+}
+
+///|
+fn strip_lazy_collection_annotation_marker_opt(type_name : String?) -> String? {
+  match type_name {
+    Some(name) => Some(strip_lazy_collection_annotation_marker(name))
+    None => None
+  }
+}
+
+///|
+fn is_lazy_collection_annotation(type_name : String) -> Bool {
+  type_name.has_prefix(lazy_collection_annotation_marker_prefix())
+}
+
+///|
+fn apply_typed_listing_elements(
+  element_type : String,
+  elements : Array[Value],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> Array[Value] {
+  let out : Array[Value] = []
+  for element in elements {
+    out.push(
+      apply_typed_collection_element_annotation(
+        element_type, element, bindings, env, class_env, cache, stack, declarations,
+        resolve_import,
+      ),
+    )
+  }
+  out
+}
+
+///|
+fn apply_typed_collection_element_annotation(
+  type_name : String,
+  value : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  if deferred_error_message(value) is Some(_) {
+    return value
+  }
+  match collection_element_type_from_annotation(type_name, declarations) {
+    Some(element_type) =>
+      match value {
+        ListingValue(elements) =>
+          return ListingValue(
+            apply_typed_listing_elements(
+              element_type, elements, bindings, env, class_env, cache, stack, declarations,
+              resolve_import,
+            ),
+          )
+        DefaultedListingValue(raw, elements, default_value) =>
+          return DefaultedListingValue(
+            apply_typed_listing_elements(
+              element_type, raw, bindings, env, class_env, cache, stack, declarations,
+              resolve_import,
+            ),
+            apply_typed_listing_elements(
+              element_type, elements, bindings, env, class_env, cache, stack, declarations,
+              resolve_import,
+            ),
+            default_value,
+          )
+        ListValue(elements) =>
+          return ListValue(
+            apply_typed_listing_elements(
+              element_type, elements, bindings, env, class_env, cache, stack, declarations,
+              resolve_import,
+            ),
+          )
+        SetValue(elements) =>
+          return SetValue(
+            apply_typed_listing_elements(
+              element_type, elements, bindings, env, class_env, cache, stack, declarations,
+              resolve_import,
+            ),
+          )
+        _ => ()
+      }
+    None => ()
+  }
+  let message = match
+    eval_callable_argument_type_rejection_message(
+      Some(type_name),
+      value,
+      class_env,
+      cache,
+      declarations,
+    ) {
+    Some(m) => Some(m)
+    None =>
+      match
+        eval_callable_argument_rejection_message(
+          Some(type_name),
+          value,
+          declarations,
+        ) {
+        Some(m) => Some(m)
+        None =>
+          eval_callable_runtime_constraint_message(
+            Some(type_name),
+            value,
+            bindings,
+            class_env,
+            env,
+            stack,
+            declarations,
+            resolve_import,
+          )
+      }
+  }
+  match message {
+    Some(m) => deferred_error_value(m)
+    None => value
+  }
+}
+
+///|
+fn value_has_deferred_error(value : Value) -> Bool {
+  if deferred_error_message(value) is Some(_) {
+    return true
+  }
+  match value {
+    ListingValue(elements) | ListValue(elements) | SetValue(elements) =>
+      for element in elements {
+        if value_has_deferred_error(element) {
+          return true
+        }
+      } nobreak {
+        false
+      }
+    DefaultedListingValue(raw, elements, _) => {
+      for element in raw {
+        if value_has_deferred_error(element) {
+          return true
+        }
+      }
+      for element in elements {
+        if value_has_deferred_error(element) {
+          return true
+        }
+      } nobreak {
+        false
+      }
+    }
+    _ => false
+  }
+}
+
+///|
+fn listing_union_branch_accepts_elements(
+  element_type : String,
+  elements : Array[Value],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> Bool {
+  for element in elements {
+    let applied = apply_typed_collection_element_annotation(
+      element_type, element, bindings, env, class_env, cache, stack, declarations,
+      resolve_import,
+    )
+    if value_has_deferred_error(applied) {
+      return false
+    }
+  } nobreak {
+    true
+  }
+}
+
+///|
+fn render_listing_union_rejection_value(elements : Array[Value]) -> String {
+  if elements.length() == 0 {
+    return "new Listing {}"
+  }
+  let buf = StringBuilder::new()
+  buf.write_string("new Listing { ")
+  for i = 0; i < elements.length(); i = i + 1 {
+    if i > 0 {
+      buf.write_string("; ")
+    }
+    if i == 0 && deferred_error_message(elements[i]) is None {
+      buf.write_string(render_pcf_value_inline(elements[i]))
+    } else {
+      buf.write_string("?")
+    }
+  }
+  buf.write_string(" }")
+  buf.to_string()
+}
+
+///|
+fn pretty_listing_union_type_name(type_name : String) -> String {
+  pkl_constraint_trim(type_name).replace(old="length==", new="length == ")
+}
+
+///|
+fn listing_union_annotation_rejection_message(
+  type_name : String,
+  value : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> String? {
+  let choices = split_top_level_union_choices(type_name)
+  if choices.length() <= 1 {
+    return None
+  }
+  let elements = match value {
+    ListingValue(xs)
+    | DefaultedListingValue(_, xs, _)
+    | ListValue(xs)
+    | SetValue(xs) => xs
+    _ => return None
+  }
+  let mut saw_collection_branch = false
+  for choice in choices {
+    let branch = pkl_strip_default_type_marker(pkl_constraint_trim(choice))
+    match collection_element_type_from_annotation(branch, declarations) {
+      Some(element_type) => {
+        saw_collection_branch = true
+        if listing_union_branch_accepts_elements(
+            element_type, elements, bindings, env, class_env, cache, stack, declarations,
+            resolve_import,
+          ) {
+          return None
+        }
+      }
+      None => ()
+    }
+  }
+  if !saw_collection_branch {
+    return None
+  }
+  Some(
+    "Expected value of type `\{pretty_listing_union_type_name(type_name)}`, but got a different `Listing`. Value: \{render_listing_union_rejection_value(elements)}",
+  )
+}
+
+///|
+fn apply_typed_listing_annotation(
+  type_name : String,
+  value : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  match
+    listing_union_annotation_rejection_message(
+      type_name, value, bindings, env, class_env, cache, stack, declarations, resolve_import,
+    ) {
+    Some(message) => return deferred_error_value(message)
+    None => ()
+  }
+  match collection_element_type_from_annotation(type_name, declarations) {
+    Some(element_type) =>
+      match value {
+        ListingValue(elements) =>
+          ListingValue(
+            apply_typed_listing_elements(
+              element_type, elements, bindings, env, class_env, cache, stack, declarations,
+              resolve_import,
+            ),
+          )
+        DefaultedListingValue(raw, elements, default_value) =>
+          DefaultedListingValue(
+            apply_typed_listing_elements(
+              element_type, raw, bindings, env, class_env, cache, stack, declarations,
+              resolve_import,
+            ),
+            apply_typed_listing_elements(
+              element_type, elements, bindings, env, class_env, cache, stack, declarations,
+              resolve_import,
+            ),
+            default_value,
+          )
+        ListValue(elements) =>
+          ListValue(
+            apply_typed_listing_elements(
+              element_type, elements, bindings, env, class_env, cache, stack, declarations,
+              resolve_import,
+            ),
+          )
+        _ => value
+      }
+    None => value
+  }
+}
+
+///|
+fn value_can_carry_collection_element_annotation(value : Value) -> Bool {
+  match value {
+    ListingValue(_)
+    | DefaultedListingValue(_, _, _)
+    | ListValue(_)
+    | SetValue(_) => true
+    _ => false
+  }
+}
+
+///|
+fn overlay_collection_annotation_if_possible(
+  type_name : String?,
+  value : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> (Value, Bool) {
+  match type_name {
+    Some(name) =>
+      if is_lazy_collection_annotation(name) &&
+        value_can_carry_collection_element_annotation(value) &&
+        collection_element_type_from_annotation(name, declarations) is Some(_) {
+        let clean_name = strip_lazy_collection_annotation_marker(name)
+        (
+          apply_typed_listing_annotation(
+            clean_name, value, bindings, env, class_env, cache, stack, declarations,
+            resolve_import,
+          ),
+          true,
+        )
+      } else {
+        (value, false)
+      }
+    None => (value, false)
+  }
+}
+
+///|
 fn materialize_mapping_raw_entries(
   raw_entries : Array[ValueEntry],
   default_value : Value,
@@ -2443,6 +2851,33 @@ fn eval_expr_with_bindings(
         )
         is Some(xml_value) {
         Some(xml_value)
+      } else if callee is Identifier("@__typed_listing") &&
+        arguments.length() == 2 {
+        match arguments[0] {
+          StringLiteral(type_name) =>
+            match
+              eval_expr_with_bindings(
+                arguments[1],
+                bindings,
+                env,
+                class_env,
+                cache,
+                stack,
+                declarations,
+                diagnostics,
+                resolve_import,
+              ) {
+              Some(value) =>
+                Some(
+                  apply_typed_listing_annotation(
+                    type_name, value, bindings, env, class_env, cache, stack, declarations,
+                    resolve_import,
+                  ),
+                )
+              None => None
+            }
+          _ => None
+        }
       } else if callee is Identifier("Bytes") &&
         !stack_contains_binding(stack, "Bytes") &&
         find_binding(bindings, "Bytes") is None {
