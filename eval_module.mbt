@@ -998,18 +998,21 @@ fn eval_program(
       )
       let renderer_value = collect_output_renderer(value)
       let mut current = value
-      current = apply_convert_property_transformers(
-        current,
-        renderer_value,
-        property_transformers,
-        bindings,
-        env,
-        class_env,
-        cache,
-        program.declarations,
-        diagnostics,
-        resolve_import,
-      )
+      if property_transformers.length() > 0 ||
+        value_has_member_annotations(current) {
+        current = apply_convert_property_transformers(
+          current,
+          renderer_value,
+          property_transformers,
+          bindings,
+          env,
+          class_env,
+          cache,
+          program.declarations,
+          diagnostics,
+          resolve_import,
+        )
+      }
       if converters.length() > 0 {
         current = apply_path_converters(
           current,
@@ -1043,6 +1046,42 @@ fn eval_program(
       Some(current)
     }
     None => None
+  }
+}
+
+///|
+fn value_has_member_annotations(value : Value) -> Bool {
+  match value {
+    ObjectValue(members) => {
+      for field in members {
+        if field.annotations.length() > 0 ||
+          value_has_member_annotations(field.value) {
+          return true
+        }
+      }
+      false
+    }
+    ListingValue(elements) | ListValue(elements) | SetValue(elements) => {
+      for element in elements {
+        if value_has_member_annotations(element) {
+          return true
+        }
+      }
+      false
+    }
+    MappingValue(entries) | MapValue(entries) => {
+      for entry in entries {
+        if value_has_member_annotations(entry.key) ||
+          value_has_member_annotations(entry.value) {
+          return true
+        }
+      }
+      false
+    }
+    PairValue(first, second) =>
+      value_has_member_annotations(first) ||
+      value_has_member_annotations(second)
+    _ => false
   }
 }
 
@@ -1393,7 +1432,15 @@ fn transform_convert_property_value(
           ),
         )
       }
-      ObjectValue(next)
+      match find_object_class_tag(members) {
+        Some(class_name) =>
+          if find_object_class_tag(next) is None {
+            ObjectValue(tag_object_with_class(next, class_name))
+          } else {
+            ObjectValue(next)
+          }
+        None => ObjectValue(next)
+      }
     }
     ListingValue(elements) => {
       let next : Array[Value] = []
@@ -1503,7 +1550,7 @@ fn apply_convert_property_annotations_to_member(
   resolve_import : (String) -> EvalResult?,
 ) -> ValueMember {
   let mut name = field.name
-  let mut current = value
+  let mut current = tag_xml_constructor_value_from_source(field.source, value)
   for annotation in field.annotations {
     match
       apply_single_convert_property_annotation(
@@ -1518,6 +1565,43 @@ fn apply_convert_property_annotations_to_member(
     }
   }
   { name, value: current, source: field.source, annotations: [] }
+}
+
+///|
+fn tag_xml_constructor_value_from_source(
+  source : Expr?,
+  value : Value,
+) -> Value {
+  let class_name = match source {
+    Some(expr) => xml_constructor_class_name_from_expr(expr)
+    None => None
+  }
+  match (class_name, value) {
+    (Some(name), ObjectValue(members)) =>
+      if find_object_class_tag(members) is Some(_) {
+        value
+      } else {
+        ObjectValue(tag_object_with_class(members, name))
+      }
+    _ => value
+  }
+}
+
+///|
+fn xml_constructor_class_name_from_expr(expr : Expr) -> String? {
+  let ctor = match expr {
+    CallExpr(MemberAccess(Identifier(_), name), _) => xml_constructor_name(name)
+    CallExpr(Identifier(name), _) => xml_constructor_name(name)
+    AmendExpr(base, _) => return xml_constructor_class_name_from_expr(base)
+    _ => None
+  }
+  match ctor {
+    Some("Element") => Some("xml.Element")
+    Some("Inline") => Some("xml.Inline")
+    Some("CData") => Some("xml.CData")
+    Some("Comment") => Some("xml.Comment")
+    _ => None
+  }
 }
 
 ///|

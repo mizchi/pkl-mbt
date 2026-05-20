@@ -217,6 +217,36 @@ fn render_xml_member(
   indent_text : String,
   buf : StringBuilder,
 ) -> Unit {
+  match xml_member_source_constructor(field.source) {
+    Some("CData") => {
+      let name = xml_member_element_name(field)
+      write_xml_indent(buf, level, indent_text)
+      buf.write_char('<')
+      write_xml_name(name, buf)
+      buf.write_char('>')
+      match field.value {
+        ObjectValue(members) =>
+          match lookup_member(members, "text") {
+            Some(StringValue(text)) => write_xml_cdata(text, buf)
+            _ => ()
+          }
+        _ => render_xml_inline_content(field.value, buf)
+      }
+      buf.write_string("</")
+      write_xml_name(name, buf)
+      buf.write_char('>')
+      return
+    }
+    Some("Comment") => {
+      match field.value {
+        ObjectValue(members) =>
+          render_xml_comment_object(members, level, indent_text, buf)
+        _ => render_xml_inline_content(field.value, buf)
+      }
+      return
+    }
+    _ => ()
+  }
   if field.name.has_prefix("@element$") {
     render_xml_fragment_value(field.value, level, indent_text, buf)
     return
@@ -245,6 +275,18 @@ fn render_xml_member(
   }
   let name = xml_member_element_name(field)
   render_xml_named_element(name, field.value, level, indent_text, buf)
+}
+
+///|
+fn xml_member_source_constructor(source : Expr?) -> String? {
+  match source {
+    Some(CallExpr(MemberAccess(Identifier(_), name), _)) =>
+      match name {
+        "CData" | "Comment" => Some(name)
+        _ => None
+      }
+    _ => None
+  }
 }
 
 ///|

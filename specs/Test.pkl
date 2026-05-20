@@ -1484,12 +1484,13 @@ local upstreamSmoke = new Test {
     "upstream json eval ok: api/jsonRenderer1.json (gold match)"
     "upstream eval ok: api/pListRenderer1.plist (gold match)"
     "upstream eval ok: api/xmlRenderer1.xml (gold match)"
+    "upstream eval ok: api/xmlRendererCData.xml (gold match)"
     "upstream eval ok: api/xmlRendererElement.xml (gold match)"
     "upstream eval ok: api/protobuf3.txtpb (gold match)"
     "upstream-smoke: 185 gold-match fixtures passed"
     "upstream-smoke: 1 json gold-match fixtures passed"
     "upstream-smoke: 1 plist gold-match fixtures passed"
-    "upstream-smoke: 2 xml gold-match fixtures passed"
+    "upstream-smoke: 3 xml gold-match fixtures passed"
     "upstream-smoke: 1 textproto gold-match fixtures passed"
   }
   timeoutSec = 240

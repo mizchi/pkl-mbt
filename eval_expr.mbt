@@ -4235,7 +4235,7 @@ fn eval_xml_constructor_call(
   let ctor_name = match callee {
     MemberAccess(Identifier(import_name), name) =>
       if xml_constructor_name(name) is Some(kind) &&
-        lookup_class_binding(class_env, import_name + "." + name) is Some(_) {
+        is_xml_constructor_receiver(import_name, name, env, class_env, cache) {
         Some(kind)
       } else {
         None
@@ -4297,6 +4297,38 @@ fn eval_xml_constructor_call(
     }
     Some(_) => None
     None => None
+  }
+}
+
+///|
+fn is_xml_constructor_receiver(
+  import_name : String,
+  constructor_name : String,
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+) -> Bool {
+  if lookup_class_binding(class_env, import_name + "." + constructor_name)
+    is Some(_) {
+    return true
+  }
+  match lookup_value(cache, "@__module_imports") {
+    Some(MapValue(entries)) =>
+      for entry in entries {
+        if entry.key == StringValue(import_name) &&
+          entry.value == StringValue("pkl:xml") {
+          return true
+        }
+      }
+    _ => ()
+  }
+  match lookup_value(env, import_name) {
+    Some(ObjectValue(members)) =>
+      match module_members_name(members) {
+        Some("pkl:xml") => true
+        _ => false
+      }
+    _ => false
   }
 }
 

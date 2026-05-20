@@ -339,6 +339,19 @@ test "PKL-126b: xml Element constructor overrides the member element name" {
 }
 
 ///|
+test "PKL-126b: xml DOM helpers preserve CDATA and comment identity" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:xml\"\nraw = xml.CData(\"<x>\")\nnote = xml.Comment(\"hello\")",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let out = @pkl.render_value_as_xml(value)
+  inspect(out.contains("<raw><![CDATA[<x>]]></raw>"), content="true")
+  inspect(out.contains("<!--hello-->"), content="true")
+  inspect(out.contains("<text>"), content="false")
+}
+
+///|
 test "PKL-126c: protobuf text renderer emits scalar fields and nested messages" {
   let value : Value = ObjectValue([
     ValueMember::{

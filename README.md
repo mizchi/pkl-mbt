@@ -46,7 +46,7 @@ These don't exist in Apple Pkl:
 
 - **Parser corpus**: 802 / 802 LanguageSnippetTests fixtures (parse-only)
 - **Eval gold-match**: 243 / 391 PCF fixtures byte-for-byte against upstream (62.1%)
-- **Renderer gold-match**: JSON 1, plist 1, textproto 1, XML 2 upstream renderer fixtures byte-for-byte against upstream
+- **Renderer gold-match**: JSON 1, plist 1, textproto 1, XML 3 upstream renderer fixtures byte-for-byte against upstream
 - **Diagnostic wording**: first-line messages aligned with Apple Pkl (`Cannot find type \`X\`.`, `Cannot find property \`x\`.`, `Cannot find module \`...\`.`)
 
 ### Per-category PCF gold-match (LanguageSnippetTests/input)

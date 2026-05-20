@@ -224,6 +224,7 @@ PLIST_GOLD_FIXTURES=(
 # xml.Renderer {} }` path now matches the upstream `.xml` gold.
 XML_GOLD_FIXTURES=(
   "api/xmlRenderer1.xml"
+  "api/xmlRendererCData.xml"
   "api/xmlRendererElement.xml"
 )
 
