@@ -11,12 +11,25 @@ Release focus:
 Planned order:
 
 1. Done: Priority 4: Spread And Predicate Member Semantics
-2. Next: Priority 5: Generic `as` / `is` / Typed Collection Retention
-3. Priority 1: Numeric And Bytes Parity
-4. Priority 2: Resource And Glob Host Surface
-5. Priority 3: Shape-Aware Object Body Evaluation
+2. Current: Priority 3: `for` / Shape-Aware Object Body Evaluation
+3. Priority 2: Resource And Glob Host Surface
+4. Renderer API surface: keep the advertised output formats honest
+5. Priority 1: Numeric And Bytes Parity
+6. Priority 5: remaining Generic `as` / `is` / Typed Collection Retention
 
 Priority 6 is deferred unless it becomes a direct blocker for one of the above slices.
+
+## Release Blocker Triage
+
+End-user blocker priority is based on "will a normal Pkl config author hit this?", not raw gold-match count.
+
+1. `for` / generators: real configs use list/map comprehensions and generated object bodies. The remaining generator DIFFs share one root problem: generated members must preserve whether they are properties, elements, or entries until the target object projects them.
+2. Resource / read / glob: file/resource access, `read*()`, and `import*` glob behavior are release blockers for multi-file configs and CLI usage.
+3. Renderer API surface: `api` has many DIFFs, but not all are equal. Treat public output formats as blockers only if we advertise them for this release. Keep `pcf` / `json` stable, then decide whether `yaml`, `properties`, XML, Protobuf, plist, and JSONNet are release-supported or experimental.
+4. Basic scalar / collection parity: `Int`, `Float`, `Bytes`, `DataSize`, `Duration`, and `Map` differences are real but narrower than generators/resource access.
+5. Deep stdlib / reflect parity: important for long-term compatibility, but not a first release blocker unless a public API or real package depends on it.
+
+For this release pass, start with `for` support before Resource / Glob. The first target is untyped element / entry generators; typed generators and lexical-scope cases follow after member-kind preservation is stable.
 
 ## Current DIFF Snapshot
 
@@ -114,7 +127,7 @@ Main dependencies:
 
 ## Priority 3: Shape-Aware Object Body Evaluation
 
-This is the main blocker for `generators`. It is larger than fixture-by-fixture patching.
+This is the current active slice. It is the main blocker for `generators` and larger than fixture-by-fixture patching.
 
 Target fixtures:
 
@@ -131,6 +144,14 @@ Target fixtures:
 Problem:
 
 Current `@for` evaluation eventually collapses generated content into `ObjectValue`. Apple Pkl effectively evaluates object bodies as a member stream that preserves whether each member is a property, element, or entry. Listing, Mapping, and Dynamic then project that stream differently.
+
+Execution plan:
+
+1. Red: pin direct upstream diffs for `generators/elementGenerators` and `generators/entryGenerators`, plus focused unit tests for generated element vs entry preservation.
+2. Green: introduce the smallest member-stream representation needed for object-body `for`, without rewriting unrelated amend/eval paths.
+3. Extend iteration binding semantics for one-var and two-var loops over `Listing`, `List`, `Set`, `IntSeq`, `Mapping`, `Map`, and `Dynamic`.
+4. Add typed generator support once untyped element / entry generators are stable.
+5. Then handle `forGeneratorInFunctionBody`, `forGeneratorInMixins`, and `forGeneratorLexicalScope`; defer broader `outer` / const provenance unless these fixtures require it directly.
 
 Required work:
 
@@ -243,14 +264,14 @@ Main dependencies:
 ## Issue Sync
 
 - #4 Lazy local evaluation: implemented through the local-scope fixture slice and closed as completed.
-- #6 XML / Protobuf renderer bodies: release blocker for API renderer parity, separate from `basic` / `generators`.
+- #6 XML / Protobuf renderer bodies: release blocker only if XML / Protobuf are release-supported output formats; otherwise document them as experimental follow-up.
 - #8 Umbrella practical blockers: update after each release slice.
 - #1 Stdlib module evaluation gaps: relevant for long-term stdlib parity, especially external declarations, variance, and `pkl:` module loading.
 
 ## Suggested Release Path
 
-1. Start Priority 5 while typed generated bodies and collection overlays are fresh.
-2. Take Priority 1 for lower-risk `basic` scalar wins.
-3. Follow with Priority 2 for host/resource parity.
-4. Finish with the broader Priority 3 evaluator redesign once the smaller generator semantics have forced the required shape.
-5. Keep Priority 6 deferred unless `outer` / const provenance blocks a chosen fixture directly.
+1. Start with Priority 3 `for` support: untyped element / entry generators first, then typed generators, then function/mixin/lexical-scope cases.
+2. Follow with Priority 2 Resource / Glob so multi-file configs and CLI host reads behave predictably.
+3. Decide and document the release-supported renderer set. Fix only those API renderer fixtures as blockers; leave the rest marked experimental.
+4. Take Priority 1 for scalar / Bytes / Map parity.
+5. Return to remaining Priority 5 and Priority 6 edge cases only when they block a supported fixture or real package.
