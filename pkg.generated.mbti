@@ -125,6 +125,7 @@ pub(all) struct Binding {
   type_name : String?
   value : Expr
   exported : Bool
+  is_const : Bool
   annotations : Array[Annotation]
   abstract_slot : Bool
 } derive(Eq, @debug.Debug)

@@ -500,6 +500,7 @@ fn eval_listing_subscript_amend(
       type_name: field.type_name,
       value: field.value,
       exported: true,
+      is_const: true,
       annotations: field.annotations,
       abstract_slot: false,
     })
@@ -759,6 +760,7 @@ fn eval_mapping_amend(
       type_name: field.type_name,
       value: field.value,
       exported: true,
+      is_const: true,
       annotations: field.annotations,
       abstract_slot: false,
     })
@@ -1016,6 +1018,7 @@ fn eval_class_default_members(
   // any inherited methods in the lexical scope (defaults_cache is
   // built fresh per class layer).
   let defaults_cache = copy_value_bindings(cache)
+  defaults_cache.push({ name: "@__class_default_scope", value: BoolValue(true) })
   push_super_dispatch_marker(defaults_cache, type_name)
   if base_values.length() > 0 {
     defaults_cache.push({ name: "super", value: ObjectValue(base_values) })

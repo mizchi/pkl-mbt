@@ -142,6 +142,7 @@ pub(all) struct Binding {
   type_name : String?
   value : Expr
   exported : Bool
+  is_const : Bool
   annotations : Array[Annotation]
   // PKL-140: True when the property was declared without a default
   // (`foo: Int?` / `external minInt: Int`). The evaluator skips

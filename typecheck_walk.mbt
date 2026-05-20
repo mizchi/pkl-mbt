@@ -464,6 +464,7 @@ fn all_program_bindings(program : Program) -> Array[Binding] {
                 function_decl.return_type_name,
               ),
               exported: false,
+              is_const: true,
               annotations: function_decl.annotations,
               abstract_slot: false,
             })

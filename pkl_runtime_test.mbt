@@ -1147,6 +1147,87 @@ test "PKL-148d: typed object local rejection surfaces on reference" {
 }
 
 ///|
+test "PKL-148d: local method body late-binds amended sibling property" {
+  let session = AnalysisSession::new()
+  let source =
+    #|class Box {
+    #|  x = 1
+    #|  y = compute()
+    #|  local function compute() = x
+    #|}
+    #|base = new Box {}
+    #|derived = (base) { x = 2 }
+  let expected =
+    #|base {
+    #|  x = 1
+    #|  y = 1
+    #|}
+    #|derived {
+    #|  x = 2
+    #|  y = 2
+    #|}
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
+test "PKL-148d: inherited module members keep parent local scope" {
+  let session = AnalysisSession::new()
+  let base_source =
+    #|open module base
+    #|local p = "original"
+    #|p2 = "original"
+    #|local function f() = "original"
+    #|pp = p
+    #|pp2 = p2
+    #|ff = f()
+  let source =
+    #|extends "base.pkl"
+    #|local p = "override"
+    #|local p2 = "override"
+    #|local function f() = "override"
+    #|resP = pp
+    #|resP2 = pp2
+    #|resF = ff
+  let expected =
+    #|p2 = "original"
+    #|pp = "original"
+    #|pp2 = "original"
+    #|ff = "original"
+    #|resP = "original"
+    #|resP2 = "original"
+    #|resF = "original"
+  session.set_source("base.pkl", base_source)
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
+test "PKL-148d: class body in amending module cannot capture non-const local" {
+  let session = AnalysisSession::new()
+  let source =
+    #|amends "base.pkl"
+    #|import "pkl:test"
+    #|local y: Int = "wrong type"
+    #|foo { c = new C {} }
+    #|local class C {
+    #|  res = test.catch(() -> y)
+    #|}
+  let expected =
+    #|foo {
+    #|  c {
+    #|    res = "Cannot reference property `y` from here because it is not `const`."
+    #|  }
+    #|}
+  session.set_source("base.pkl", "foo {}")
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
 test "PKL-148d: class name as value projects to a Class mirror" {
   let session = AnalysisSession::new()
   session.set_source(

@@ -2507,6 +2507,12 @@ local pklModuleLevelSuperDispatchScenario = new Scenario {
       rationale =
         "`modules/supercalls3` requires `supercalls2`'s hidden properties and functions to execute with `supercalls3.prefix`, while `super` inside those `supercalls2` bodies must still point at `supercalls1`. The evaluator now stores each module member's source expression plus hidden `__module_name` / `__module_super` metadata in the internal ObjectValue. Bare inherited reads and module-level `super.X` re-evaluate source-backed parent properties with parent members in env, child bindings as shadowing candidates, and the parent's own super in cache. FunctionValue dispatch is rebound only on inherited / super paths, so import-style `Base.fn()` keeps the imported module receiver while `extends` late-binds through the child."
     }
+    new Decision {
+      date = "2026-05-20"
+      summary = "Re-evaluate inherited module sources only when they mention `module` or `super`"
+      rationale =
+        "`modules/supercalls3` needs inherited `super.*` sources and `module.*` references to execute against the child receiver, but plain parent lexical references must stay bound to the parent module's already-evaluated value. `basic/localModuleMemberOverride2` exercises the counterexample: a child `local p = \"override\"` / `local function f() = ...` must not rewrite the parent's `pp = p` or `ff = f()`. Keeping the source re-eval gate to explicit receiver forms preserves dynamic module dispatch without leaking child locals into parent lexical scope."
+    }
   }
 }
 
@@ -3214,6 +3220,18 @@ local pklClassAsValueAndScopeScenario = new Scenario {
       summary = "Class mirror diagnostic uses property/method wording by context"
       rationale =
         "Apple Pkl reports `Cannot find property X in object of type Class.` for `Person.foo` (read form) and `Cannot find method X in class Class.` for `Person.bar()` (call form). The wording differs because the surface chrome differs; routing the CallExpr's MemberAccess(class-identifier, name) arm separately keeps both messages exact without splitting Class-mirror logic across two value variants."
+    }
+    new Decision {
+      date = "2026-05-20"
+      summary = "Rebind object-local FunctionValue captures during amend re-eval"
+      rationale =
+        "`basic/localMethodDynamicBinding` has `y = compute()` beside `local function compute() = x`; when an amend overrides `x`, `y` must re-run `compute` against the amended object state. The late-binding pass now rebuilds FunctionValue env entries from the merged object members before probing source dependencies, so the hidden dependency through the local function body is visible without treating every function call as globally dynamic."
+    }
+    new Decision {
+      date = "2026-05-20"
+      summary = "Use a class-default-scope marker for non-const module-local diagnostics"
+      rationale =
+        "Apple Pkl allows ordinary object bodies in an amending module to read module locals (`foo { res = x }`), but class body defaults cannot capture a non-const module-local property (`local y` in `localPropertyInAmendingModule`). A dedicated `@__class_default_scope` cache marker lets `resolve_binding_value` reject only class-default reads with `Cannot reference property `y` from here because it is not `const`.`, while nested object-body locals still resolve through env and produce their own deferred type diagnostics."
     }
   }
 }

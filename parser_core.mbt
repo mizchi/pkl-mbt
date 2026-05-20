@@ -563,6 +563,18 @@ fn Parser::take_pending_hidden(self : Parser) -> Bool {
 }
 
 ///|
+fn Parser::take_pending_const(self : Parser) -> Bool {
+  let mut found = false
+  for i = self.pending_modifiers.length() - 1; i >= 0; i = i - 1 {
+    if self.pending_modifiers[i] == "const" {
+      found = true
+      let _ = self.pending_modifiers.remove(i)
+    }
+  }
+  found
+}
+
+///|
 fn Parser::skip_balanced_group(
   self : Parser,
   open : @cst.SyntaxKind,
@@ -836,6 +848,7 @@ fn Parser::parse(self : Parser) -> ParseResult {
               type_name: binding.type_name,
               value: binding.value,
               exported: binding.exported,
+              is_const: binding.is_const,
               annotations: binding.annotations,
               abstract_slot: binding.abstract_slot,
             })

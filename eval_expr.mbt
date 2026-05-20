@@ -4195,6 +4195,7 @@ fn reeval_class_defaults_after_constructor_overrides(
       name: "@__constructing_class",
       value: StringValue(type_name),
     })
+    reeval_cache.push({ name: "@__class_default_scope", value: BoolValue(true) })
     push_super_dispatch_marker(reeval_cache, type_name)
     push_sibling_class_methods(
       reeval_cache, type_name, class_env, local_env, reeval_cache,
@@ -5317,6 +5318,78 @@ fn members_reference_late_binding(
 }
 
 ///|
+fn function_parameters_bind_name(
+  params : Array[FunctionParameter],
+  name : String,
+) -> Bool {
+  for param in params {
+    if param.name == name {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn expr_calls_env_function_referencing_late_binding(
+  expr : Expr,
+  name : String,
+  env : Array[ValueBinding],
+) -> Bool {
+  match expr {
+    CallExpr(Identifier(fn_name), _) =>
+      match lookup_value(env, fn_name) {
+        Some(FunctionValue(params, body, _, _, _)) =>
+          !function_parameters_bind_name(params, name) &&
+          expr_references_late_binding(body, name)
+        _ => false
+      }
+    _ => false
+  }
+}
+
+///|
+fn synthetic_override_members(names : Array[String]) -> Array[ObjectMember] {
+  let members : Array[ObjectMember] = []
+  for name in names {
+    members.push({ name, type_name: None, value: NullLiteral, annotations: [] })
+  }
+  members
+}
+
+///|
+fn reeval_class_tagged_members_after_amend(
+  members : Array[ValueMember],
+  override_names : Array[String],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Array[ValueMember] {
+  match find_object_class_tag(members) {
+    Some(class_name) =>
+      reeval_class_defaults_after_constructor_overrides(
+        class_name,
+        synthetic_override_members(override_names),
+        members,
+        bindings,
+        env,
+        class_env,
+        cache,
+        stack,
+        declarations,
+        diagnostics,
+        resolve_import,
+      )
+    None => members
+  }
+}
+
+///|
 /// PKL-148bb: late-binding-aware deep merge for AmendExpr. Walks both
 /// `base` and `overrides` like `merge_value_members` / `deep_merge_amend_value`
 /// would, but with eval context in hand so each nesting level can run a
@@ -5349,12 +5422,14 @@ fn merge_objects_with_late_binding(
   // declarations as a fresh scope-private slot, so an amend that re-binds
   // `local l = "override"` must not re-trigger sibling expressions that
   // captured the base body's `local l`. (`basic/localPropertyOverride1`.)
+  let class_override_names : Array[String] = []
   let override_names : Array[String] = []
   for o in overrides {
     if is_local_member_name(o.name) {
       continue
     }
     let bare = strip_member_visibility_prefix(o.name)
+    push_unique_name(class_override_names, bare)
     let mut in_base = false
     for bm in base {
       // A `local` base slot belongs to its own namespace — a visible
@@ -5447,7 +5522,10 @@ fn merge_objects_with_late_binding(
   // Late-binding pass at this nesting level: re-evaluate any merged
   // member whose `source` references one of `override_names`.
   if override_names.length() == 0 {
-    return merged
+    return reeval_class_tagged_members_after_amend(
+      merged, class_override_names, bindings, env, class_env, cache, stack, declarations,
+      diagnostics, resolve_import,
+    )
   }
   let local_env : Array[ValueBinding] = []
   for b in env {
@@ -5459,6 +5537,25 @@ fn merge_objects_with_late_binding(
       is_local_member_name(m.name) ||
       is_hidden_member_name(m.name) {
       local_env.push({ name: bare, value: m.value })
+    }
+  }
+  // PKL-148d: local functions inside an object body are late-bound to
+  // the current object state during an amend. Re-push FunctionValue
+  // members with `local_env` itself as their captured environment so
+  // `y = compute(); local function compute() = x` sees an amended `x`.
+  for m in merged {
+    let bare = strip_member_visibility_prefix(m.name)
+    if !is_invisible_member_name(m.name) ||
+      is_local_member_name(m.name) ||
+      is_hidden_member_name(m.name) {
+      match m.value {
+        FunctionValue(params, body, return_type_name, _, id) =>
+          local_env.push({
+            name: bare,
+            value: FunctionValue(params, body, return_type_name, local_env, id),
+          })
+        _ => ()
+      }
     }
   }
   let final_members : Array[ValueMember] = []
@@ -5473,6 +5570,9 @@ fn merge_objects_with_late_binding(
             continue
           }
           if expr_references_late_binding(src, name) ||
+            expr_calls_env_function_referencing_late_binding(
+              src, name, local_env,
+            ) ||
             expr_references_outer_binding(src, name) ||
             expr_references_super(src) {
             needs = true
@@ -5522,7 +5622,10 @@ fn merge_objects_with_late_binding(
       final_members.push(m)
     }
   }
-  final_members
+  reeval_class_tagged_members_after_amend(
+    final_members, class_override_names, bindings, env, class_env, cache, stack,
+    declarations, diagnostics, resolve_import,
+  )
 }
 
 ///|
@@ -5773,6 +5876,7 @@ fn eval_object_members_with_options(
       type_name: field.type_name,
       value: field.value,
       exported: true,
+      is_const: true,
       annotations: field.annotations,
       abstract_slot: false,
     })

@@ -316,17 +316,22 @@ fn resolve_module_parent_member_value(
         _ =>
           match value_member.source {
             Some(source) =>
-              eval_expr_with_bindings(
-                source,
-                bindings,
-                module_parent_reeval_env(parent_members, bindings, env, cache),
-                class_env,
-                module_parent_reeval_cache(parent_members, cache),
-                stack,
-                declarations,
-                diagnostics,
-                resolve_import,
-              )
+              if expr_references_super(source) ||
+                expr_references_late_binding(source, "module") {
+                eval_expr_with_bindings(
+                  source,
+                  bindings,
+                  module_parent_reeval_env(parent_members, bindings, env, cache),
+                  class_env,
+                  module_parent_reeval_cache(parent_members, cache),
+                  stack,
+                  declarations,
+                  diagnostics,
+                  resolve_import,
+                )
+              } else {
+                Some(value_member.value)
+              }
             None => Some(value_member.value)
           }
       }

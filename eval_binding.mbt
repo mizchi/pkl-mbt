@@ -147,7 +147,16 @@ fn resolve_binding_value(
   }
   match find_binding(bindings, name) {
     Some(binding) =>
-      if stack_contains_binding(stack, name) {
+      if lookup_value(cache, "@__class_default_scope") is Some(_) &&
+        !binding.is_const &&
+        !(binding.value is LambdaExpr(_, _, _)) {
+        diagnostics.push(
+          diag(
+            "Cannot reference property `\{name}` from here because it is not `const`.",
+          ),
+        )
+        None
+      } else if stack_contains_binding(stack, name) {
         // PKL-148t: when a property's RHS self-references the
         // same name but a sibling module-level function shares
         // it (`function qux(...) = ...` beside `qux = qux(...)`),

@@ -82,6 +82,7 @@ fn Parser::parse_let_decl(self : Parser) -> Binding? {
       type_name,
       value,
       exported: false,
+      is_const: false,
       annotations,
       abstract_slot: false,
     })
@@ -91,6 +92,7 @@ fn Parser::parse_let_decl(self : Parser) -> Binding? {
 ///|
 fn Parser::parse_local_decl(self : Parser) -> Binding? {
   let annotations = self.take_pending_annotations()
+  let mut is_const = self.take_pending_const()
   self.builder.start_node(let_decl())
   ignore(self.expect(local_kw(), "local"))
   // Apple Pkl accepts modifier keywords after `local` (`local const x`,
@@ -99,6 +101,9 @@ fn Parser::parse_local_decl(self : Parser) -> Binding? {
   // modifier.
   self.skip_whitespace()
   while self.at(identifier()) && is_modifier_text(self.peek().text()) {
+    if self.peek().text() == "const" {
+      is_const = true
+    }
     ignore(self.bump())
     self.skip_whitespace()
   }
@@ -133,6 +138,7 @@ fn Parser::parse_local_decl(self : Parser) -> Binding? {
       type_name,
       value,
       exported: false,
+      is_const,
       annotations,
       abstract_slot: false,
     })
@@ -758,6 +764,7 @@ fn Parser::parse_function_decl(self : Parser) -> FunctionDecl? {
 ///|
 fn Parser::parse_property_decl(self : Parser) -> Binding? {
   let annotations = self.take_pending_annotations()
+  let is_const = self.take_pending_const()
   self.builder.start_node(property_decl())
   if !self.at(identifier()) {
     self.skip_unknown_member()
@@ -815,6 +822,14 @@ fn Parser::parse_property_decl(self : Parser) -> Binding? {
   if name == "" {
     None
   } else {
-    Some({ name, type_name, value, exported: true, annotations, abstract_slot })
+    Some({
+      name,
+      type_name,
+      value,
+      exported: true,
+      is_const,
+      annotations,
+      abstract_slot,
+    })
   }
 }
