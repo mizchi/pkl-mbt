@@ -484,6 +484,30 @@ fn prop_read_glob_entries(rest_pattern : String) -> Array[ValueEntry] {
 }
 
 ///|
+fn eval_cached_read_glob(
+  pattern : String,
+  current_module_path : String?,
+) -> Value? {
+  match current_module_path {
+    Some(path) =>
+      match sandbox_lookup_read_glob(path, pattern) {
+        Some(resources) => {
+          let entries : Array[ValueEntry] = []
+          for resource in resources {
+            entries.push({
+              key: StringValue(resource.uri),
+              value: sandbox_resource_value(resource),
+            })
+          }
+          Some(MappingValue(entries))
+        }
+        None => None
+      }
+    None => None
+  }
+}
+
+///|
 fn eval_read_glob(
   pattern : String,
   current_module_path : String?,
@@ -502,26 +526,24 @@ fn eval_read_glob(
       } else if scheme == "prop" {
         Some(MappingValue(prop_read_glob_entries(rest)))
       } else {
-        diagnostics.push(
-          diag("read: scheme \{scheme}: is not allowed by the sandbox policy"),
-        )
-        None
+        match eval_cached_read_glob(pattern, current_module_path) {
+          Some(value) => Some(value)
+          None => {
+            diagnostics.push(
+              diag(
+                "read: scheme \{scheme}: is not allowed by the sandbox policy",
+              ),
+            )
+            None
+          }
+        }
       }
     }
     None =>
       match current_module_path {
         Some(path) =>
           match sandbox_lookup_read_glob(path, pattern) {
-            Some(resources) => {
-              let entries : Array[ValueEntry] = []
-              for resource in resources {
-                entries.push({
-                  key: StringValue(resource.uri),
-                  value: sandbox_resource_value(resource),
-                })
-              }
-              Some(MappingValue(entries))
-            }
+            Some(_) => eval_cached_read_glob(pattern, current_module_path)
             None => {
               diagnostics.push(diag("Cannot find module `\{pattern}`."))
               None

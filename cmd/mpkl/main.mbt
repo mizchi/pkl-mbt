@@ -728,18 +728,129 @@ fn split_glob_pattern(pattern : String) -> (String, String) {
 
 ///|
 fn glob_name_matches(pattern : String, name : String) -> Bool {
-  match pattern.find("*") {
-    None => name == pattern
-    Some(idx) => {
-      let prefix = String::unsafe_substring(pattern, start=0, end=idx)
-      let suffix = String::unsafe_substring(
-        pattern,
-        start=idx + 1,
-        end=pattern.length(),
-      )
-      name.has_prefix(prefix) && name.has_suffix(suffix)
+  glob_name_matches_at(pattern, 0, name, 0)
+}
+
+///|
+fn glob_name_matches_at(
+  pattern : String,
+  pi : Int,
+  name : String,
+  ni : Int,
+) -> Bool {
+  if pi >= pattern.length() {
+    return ni >= name.length()
+  }
+  if pattern[pi] == '*' {
+    let mut j = ni
+    while j <= name.length() {
+      if glob_name_matches_at(pattern, pi + 1, name, j) {
+        return true
+      }
+      j = j + 1
+    }
+    false
+  } else if pattern[pi] == '\\' && pi + 1 < pattern.length() {
+    ni < name.length() &&
+    pattern[pi + 1] == name[ni] &&
+    glob_name_matches_at(pattern, pi + 2, name, ni + 1)
+  } else if pattern[pi] == '[' {
+    match glob_match_char_class(pattern, pi, name, ni) {
+      Some(next_pi) => glob_name_matches_at(pattern, next_pi, name, ni + 1)
+      None => false
+    }
+  } else if pattern[pi] == '{' {
+    glob_match_brace(pattern, pi, name, ni)
+  } else if ni < name.length() && pattern[pi] == name[ni] {
+    glob_name_matches_at(pattern, pi + 1, name, ni + 1)
+  } else {
+    false
+  }
+}
+
+///|
+fn glob_match_char_class(
+  pattern : String,
+  pi : Int,
+  name : String,
+  ni : Int,
+) -> Int? {
+  if ni >= name.length() {
+    return None
+  }
+  let mut i = pi + 1
+  let c = name[ni]
+  let mut matched = false
+  while i < pattern.length() && pattern[i] != ']' {
+    if i + 2 < pattern.length() &&
+      pattern[i + 1] == '-' &&
+      pattern[i + 2] != ']' {
+      if c >= pattern[i] && c <= pattern[i + 2] {
+        matched = true
+      }
+      i = i + 3
+    } else {
+      if c == pattern[i] {
+        matched = true
+      }
+      i = i + 1
     }
   }
+  if i < pattern.length() && pattern[i] == ']' && matched {
+    Some(i + 1)
+  } else {
+    None
+  }
+}
+
+///|
+fn glob_match_brace(
+  pattern : String,
+  pi : Int,
+  name : String,
+  ni : Int,
+) -> Bool {
+  let mut close = pi + 1
+  while close < pattern.length() && pattern[close] != '}' {
+    close = close + 1
+  }
+  if close >= pattern.length() {
+    return ni < name.length() &&
+      pattern[pi] == name[ni] &&
+      glob_name_matches_at(pattern, pi + 1, name, ni + 1)
+  }
+  let body = String::unsafe_substring(pattern, start=pi + 1, end=close)
+  let mut start = 0
+  while start <= body.length() {
+    let comma = match
+      String::unsafe_substring(body, start~, end=body.length()).find(",") {
+      Some(idx) => start + idx
+      None => body.length()
+    }
+    let alt = String::unsafe_substring(body, start~, end=comma)
+    if glob_literal_at(name, ni, alt) &&
+      glob_name_matches_at(pattern, close + 1, name, ni + alt.length()) {
+      return true
+    }
+    if comma >= body.length() {
+      break
+    }
+    start = comma + 1
+  }
+  false
+}
+
+///|
+fn glob_literal_at(name : String, start : Int, literal : String) -> Bool {
+  if start + literal.length() > name.length() {
+    return false
+  }
+  for i = 0; i < literal.length(); i = i + 1 {
+    if name[start + i] != literal[i] {
+      return false
+    }
+  }
+  true
 }
 
 ///|
@@ -830,6 +941,174 @@ fn percent_encode_file_path(path : String) -> String {
 }
 
 ///|
+fn cli_hex_value(c : UInt16) -> Int? {
+  if c >= '0' && c <= '9' {
+    Some(c.to_int() - '0'.to_int())
+  } else if c >= 'a' && c <= 'f' {
+    Some(c.to_int() - 'a'.to_int() + 10)
+  } else if c >= 'A' && c <= 'F' {
+    Some(c.to_int() - 'A'.to_int() + 10)
+  } else {
+    None
+  }
+}
+
+///|
+fn percent_decode_uri_path(path : String) -> String {
+  let buf = StringBuilder::new()
+  let mut i = 0
+  while i < path.length() {
+    if path[i] == '%' && i + 2 < path.length() {
+      match (cli_hex_value(path[i + 1]), cli_hex_value(path[i + 2])) {
+        (Some(hi), Some(lo)) => {
+          buf.write_char((hi * 16 + lo).unsafe_to_char())
+          i = i + 3
+          continue
+        }
+        _ => ()
+      }
+    }
+    buf.write_char(path[i].to_int().unsafe_to_char())
+    i = i + 1
+  }
+  buf.to_string()
+}
+
+///|
+fn trim_fragment_slash(fragment : String) -> String {
+  let mut start = 0
+  while start < fragment.length() && fragment[start] == '/' {
+    start = start + 1
+  }
+  String::unsafe_substring(fragment, start~, end=fragment.length())
+}
+
+///|
+fn package_glob_resource_uri(
+  package_base : String,
+  relative : String,
+) -> String {
+  package_base + "#/" + percent_encode_file_path(relative)
+}
+
+///|
+fn push_package_resource_if_file(
+  resources : Array[@pkl.SandboxResource],
+  resolved : String,
+  package_base : String,
+  visible_relative : String,
+) -> Unit {
+  let is_dir = @fs.is_dir(resolved) catch { _ => false }
+  if is_dir {
+    return
+  }
+  let body = @fs.read_file_to_string(resolved) catch { _ => "" }
+  if body != "" || @fs.path_exists(resolved) {
+    let uri = package_glob_resource_uri(package_base, visible_relative)
+    resources.push({ uri, resource_uri: uri, text: body })
+  }
+}
+
+///|
+fn collect_package_globstar_suffix_resources(
+  resources : Array[@pkl.SandboxResource],
+  base_dir : String,
+  package_base : String,
+  visible_prefix : String,
+  suffix : String,
+) -> Unit {
+  let names = @fs.read_dir(base_dir) catch { _ => [] }
+  let sorted = sort_strings(names)
+  for name in sorted {
+    let resolved = normalize_path_segments(base_dir + "/" + name)
+    let is_dir = @fs.is_dir(resolved) catch { _ => false }
+    if !is_dir && name.has_suffix(suffix) {
+      push_package_resource_if_file(
+        resources,
+        resolved,
+        package_base,
+        visible_prefix + name,
+      )
+    }
+  }
+  for name in sorted {
+    let resolved = normalize_path_segments(base_dir + "/" + name)
+    let is_dir = @fs.is_dir(resolved) catch { _ => false }
+    if is_dir {
+      collect_package_globstar_suffix_resources(
+        resources,
+        resolved,
+        package_base,
+        visible_prefix + name + "/",
+        suffix,
+      )
+    }
+  }
+}
+
+///|
+fn package_glob_resources_from(
+  pattern : String,
+) -> Array[@pkl.SandboxResource]? {
+  if !is_package_uri_like(pattern) {
+    return None
+  }
+  let hash = match pattern.find("#") {
+    Some(idx) => idx
+    None => return Some([])
+  }
+  let package_base = String::unsafe_substring(pattern, start=0, end=hash)
+  let fragment = String::unsafe_substring(
+    pattern,
+    start=hash + 1,
+    end=pattern.length(),
+  )
+  let decoded_pattern = percent_decode_uri_path(trim_fragment_slash(fragment))
+  let parts = match package_cache_parts(package_base, "") {
+    Some(parts) => parts
+    None => return Some([])
+  }
+  let (dir_prefix, name_pattern) = split_glob_pattern(decoded_pattern)
+  let resources : Array[@pkl.SandboxResource] = []
+  for cache_dir in package_cache_roots() {
+    let cache_prefix = if cache_dir.has_suffix("/") {
+      cache_dir
+    } else {
+      cache_dir + "/"
+    }
+    let package_dir = normalize_path_segments(
+      cache_prefix + parts.package_dir_relative,
+    )
+    if !@fs.path_exists(package_dir) {
+      continue
+    }
+    let base_dir = normalize_path_segments(package_dir + "/" + dir_prefix)
+    match globstar_suffix(name_pattern) {
+      Some(suffix) =>
+        collect_package_globstar_suffix_resources(
+          resources, base_dir, package_base, dir_prefix, suffix,
+        )
+      None => {
+        let names = @fs.read_dir(base_dir) catch { _ => [] }
+        for name in sort_strings(names) {
+          if glob_name_matches(name_pattern, name) {
+            let resolved = normalize_path_segments(base_dir + "/" + name)
+            push_package_resource_if_file(
+              resources,
+              resolved,
+              package_base,
+              dir_prefix + name,
+            )
+          }
+        }
+      }
+    }
+    return Some(resources)
+  }
+  Some(resources)
+}
+
+///|
 fn collect_globstar_suffix_resources(
   resources : Array[@pkl.SandboxResource],
   base_dir : String,
@@ -879,6 +1158,10 @@ fn glob_resources_from(
   from : String,
   pattern : String,
 ) -> Array[@pkl.SandboxResource] {
+  match package_glob_resources_from(pattern) {
+    Some(resources) => return resources
+    None => ()
+  }
   let (dir_prefix, name_pattern) = split_glob_pattern(pattern)
   let base_dir = normalize_path_segments(
     module_parent_dir(from) + "/" + dir_prefix,
@@ -913,6 +1196,17 @@ fn glob_visible_uris_from(from : String, pattern : String) -> Array[String] {
 }
 
 ///|
+fn should_register_read_glob(pattern : String) -> Bool {
+  match pattern.find(":") {
+    Some(idx) => {
+      let scheme = String::unsafe_substring(pattern, start=0, end=idx)
+      scheme != "env" && scheme != "prop"
+    }
+    None => true
+  }
+}
+
+///|
 fn register_expr_io(from : String, expr : @pkl.Expr) -> Unit {
   match expr {
     CallExpr(Identifier("read"), args) => {
@@ -935,11 +1229,13 @@ fn register_expr_io(from : String, expr : @pkl.Expr) -> Unit {
     }
     CallExpr(Identifier("read*"), args) => {
       if args.length() == 1 && args[0] is StringLiteral(pattern) {
-        @pkl.register_read_glob(
-          from,
-          pattern,
-          glob_resources_from(from, pattern),
-        )
+        if should_register_read_glob(pattern) {
+          @pkl.register_read_glob(
+            from,
+            pattern,
+            glob_resources_from(from, pattern),
+          )
+        }
       }
       for arg in args {
         register_expr_io(from, arg)

@@ -119,3 +119,42 @@ test "read glob scanner supports recursive globstar" {
     content="../../input-helper/globtest/child/moduleC.pkl",
   )
 }
+
+///|
+test "read glob scanner supports package globstar" {
+  @pkl.configure_sandbox_package_caches([
+    "third_party/apple-pkl/pkl-commons-test/src/main/files/packages",
+  ])
+  let resources = glob_resources_from(
+    "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/basic/readGlob.pkl",
+    "package://localhost:0/birds@0.5.0#/**.pkl",
+  )
+  inspect(resources.length(), content="6")
+  inspect(
+    resources[0].uri,
+    content="package://localhost:0/birds@0.5.0#/Bird.pkl",
+  )
+  inspect(
+    resources[3].uri,
+    content="package://localhost:0/birds@0.5.0#/catalog/Ostrich.pkl",
+  )
+  inspect(resources[0].resource_uri, content=resources[0].uri)
+  @pkl.configure_sandbox_package_caches([])
+}
+
+///|
+test "package glob scanner keeps absolute URI escaping" {
+  @pkl.configure_sandbox_package_caches([
+    "third_party/apple-pkl/pkl-commons-test/src/main/files/packages",
+  ])
+  let uris = glob_visible_uris_from(
+    "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/basic/importGlob.pkl",
+    "package://localhost:0/packageContainingWildcardCharacters@1.0.0#/name%20*",
+  )
+  inspect(uris.length(), content="1")
+  inspect(
+    uris[0],
+    content="package://localhost:0/packageContainingWildcardCharacters@1.0.0#/name%20with%20%5Bwildcard%5D!%20characters~~.pkl",
+  )
+  @pkl.configure_sandbox_package_caches([])
+}

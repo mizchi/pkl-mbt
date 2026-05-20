@@ -108,8 +108,9 @@ Required work:
 - [x] Support `env:` and `prop:` reads with Apple-compatible missing-resource diagnostics.
 - [x] Add `read*()` Mapping results for file cache, `env:` glob, and `prop:` glob.
 - [x] Add CLI file globstar suffix scanning, simple character classes, deterministic ordering, and unsafe URI character encoding for file resources.
+- [x] Add package-cache-backed `read*()` resources and `import*()` ordered key discovery for package URI globs.
 - [ ] Finish `read*()` empty glob behavior and directory diagnostics.
-- [ ] Implement package-backed `read*()` / `import*()` glob cases.
+- [ ] Implement top-level `import* ... as name` clause loading.
 - [ ] Implement `import*` module-value parity beyond ordered key discovery.
 - [ ] Reconcile upstream fixture URI rendering where Apple gold uses `$snippetsDir` placeholders.
 - [ ] Decide whether direct `file:` / `https:` / `package:` `read()` should be release-supported or stay sandbox-blocked.
