@@ -25,21 +25,28 @@ fn Parser::parse_listing_body(self : Parser) -> Expr {
       })
     } else if self.at(for_kw()) {
       match self.parse_for_header() {
-        Some((var1, var2, source)) => {
+        Some((var1, var2, source, var1_type, var2_type)) => {
           let body = self.parse_listing_body()
           items.push({
             kind: ElementItem,
             name: "",
             type_name: None,
             value: WhenSpread(
-              ForGenerator(var1, var2, source, [
-                {
-                  name: "@spread",
-                  type_name: None,
-                  value: body,
-                  annotations: [],
-                },
-              ]),
+              ForGenerator(
+                var1,
+                var2,
+                source,
+                [
+                  {
+                    name: "@spread",
+                    type_name: None,
+                    value: body,
+                    annotations: [],
+                  },
+                ],
+                var1_type,
+                var2_type,
+              ),
             ),
           })
         }
@@ -371,18 +378,25 @@ fn Parser::parse_mapping_body(self : Parser) -> Expr {
       entries.push({ key: self.parse_mapping_when(), value: NullLiteral })
     } else if self.at(for_kw()) {
       match self.parse_for_header() {
-        Some((var1, var2, source)) => {
+        Some((var1, var2, source, var1_type, var2_type)) => {
           let body = self.parse_mapping_body()
           entries.push({
             key: WhenSpread(
-              ForGenerator(var1, var2, source, [
-                {
-                  name: "@spread",
-                  type_name: None,
-                  value: body,
-                  annotations: [],
-                },
-              ]),
+              ForGenerator(
+                var1,
+                var2,
+                source,
+                [
+                  {
+                    name: "@spread",
+                    type_name: None,
+                    value: body,
+                    annotations: [],
+                  },
+                ],
+                var1_type,
+                var2_type,
+              ),
             ),
             value: NullLiteral,
           })
@@ -1176,15 +1190,17 @@ fn Parser::parse_when_member(self : Parser) -> ObjectMember? {
 /// `eval_object_members` recognises the reserved name, iterates the source
 /// via `eval_expr_with_bindings`, and spreads the per-iteration members
 /// into the parent.
-fn Parser::skip_for_binding_type_annotation(self : Parser) -> Unit {
+fn Parser::parse_for_binding_type_annotation(self : Parser) -> String? {
   self.skip_whitespace()
   if !self.at(colon()) {
-    return
+    return None
   }
   ignore(self.bump())
+  self.skip_whitespace()
   // Consume tokens up to (but not including) the next `,` / `in` /
   // `)`, balancing parens / brackets / angles so generic types like
   // `Listing<Pair<Int, Int>>` don't trip over the inner `,`.
+  let buf = StringBuilder::new()
   let mut parens = 0
   let mut brackets = 0
   let mut angles = 0
@@ -1207,12 +1223,32 @@ fn Parser::skip_for_binding_type_annotation(self : Parser) -> Unit {
     } else if self.at(gt()) {
       angles -= 1
     }
-    ignore(self.bump())
+    let tok = self.bump()
+    if !is_trivia(tok.kind()) {
+      let s = buf.to_string()
+      let text = tok.text()
+      if s.length() > 0 && text.length() > 0 {
+        let last = s[s.length() - 1].to_int().unsafe_to_char()
+        let first = text[0].to_int().unsafe_to_char()
+        if is_ident_char(last) && is_ident_char(first) {
+          buf.write_char(' ')
+        }
+      }
+      buf.write_string(text)
+    }
+  }
+  let type_name = buf.to_string()
+  if type_name == "" {
+    None
+  } else {
+    Some(type_name)
   }
 }
 
 ///|
-fn Parser::parse_for_header(self : Parser) -> (String, String?, Expr)? {
+fn Parser::parse_for_header(
+  self : Parser,
+) -> (String, String?, Expr, String?, String?)? {
   ignore(self.expect(for_kw(), "for"))
   self.skip_trivia()
   ignore(self.expect(lparen(), "("))
@@ -1221,13 +1257,14 @@ fn Parser::parse_for_header(self : Parser) -> (String, String?, Expr)? {
     Some(tok) => tok.text()
     None => ""
   }
-  // Pkl allows a type annotation after each for-binding (`for (n: Int in ...)`)
-  // — accept and discard it. We can't use `parse_type_annotation` here
+  // Pkl allows a type annotation after each for-binding (`for (n: Int in ...)`).
+  // We can't use `parse_type_annotation` here
   // because its `parse_type_text` greedily consumes tokens until it sees
   // `=` / `{` / `}` / `,`, which means it would swallow the `in` keyword
   // and the source expression. The custom loop below stops at `,` or `in`.
-  self.skip_for_binding_type_annotation()
+  let var1_type = self.parse_for_binding_type_annotation()
   self.skip_trivia()
+  let mut var2_type : String? = None
   let var2 : String? = if self.at(comma()) {
     ignore(self.bump())
     self.skip_trivia()
@@ -1235,7 +1272,7 @@ fn Parser::parse_for_header(self : Parser) -> (String, String?, Expr)? {
       Some(tok) => tok.text()
       None => ""
     }
-    self.skip_for_binding_type_annotation()
+    var2_type = self.parse_for_binding_type_annotation()
     if name == "" {
       None
     } else {
@@ -1254,7 +1291,7 @@ fn Parser::parse_for_header(self : Parser) -> (String, String?, Expr)? {
   if var1 == "" {
     return None
   }
-  Some((var1, var2, source))
+  Some((var1, var2, source, var1_type, var2_type))
 }
 
 ///|
@@ -1263,14 +1300,14 @@ fn Parser::parse_for_member(self : Parser) -> ObjectMember? {
   let header = self.parse_for_header()
   let body_members = self.parse_object_body_members()
   self.builder.finish_node()
-  let (var1, var2, source) = match header {
+  let (var1, var2, source, var1_type, var2_type) = match header {
     Some(parts) => parts
     None => return None
   }
   Some({
     name: "@for",
     type_name: None,
-    value: ForGenerator(var1, var2, source, body_members),
+    value: ForGenerator(var1, var2, source, body_members, var1_type, var2_type),
     annotations: [],
   })
 }

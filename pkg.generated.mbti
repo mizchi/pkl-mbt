@@ -200,7 +200,7 @@ pub(all) enum Expr {
   UnaryExpr(UnaryOp, Expr)
   BinaryExpr(BinaryOp, Expr, Expr)
   ConditionalExpr(Expr, Expr, Expr)
-  ForGenerator(String, String?, Expr, Array[ObjectMember])
+  ForGenerator(String, String?, Expr, Array[ObjectMember], String?, String?)
   WhenSpread(Expr)
   InterpolatedString(Array[Expr])
   NullSafeCallExpr(Expr, Array[Expr])

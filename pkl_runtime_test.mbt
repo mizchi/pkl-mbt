@@ -1954,6 +1954,48 @@ test "PKL-148aw: for-generated dynamic entries reject duplicate keys" {
 }
 
 ///|
+test "PKL-148ay: typed for bindings validate index and value" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:test"
+      #|
+      #|out = new {
+      #|  badValue = test.catch(() -> new Listing {
+      #|    for (n: String in IntSeq(1, 2)) { n }
+      #|  })
+      #|  badIndex = test.catch(() -> new Listing {
+      #|    for (i: String, n: Int in IntSeq(1, 2)) { n }
+      #|  })
+      #|  unknownOk = new Listing {
+      #|    for (x: unknown in List("a", "b")) { x }
+      #|  }
+      #|}
+      #|
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered.contains(
+      "badValue = \"Expected value of type `String`, but got type `Int`. Value: 1\"",
+    ),
+    content="true",
+  )
+  inspect(
+    rendered.contains(
+      "badIndex = \"Expected value of type `String`, but got type `Int`. Value: 0\"",
+    ),
+    content="true",
+  )
+  inspect(
+    rendered.contains("unknownOk {\n    \"a\"\n    \"b\"\n  }"),
+    content="true",
+  )
+}
+
+///|
 test "PKL-148ar: Dynamic.toMap projects bracket entries" {
   let session = AnalysisSession::new()
   session.set_source(

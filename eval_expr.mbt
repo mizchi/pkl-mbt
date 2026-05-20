@@ -6135,10 +6135,10 @@ fn eval_expr_with_bindings(
         }
         None => None
       }
-    ForGenerator(var1, var2, source_expr, body_members) =>
+    ForGenerator(var1, var2, source_expr, body_members, var1_type, var2_type) =>
       eval_for_generator(
-        var1, var2, source_expr, body_members, bindings, env, class_env, cache, stack,
-        declarations, diagnostics, resolve_import,
+        var1, var2, source_expr, body_members, var1_type, var2_type, bindings, env,
+        class_env, cache, stack, declarations, diagnostics, resolve_import,
       )
     ErrorExpr(message) => {
       diagnostics.push(diag(message))
@@ -6374,6 +6374,8 @@ fn eval_for_generator(
   var2 : String?,
   source_expr : Expr,
   body_members : Array[ObjectMember],
+  var1_type : String?,
+  var2_type : String?,
   bindings : Array[Binding],
   env : Array[ValueBinding],
   class_env : Array[ClassBinding],
@@ -6394,13 +6396,13 @@ fn eval_for_generator(
           let mut accumulated : Array[ValueMember] = []
           for i = 0; i < entries.length(); i = i + 1 {
             let entry = entries[i]
-            let iter_cache = copy_value_bindings(cache)
-            match var2 {
-              Some(name2) => {
-                iter_cache.push({ name: var1, value: entry.key })
-                iter_cache.push({ name: name2, value: entry.value })
-              }
-              None => iter_cache.push({ name: var1, value: entry.value })
+            let iter_cache = match
+              bind_for_generator_iteration(
+                var1, var2, var1_type, var2_type, entry, cache, class_env, declarations,
+                diagnostics,
+              ) {
+              Some(iter_cache) => iter_cache
+              None => return None
             }
             let iter_members = eval_object_members(
               body_members, bindings, env, class_env, iter_cache, stack, declarations,
@@ -6421,6 +6423,74 @@ fn eval_for_generator(
       }
     None => None
   }
+}
+
+///|
+fn for_generator_binding_type_rejection_message(
+  type_name : String?,
+  value : Value,
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+) -> String? {
+  eval_callable_argument_type_rejection_message(
+    type_name, value, class_env, cache, declarations,
+  )
+}
+
+///|
+fn bind_for_generator_iteration(
+  var1 : String,
+  var2 : String?,
+  var1_type : String?,
+  var2_type : String?,
+  entry : ValueEntry,
+  cache : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+) -> Array[ValueBinding]? {
+  let first_value = match var2 {
+    Some(_) => entry.key
+    None => entry.value
+  }
+  match
+    for_generator_binding_type_rejection_message(
+      var1_type, first_value, class_env, cache, declarations,
+    ) {
+    Some(message) => {
+      diagnostics.push(diag(message))
+      return None
+    }
+    None => ()
+  }
+  match var2 {
+    Some(_) =>
+      match
+        for_generator_binding_type_rejection_message(
+          var2_type,
+          entry.value,
+          class_env,
+          cache,
+          declarations,
+        ) {
+        Some(message) => {
+          diagnostics.push(diag(message))
+          return None
+        }
+        None => ()
+      }
+    None => ()
+  }
+  let iter_cache = copy_value_bindings(cache)
+  match var2 {
+    Some(name2) => {
+      iter_cache.push({ name: var1, value: entry.key })
+      iter_cache.push({ name: name2, value: entry.value })
+    }
+    None => iter_cache.push({ name: var1, value: entry.value })
+  }
+  Some(iter_cache)
 }
 
 ///|
@@ -7532,7 +7602,7 @@ fn expr_references_super(expr : Expr) -> Bool {
       expr_references_super(cond) ||
       expr_references_super(then_branch) ||
       expr_references_super(else_branch)
-    ForGenerator(_, _, source, members) => {
+    ForGenerator(_, _, source, members, _, _) => {
       if expr_references_super(source) {
         return true
       }
@@ -7626,7 +7696,7 @@ fn expr_directly_references_outer_member(expr : Expr, name : String) -> Bool {
       expr_directly_references_outer_member(cond, name) ||
       expr_directly_references_outer_member(then_branch, name) ||
       expr_directly_references_outer_member(else_branch, name)
-    ForGenerator(_, _, source, members) => {
+    ForGenerator(_, _, source, members, _, _) => {
       if expr_directly_references_outer_member(source, name) {
         return true
       }
@@ -7726,7 +7796,7 @@ fn expr_references_outer_binding(expr : Expr, name : String) -> Bool {
       expr_references_outer_binding(cond, name) ||
       expr_references_outer_binding(then_branch, name) ||
       expr_references_outer_binding(else_branch, name)
-    ForGenerator(_, _, source, members) => {
+    ForGenerator(_, _, source, members, _, _) => {
       if expr_references_outer_binding(source, name) {
         return true
       }
@@ -7838,7 +7908,7 @@ fn expr_references_late_binding(expr : Expr, name : String) -> Bool {
       expr_references_late_binding(cond, name) ||
       expr_references_late_binding(then_branch, name) ||
       expr_references_late_binding(else_branch, name)
-    ForGenerator(key_name, value_name, source, members) => {
+    ForGenerator(key_name, value_name, source, members, _, _) => {
       if key_name == name {
         return false
       }

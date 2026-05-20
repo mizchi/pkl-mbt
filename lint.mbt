@@ -289,7 +289,7 @@ fn expr_references(expr : Expr, name : String) -> Bool {
       expr_references(cond, name) ||
       expr_references(then_branch, name) ||
       expr_references(else_branch, name)
-    ForGenerator(key_name, value_name, source, members) => {
+    ForGenerator(key_name, value_name, source, members, _, _) => {
       if key_name == name {
         return false
       }

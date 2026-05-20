@@ -885,7 +885,7 @@ fn register_expr_io(from : String, expr : @pkl.Expr) -> Unit {
       register_expr_io(from, then_expr)
       register_expr_io(from, else_expr)
     }
-    ForGenerator(_, _, source, members) => {
+    ForGenerator(_, _, source, members, _, _) => {
       register_expr_io(from, source)
       for object_member in members {
         register_expr_io(from, object_member.value)

@@ -958,7 +958,7 @@ fn eval_listing_subscript_amend(
     }
     if field.name == "@for" {
       match field.value {
-        ForGenerator(var1, var2, source_expr, body_members) => {
+        ForGenerator(var1, var2, source_expr, body_members, _, _) => {
           let source = eval_expr_with_bindings(
             source_expr, bindings, eval_env, class_env, eval_cache, stack, declarations,
             diagnostics, resolve_import,
@@ -1556,7 +1556,7 @@ fn eval_mapping_amend(
     }
     if field.name == "@for" {
       match field.value {
-        ForGenerator(var1, var2, source_expr, body_members) => {
+        ForGenerator(var1, var2, source_expr, body_members, _, _) => {
           let source = eval_expr_with_bindings(
             source_expr, bindings, eval_env, class_env, eval_cache, stack, declarations,
             diagnostics, resolve_import,

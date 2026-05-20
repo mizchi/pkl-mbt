@@ -657,7 +657,7 @@ fn infer_expr_with_bindings(
       )
       common_type([then_type, else_type])
     }
-    ForGenerator(_, _, _, _) =>
+    ForGenerator(_, _, _, _, _, _) =>
       // for-generators only appear as synthetic `@for` object members and
       // are handled at object evaluation time. They never surface in
       // typechecking contexts; treat them as opaque object bodies.
