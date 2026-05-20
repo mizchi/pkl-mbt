@@ -9,42 +9,49 @@ fn resolve_binding_type(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> TypecheckResult?,
 ) -> Type? {
-  match lookup_type(cache, name) {
-    Some(typ) => Some(typ)
-    None =>
-      match find_type_binding(bindings, name) {
-        Some(binding) =>
-          if stack_contains_type_binding(stack, name) {
-            diagnostics.push(diag("cyclic property reference \{name}"))
-            None
-          } else {
-            let inferred = infer_expr_with_bindings(
-              binding.value,
-              bindings,
-              env,
-              type_env,
-              cache,
-              push_type_stack(stack, name),
-              diagnostics,
-              resolve_import,
-            )
-            let typ = apply_type_annotation(
-              binding.type_name,
-              inferred,
-              type_env,
-              diagnostics,
-            )
-            push_constrained_type_annotation_expr_diagnostic(
-              binding.type_name,
-              binding.value,
-              type_env,
-              diagnostics,
-            )
-            cache.push({ name, typ, alias_decl: None, bound: None })
-            Some(typ)
-          }
-        None => lookup_type(env, name)
+  let shadow_binding = find_type_binding(bindings, name)
+  let binding_shadows_cache = match shadow_binding {
+    Some(binding) => binding.abstract_slot
+    None => false
+  }
+  if !binding_shadows_cache {
+    match lookup_type(cache, name) {
+      Some(typ) => return Some(typ)
+      None => ()
+    }
+  }
+  match shadow_binding {
+    Some(binding) =>
+      if stack_contains_type_binding(stack, name) {
+        diagnostics.push(diag("cyclic property reference \{name}"))
+        None
+      } else {
+        let inferred = infer_expr_with_bindings(
+          binding.value,
+          bindings,
+          env,
+          type_env,
+          cache,
+          push_type_stack(stack, name),
+          diagnostics,
+          resolve_import,
+        )
+        let typ = apply_type_annotation(
+          binding.type_name,
+          inferred,
+          type_env,
+          diagnostics,
+        )
+        push_constrained_type_annotation_expr_diagnostic(
+          binding.type_name,
+          binding.value,
+          type_env,
+          diagnostics,
+        )
+        cache.push({ name, typ, alias_decl: None, bound: None })
+        Some(typ)
       }
+    None => lookup_type(env, name)
   }
 }
 

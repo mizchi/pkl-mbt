@@ -1500,6 +1500,181 @@ test "PKL-148b: as does a runtime type assertion" {
 }
 
 ///|
+test "PKL-148cb: as validates generic immutable collection casts eagerly" {
+  let session = AnalysisSession::new()
+  let source =
+    #|import "pkl:test"
+    #|listErr = test.catch(() -> List(1, 2, 3) as List<String>)
+    #|setErr = test.catch(() -> Set(1, 2, 3) as Set<String>)
+    #|mapErr = test.catch(() -> Map("Pigeon", 42) as Map<Int, String>)
+    #|nested = Set(new Listing { "one" }) as Set<Listing<Int>>
+    #|nestedThrows = test.catchOrNull(() -> nested.first) != null
+    #|nestedErr = test.catch(() -> nested.first[0])
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered.contains(
+      "Expected value of type `String`, but got type `Int`. Value: 1",
+    ),
+    content="true",
+  )
+  inspect(
+    rendered.contains(
+      "Expected value of type `Int`, but got type `String`. Value: \\\"Pigeon\\\"",
+    ),
+    content="true",
+  )
+  inspect(rendered.contains("nestedThrows = true"), content="true")
+  inspect(
+    rendered.contains(
+      "Expected value of type `Int`, but got type `String`. Value: \\\"one\\\"",
+    ),
+    content="true",
+  )
+}
+
+///|
+test "PKL-148cb: as keeps Listing and Mapping element errors lazy" {
+  let session = AnalysisSession::new()
+  let source =
+    #|import "pkl:test"
+    #|local listing = new Listing { 1; 2 } as Listing<String>
+    #|listingOk = test.catchOrNull(() -> listing) == null
+    #|listingErr = test.catch(() -> listing[0])
+    #|local mapping = new Mapping { ["hi"] = 1; ["bye"] = 2 } as Mapping<String, String>
+    #|mappingOk = test.catchOrNull(() -> mapping) == null
+    #|mappingErr = test.catch(() -> mapping["hi"])
+    #|mappingKeyErr = test.catch(() -> new Mapping { ["hi"] = 1 } as Mapping<Int, Int>)
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("listingOk = true"), content="true")
+  inspect(rendered.contains("mappingOk = true"), content="true")
+  inspect(
+    rendered.contains(
+      "Expected value of type `String`, but got type `Int`. Value: 1",
+    ),
+    content="true",
+  )
+  inspect(
+    rendered.contains(
+      "Expected value of type `Int`, but got type `String`. Value: \\\"hi\\\"",
+    ),
+    content="true",
+  )
+}
+
+///|
+test "PKL-148cc: deferred local Mapping cast keeps earlier dynamic elements" {
+  let session = AnalysisSession::new()
+  let source =
+    #|out = new {
+    #|  local m1 = new Mapping {
+    #|    ["hi"] = 1
+    #|    ["bye"] = 2
+    #|  } as Mapping<String, String>
+    #|  module.catchOrNull(() -> m1) == null
+    #|  module.catch(() -> m1["hi"])
+    #|  module.catch(() -> m1["bye"])
+    #|  local m2 = new Mapping {
+    #|    ["hi"] = 1
+    #|    ["bye"] = 2
+    #|  } as Mapping<Int, Int>
+    #|  module.catch(() -> m2)
+    #|}
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("  true"), content="true")
+  inspect(
+    rendered.contains(
+      "Expected value of type `String`, but got type `Int`. Value: 1",
+    ),
+    content="true",
+  )
+  inspect(
+    rendered.contains(
+      "Expected value of type `String`, but got type `Int`. Value: 2",
+    ),
+    content="true",
+  )
+  inspect(
+    rendered.contains(
+      "Expected value of type `Int`, but got type `String`. Value: \\\"hi\\\"",
+    ),
+    content="true",
+  )
+  inspect(rendered.contains("new {}"), content="false")
+}
+
+///|
+test "PKL-148ca: is recognizes concrete collection class and callable shapes" {
+  let session = AnalysisSession::new()
+  let source =
+    #|local open class Base
+    #|local class Derived extends Base
+    #|local class Other
+    #|local f = (x) -> x
+    #|base = new Base {}
+    #|derived = new Derived {}
+    #|other = new Other {}
+    #|checks = new Listing {
+    #|  1.s is Duration
+    #|  1.b is DataSize
+    #|  List(1) is List
+    #|  !(Set(1) is List)
+    #|  Set(1) is Set
+    #|  !(List(1) is Set)
+    #|  Map("x", 1) is Map
+    #|  !(List(1) is Map)
+    #|  List(1) is Collection
+    #|  Set(1) is Collection
+    #|  !(Map("x", 1) is Collection)
+    #|  derived is Base
+    #|  !(other is Base)
+    #|  Base is Class
+    #|  base.getClass() is Class
+    #|  !(base is Class)
+    #|  f is Function
+    #|  f is Function1
+    #|  !(f is Function2)
+    #|}
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("false"), content="false")
+  inspect(rendered.contains("new {}"), content="false")
+}
+
+///|
+test "PKL-148ca: is validates generic collection elements" {
+  let session = AnalysisSession::new()
+  let source =
+    #|checks = new Listing {
+    #|  List(1, 2, 3) is List<Int>
+    #|  !(List(1, 2, 3) is List<String>)
+    #|  !(Set(1, 2, 3) is List<Int>)
+    #|  Set(1, 2, 3) is Set<Int>
+    #|  !(List(1, 2, 3) is Set<Int>)
+    #|  !(Set(1, 2, 3) is Set<String>)
+    #|  Map("Pigeon", 42) is Map<String, Int>
+    #|  !(Map("Pigeon", 42) is Map<Int, String>)
+    #|  new Listing { 1; 2; 3 } is Listing<Int>
+    #|  !(new Listing { 1; 2; 3 } is Listing<String>)
+    #|  new Mapping { ["Pigeon"] = 42 } is Mapping<String, Int>
+    #|  !(new Mapping { ["Pigeon"] = 42 } is Mapping<Int, String>)
+    #|  List("a", "b", "c") is List<String(length == 1)>
+    #|  !(List("a", "bb", "c") is List<String(length == 1)>)
+    #|}
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("false"), content="false")
+  inspect(rendered.contains("new {}"), content="false")
+}
+
+///|
 test "PKL-148b: Duration / DataSize scalar arithmetic" {
   let session = AnalysisSession::new()
   session.set_source(

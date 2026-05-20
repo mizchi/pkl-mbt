@@ -220,6 +220,8 @@ fn Parser::paren_expr_looks_unsupported(self : Parser) -> Bool {
     return false
   }
   let mut depth = 0
+  let mut brackets = 0
+  let mut angles = 0
   let mut i = self.pos
   while i < self.len {
     let kind = self.tokens[i].kind()
@@ -230,7 +232,22 @@ fn Parser::paren_expr_looks_unsupported(self : Parser) -> Bool {
       if depth == 0 {
         return false
       }
-    } else if depth == 1 && (kind == comma() || kind == colon()) {
+    } else if kind == lbracket() {
+      brackets += 1
+    } else if kind == rbracket() {
+      if brackets > 0 {
+        brackets -= 1
+      }
+    } else if brackets == 0 && kind == lt() {
+      angles += 1
+    } else if brackets == 0 && kind == gt() {
+      if angles > 0 {
+        angles -= 1
+      }
+    } else if depth == 1 &&
+      brackets == 0 &&
+      angles == 0 &&
+      (kind == comma() || kind == colon()) {
       return true
     }
     i += 1

@@ -148,19 +148,26 @@ fn resolve_binding_value(
     Some(value) => return Some(value)
     None => ()
   }
-  match lookup_value(cache, name) {
-    Some(value) => return Some(value)
-    None => ()
+  let shadow_binding = find_binding(bindings, name)
+  let binding_shadows_cache = match shadow_binding {
+    Some(binding) => binding.abstract_slot
+    None => false
   }
-  match lookup_value(cache, hidden_member_name(name)) {
-    Some(value) => return Some(value)
-    None => ()
+  if !binding_shadows_cache {
+    match lookup_value(cache, name) {
+      Some(value) => return Some(value)
+      None => ()
+    }
+    match lookup_value(cache, hidden_member_name(name)) {
+      Some(value) => return Some(value)
+      None => ()
+    }
+    match lookup_value(cache, local_member_name(name)) {
+      Some(value) => return Some(value)
+      None => ()
+    }
   }
-  match lookup_value(cache, local_member_name(name)) {
-    Some(value) => return Some(value)
-    None => ()
-  }
-  match find_binding(bindings, name) {
+  match shadow_binding {
     Some(binding) =>
       if lookup_value(cache, "@__class_default_scope") is Some(_) &&
         !binding.is_const &&

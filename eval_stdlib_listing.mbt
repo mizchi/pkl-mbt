@@ -158,13 +158,16 @@ fn eval_listing_property(
       if elements.length() == 0 {
         Some(NullValue)
       } else {
-        Some(elements[0])
+        value_or_top_level_deferred_diagnostic(elements[0], diagnostics)
       }
     "lastOrNull" =>
       if elements.length() == 0 {
         Some(NullValue)
       } else {
-        Some(elements[elements.length() - 1])
+        value_or_top_level_deferred_diagnostic(
+          elements[elements.length() - 1],
+          diagnostics,
+        )
       }
     // PKL-148h: `.toList()` tags as `ListValue` (round-trips through
     // the `List(...)` constructor form); `.toListing()` keeps the
@@ -185,14 +188,17 @@ fn eval_listing_property(
         diagnostics.push(diag("Listing.first on empty Listing"))
         None
       } else {
-        Some(elements[0])
+        value_or_top_level_deferred_diagnostic(elements[0], diagnostics)
       }
     "last" =>
       if elements.length() == 0 {
         diagnostics.push(diag("Listing.last on empty Listing"))
         None
       } else {
-        Some(elements[elements.length() - 1])
+        value_or_top_level_deferred_diagnostic(
+          elements[elements.length() - 1],
+          diagnostics,
+        )
       }
     "distinct" => {
       let seen : Array[Value] = []

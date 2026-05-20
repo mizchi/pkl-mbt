@@ -244,6 +244,34 @@ fn adjust_deferred_listing_error_message(
 }
 
 ///|
+fn value_or_deferred_diagnostic(
+  value : Value,
+  diagnostics : Array[Diagnostic],
+) -> Value? {
+  match first_deferred_error_message(value) {
+    Some(message) => {
+      diagnostics.push(diag(message))
+      None
+    }
+    None => Some(value)
+  }
+}
+
+///|
+fn value_or_top_level_deferred_diagnostic(
+  value : Value,
+  diagnostics : Array[Diagnostic],
+) -> Value? {
+  match deferred_error_message(value) {
+    Some(message) => {
+      diagnostics.push(diag(message))
+      None
+    }
+    None => Some(value)
+  }
+}
+
+///|
 fn merge_collection_default_members(
   default_members : Array[ValueMember],
   raw_members : Array[ValueMember],
@@ -322,6 +350,73 @@ fn collection_literal_expr_for_type_annotation(
     }
   }
   expr
+}
+
+///|
+fn collection_local_binding_from_expr(expr : Expr) -> Binding? {
+  match expr {
+    CallExpr(Identifier(name), args) =>
+      if name == collection_local_binding_marker_name() && args.length() == 3 {
+        match args[0] {
+          StringLiteral(binding_name) => {
+            let type_name = match args[1] {
+              StringLiteral(t) => Some(t)
+              NullLiteral => None
+              _ => None
+            }
+            Some({
+              name: binding_name,
+              type_name,
+              value: args[2],
+              exported: true,
+              is_const: true,
+              annotations: [],
+              abstract_slot: true,
+            })
+          }
+          _ => None
+        }
+      } else {
+        None
+      }
+    _ => None
+  }
+}
+
+///|
+fn bindings_with_listing_locals(
+  elements : Array[Expr],
+  bindings : Array[Binding],
+) -> Array[Binding] {
+  let out : Array[Binding] = []
+  for binding in bindings {
+    out.push(binding)
+  }
+  for element in elements {
+    match collection_local_binding_from_expr(element) {
+      Some(binding) => out.push(binding)
+      None => ()
+    }
+  }
+  out
+}
+
+///|
+fn bindings_with_mapping_locals(
+  entries : Array[MappingEntry],
+  bindings : Array[Binding],
+) -> Array[Binding] {
+  let out : Array[Binding] = []
+  for binding in bindings {
+    out.push(binding)
+  }
+  for entry in entries {
+    match collection_local_binding_from_expr(entry.key) {
+      Some(binding) => out.push(binding)
+      None => ()
+    }
+  }
+  out
 }
 
 ///|
@@ -712,33 +807,191 @@ fn apply_typed_collection_element_annotation(
 
 ///|
 fn value_has_deferred_error(value : Value) -> Bool {
-  if deferred_error_message(value) is Some(_) {
-    return true
+  first_deferred_error_message(value) is Some(_)
+}
+
+///|
+fn first_deferred_error_message(value : Value) -> String? {
+  match deferred_error_message(value) {
+    Some(message) => return Some(message)
+    None => ()
   }
   match value {
     ListingValue(elements) | ListValue(elements) | SetValue(elements) =>
       for element in elements {
-        if value_has_deferred_error(element) {
-          return true
+        match first_deferred_error_message(element) {
+          Some(message) => return Some(message)
+          None => ()
         }
       } nobreak {
-        false
+        None
       }
     DefaultedListingValue(raw, elements, _) => {
       for element in raw {
-        if value_has_deferred_error(element) {
-          return true
+        match first_deferred_error_message(element) {
+          Some(message) => return Some(message)
+          None => ()
         }
       }
       for element in elements {
-        if value_has_deferred_error(element) {
-          return true
+        match first_deferred_error_message(element) {
+          Some(message) => return Some(message)
+          None => ()
         }
       } nobreak {
-        false
+        None
       }
     }
-    _ => false
+    MappingValue(entries) | MapValue(entries) =>
+      first_deferred_error_message_in_entries(entries)
+    DefaultedMappingValue(raw, entries, _) =>
+      match first_deferred_error_message_in_entries(raw) {
+        Some(message) => Some(message)
+        None => first_deferred_error_message_in_entries(entries)
+      }
+    PairValue(first, second) =>
+      match first_deferred_error_message(first) {
+        Some(message) => Some(message)
+        None => first_deferred_error_message(second)
+      }
+    _ => None
+  }
+}
+
+///|
+fn first_deferred_error_message_in_entries(
+  entries : Array[ValueEntry],
+) -> String? {
+  for entry in entries {
+    match first_deferred_error_message(entry.key) {
+      Some(message) => return Some(message)
+      None => ()
+    }
+    match first_deferred_error_message(entry.value) {
+      Some(message) => return Some(message)
+      None => ()
+    }
+  } nobreak {
+    None
+  }
+}
+
+///|
+fn first_top_level_deferred_error_message(values : Array[Value]) -> String? {
+  for value in values {
+    match deferred_error_message(value) {
+      Some(message) => return Some(message)
+      None => ()
+    }
+  } nobreak {
+    None
+  }
+}
+
+///|
+fn mapping_entry_types_from_annotation(
+  type_name : String,
+  declarations : Array[Declaration],
+) -> (String, String)? {
+  let aliases = eval_type_alias_bindings(declarations)
+  let source = strip_lazy_collection_annotation_marker(type_name)
+  let resolved = eval_resolved_type_alias(source, aliases)
+  let normalized = {
+    let trimmed = pkl_strip_default_type_marker(pkl_constraint_trim(resolved))
+    if trimmed.has_suffix("?") {
+      String::unsafe_substring(trimmed, start=0, end=trimmed.length() - 1)
+    } else {
+      trimmed
+    }
+  }
+  let base = match pkl_constrained_type_base_name(normalized) {
+    Some(b) => b
+    None => normalized
+  }
+  let inner = match generic_argument_text(base, "Mapping") {
+    Some(text) => text
+    None =>
+      match generic_argument_text(base, "Map") {
+        Some(text) => text
+        None => return None
+      }
+  }
+  let parts = split_top_level_generic_arguments(inner)
+  if parts.length() == 2 {
+    Some((parts[0], parts[1]))
+  } else {
+    None
+  }
+}
+
+///|
+fn apply_typed_collection_entries(
+  key_type : String,
+  value_type : String,
+  entries : Array[ValueEntry],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> Array[ValueEntry] {
+  let out : Array[ValueEntry] = []
+  for entry in entries {
+    out.push({
+      key: apply_typed_collection_element_annotation(
+        key_type,
+        entry.key,
+        bindings,
+        env,
+        class_env,
+        cache,
+        stack,
+        declarations,
+        resolve_import,
+      ),
+      value: apply_typed_collection_element_annotation(
+        value_type,
+        entry.value,
+        bindings,
+        env,
+        class_env,
+        cache,
+        stack,
+        declarations,
+        resolve_import,
+      ),
+    })
+  }
+  out
+}
+
+///|
+fn first_top_level_deferred_entry_key_message(
+  entries : Array[ValueEntry],
+) -> String? {
+  for entry in entries {
+    match first_deferred_error_message(entry.key) {
+      Some(message) => return Some(message)
+      None => ()
+    }
+  } nobreak {
+    None
+  }
+}
+
+///|
+fn first_top_level_deferred_entry_value_message(
+  entries : Array[ValueEntry],
+) -> String? {
+  for entry in entries {
+    match deferred_error_message(entry.value) {
+      Some(message) => return Some(message)
+      None => ()
+    }
+  } nobreak {
+    None
   }
 }
 
@@ -1163,6 +1416,540 @@ fn overlay_collection_annotation_if_possible(
       }
     None => (value, false)
   }
+}
+
+///|
+priv enum TypeCastResult {
+  TypeCastOk(Value)
+  TypeCastErr(String)
+}
+
+///|
+fn type_annotation_collection_head(
+  type_name : String,
+  declarations : Array[Declaration],
+) -> String? {
+  let aliases = eval_type_alias_bindings(declarations)
+  let resolved = eval_resolved_type_alias(type_name, aliases)
+  let trimmed = pkl_strip_default_type_marker(pkl_constraint_trim(resolved))
+  let without_nullable = if trimmed.has_suffix("?") {
+    String::unsafe_substring(trimmed, start=0, end=trimmed.length() - 1)
+  } else {
+    trimmed
+  }
+  let base = match pkl_constrained_type_base_name(without_nullable) {
+    Some(b) => b
+    None => without_nullable
+  }
+  let head = match base.find("<") {
+    Some(idx) => String::unsafe_substring(base, start=0, end=idx)
+    None => base
+  }
+  match head {
+    "List" | "Listing" | "Set" | "Collection" | "Map" | "Mapping" => Some(head)
+    _ => None
+  }
+}
+
+///|
+fn type_annotation_is_string_literal(type_name : String) -> Bool {
+  let trimmed = pkl_constraint_trim(type_name)
+  trimmed.length() >= 2 && trimmed.has_prefix("\"") && trimmed.has_suffix("\"")
+}
+
+///|
+fn union_choices_are_string_literals(choices : Array[String]) -> Bool {
+  if choices.length() == 0 {
+    return false
+  }
+  for choice in choices {
+    if !type_annotation_is_string_literal(choice) {
+      return false
+    }
+  } nobreak {
+    true
+  }
+}
+
+///|
+fn as_cast_type_label(type_name : String) -> String {
+  match function_type_arity(type_name) {
+    Some(arity) => "Function\{arity}"
+    None => rejection_type_label(type_name)
+  }
+}
+
+///|
+fn as_cast_actual_type_label(
+  value : Value,
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+) -> String {
+  match value {
+    FunctionValue(parameters, _, _, _, _) => "Function\{parameters.length()}"
+    _ =>
+      qualify_value_type_name(value, class_env, module_name_from_cache(cache))
+  }
+}
+
+///|
+fn as_cast_rejected_value_inline(value : Value) -> String {
+  match value {
+    FunctionValue(parameters, _, _, _, _) =>
+      "new Function\{parameters.length()} {}"
+    _ => render_pcf_value_inline(value)
+  }
+}
+
+///|
+fn render_unknown_listing_for_diag(elements : Array[Value]) -> String {
+  let buf = StringBuilder::new()
+  if elements.length() == 0 {
+    return "new Listing {}"
+  }
+  buf.write_string("new Listing { ")
+  for i = 0; i < elements.length(); i = i + 1 {
+    if i > 0 {
+      buf.write_string("; ")
+    }
+    buf.write_string("?")
+  }
+  buf.write_string(" }")
+  buf.to_string()
+}
+
+///|
+fn as_cast_rejected_value_for_type_inline(
+  display_type : String,
+  value : Value,
+) -> String {
+  let expected_head = type_annotation_collection_head(display_type, [])
+  match (expected_head, value) {
+    (Some("Mapping"), ListingValue(elements))
+    | (Some("Mapping"), DefaultedListingValue(_, elements, _)) =>
+      render_unknown_listing_for_diag(elements)
+    _ => as_cast_rejected_value_inline(value)
+  }
+}
+
+///|
+fn as_cast_type_mismatch_message(
+  display_type : String,
+  value : Value,
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+) -> String {
+  let diag_name = as_cast_type_label(display_type)
+  if value is NullValue {
+    "Expected value of type `\{diag_name}`, but got `null`."
+  } else {
+    "Expected value of type `\{diag_name}`, but got type `\{as_cast_actual_type_label(value, class_env, cache)}`. Value: \{as_cast_rejected_value_for_type_inline(display_type, value)}"
+  }
+}
+
+///|
+fn render_collection_union_rejection_value(value : Value) -> String {
+  match value {
+    ListingValue(elements) | DefaultedListingValue(_, elements, _) =>
+      render_listing_union_rejection_value(elements)
+    MappingValue(entries) | DefaultedMappingValue(_, entries, _) => {
+      let buf = StringBuilder::new()
+      buf.write_string("new Mapping { ")
+      for i = 0; i < entries.length(); i = i + 1 {
+        if i > 0 {
+          buf.write_string("; ")
+        }
+        buf.write_string("[")
+        buf.write_string(render_pcf_value_inline(entries[i].key))
+        buf.write_string("] = ")
+        if i == 0 && deferred_error_message(entries[i].value) is None {
+          buf.write_string(render_pcf_value_inline(entries[i].value))
+        } else {
+          buf.write_string("?")
+        }
+      }
+      buf.write_string(" }")
+      buf.to_string()
+    }
+    _ => render_pcf_value_inline(value)
+  }
+}
+
+///|
+fn as_cast_collection_union_mismatch_message(
+  display_type : String,
+  value : Value,
+) -> String {
+  "Expected value of type `\{pretty_listing_union_type_name(display_type)}`, but got a different `\{eval_value_type_name(value)}`. Value: \{render_collection_union_rejection_value(value)}"
+}
+
+///|
+fn cast_list_like_value_to_type(
+  head : String,
+  element_type : String,
+  value : Value,
+  eager_elements : Bool,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> TypeCastResult {
+  let apply_elements = fn(elements : Array[Value]) -> Array[Value] {
+    apply_typed_listing_elements(
+      element_type, elements, bindings, env, class_env, cache, stack, declarations,
+      resolve_import,
+    )
+  }
+  match (head, value) {
+    ("List", ListValue(elements)) => {
+      let checked = apply_elements(elements)
+      match first_top_level_deferred_error_message(checked) {
+        Some(message) => TypeCastErr(message)
+        None => TypeCastOk(ListValue(checked))
+      }
+    }
+    ("Set", SetValue(elements)) => {
+      let checked = apply_elements(elements)
+      match first_top_level_deferred_error_message(checked) {
+        Some(message) => TypeCastErr(message)
+        None => TypeCastOk(SetValue(checked))
+      }
+    }
+    ("Listing", ListingValue(elements)) => {
+      let checked = apply_elements(elements)
+      if eager_elements {
+        match first_deferred_error_message(ListingValue(checked)) {
+          Some(message) => return TypeCastErr(message)
+          None => ()
+        }
+      }
+      TypeCastOk(ListingValue(checked))
+    }
+    ("Listing", DefaultedListingValue(raw, elements, default_value)) => {
+      let checked_raw = apply_elements(raw)
+      let checked_elements = apply_elements(elements)
+      if eager_elements {
+        match
+          first_deferred_error_message(
+            DefaultedListingValue(checked_raw, checked_elements, default_value),
+          ) {
+          Some(message) => return TypeCastErr(message)
+          None => ()
+        }
+      }
+      TypeCastOk(
+        DefaultedListingValue(checked_raw, checked_elements, default_value),
+      )
+    }
+    ("Collection", ListValue(elements)) => {
+      let checked = apply_elements(elements)
+      match first_top_level_deferred_error_message(checked) {
+        Some(message) => TypeCastErr(message)
+        None => TypeCastOk(ListValue(checked))
+      }
+    }
+    ("Collection", SetValue(elements)) => {
+      let checked = apply_elements(elements)
+      match first_top_level_deferred_error_message(checked) {
+        Some(message) => TypeCastErr(message)
+        None => TypeCastOk(SetValue(checked))
+      }
+    }
+    ("Collection", ListingValue(elements)) => {
+      let checked = apply_elements(elements)
+      if eager_elements {
+        match first_deferred_error_message(ListingValue(checked)) {
+          Some(message) => return TypeCastErr(message)
+          None => ()
+        }
+      }
+      TypeCastOk(ListingValue(checked))
+    }
+    ("Collection", DefaultedListingValue(raw, elements, default_value)) => {
+      let checked_raw = apply_elements(raw)
+      let checked_elements = apply_elements(elements)
+      if eager_elements {
+        match
+          first_deferred_error_message(
+            DefaultedListingValue(checked_raw, checked_elements, default_value),
+          ) {
+          Some(message) => return TypeCastErr(message)
+          None => ()
+        }
+      }
+      TypeCastOk(
+        DefaultedListingValue(checked_raw, checked_elements, default_value),
+      )
+    }
+    _ => TypeCastOk(value)
+  }
+}
+
+///|
+fn cast_mapping_like_value_to_type(
+  head : String,
+  key_type : String,
+  value_type : String,
+  value : Value,
+  eager_values : Bool,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> TypeCastResult {
+  let check_entries = fn(entries : Array[ValueEntry]) -> Array[ValueEntry] {
+    apply_typed_collection_entries(
+      key_type, value_type, entries, bindings, env, class_env, cache, stack, declarations,
+      resolve_import,
+    )
+  }
+  match (head, value) {
+    ("Map", MapValue(entries)) => {
+      let checked = check_entries(entries)
+      match first_top_level_deferred_entry_key_message(checked) {
+        Some(message) => return TypeCastErr(message)
+        None => ()
+      }
+      match first_top_level_deferred_entry_value_message(checked) {
+        Some(message) => TypeCastErr(message)
+        None => TypeCastOk(MapValue(checked))
+      }
+    }
+    ("Mapping", MappingValue(entries)) => {
+      let checked = check_entries(entries)
+      match first_top_level_deferred_entry_key_message(checked) {
+        Some(message) => return TypeCastErr(message)
+        None => ()
+      }
+      if eager_values {
+        match first_deferred_error_message(MappingValue(checked)) {
+          Some(message) => return TypeCastErr(message)
+          None => ()
+        }
+      }
+      TypeCastOk(MappingValue(checked))
+    }
+    ("Mapping", DefaultedMappingValue(raw, entries, default_value)) => {
+      let checked_raw = check_entries(raw)
+      let checked_entries = check_entries(entries)
+      match first_top_level_deferred_entry_key_message(checked_entries) {
+        Some(message) => return TypeCastErr(message)
+        None => ()
+      }
+      if eager_values {
+        match
+          first_deferred_error_message(
+            DefaultedMappingValue(checked_raw, checked_entries, default_value),
+          ) {
+          Some(message) => return TypeCastErr(message)
+          None => ()
+        }
+      }
+      TypeCastOk(
+        DefaultedMappingValue(checked_raw, checked_entries, default_value),
+      )
+    }
+    _ => TypeCastOk(value)
+  }
+}
+
+///|
+fn cast_value_to_single_type_annotation(
+  display_type : String,
+  resolved_type : String,
+  value : Value,
+  union_context : Bool,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> TypeCastResult {
+  let trimmed = pkl_strip_default_type_marker(
+    pkl_constraint_trim(resolved_type),
+  )
+  if trimmed.has_suffix("?") {
+    if value is NullValue {
+      return TypeCastOk(value)
+    }
+    let inner = String::unsafe_substring(
+      trimmed,
+      start=0,
+      end=trimmed.length() - 1,
+    )
+    return cast_value_to_single_type_annotation(
+      display_type, inner, value, union_context, bindings, env, class_env, cache,
+      stack, declarations, resolve_import,
+    )
+  }
+  match function_type_arity(trimmed) {
+    Some(arity) =>
+      return match value {
+        FunctionValue(parameters, _, _, _, _) if parameters.length() == arity =>
+          TypeCastOk(value)
+        _ =>
+          TypeCastErr(
+            as_cast_type_mismatch_message(display_type, value, class_env, cache),
+          )
+      }
+    None => ()
+  }
+  if type_annotation_is_string_literal(trimmed) {
+    let literal = String::unsafe_substring(
+      trimmed,
+      start=1,
+      end=trimmed.length() - 1,
+    )
+    return match value {
+      StringValue(s) if s == literal => TypeCastOk(value)
+      StringValue(s) =>
+        TypeCastErr(
+          "Expected value of type `\{display_type}`, but got `\"\{s}\"`.",
+        )
+      _ =>
+        TypeCastErr(
+          as_cast_type_mismatch_message(display_type, value, class_env, cache),
+        )
+    }
+  }
+  let base = match pkl_constrained_type_base_name(trimmed) {
+    Some(b) => b
+    None => trimmed
+  }
+  let head = match base.find("<") {
+    Some(idx) => String::unsafe_substring(base, start=0, end=idx)
+    None => base
+  }
+  if head == "BaseValueRenderer" ||
+    head == "ValueRenderer" ||
+    head == "RenderDirective" ||
+    renderer_format_for_class_name(head) is Some(_) {
+    if !eval_value_accepts_type_annotation(head, value) {
+      return TypeCastErr(
+        as_cast_type_mismatch_message(display_type, value, class_env, cache),
+      )
+    }
+    return TypeCastOk(value)
+  }
+  if !eval_value_matches_bare_type(head, value, class_env) &&
+    !value_satisfies_user_class_annotation(head, value, declarations) {
+    return TypeCastErr(
+      as_cast_type_mismatch_message(display_type, value, class_env, cache),
+    )
+  }
+  match collection_element_type_from_annotation(trimmed, declarations) {
+    Some(element_type) =>
+      return cast_list_like_value_to_type(
+        head, element_type, value, union_context, bindings, env, class_env, cache,
+        stack, declarations, resolve_import,
+      )
+    None => ()
+  }
+  match mapping_entry_types_from_annotation(trimmed, declarations) {
+    Some((key_type, value_type)) =>
+      return cast_mapping_like_value_to_type(
+        head, key_type, value_type, value, union_context, bindings, env, class_env,
+        cache, stack, declarations, resolve_import,
+      )
+    None => ()
+  }
+  match
+    eval_callable_argument_rejection_message(
+      Some(resolved_type),
+      value,
+      declarations,
+    ) {
+    Some(message) => return TypeCastErr(message)
+    None => ()
+  }
+  match
+    eval_callable_runtime_constraint_message(
+      Some(resolved_type),
+      value,
+      bindings,
+      class_env,
+      env,
+      stack,
+      declarations,
+      resolve_import,
+    ) {
+    Some(message) => TypeCastErr(message)
+    None => TypeCastOk(value)
+  }
+}
+
+///|
+fn cast_value_to_type_annotation(
+  display_type : String,
+  value : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> TypeCastResult {
+  let aliases = eval_type_alias_bindings(declarations)
+  let resolved = eval_resolved_type_alias(display_type, aliases)
+  let choices = split_top_level_union_choices(resolved)
+  if choices.length() > 1 {
+    for choice in choices {
+      match
+        cast_value_to_single_type_annotation(
+          pkl_constraint_trim(choice),
+          pkl_constraint_trim(choice),
+          value,
+          true,
+          bindings,
+          env,
+          class_env,
+          cache,
+          stack,
+          declarations,
+          resolve_import,
+        ) {
+        TypeCastOk(casted) => return TypeCastOk(casted)
+        TypeCastErr(_) => ()
+      }
+    }
+    if union_choices_are_string_literals(choices) {
+      match value {
+        StringValue(s) =>
+          return TypeCastErr(
+            "Expected value of type `\{display_type}`, but got `\"\{s}\"`.",
+          )
+        _ => ()
+      }
+    }
+    let mut collection_union = false
+    for choice in choices {
+      match type_annotation_collection_head(choice, declarations) {
+        Some(_) => collection_union = true
+        None => ()
+      }
+    }
+    if collection_union {
+      return TypeCastErr(
+        as_cast_collection_union_mismatch_message(display_type, value),
+      )
+    }
+    return TypeCastErr(
+      as_cast_type_mismatch_message(display_type, value, class_env, cache),
+    )
+  }
+  cast_value_to_single_type_annotation(
+    display_type, resolved, value, false, bindings, env, class_env, cache, stack,
+    declarations, resolve_import,
+  )
 }
 
 ///|
@@ -1716,12 +2503,16 @@ fn eval_expr_with_bindings(
       }
     }
     ListingLiteral(elements) => {
+      let collection_bindings = bindings_with_listing_locals(elements, bindings)
       // PKL-152: a Listing body that picked up a bracket-key entry
       // (`new Listing { [0] = true }`) carries a synthetic call to
       // `@__listing_index_entry`. Pure construction can't index into
       // a non-existent element, so raise Apple Pkl's "Element index
       // out of range" diagnostic immediately.
       for element in elements {
+        if collection_local_binding_from_expr(element) is Some(_) {
+          continue
+        }
         if collection_default_expr_from_listing_element(element) is Some(_) {
           continue
         }
@@ -1739,7 +2530,7 @@ fn eval_expr_with_bindings(
               match
                 eval_expr_with_bindings(
                   idx_args[0],
-                  bindings,
+                  collection_bindings,
                   env,
                   class_env,
                   cache,
@@ -1762,10 +2553,13 @@ fn eval_expr_with_bindings(
       }
       let mut default_value : Value? = None
       for element in elements {
+        if collection_local_binding_from_expr(element) is Some(_) {
+          continue
+        }
         match collection_default_expr_from_listing_element(element) {
           Some(default_expr) =>
             default_value = eval_collection_default_expr(
-              default_expr, bindings, env, class_env, cache, stack, declarations,
+              default_expr, collection_bindings, env, class_env, cache, stack, declarations,
               diagnostics, resolve_import,
             )
           None => ()
@@ -1774,6 +2568,9 @@ fn eval_expr_with_bindings(
       let raw_values : Array[Value] = []
       let values : Array[Value] = []
       for element in elements {
+        if collection_local_binding_from_expr(element) is Some(_) {
+          continue
+        }
         if collection_default_expr_from_listing_element(element) is Some(_) {
           continue
         }
@@ -1792,8 +2589,8 @@ fn eval_expr_with_bindings(
             )
             match
               eval_expr_with_bindings(
-                inner, bindings, body_env, class_env, body_cache, stack, declarations,
-                diagnostics, resolve_import,
+                inner, collection_bindings, body_env, class_env, body_cache, stack,
+                declarations, diagnostics, resolve_import,
               ) {
               Some(value) =>
                 if !append_listing_spread_value(
@@ -1819,7 +2616,7 @@ fn eval_expr_with_bindings(
                 element,
                 IntValue(raw_values.length().to_int64()),
                 default_value,
-                bindings,
+                collection_bindings,
                 body_env,
                 class_env,
                 body_cache,
@@ -1853,12 +2650,16 @@ fn eval_expr_with_bindings(
       }
     }
     MappingLiteral(entries) => {
+      let collection_bindings = bindings_with_mapping_locals(entries, bindings)
       // PKL-152: a Mapping body that picked up a bare-expression
       // element (`new Mapping { "pigeon" }`) carries an `@element$`
       // sentinel key. Raise Apple Pkl's "cannot have an element"
       // wording before the entries get rendered.
       let mut mapping_when_seen = false
       for entry in entries {
+        if collection_local_binding_from_expr(entry.key) is Some(_) {
+          continue
+        }
         if collection_default_expr_from_mapping_entry(entry) is Some(_) {
           continue
         }
@@ -1881,10 +2682,13 @@ fn eval_expr_with_bindings(
       }
       let mut default_value : Value? = None
       for entry in entries {
+        if collection_local_binding_from_expr(entry.key) is Some(_) {
+          continue
+        }
         match collection_default_expr_from_mapping_entry(entry) {
           Some(default_expr) =>
             default_value = eval_collection_default_expr(
-              default_expr, bindings, env, class_env, cache, stack, declarations,
+              default_expr, collection_bindings, env, class_env, cache, stack, declarations,
               diagnostics, resolve_import,
             )
           None => ()
@@ -1894,6 +2698,9 @@ fn eval_expr_with_bindings(
       let values : Array[ValueEntry] = []
       let mut duplicate_emitted = false
       for entry in entries {
+        if collection_local_binding_from_expr(entry.key) is Some(_) {
+          continue
+        }
         if collection_default_expr_from_mapping_entry(entry) is Some(_) {
           continue
         }
@@ -1912,8 +2719,8 @@ fn eval_expr_with_bindings(
             )
             match
               eval_expr_with_bindings(
-                inner, bindings, body_env, class_env, body_cache, stack, declarations,
-                diagnostics, resolve_import,
+                inner, collection_bindings, body_env, class_env, body_cache, stack,
+                declarations, diagnostics, resolve_import,
               ) {
               Some(value) =>
                 if !append_mapping_spread_value(
@@ -1935,7 +2742,7 @@ fn eval_expr_with_bindings(
             )
             let key = eval_expr_with_bindings(
               entry.key,
-              bindings,
+              collection_bindings,
               body_env,
               class_env,
               body_cache,
@@ -1950,7 +2757,7 @@ fn eval_expr_with_bindings(
                   entry.value,
                   k,
                   default_value,
-                  bindings,
+                  collection_bindings,
                   body_env,
                   class_env,
                   body_cache,
@@ -2401,14 +3208,17 @@ fn eval_expr_with_bindings(
                   diagnostics.push(diag("Set.first is empty"))
                   None
                 } else {
-                  Some(elements[0])
+                  value_or_deferred_diagnostic(elements[0], diagnostics)
                 }
               "last" =>
                 if elements.length() == 0 {
                   diagnostics.push(diag("Set.last is empty"))
                   None
                 } else {
-                  Some(elements[elements.length() - 1])
+                  value_or_deferred_diagnostic(
+                    elements[elements.length() - 1],
+                    diagnostics,
+                  )
                 }
               "distinct" => Some(SetValue(elements))
               _ => {
@@ -2634,7 +3444,14 @@ fn eval_expr_with_bindings(
         (Some(MappingValue(entries)), Some(key_value))
         | (Some(DefaultedMappingValue(_, entries, _)), Some(key_value)) =>
           match lookup_entry(entries, key_value) {
-            Some(value) => Some(value)
+            Some(value) =>
+              match deferred_error_message(value) {
+                Some(message) => {
+                  diagnostics.push(diag(message))
+                  None
+                }
+                None => Some(value)
+              }
             None => {
               diagnostics.push(
                 diag("Cannot find key `\{render_pcf_value_inline(key_value)}`."),
@@ -4676,11 +5493,8 @@ fn eval_expr_with_bindings(
                     Some(b) => b
                     None => type_name
                   }
-                  let user_class_match = if value is ObjectValue(_) {
-                    if lookup_class_binding(class_env, base_for_user_check)
-                      is Some(_) {
-                      true
-                    } else if lookup_value(env, base_for_user_check)
+                  let named_module_match = if value is ObjectValue(_) {
+                    if lookup_value(env, base_for_user_check)
                       is Some(ObjectValue(_)) ||
                       lookup_value(cache, base_for_user_check)
                       is Some(ObjectValue(_)) {
@@ -4726,7 +5540,13 @@ fn eval_expr_with_bindings(
                       ),
                     )
                   }
-                  if !value_is_type(value, type_name) && !user_class_match {
+                  if base_for_user_check == "Module" {
+                    return Some(BoolValue(left_expr is Identifier("module")))
+                  }
+                  let typed_match = eval_value_matches_type_annotation(
+                    type_name, value, class_env, declarations,
+                  )
+                  if !typed_match && !named_module_match {
                     return Some(BoolValue(false))
                   }
                   // PKL-148bb: if the type carries a predicate
@@ -4786,54 +5606,26 @@ fn eval_expr_with_bindings(
         // already verified the assignment-compatibility statically; at
         // runtime we just need to ensure the value matches the
         // annotation and surface a diagnostic otherwise. The cast is
-        // shape-preserving (no coercion / widening).
+        // shape-preserving (no coercion / widening), but collection
+        // casts may carry deferred element diagnostics.
         As => {
           let value_opt = eval_expr_with_bindings(
             left_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
             resolve_import,
           )
           match (value_opt, right_expr) {
-            (Some(value), Identifier(type_name)) => {
-              let aliases = eval_type_alias_bindings(declarations)
-              let resolved = eval_resolved_type_alias(type_name, aliases)
-              // PKL-150 / PKL-148at: shape-preserving cast — the
-              // `eval_value_accepts_type_annotation` cascade now
-              // handles unions (`Int|String`), nullables (`T?`),
-              // generic heads (`Listing<Int>` → strip to `Listing`),
-              // string-literal singletons (`"Pigeon"`), and the
-              // constrained shape (`Foo(...)`) uniformly, so the
-              // As eval no longer needs to do the head strip itself.
-              // user_class_annotation is a separate fallback for
-              // user-declared class names that the cascade doesn't
-              // recognise. The diagnostic still quotes the surface
-              // name so user-facing messages preserve the original
-              // annotation text.
-              let user_class_head = match
-                pkl_constrained_type_base_name(resolved) {
-                Some(base) => base
-                None => resolved
-              }
-              let user_class_head = match user_class_head.find("<") {
-                Some(idx) =>
-                  String::unsafe_substring(user_class_head, start=0, end=idx)
-                None => user_class_head
-              }
-              if eval_value_accepts_type_annotation(resolved, value) ||
-                value_satisfies_user_class_annotation(
-                  user_class_head, value, declarations,
+            (Some(value), Identifier(type_name)) =>
+              match
+                cast_value_to_type_annotation(
+                  type_name, value, bindings, env, class_env, cache, stack, declarations,
+                  resolve_import,
                 ) {
-                return Some(value)
-              } else {
-                let diag_name = rejection_type_label(type_name)
-                let message = if value is NullValue {
-                  "Expected value of type `\{diag_name}`, but got `null`."
-                } else {
-                  "Expected value of type `\{diag_name}`, but got type `\{eval_value_type_name(value)}`. Value: \{render_pcf_value_inline(value)}"
+                TypeCastOk(casted) => return Some(casted)
+                TypeCastErr(message) => {
+                  diagnostics.push(diag(message))
+                  return None
                 }
-                diagnostics.push(diag(message))
-                return None
               }
-            }
             (None, _) => return None
             _ => {
               diagnostics.push(
@@ -7667,9 +8459,9 @@ fn eval_object_members_with_options(
             let key = eval_expr_with_bindings(
               args[0],
               local_bindings,
-              env,
+              local_env,
               class_env,
-              cache,
+              cache_for_nested_object_value(field.value, cache, values),
               stack,
               declarations,
               diagnostics,
@@ -7678,9 +8470,9 @@ fn eval_object_members_with_options(
             let val = eval_expr_with_bindings(
               args[1],
               local_bindings,
-              env,
+              local_env,
               class_env,
-              cache,
+              cache_for_nested_object_value(field.value, cache, values),
               stack,
               declarations,
               diagnostics,
@@ -7709,9 +8501,9 @@ fn eval_object_members_with_options(
         eval_expr_with_bindings(
           field.value,
           local_bindings,
-          env,
+          local_env,
           class_env,
-          cache,
+          cache_for_nested_object_value(field.value, cache, values),
           stack,
           declarations,
           diagnostics,

@@ -102,22 +102,31 @@ fn infer_expr_with_bindings(
       apply_type_annotation(Some(type_name), inferred, type_env, diagnostics)
     }
     ListingLiteral(elements) => {
+      let collection_bindings = bindings_with_listing_locals(elements, bindings)
       let item_types : Array[Type] = []
       for element in elements {
+        if collection_local_binding_from_expr(element) is Some(_) {
+          continue
+        }
         item_types.push(
           infer_expr_with_bindings(
-            element, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+            element, collection_bindings, env, type_env, cache, stack, diagnostics,
+            resolve_import,
           ),
         )
       }
       ListingType(item_types)
     }
     MappingLiteral(entries) => {
+      let collection_bindings = bindings_with_mapping_locals(entries, bindings)
       let entry_types : Array[TypeEntry] = []
       for entry in entries {
+        if collection_local_binding_from_expr(entry.key) is Some(_) {
+          continue
+        }
         let key = infer_expr_with_bindings(
           entry.key,
-          bindings,
+          collection_bindings,
           env,
           type_env,
           cache,
@@ -127,7 +136,7 @@ fn infer_expr_with_bindings(
         )
         let value = infer_expr_with_bindings(
           entry.value,
-          bindings,
+          collection_bindings,
           env,
           type_env,
           cache,

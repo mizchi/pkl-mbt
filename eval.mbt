@@ -434,23 +434,42 @@ fn double_trunc(x : Double) -> Double {
 }
 
 ///|
-// PKL-114: classify a Value against a type annotation text. Used by
-// the `is` operator at runtime. Supports the same surface the
-// typechecker's `type_from_annotation` accepts: union (`String | Int`),
-// nullable (`Float?`), constrained (`Int(isPositive)`), and generic
-// (`Listing<Int>` / `Mapping<String, Int>`). User-defined class names
-// fall through to `false` for now — that gap matches PKL-114's
-// "extension" scope and leaves class-instance dispatch for a later
-// slice once the evaluator carries class tags on ObjectValue.
-fn value_is_type(value : Value, type_name : String) -> Bool {
-  let trimmed = pkl_constraint_trim(type_name)
+/// Runtime matcher for the `is` operator. This checks generic collection
+/// arguments and user-class tags; unlike the assignment/callable rejection
+/// helpers, unions succeed when any branch fully matches.
+fn eval_value_matches_type_annotation(
+  type_name : String,
+  value : Value,
+  class_env : Array[ClassBinding],
+  declarations : Array[Declaration],
+) -> Bool {
+  let aliases = eval_type_alias_bindings(declarations)
+  let resolved = eval_resolved_type_alias(type_name, aliases)
+  eval_value_matches_resolved_type_annotation(
+    pkl_constraint_trim(resolved),
+    value,
+    class_env,
+    declarations,
+  )
+}
+
+///|
+fn eval_value_matches_resolved_type_annotation(
+  type_name : String,
+  value : Value,
+  class_env : Array[ClassBinding],
+  declarations : Array[Declaration],
+) -> Bool {
+  let trimmed = pkl_strip_default_type_marker(pkl_constraint_trim(type_name))
   if trimmed == "" {
     return false
   }
-  let union_choices = split_top_level_union_choices(trimmed)
-  if union_choices.length() > 1 {
-    for choice in union_choices {
-      if value_is_type(value, choice) {
+  let choices = split_top_level_union_choices(trimmed)
+  if choices.length() > 1 {
+    for choice in choices {
+      if eval_value_matches_type_annotation(
+          choice, value, class_env, declarations,
+        ) {
         return true
       }
     }
@@ -465,94 +484,337 @@ fn value_is_type(value : Value, type_name : String) -> Bool {
       start=0,
       end=trimmed.length() - 1,
     )
-    return value_is_type(value, inner)
+    return eval_value_matches_type_annotation(
+      inner, value, class_env, declarations,
+    )
   }
-  match pkl_constrained_type_base_name(trimmed) {
-    Some(base) => return value_is_type(value, base)
-    None => ()
-  }
-  match generic_argument_text(trimmed, "Listing") {
-    Some(_) =>
+  match function_type_arity(trimmed) {
+    Some(arity) =>
       return match value {
-        ListingValue(_) | DefaultedListingValue(_, _, _) => true
+        FunctionValue(parameters, _, _, _, _) => parameters.length() == arity
         _ => false
       }
     None => ()
   }
-  match generic_argument_text(trimmed, "Mapping") {
-    Some(_) =>
+  if trimmed.length() >= 2 &&
+    trimmed.has_prefix("\"") &&
+    trimmed.has_suffix("\"") {
+    let literal = String::unsafe_substring(
+      trimmed,
+      start=1,
+      end=trimmed.length() - 1,
+    )
+    return value is StringValue(s) && s == literal
+  }
+  let base = match pkl_constrained_type_base_name(trimmed) {
+    Some(b) => b
+    None => trimmed
+  }
+  match
+    eval_value_matches_generic_type_annotation(
+      base, value, class_env, declarations,
+    ) {
+    Some(ok) => return ok && eval_value_satisfies_constraint(trimmed, value)
+    None => ()
+  }
+  if !eval_value_matches_bare_type(base, value, class_env) {
+    return false
+  }
+  eval_value_satisfies_constraint(trimmed, value)
+}
+
+///|
+fn eval_value_matches_generic_type_annotation(
+  type_name : String,
+  value : Value,
+  class_env : Array[ClassBinding],
+  declarations : Array[Declaration],
+) -> Bool? {
+  match generic_argument_text(type_name, "List") {
+    Some(element_type) =>
       return match value {
-        MappingValue(_) | DefaultedMappingValue(_, _, _) => true
-        _ => false
+        ListValue(elements) =>
+          Some(
+            eval_all_elements_match_type(
+              elements, element_type, class_env, declarations,
+            ),
+          )
+        _ => Some(false)
       }
     None => ()
   }
-  match trimmed {
-    "Int" =>
-      match value {
-        IntValue(_) => true
-        _ => false
+  match generic_argument_text(type_name, "Set") {
+    Some(element_type) =>
+      return match value {
+        SetValue(elements) =>
+          Some(
+            eval_all_elements_match_type(
+              elements, element_type, class_env, declarations,
+            ),
+          )
+        _ => Some(false)
       }
-    "Float" =>
-      match value {
-        FloatValue(_) => true
-        _ => false
+    None => ()
+  }
+  match generic_argument_text(type_name, "Listing") {
+    Some(element_type) =>
+      return match value {
+        ListingValue(elements) | DefaultedListingValue(_, elements, _) =>
+          Some(
+            eval_all_elements_match_type(
+              elements, element_type, class_env, declarations,
+            ),
+          )
+        _ => Some(false)
       }
-    "Number" =>
-      match value {
-        IntValue(_) | FloatValue(_) => true
-        _ => false
+    None => ()
+  }
+  match generic_argument_text(type_name, "Collection") {
+    Some(element_type) =>
+      return match value {
+        ListValue(elements) | SetValue(elements) =>
+          Some(
+            eval_all_elements_match_type(
+              elements, element_type, class_env, declarations,
+            ),
+          )
+        _ => Some(false)
       }
-    "String" =>
-      match value {
-        StringValue(_) => true
-        _ => false
+    None => ()
+  }
+  match generic_argument_text(type_name, "Map") {
+    Some(inner) =>
+      return match value {
+        MapValue(entries) =>
+          Some(
+            eval_all_entries_match_type(entries, inner, class_env, declarations),
+          )
+        _ => Some(false)
       }
-    "Boolean" | "Bool" =>
-      match value {
-        BoolValue(_) => true
-        _ => false
+    None => ()
+  }
+  match generic_argument_text(type_name, "Mapping") {
+    Some(inner) =>
+      return match value {
+        MappingValue(entries) | DefaultedMappingValue(_, entries, _) =>
+          Some(
+            eval_all_entries_match_type(entries, inner, class_env, declarations),
+          )
+        _ => Some(false)
       }
-    "Null" =>
-      match value {
-        NullValue => true
-        _ => false
+    None => ()
+  }
+  match generic_argument_text(type_name, "Pair") {
+    Some(inner) => {
+      let parts = split_top_level_generic_arguments(inner)
+      if parts.length() != 2 {
+        return Some(false)
       }
+      return match value {
+        PairValue(first, second) =>
+          Some(
+            eval_value_matches_type_annotation(
+              parts[0],
+              first,
+              class_env,
+              declarations,
+            ) &&
+            eval_value_matches_type_annotation(
+              parts[1],
+              second,
+              class_env,
+              declarations,
+            ),
+          )
+        _ => Some(false)
+      }
+    }
+    None => ()
+  }
+  None
+}
+
+///|
+fn eval_all_elements_match_type(
+  elements : Array[Value],
+  element_type : String,
+  class_env : Array[ClassBinding],
+  declarations : Array[Declaration],
+) -> Bool {
+  for element in elements {
+    if !eval_value_matches_type_annotation(
+        element_type, element, class_env, declarations,
+      ) {
+      return false
+    }
+  }
+  true
+}
+
+///|
+fn eval_all_entries_match_type(
+  entries : Array[ValueEntry],
+  inner : String,
+  class_env : Array[ClassBinding],
+  declarations : Array[Declaration],
+) -> Bool {
+  let parts = split_top_level_generic_arguments(inner)
+  if parts.length() != 2 {
+    return false
+  }
+  let key_type = parts[0]
+  let value_type = parts[1]
+  for entry in entries {
+    if !eval_value_matches_type_annotation(
+        key_type,
+        entry.key,
+        class_env,
+        declarations,
+      ) ||
+      !eval_value_matches_type_annotation(
+        value_type,
+        entry.value,
+        class_env,
+        declarations,
+      ) {
+      return false
+    }
+  }
+  true
+}
+
+///|
+fn eval_value_matches_bare_type(
+  type_name : String,
+  value : Value,
+  class_env : Array[ClassBinding],
+) -> Bool {
+  match type_name {
+    "Any" | "unknown" => true
+    "Int" => value is IntValue(_)
+    "Float" => value is FloatValue(_)
+    "Number" => value is IntValue(_) || value is FloatValue(_)
+    "String" => value is StringValue(_)
+    "Boolean" | "Bool" => value is BoolValue(_)
+    "Null" => value is NullValue
+    "Duration" => value is DurationValue(_, _)
+    "DataSize" => value is DataSizeValue(_, _)
+    "Regex" => value is RegexValue(_)
+    "Bytes" => value is BytesValue(_)
+    "List" => value is ListValue(_)
+    "Set" => value is SetValue(_)
+    "Collection" => value is ListValue(_) || value is SetValue(_)
+    "Map" => value is MapValue(_)
     "Listing" =>
-      match value {
-        ListingValue(_) | DefaultedListingValue(_, _, _) => true
-        _ => false
-      }
+      value is ListingValue(_) || value is DefaultedListingValue(_, _, _)
     "Mapping" =>
+      value is MappingValue(_) || value is DefaultedMappingValue(_, _, _)
+    "Pair" => value is PairValue(_, _)
+    "IntSeq" => value is IntSeqValue(_, _, _)
+    "Object" | "Dynamic" | "Typed" => value is ObjectValue(_)
+    "Class" =>
       match value {
-        MappingValue(_) | DefaultedMappingValue(_, _, _) => true
+        ObjectValue(members) => reflect_kind(members) is Some("Class")
         _ => false
       }
-    "Object" =>
-      match value {
-        ObjectValue(_) => true
-        _ => false
+    "Function" => value is FunctionValue(_, _, _, _, _)
+    _ =>
+      match function_arity_from_type_name(type_name) {
+        Some(arity) =>
+          match value {
+            FunctionValue(parameters, _, _, _, _) =>
+              parameters.length() == arity
+            _ => false
+          }
+        None => eval_value_matches_user_class_tag(type_name, value, class_env)
       }
-    "Dynamic" =>
-      match value {
-        ObjectValue(_) => true
-        _ => false
+  }
+}
+
+///|
+fn eval_value_matches_user_class_tag(
+  type_name : String,
+  value : Value,
+  class_env : Array[ClassBinding],
+) -> Bool {
+  match value {
+    ObjectValue(members) =>
+      match find_object_class_tag(members) {
+        Some(tag) => {
+          let chain = class_chain_for_tag(tag, class_env)
+          for ancestor in chain {
+            if name_matches_class_tag(type_name, ancestor) {
+              return true
+            }
+          }
+          false
+        }
+        None =>
+          eval_untagged_object_matches_class_shape(
+            members, type_name, class_env,
+          )
       }
-    // PKL-148bh: `module` is the enclosing-module type — every
-    // ObjectValue satisfies it structurally, matching how Apple Pkl
-    // treats the annotation in types/currentModuleType*.
-    "module" =>
-      match value {
-        ObjectValue(_) => true
-        _ => false
-      }
-    // PKL-148bh: `unknown` is Apple Pkl's wildcard type — accepts
-    // every runtime value (basic/newInAmendingModuleMethod's
-    // `function parrot(): unknown`).
-    "unknown" => true
-    "Any" => true
     _ => false
   }
+}
+
+///|
+fn eval_untagged_object_matches_class_shape(
+  members : Array[ValueMember],
+  type_name : String,
+  class_env : Array[ClassBinding],
+) -> Bool {
+  let declared : Array[String] = []
+  collect_class_property_names(declared, type_name, class_env)
+  if declared.length() == 0 {
+    return false
+  }
+  for name in declared {
+    if lookup_member(members, name) is None {
+      return false
+    }
+  }
+  true
+}
+
+///|
+fn function_arity_from_type_name(type_name : String) -> Int? {
+  if !type_name.has_prefix("Function") {
+    return None
+  }
+  if type_name == "Function" {
+    return None
+  }
+  let suffix = String::unsafe_substring(
+    type_name,
+    start="Function".length(),
+    end=type_name.length(),
+  )
+  parse_nonnegative_int(suffix)
+}
+
+///|
+fn eval_value_satisfies_constraint(type_name : String, value : Value) -> Bool {
+  pkl_constrained_type_annotation_value_rejection_message_from_source(
+    type_name, type_name, value,
+  )
+  is None
+}
+
+///|
+fn parse_nonnegative_int(text : String) -> Int? {
+  if text == "" {
+    return None
+  }
+  let mut value = 0
+  for i = 0; i < text.length(); i = i + 1 {
+    let c = text[i].to_int().unsafe_to_char()
+    if c < '0' || c > '9' {
+      return None
+    }
+    value = value * 10 + c.to_int() - '0'.to_int()
+  }
+  Some(value)
 }
 
 ///|

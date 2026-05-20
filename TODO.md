@@ -1,21 +1,62 @@
 # Release TODO
 
-Current coverage: 271 / 391 PCF gold-match (69.3%).
+Current coverage: 275 / 391 PCF gold-match (70.3%).
+Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-05-21.
 
 Release focus:
 
-- `basic`: 66 PASS / 20 DIFF
+- `basic`: 70 PASS / 16 DIFF
 - `generators`: 14 PASS / 7 DIFF
 
 Planned order:
 
-1. Priority 4: Spread And Predicate Member Semantics
-2. Priority 5: Generic `as` / `is` / Typed Collection Retention
+1. Done: Priority 4: Spread And Predicate Member Semantics
+2. Next: Priority 5: Generic `as` / `is` / Typed Collection Retention
 3. Priority 1: Numeric And Bytes Parity
 4. Priority 2: Resource And Glob Host Surface
 5. Priority 3: Shape-Aware Object Body Evaluation
 
 Priority 6 is deferred unless it becomes a direct blocker for one of the above slices.
+
+## Current DIFF Snapshot
+
+Measured from the release binary against Apple Pkl LanguageSnippetTests gold files.
+
+`basic` remaining DIFFs:
+
+- `basic/amendsChains`
+- `basic/as`
+- `basic/bytes`
+- `basic/constModifier`
+- `basic/dataSize`
+- `basic/duration`
+- `basic/float`
+- `basic/importGlob`
+- `basic/int`
+- `basic/map`
+- `basic/new`
+- `basic/newType`
+- `basic/nullable`
+- `basic/read`
+- `basic/readGlob`
+- `basic/underscore`
+
+`generators` remaining DIFFs:
+
+- `generators/elementGenerators`
+- `generators/elementGeneratorsTyped`
+- `generators/entryGenerators`
+- `generators/entryGeneratorsTyped`
+- `generators/forGeneratorInFunctionBody`
+- `generators/forGeneratorInMixins`
+- `generators/forGeneratorLexicalScope`
+
+Adjacent typed-collection DIFFs worth pulling into Priority 5:
+
+- `listings/typeCheck`
+- `listings2/typeCheck`
+- `mappings/typeCheck`
+- `mappings2/typeCheck`
 
 ## Priority 1: Numeric And Bytes Parity
 
@@ -81,6 +122,8 @@ Target fixtures:
 - `generators/elementGeneratorsTyped`
 - `generators/entryGenerators`
 - `generators/entryGeneratorsTyped`
+- `generators/forGeneratorInFunctionBody`
+- `generators/forGeneratorInMixins`
 - `generators/forGeneratorLexicalScope`
 - `basic/underscore`
 - Some of `basic/amendsChains`
@@ -106,7 +149,7 @@ Main dependencies:
 
 ## Priority 4: Spread And Predicate Member Semantics
 
-Depends on shape-aware body evaluation.
+Status: completed by targeted member-kind preservation for predicate members and spread syntax. The broader member-stream redesign remains Priority 3.
 
 Completed in this slice:
 
@@ -118,47 +161,50 @@ Completed in this slice:
 - `generators/spreadSyntaxListing`
 - `generators/spreadSyntaxMapping`
 
-Target fixtures:
+Completed work:
 
-- Some of `basic/amendsChains`
-
-Required work:
-
-- Make `...x` target-aware:
+- Made `...x` target-aware:
   - Listing accepts elements only.
   - Mapping accepts entries only.
   - Dynamic accepts properties, elements, and entries while preserving kind and order.
-- Emit Apple-compatible diagnostics for spreading wrong member kinds.
-- Detect duplicate entries / properties during spread and amend.
-- Make `[[ pred ]] { ... }` filter Listing / Mapping / Dynamic members with correct `this`, key, and value binding.
-- Preserve member source through chained amends.
+- Emitted Apple-compatible diagnostics for spreading wrong member kinds.
+- Made `[[ pred ]] { ... }` filter Listing / Mapping / Dynamic members with correct `this`, key, and value binding for the upstream generator fixtures.
+- Preserved enough member source through generated predicate / spread bodies to gold-match the seven targeted fixtures.
 
 Main dependencies:
 
-- Priority 3 member-stream model.
-- Duplicate detection that understands property names and entry keys separately.
+- Full duplicate detection that understands property names and entry keys separately is still a follow-up if it appears in a non-gold fixture or user report.
 - Existing predicate-member machinery in `eval_amend.mbt`.
 
 ## Priority 5: Generic `as` / `is` / Typed Collection Retention
 
 Important for both `basic` and typed generator fixtures. Medium-to-large design surface.
 
+Completed in this slice:
+
+- `basic/is`
+- `basic/is2`
+- `basic/as2`
+- `basic/as3`
+
+Implemented work:
+
+- Added a deep runtime matcher for `is` that checks strict collection classes, generic collection elements, string-literal branches, nullable / union branches, function arity, Class mirrors, and user-class tags / inherited class tags.
+- Fixed parenthesized `is Map<K, V>` parsing so commas inside generic angle brackets do not turn `!(...)` into `UnsupportedExpr`.
+- Added generic `as` cast overlays for `List`, `Set`, `Map`, `Listing`, and `Mapping`; immutable collections validate eagerly while `Listing` / `Mapping` preserve deferred element / value errors until access.
+- Preserved lazy collection-local bindings in Listing / Mapping bodies so earlier dynamic elements are not invalidated by later unused locals, and collection-local `local x` shadows module cache during eval and type resolution.
+- Kept renderer-class casts compatible with `ValueRenderer` so `api/pcfRenderer9` remains gold-match.
+
 Target fixtures:
 
 - `basic/as`
-- `basic/as2`
-- `basic/as3`
-- `basic/is`
-- `basic/is2`
 - `basic/new`
 - `basic/newType`
 - typed generator fixtures
 
 Required work:
 
-- Preserve type overlays from casts such as `x as Listing<String>` until element access.
-- Apply collection element / key / value constraints lazily on access.
-- Extend overlay support consistently across `List`, `Set`, `Map`, `Listing`, and `Mapping`.
+- Close the remaining `basic/as` edge cases that are not covered by `basic/as2` / `basic/as3`.
 - Improve `is` for generic collection types and constrained types.
 - Stabilize object class identity for user classes, reflect `Class`, and diagnostics.
 - Represent function type arity in diagnostics (`Function1`, `Function2`) where Apple Pkl expects it.
@@ -169,7 +215,7 @@ Main dependencies:
 - Collection type-overlay design.
 - Class tag / reflect class consistency.
 - Callable type metadata.
-- Some Priority 3/4 work for typed generated bodies.
+- Some Priority 3 work for typed generated bodies.
 
 ## Priority 6: `outer` And Const Provenance
 
@@ -194,17 +240,17 @@ Main dependencies:
 - Binding/function metadata carrying `const`.
 - Import/module snapshot support for const access across modules.
 
-## Existing Open Issues To Reconcile
+## Issue Sync
 
-- #4 Lazy local evaluation: still important, but current `basic` / `generators` DIFF list is not primarily blocked by it.
+- #4 Lazy local evaluation: implemented through the local-scope fixture slice and closed as completed.
 - #6 XML / Protobuf renderer bodies: release blocker for API renderer parity, separate from `basic` / `generators`.
 - #8 Umbrella practical blockers: update after each release slice.
 - #1 Stdlib module evaluation gaps: relevant for long-term stdlib parity, especially external declarations, variance, and `pkl:` module loading.
 
 ## Suggested Release Path
 
-1. Start with Priority 4. Extract only the minimal member-stream support needed for spread and predicate members instead of doing the full Priority 3 redesign first.
-2. Move to Priority 5 while typed generated bodies and collection overlays are fresh.
-3. Then take Priority 1 for lower-risk `basic` scalar wins.
-4. Follow with Priority 2 for host/resource parity.
-5. Finish with the broader Priority 3 evaluator redesign once the smaller generator semantics have forced the required shape.
+1. Start Priority 5 while typed generated bodies and collection overlays are fresh.
+2. Take Priority 1 for lower-risk `basic` scalar wins.
+3. Follow with Priority 2 for host/resource parity.
+4. Finish with the broader Priority 3 evaluator redesign once the smaller generator semantics have forced the required shape.
+5. Keep Priority 6 deferred unless `outer` / const provenance blocks a chosen fixture directly.

@@ -414,13 +414,16 @@ fn eval_set_method(
       if elements.length() == 0 {
         Some(NullValue)
       } else {
-        Some(elements[0])
+        value_or_deferred_diagnostic(elements[0], diagnostics)
       }
     "lastOrNull" =>
       if elements.length() == 0 {
         Some(NullValue)
       } else {
-        Some(elements[elements.length() - 1])
+        value_or_deferred_diagnostic(
+          elements[elements.length() - 1],
+          diagnostics,
+        )
       }
     "every" | "any" | "none" => {
       if arg_values.length() != 1 {

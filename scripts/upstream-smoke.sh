@@ -216,6 +216,8 @@ GOLD_FIXTURES=(
   "mappings/mapping2"
   "mappings2/mapping2"
   "mappings2/wrongParent"
+  "basic/as2"
+  "basic/as3"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output

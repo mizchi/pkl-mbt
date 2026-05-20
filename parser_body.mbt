@@ -20,32 +20,29 @@ fn Parser::parse_listing_body(self : Parser) -> Expr {
       items.push({
         kind: ElementItem,
         name: "",
+        type_name: None,
         value: self.parse_listing_when(),
       })
     } else if self.at_local_function_decl() {
       match self.parse_local_function_binding_expr() {
         Some((name, value)) =>
-          items.push({ kind: LocalBindingItem, name, value })
+          items.push({ kind: LocalBindingItem, name, type_name: None, value })
         None => ()
       }
     } else if self.at(local_kw()) {
       match self.parse_local_decl() {
-        Some(binding) =>
-          // PKL-148bg: `local x: SomeClass = new { ... }` inside a
-          // Listing body. The desugar below drops the type annotation
-          // (the binding becomes a positional lambda parameter), so
-          // promote a bare `new { ... }` to `new SomeClass { ... }`
-          // here while the annotation is still in hand. Eval-time
-          // TypedObjectLiteral handling no-ops gracefully when the
-          // name isn't actually a class.
+        Some(binding) => {
+          let (value, type_name) = collection_local_binding_value_and_type(
+            binding.value,
+            binding.type_name,
+          )
           items.push({
             kind: LocalBindingItem,
             name: binding.name,
-            value: rewrite_typed_object_literal(
-              binding.value,
-              binding.type_name,
-            ),
+            type_name,
+            value,
           })
+        }
         None => ()
       }
     } else if self.at_triple_dot() {
@@ -53,7 +50,12 @@ fn Parser::parse_listing_body(self : Parser) -> Expr {
       // payload in `WhenSpread(...)` so the listing evaluator's
       // existing spread-flatten path picks it up.
       let payload = self.parse_spread_payload()
-      items.push({ kind: ElementItem, name: "", value: WhenSpread(payload) })
+      items.push({
+        kind: ElementItem,
+        name: "",
+        type_name: None,
+        value: WhenSpread(payload),
+      })
     } else if self.at(lbracket()) {
       // PKL-152: a bracket-key entry inside `new Listing { ... }` only
       // makes sense as an amendment (`(listing) { [0] = value }`).
@@ -77,6 +79,7 @@ fn Parser::parse_listing_body(self : Parser) -> Expr {
       items.push({
         kind: ElementItem,
         name: "",
+        type_name: None,
         value: CallExpr(Identifier("@__listing_index_entry"), [key_expr]),
       })
     } else if self.at(identifier()) && self.peek().text() == "default" {
@@ -85,6 +88,7 @@ fn Parser::parse_listing_body(self : Parser) -> Expr {
           items.push({
             kind: ElementItem,
             name: "",
+            type_name: None,
             value: CallExpr(Identifier(collection_default_marker_name()), [
               default_expr,
             ]),
@@ -95,11 +99,17 @@ fn Parser::parse_listing_body(self : Parser) -> Expr {
       items.push({
         kind: ElementItem,
         name: "",
+        type_name: None,
         value: CallExpr(Identifier("@__listing_property_entry"), []),
       })
       self.skip_unknown_member()
     } else {
-      items.push({ kind: ElementItem, name: "", value: self.parse_expr() })
+      items.push({
+        kind: ElementItem,
+        name: "",
+        type_name: None,
+        value: self.parse_expr(),
+      })
     }
     self.consume_separators()
   }
@@ -132,32 +142,17 @@ fn Parser::parse_collection_default_expr(self : Parser) -> Expr? {
 }
 
 ///|
-/// PKL-148bg: promote a bare `new { ... }` (ObjectLiteral) whose
-/// binding declared a user-class annotation into the typed form
-/// (`new SomeClass { ... }` / TypedObjectLiteral). The Listing /
-/// Mapping body desugar pipelines drop the type annotation while
-/// chaining locals into `let`-style lambdas, so the typed dispatch
-/// (class defaults, `hidden` rename, constraint firing) never ran
-/// for these otherwise. The eval-time TypedObjectLiteral handler
-/// no-ops gracefully when the supposed class name doesn't resolve.
-fn rewrite_typed_object_literal(value : Expr, type_name : String?) -> Expr {
-  match (value, type_name) {
-    (_, Some(name)) if collection_annotation_uses_listing_marker(name) =>
-      CallExpr(Identifier("@__typed_listing"), [StringLiteral(name), value])
-    (ObjectLiteral(members), Some(name)) =>
-      // Only rewrite when the annotation looks like a plain class name
-      // — generic parameters / unions / function shapes keep the
-      // original ObjectLiteral so the existing handling stays intact.
-      if name.contains("<") ||
-        name.contains("|") ||
-        name.contains("(") ||
-        name.contains("?") {
-        value
-      } else {
-        TypedObjectLiteral(name, members)
-      }
-    _ => mark_lazy_collection_lambda_expr(value)
+fn collection_annotation_uses_listing_marker(name : String) -> Bool {
+  let trimmed = pkl_strip_default_type_marker(pkl_constraint_trim(name))
+  let unwrapped = if trimmed.has_suffix("?") {
+    String::unsafe_substring(trimmed, start=0, end=trimmed.length() - 1)
+  } else {
+    trimmed
   }
+  unwrapped.contains("Listing<") ||
+  unwrapped.contains("List<") ||
+  unwrapped.contains("Set<") ||
+  unwrapped.contains("Collection<")
 }
 
 ///|
@@ -182,17 +177,18 @@ fn mark_lazy_collection_lambda_expr(value : Expr) -> Expr {
 }
 
 ///|
-fn collection_annotation_uses_listing_marker(name : String) -> Bool {
-  let trimmed = pkl_strip_default_type_marker(pkl_constraint_trim(name))
-  let unwrapped = if trimmed.has_suffix("?") {
-    String::unsafe_substring(trimmed, start=0, end=trimmed.length() - 1)
-  } else {
-    trimmed
+fn collection_local_binding_value_and_type(
+  value : Expr,
+  type_name : String?,
+) -> (Expr, String?) {
+  match type_name {
+    Some(name) if collection_annotation_uses_listing_marker(name) =>
+      (
+        CallExpr(Identifier("@__typed_listing"), [StringLiteral(name), value]),
+        None,
+      )
+    _ => (mark_lazy_collection_lambda_expr(value), type_name)
   }
-  unwrapped.contains("Listing<") ||
-  unwrapped.contains("List<") ||
-  unwrapped.contains("Set<") ||
-  unwrapped.contains("Collection<")
 }
 
 ///|
@@ -261,69 +257,54 @@ priv enum ListingBodyItemKind {
 priv struct ListingBodyItem {
   kind : ListingBodyItemKind
   name : String
+  type_name : String?
   value : Expr
 }
 
 ///|
+fn collection_local_binding_marker_name() -> String {
+  "@__collection_local"
+}
+
+///|
+fn collection_local_binding_marker_expr(
+  name : String,
+  type_name : String?,
+  value : Expr,
+) -> Expr {
+  let type_expr = match type_name {
+    Some(t) => StringLiteral(t)
+    None => NullLiteral
+  }
+  CallExpr(Identifier(collection_local_binding_marker_name()), [
+    StringLiteral(name),
+    type_expr,
+    value,
+  ])
+}
+
+///|
 /// Desugar a Listing body that may contain `local NAME = EXPR`
-/// declarations into a `ListingLiteral` whose elements include
-/// `WhenSpread`-wrapped `let`-chains. The strategy is to walk the
-/// items in order: every `local` opens a fresh scope (a CallExpr to
-/// a LambdaExpr binding the name to the value) whose body is the
-/// recursively-desugared remainder; the resulting ListingValue gets
-/// spread back into the parent via WhenSpread so the binding stays
-/// transparent at render time.
+/// declarations into a `ListingLiteral` with synthetic local-binding
+/// markers. The evaluator scans those markers into lazy bindings before
+/// evaluating visible elements, so an unused bad local does not poison
+/// earlier elements while forward references can still resolve.
 fn build_listing_body(items : Array[ListingBodyItem]) -> Expr {
-  // PKL-148av: hoist every `local NAME = EXPR` to lexical scope so an
-  // element expression appearing *before* its corresponding `local`
-  // resolves through the binding (Apple Pkl's behaviour — locals are
-  // hoisted within the body, not strictly declared-before-use).
-  // Previously the chain walked items in order and only wrapped the
-  // tail of the body after each local, leaving leading elements
-  // outside the binding scope (`new Listing { x; local x = "one" }`
-  // surfaced `Cannot find property \`x\`.`). The new shape wraps each
-  // element expression in nested `((local) -> elem)(value)` calls so
-  // every element sees every local; the value site of each local
-  // itself still only sees the locals declared before it, matching
-  // standard `let` scoping.
-  let locals : Array[(String, Expr)] = []
   let elements : Array[Expr] = []
   for item in items {
     if item.kind == LocalBindingItem {
-      locals.push((item.name, item.value))
+      elements.push(
+        collection_local_binding_marker_expr(
+          item.name,
+          item.type_name,
+          item.value,
+        ),
+      )
     } else {
       elements.push(item.value)
     }
   }
-  if locals.length() == 0 {
-    return ListingLiteral(elements)
-  }
-  let wrapped_elements : Array[Expr] = []
-  for el in elements {
-    // Preserve the `WhenSpread(inner)` shape for `when`-branch and
-    // spread elements so the listing evaluator's spread-flatten path
-    // still picks them up — wrap the inner expression in the local
-    // bindings instead of swapping the WhenSpread for a raw CallExpr.
-    let (raw, restore_when_spread) = match el {
-      WhenSpread(inner) => (inner, true)
-      _ => (el, false)
-    }
-    let mut wrapped = raw
-    for i = locals.length() - 1; i >= 0; i = i - 1 {
-      let (name, value) = locals[i]
-      wrapped = CallExpr(
-        LambdaExpr([{ name, type_name: None }], wrapped, None),
-        [value],
-      )
-    }
-    let final_el = if restore_when_spread {
-      WhenSpread(wrapped)
-    } else {
-      wrapped
-    }
-    wrapped_elements.push(final_el)
-  }
-  ListingLiteral(wrapped_elements)
+  ListingLiteral(elements)
 }
 
 ///|
@@ -356,7 +337,6 @@ fn Parser::parse_mapping_body(self : Parser) -> Expr {
   self.builder.start_node(mapping_expr())
   ignore(self.expect(lbrace(), "{"))
   let entries : Array[MappingEntry] = []
-  let locals : Array[(String, Expr)] = []
   self.consume_separators()
   while !self.at(eof()) && !self.at(rbrace()) {
     self.skip_member_header()
@@ -381,24 +361,34 @@ fn Parser::parse_mapping_body(self : Parser) -> Expr {
       }
     } else if self.at_local_function_decl() {
       match self.parse_local_function_binding_expr() {
-        Some((name, value)) => locals.push((name, value))
+        Some((name, value)) =>
+          entries.push({
+            key: collection_local_binding_marker_expr(name, None, value),
+            value: NullLiteral,
+          })
         None => ()
       }
     } else if self.at(local_kw()) {
       // PKL-148av: Apple Pkl allows `local NAME = EXPR` declarations
       // inside a Mapping body; the binding hoists to the body's
-      // lexical extent and the entry expressions can reference it
-      // (`new Mapping { ["k"] = x; local x = 1 }`). Capture each
-      // local and rewrite every entry key/value below with nested
-      // `((local) -> ...)(value)` calls so forward references work.
+      // lexical extent and the entry expressions can reference it.
+      // Store it as a synthetic entry that the evaluator scans into
+      // lazy bindings before evaluating visible entries.
       match self.parse_local_decl() {
-        Some(binding) =>
-          locals.push(
-            (
-              binding.name,
-              rewrite_typed_object_literal(binding.value, binding.type_name),
-            ),
+        Some(binding) => {
+          let (value, type_name) = collection_local_binding_value_and_type(
+            binding.value,
+            binding.type_name,
           )
+          entries.push({
+            key: collection_local_binding_marker_expr(
+              binding.name,
+              type_name,
+              value,
+            ),
+            value: NullLiteral,
+          })
+        }
         None => ()
       }
     } else if self.at(identifier()) && self.peek().text() == "default" {
@@ -444,30 +434,7 @@ fn Parser::parse_mapping_body(self : Parser) -> Expr {
   }
   ignore(self.expect(rbrace(), "}"))
   self.builder.finish_node()
-  if locals.length() == 0 {
-    return MappingLiteral(entries)
-  }
-  let wrap = fn(expr : Expr) {
-    let (raw, restore_when_spread) = match expr {
-      WhenSpread(inner) => (inner, true)
-      _ => (expr, false)
-    }
-    let mut w = raw
-    for i = locals.length() - 1; i >= 0; i = i - 1 {
-      let (name, value) = locals[i]
-      w = CallExpr(LambdaExpr([{ name, type_name: None }], w, None), [value])
-    }
-    if restore_when_spread {
-      WhenSpread(w)
-    } else {
-      w
-    }
-  }
-  let wrapped_entries : Array[MappingEntry] = []
-  for entry in entries {
-    wrapped_entries.push({ key: wrap(entry.key), value: wrap(entry.value) })
-  }
-  MappingLiteral(wrapped_entries)
+  MappingLiteral(entries)
 }
 
 ///|
