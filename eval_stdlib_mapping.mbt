@@ -142,7 +142,7 @@ fn value_to_string_for_join(v : Value) -> String {
       "new Function\{parameters.length()} {}"
     _ => {
       let buf = StringBuilder::new()
-      render_pcf_inline(v, 0, buf)
+      render_pcf_inline(v, 0, false, buf)
       buf.to_string()
     }
   }
@@ -658,7 +658,7 @@ fn eval_set_method(
             }
             match elements[i] {
               StringValue(s) => buf.write_string(s)
-              other => render_pcf_inline(other, 0, buf)
+              other => render_pcf_inline(other, 0, false, buf)
             }
           }
           Some(StringValue(buf.to_string()))

@@ -221,7 +221,7 @@ fn plist_coerce_key(value : Value) -> String {
     NullValue => "null"
     _ => {
       let buf = StringBuilder::new()
-      render_pcf_inline(value, 0, buf)
+      render_pcf_inline(value, 0, false, buf)
       buf.to_string()
     }
   }

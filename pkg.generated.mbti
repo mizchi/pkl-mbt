@@ -47,9 +47,13 @@ pub fn render_value_as_pcf_document(Value) -> String
 
 pub fn render_value_as_pcf_document_with_indent(Value, String) -> String
 
+pub fn render_value_as_pcf_document_with_options(Value, String, Bool) -> String
+
 pub fn render_value_as_pcf_fragment(Value) -> String
 
 pub fn render_value_as_pcf_fragment_with_indent(Value, String) -> String
+
+pub fn render_value_as_pcf_fragment_with_options(Value, String, Bool) -> String
 
 pub fn render_value_as_plist(Value) -> String
 
@@ -76,6 +80,8 @@ pub fn render_value_as_yaml(Value) -> String
 pub fn render_value_as_yaml_fragment(Value) -> String
 
 pub fn render_value_with_pcf_indent(Value, String) -> String
+
+pub fn render_value_with_pcf_options(Value, String, Bool) -> String
 
 pub fn reset_sandbox_io_cache() -> Unit
 

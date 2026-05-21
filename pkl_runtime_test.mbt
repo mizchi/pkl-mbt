@@ -2794,6 +2794,28 @@ test "PKL-146: pkl:yaml.Parser.parse surfaces YAML parse errors as diagnostics" 
 }
 
 ///|
+test "PKL-146b: pkl:yaml.Parser.parseAll returns all documents" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:yaml\" as yaml\np = new yaml.Parser {}\nv = p.parseAll(\"---\\n123\\n---\\n---\\n456\\n\")",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("v = List(123, null, 456)"), content="true")
+}
+
+///|
+test "PKL-146b: pkl:yaml.Parser.parse rejects multiple documents" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:yaml\" as yaml\np = new yaml.Parser {}\nv = p.parse(\"---\\nname: pigeon\\n---\\nage: 42\\n\")",
+  )
+  guard session.eval_path("main.pkl") is EvalError(diagnostics) else { panic() }
+  let messages = diagnostics.iter().map(fn(d) { d.message }).collect()
+  inspect(messages[0], content="Error parsing YAML document.")
+}
+
+///|
 test "PKL-145: hidden class property survives lookup but skips render" {
   guard eval_source(
       "class Box {\n  value: Int\n  hidden marker: String = \"BoxMarker\"\n}\nb = new Box { value = 42 }\nm = b.marker",
@@ -2868,6 +2890,50 @@ test "PKL-144: pkl:json.Parser.parse surfaces parse errors as diagnostics" {
   let messages = diagnostics.iter().map(fn(d) { d.message }).collect()
   // PKL-148bb: matches Apple Pkl's fixed wording.
   inspect(messages[0], content="Error parsing JSON document.")
+}
+
+///|
+test "PKL-144b: pkl:json.Parser.parse applies parser converters bottom-up" {
+  let source =
+    #|import "pkl:json" as json
+    #|local parser = new json.Parser {
+    #|  converters {
+    #|    [String] = (it) -> it + "x"
+    #|    [Dynamic] = (it) -> (it) { other = "other" }
+    #|    [Listing] = (it) -> (it) { "other" }
+    #|  }
+    #|}
+    #|v = parser.parse("{\"name\":\"Alice\",\"items\":[\"one\"]}")
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("name = \"Alicex\""), content="true")
+  inspect(rendered.contains("\"onex\""), content="true")
+  inspect(rendered.contains("\"other\""), content="true")
+  inspect(rendered.contains("\"otherx\""), content="false")
+}
+
+///|
+test "PKL-144b: pkl:json.Parser.parse applies unanchored path converters" {
+  let source =
+    #|import "pkl:json" as json
+    #|local parser = new json.Parser {
+    #|  converters {
+    #|    ["^city"] = (_) -> "no match"
+    #|    ["state"] = (_) -> "CA"
+    #|    ["phoneNumber[*].type"] = (_) -> "mobile"
+    #|    ["phoneNumber[*]"] = (it) -> it.type
+    #|  }
+    #|}
+    #|v = parser.parse("{\"address\":{\"city\":\"New York\",\"state\":\"NY\"},\"phoneNumber\":[{\"type\":\"home\"}]}")
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("city = \"New York\""), content="true")
+  inspect(rendered.contains("state = \"CA\""), content="true")
+  inspect(rendered.contains("\"mobile\""), content="true")
 }
 
 ///|

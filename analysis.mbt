@@ -386,6 +386,7 @@ fn builtin_stdlib_source(uri : String) -> String? {
       let source =
         #|class Parser {
         #|  useMapping: Boolean = false
+        #|  converters: Any = new Mapping {}
         #|  hidden __kind: String = "JsonParser"
         #|}
         #|class Property extends ConvertProperty {
@@ -405,7 +406,10 @@ fn builtin_stdlib_source(uri : String) -> String? {
       // `pkl:base` re-export.
       let source =
         #|class Parser {
+        #|  mode: String = "compat"
         #|  useMapping: Boolean = false
+        #|  converters: Any = new Mapping {}
+        #|  maxCollectionAliases: Int = 50
         #|  hidden __kind: String = "YamlParser"
         #|}
         #|class Property {

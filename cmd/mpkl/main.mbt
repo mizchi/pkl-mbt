@@ -2235,8 +2235,12 @@ async fn main {
               println(trimmed)
             }
             "pcf" => {
-              let (_, indent_text, _) = xml_options
-              println(@pkl.render_value_with_pcf_indent(value, indent_text))
+              let (_, indent_text, _, use_custom_string_delimiters) = xml_options
+              println(
+                @pkl.render_value_with_pcf_options(
+                  value, indent_text, use_custom_string_delimiters,
+                ),
+              )
             }
             "plist" => {
               // PKL-126a: `render_value_as_plist` already terminates
@@ -2264,7 +2268,7 @@ async fn main {
               println(trimmed)
             }
             "xml" => {
-              let (root_name, indent_text, xml_version) = xml_options
+              let (root_name, indent_text, xml_version, _) = xml_options
               let xml = @pkl.render_value_as_xml_with_options(
                 value, root_name, indent_text, xml_version,
               )
@@ -2607,10 +2611,13 @@ fn renderer_format_from_class(class_name : String) -> String? {
 }
 
 ///|
-fn extract_xml_renderer_options(value : @pkl.Value) -> (String, String, String) {
+fn extract_xml_renderer_options(
+  value : @pkl.Value,
+) -> (String, String, String, Bool) {
   let mut root_name = "root"
   let mut indent_text = "  "
   let mut xml_version = "1.0"
+  let mut use_custom_string_delimiters = false
   match value {
     @pkl.ObjectValue(members) =>
       for entry in members {
@@ -2627,6 +2634,8 @@ fn extract_xml_renderer_options(value : @pkl.Value) -> (String, String, String) 
                             root_name = s
                           ("indent", @pkl.StringValue(s)) => indent_text = s
                           ("xmlVersion", @pkl.StringValue(s)) => xml_version = s
+                          ("useCustomStringDelimiters", @pkl.BoolValue(b)) =>
+                            use_custom_string_delimiters = b
                           _ => ()
                         }
                       }
@@ -2640,7 +2649,7 @@ fn extract_xml_renderer_options(value : @pkl.Value) -> (String, String, String) 
       }
     _ => ()
   }
-  (root_name, indent_text, xml_version)
+  (root_name, indent_text, xml_version, use_custom_string_delimiters)
 }
 
 ///|

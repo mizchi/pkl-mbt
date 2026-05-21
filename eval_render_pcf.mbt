@@ -1,12 +1,21 @@
 ///|
 pub fn render_value(value : Value) -> String {
+  render_value_with_custom_string_delimiters(value, false)
+}
+
+///|
+fn render_value_with_custom_string_delimiters(
+  value : Value,
+  use_custom_string_delimiters : Bool,
+) -> String {
   let buf = StringBuilder::new()
   if deferred_error_message(value) is Some(_) {
     return "?"
   }
   match value {
-    ObjectValue(members) => render_pcf_module(members, buf)
-    _ => render_pcf_inline(value, 0, buf)
+    ObjectValue(members) =>
+      render_pcf_module(members, use_custom_string_delimiters, buf)
+    _ => render_pcf_inline(value, 0, use_custom_string_delimiters, buf)
   }
   buf.to_string()
 }
@@ -17,6 +26,20 @@ pub fn render_value_with_pcf_indent(
   indent_text : String,
 ) -> String {
   pcf_apply_indent_text(render_value(value), indent_text)
+}
+
+///|
+pub fn render_value_with_pcf_options(
+  value : Value,
+  indent_text : String,
+  use_custom_string_delimiters : Bool,
+) -> String {
+  pcf_apply_indent_text(
+    render_value_with_custom_string_delimiters(
+      value, use_custom_string_delimiters,
+    ),
+    indent_text,
+  )
 }
 
 ///|
@@ -33,7 +56,30 @@ pub fn render_value_as_pcf_document_with_indent(
 }
 
 ///|
+pub fn render_value_as_pcf_document_with_options(
+  value : Value,
+  indent_text : String,
+  use_custom_string_delimiters : Bool,
+) -> String {
+  pcf_apply_indent_text(
+    render_value_with_custom_string_delimiters(
+      value, use_custom_string_delimiters,
+    ) +
+    "\n",
+    indent_text,
+  )
+}
+
+///|
 pub fn render_value_as_pcf_fragment(value : Value) -> String {
+  render_value_as_pcf_fragment_with_custom_string_delimiters(value, false)
+}
+
+///|
+fn render_value_as_pcf_fragment_with_custom_string_delimiters(
+  value : Value,
+  use_custom_string_delimiters : Bool,
+) -> String {
   let buf = StringBuilder::new()
   match value {
     ObjectValue(_)
@@ -41,8 +87,9 @@ pub fn render_value_as_pcf_fragment(value : Value) -> String {
     | DefaultedListingValue(_, _, _)
     | MappingValue(_)
     | DefaultedMappingValue(_, _, _)
-    | DeferredImportValue(_) => render_pcf_block_body(value, 0, buf)
-    _ => render_pcf_inline(value, 0, buf)
+    | DeferredImportValue(_) =>
+      render_pcf_block_body(value, 0, use_custom_string_delimiters, buf)
+    _ => render_pcf_inline(value, 0, use_custom_string_delimiters, buf)
   }
   buf.to_string()
 }
@@ -53,6 +100,20 @@ pub fn render_value_as_pcf_fragment_with_indent(
   indent_text : String,
 ) -> String {
   pcf_apply_indent_text(render_value_as_pcf_fragment(value), indent_text)
+}
+
+///|
+pub fn render_value_as_pcf_fragment_with_options(
+  value : Value,
+  indent_text : String,
+  use_custom_string_delimiters : Bool,
+) -> String {
+  pcf_apply_indent_text(
+    render_value_as_pcf_fragment_with_custom_string_delimiters(
+      value, use_custom_string_delimiters,
+    ),
+    indent_text,
+  )
 }
 
 ///|
@@ -329,7 +390,7 @@ fn render_small_decimal_float_scientific(s : String) -> String? {
 
 ///|
 fn render_pcf_scalar(value : Value, buf : StringBuilder) -> Unit {
-  render_pcf_scalar_with_indent(value, 0, buf)
+  render_pcf_scalar_with_indent(value, 0, false, buf)
 }
 
 ///|
@@ -344,6 +405,7 @@ fn render_pcf_scalar(value : Value, buf : StringBuilder) -> Unit {
 fn render_pcf_scalar_with_indent(
   value : Value,
   indent : Int,
+  use_custom_string_delimiters : Bool,
   buf : StringBuilder,
 ) -> Unit {
   if deferred_error_message(value) is Some(_) {
@@ -355,11 +417,8 @@ fn render_pcf_scalar_with_indent(
     FloatValue(d) => buf.write_string(render_float_text(d))
     BoolValue(true) => buf.write_string("true")
     BoolValue(false) => buf.write_string("false")
-    StringValue(s) => {
-      buf.write_char('"')
-      buf.write_string(escape_string(s))
-      buf.write_char('"')
-    }
+    StringValue(s) =>
+      render_pcf_string_value(s, indent, use_custom_string_delimiters, buf)
     NullValue => buf.write_string("null")
     DeferredImportValue(_) => buf.write_string("new {}")
     FunctionValue(_, _, _, _, _) => buf.write_string("<function>")
@@ -378,9 +437,9 @@ fn render_pcf_scalar_with_indent(
     // so nested composites stay valid PCF (`Pair(new { x = 1 }, 2)`).
     PairValue(first, second) => {
       buf.write_string("Pair(")
-      render_pcf_inline(first, indent, buf)
+      render_pcf_inline(first, indent, use_custom_string_delimiters, buf)
       buf.write_string(", ")
-      render_pcf_inline(second, indent, buf)
+      render_pcf_inline(second, indent, use_custom_string_delimiters, buf)
       buf.write_char(')')
     }
     // PKL-119b: PCF round-trips IntSeq through Apple Pkl's constructor
@@ -402,7 +461,12 @@ fn render_pcf_scalar_with_indent(
         if i > 0 {
           buf.write_string(", ")
         }
-        render_pcf_inline(elements[i], indent, buf)
+        render_pcf_inline(
+          elements[i],
+          indent,
+          use_custom_string_delimiters,
+          buf,
+        )
       }
       buf.write_char(')')
     }
@@ -417,7 +481,12 @@ fn render_pcf_scalar_with_indent(
         if i > 0 {
           buf.write_string(", ")
         }
-        render_pcf_inline(elements[i], indent, buf)
+        render_pcf_inline(
+          elements[i],
+          indent,
+          use_custom_string_delimiters,
+          buf,
+        )
       }
       buf.write_char(')')
     }
@@ -430,9 +499,19 @@ fn render_pcf_scalar_with_indent(
         if i > 0 {
           buf.write_string(", ")
         }
-        render_pcf_inline(entries[i].key, indent, buf)
+        render_pcf_inline(
+          entries[i].key,
+          indent,
+          use_custom_string_delimiters,
+          buf,
+        )
         buf.write_string(", ")
-        render_pcf_inline(entries[i].value, indent, buf)
+        render_pcf_inline(
+          entries[i].value,
+          indent,
+          use_custom_string_delimiters,
+          buf,
+        )
       }
       buf.write_char(')')
     }
@@ -444,16 +523,48 @@ fn render_pcf_scalar_with_indent(
       // Defensive: callers should route block values through
       // render_pcf_inline / render_pcf_block_body. Falling back keeps
       // diagnostics non-empty if we ever miss a case.
-      render_pcf_inline(value, 0, buf)
+      render_pcf_inline(value, 0, use_custom_string_delimiters, buf)
   }
 }
 
 ///|
-fn render_pcf_inline(value : Value, indent : Int, buf : StringBuilder) -> Unit {
+fn render_pcf_inline(
+  value : Value,
+  indent : Int,
+  use_custom_string_delimiters : Bool,
+  buf : StringBuilder,
+) -> Unit {
   if pcf_is_block_value(value) {
     buf.write_string("new ")
-    render_pcf_block_body(value, indent, buf)
-  } else if indent > 0 && value is StringValue(s) && s.contains("\n") {
+    render_pcf_block_body(value, indent, use_custom_string_delimiters, buf)
+  } else if value is StringValue(s) {
+    render_pcf_string_value(s, indent, use_custom_string_delimiters, buf)
+  } else {
+    match render_directive_text(value) {
+      Some(text) => buf.write_string(text)
+      None =>
+        render_pcf_scalar_with_indent(
+          value, indent, use_custom_string_delimiters, buf,
+        )
+    }
+  }
+}
+
+///|
+fn render_pcf_string_value(
+  s : String,
+  indent : Int,
+  use_custom_string_delimiters : Bool,
+  buf : StringBuilder,
+) -> Unit {
+  if use_custom_string_delimiters &&
+    pcf_should_use_custom_string_delimiters(s, indent > 0) {
+    if indent > 0 && s.contains("\n") {
+      render_pcf_raw_string_heredoc(s, indent, buf)
+    } else {
+      render_pcf_raw_string(s, buf)
+    }
+  } else if indent > 0 && s.contains("\n") {
     // PKL-148al: block-position StringValue with at least one newline
     // renders as a PCF triple-quoted heredoc. Apple Pkl emits the
     // opening `"""` on the current line, content lines at the same
@@ -463,10 +574,132 @@ fn render_pcf_inline(value : Value, indent : Int, buf : StringBuilder) -> Unit {
     // single-line escape form.
     render_pcf_string_heredoc(s, indent, buf)
   } else {
-    match render_directive_text(value) {
-      Some(text) => buf.write_string(text)
-      None => render_pcf_scalar_with_indent(value, indent, buf)
+    buf.write_char('"')
+    buf.write_string(escape_string(s))
+    buf.write_char('"')
+  }
+}
+
+///|
+fn pcf_should_use_custom_string_delimiters(
+  s : String,
+  block_position : Bool,
+) -> Bool {
+  let has_newline = s.contains("\n")
+  for c in s {
+    if c == '\\' {
+      return true
     }
+    if c == '"' && !has_newline {
+      return true
+    }
+  }
+  if block_position && has_newline && pcf_raw_heredoc_hash_count(s) > 1 {
+    return true
+  }
+  false
+}
+
+///|
+fn render_pcf_raw_string(s : String, buf : StringBuilder) -> Unit {
+  let hashes = pcf_raw_string_hash_count(s)
+  write_hashes(buf, hashes)
+  buf.write_char('"')
+  let mut i = 0
+  if s.length() >= 2 &&
+    s[0].to_int().unsafe_to_char() == '"' &&
+    s[1].to_int().unsafe_to_char() == '"' {
+    buf.write_char('"')
+    buf.write_char('\\')
+    write_hashes(buf, hashes)
+    buf.write_char('"')
+    i = 2
+  }
+  while i < s.length() {
+    buf.write_char(s[i].to_int().unsafe_to_char())
+    i = i + 1
+  }
+  buf.write_char('"')
+  write_hashes(buf, hashes)
+}
+
+///|
+fn render_pcf_raw_string_heredoc(
+  s : String,
+  indent : Int,
+  buf : StringBuilder,
+) -> Unit {
+  let hashes = pcf_raw_heredoc_hash_count(s)
+  write_hashes(buf, hashes)
+  buf.write_string("\"\"\"")
+  let parts = string_split_newline(s)
+  for i = 0; i < parts.length(); i = i + 1 {
+    buf.write_char('\n')
+    write_pcf_indent(buf, indent)
+    buf.write_string(parts[i])
+  }
+  buf.write_char('\n')
+  write_pcf_indent(buf, indent)
+  buf.write_string("\"\"\"")
+  write_hashes(buf, hashes)
+}
+
+///|
+fn pcf_raw_string_hash_count(s : String) -> Int {
+  pcf_hash_count_for_delimiters(s, false)
+}
+
+///|
+fn pcf_raw_heredoc_hash_count(s : String) -> Int {
+  pcf_hash_count_for_delimiters(s, true)
+}
+
+///|
+fn pcf_hash_count_for_delimiters(s : String, heredoc : Bool) -> Int {
+  let mut hashes = 1
+  let mut i = 0
+  while i < s.length() {
+    let c = s[i].to_int().unsafe_to_char()
+    if c == '\\' {
+      let run = count_hash_run(s, i + 1)
+      if run >= hashes {
+        hashes = run + 1
+      }
+    } else if c == '"' {
+      if heredoc {
+        if i + 2 < s.length() &&
+          s[i + 1].to_int().unsafe_to_char() == '"' &&
+          s[i + 2].to_int().unsafe_to_char() == '"' {
+          let run = count_hash_run(s, i + 3)
+          if run >= hashes {
+            hashes = run + 1
+          }
+        }
+      } else {
+        let run = count_hash_run(s, i + 1)
+        if run >= hashes {
+          hashes = run + 1
+        }
+      }
+    }
+    i = i + 1
+  }
+  hashes
+}
+
+///|
+fn count_hash_run(s : String, start : Int) -> Int {
+  let mut i = start
+  while i < s.length() && s[i].to_int().unsafe_to_char() == '#' {
+    i = i + 1
+  }
+  i - start
+}
+
+///|
+fn write_hashes(buf : StringBuilder, count : Int) -> Unit {
+  for i = 0; i < count; i = i + 1 {
+    buf.write_char('#')
   }
 }
 
@@ -542,6 +775,7 @@ fn string_split_newline(s : String) -> Array[String] {
 fn render_pcf_block_body(
   value : Value,
   indent : Int,
+  use_custom_string_delimiters : Bool,
   buf : StringBuilder,
 ) -> Unit {
   match value {
@@ -615,7 +849,12 @@ fn render_pcf_block_body(
           buf.write_char('\n')
         }
         write_pcf_indent(buf, indent + 2)
-        render_pcf_object_member(ordered[i], indent + 2, buf)
+        render_pcf_object_member(
+          ordered[i],
+          indent + 2,
+          use_custom_string_delimiters,
+          buf,
+        )
       }
       buf.write_char('\n')
       write_pcf_indent(buf, indent)
@@ -628,7 +867,12 @@ fn render_pcf_block_body(
           buf.write_char('\n')
         }
         write_pcf_indent(buf, indent + 2)
-        render_pcf_inline(elements[i], indent + 2, buf)
+        render_pcf_inline(
+          elements[i],
+          indent + 2,
+          use_custom_string_delimiters,
+          buf,
+        )
       }
       buf.write_char('\n')
       write_pcf_indent(buf, indent)
@@ -641,13 +885,21 @@ fn render_pcf_block_body(
           buf.write_char('\n')
         }
         write_pcf_indent(buf, indent + 2)
-        render_pcf_mapping_entry(entries[i], indent + 2, buf)
+        render_pcf_mapping_entry(
+          entries[i],
+          indent + 2,
+          use_custom_string_delimiters,
+          buf,
+        )
       }
       buf.write_char('\n')
       write_pcf_indent(buf, indent)
       buf.write_char('}')
     }
-    _ => render_pcf_scalar_with_indent(value, indent, buf)
+    _ =>
+      render_pcf_scalar_with_indent(
+        value, indent, use_custom_string_delimiters, buf,
+      )
   }
 }
 
@@ -655,6 +907,7 @@ fn render_pcf_block_body(
 fn render_pcf_object_member(
   field : ValueMember,
   indent : Int,
+  use_custom_string_delimiters : Bool,
   buf : StringBuilder,
 ) -> Unit {
   // PKL-148x: Dynamic-shape sentinel members render specially.
@@ -666,7 +919,7 @@ fn render_pcf_object_member(
     // Use the `render_pcf_inline` form so nested ObjectValue / Listing
     // / Mapping elements pick up the `new ` prefix (`new { ... }`),
     // matching Apple Pkl's PCF projection of unnamed Dynamic elements.
-    render_pcf_inline(field.value, indent, buf)
+    render_pcf_inline(field.value, indent, use_custom_string_delimiters, buf)
     return
   }
   if field.name.has_prefix("@subscript$") {
@@ -679,14 +932,18 @@ fn render_pcf_object_member(
           ) {
           (Some(k), Some(v)) => {
             buf.write_char('[')
-            render_pcf_inline(k, indent, buf)
+            render_pcf_inline(k, indent, use_custom_string_delimiters, buf)
             buf.write_char(']')
             if pcf_is_block_value(v) {
               buf.write_char(' ')
-              render_pcf_block_body(v, indent, buf)
+              render_pcf_block_body(
+                v, indent, use_custom_string_delimiters, buf,
+              )
             } else {
               buf.write_string(" = ")
-              render_pcf_scalar_with_indent(v, indent, buf)
+              render_pcf_scalar_with_indent(
+                v, indent, use_custom_string_delimiters, buf,
+              )
             }
           }
           _ => ()
@@ -695,7 +952,7 @@ fn render_pcf_object_member(
     }
     return
   }
-  buf.write_string(field.name)
+  render_pcf_member_name(field.name, buf)
   match render_directive_text(field.value) {
     Some(text) => {
       buf.write_char(' ')
@@ -706,37 +963,102 @@ fn render_pcf_object_member(
   }
   if pcf_is_block_value(field.value) {
     buf.write_char(' ')
-    render_pcf_block_body(field.value, indent, buf)
-  } else if field.value is StringValue(s) && s.contains("\n") {
-    // PKL-148al: property value with a multi-line string projects as
-    // a triple-quoted heredoc; opening `"""` follows the `= ` on the
-    // current line, content lines and closing live at `indent + 2`.
+    render_pcf_block_body(
+      field.value,
+      indent,
+      use_custom_string_delimiters,
+      buf,
+    )
+  } else if field.value is StringValue(s) {
     buf.write_string(" = ")
-    render_pcf_string_heredoc(s, indent + 2, buf)
+    render_pcf_string_value(s, indent + 2, use_custom_string_delimiters, buf)
   } else {
     buf.write_string(" = ")
-    render_pcf_scalar_with_indent(field.value, indent, buf)
+    render_pcf_scalar_with_indent(
+      field.value,
+      indent,
+      use_custom_string_delimiters,
+      buf,
+    )
   }
+}
+
+///|
+fn render_pcf_member_name(name : String, buf : StringBuilder) -> Unit {
+  if pcf_is_regular_identifier(name) {
+    buf.write_string(name)
+  } else {
+    buf.write_char('`')
+    for c in name {
+      if c == '`' || c == '\\' {
+        buf.write_char('\\')
+      }
+      buf.write_char(c)
+    }
+    buf.write_char('`')
+  }
+}
+
+///|
+fn pcf_is_regular_identifier(name : String) -> Bool {
+  if name.length() == 0 {
+    return false
+  }
+  let first = name[0].to_int().unsafe_to_char()
+  if !pcf_is_identifier_start(first) {
+    return false
+  }
+  for i = 1; i < name.length(); i = i + 1 {
+    let c = name[i].to_int().unsafe_to_char()
+    if !pcf_is_identifier_continue(c) {
+      return false
+    }
+  }
+  true
+}
+
+///|
+fn pcf_is_identifier_start(c : Char) -> Bool {
+  (c >= 'A' && c <= 'Z') ||
+  (c >= 'a' && c <= 'z') ||
+  c == '_' ||
+  c.to_int() >= 128
+}
+
+///|
+fn pcf_is_identifier_continue(c : Char) -> Bool {
+  pcf_is_identifier_start(c) || (c >= '0' && c <= '9')
 }
 
 ///|
 fn render_pcf_mapping_entry(
   entry : ValueEntry,
   indent : Int,
+  use_custom_string_delimiters : Bool,
   buf : StringBuilder,
 ) -> Unit {
   buf.write_char('[')
-  render_pcf_inline(entry.key, indent, buf)
+  render_pcf_inline(entry.key, indent, use_custom_string_delimiters, buf)
   buf.write_char(']')
   if pcf_is_block_value(entry.value) {
     buf.write_char(' ')
-    render_pcf_block_body(entry.value, indent, buf)
-  } else if entry.value is StringValue(s) && s.contains("\n") {
+    render_pcf_block_body(
+      entry.value,
+      indent,
+      use_custom_string_delimiters,
+      buf,
+    )
+  } else if entry.value is StringValue(s) {
     buf.write_string(" = ")
-    render_pcf_string_heredoc(s, indent + 2, buf)
+    render_pcf_string_value(s, indent + 2, use_custom_string_delimiters, buf)
   } else {
     buf.write_string(" = ")
-    render_pcf_scalar_with_indent(entry.value, indent, buf)
+    render_pcf_scalar_with_indent(
+      entry.value,
+      indent,
+      use_custom_string_delimiters,
+      buf,
+    )
   }
 }
 
@@ -779,7 +1101,11 @@ fn pcf_omit_null_properties(members : Array[ValueMember]) -> Bool {
 }
 
 ///|
-fn render_pcf_module(members : Array[ValueMember], buf : StringBuilder) -> Unit {
+fn render_pcf_module(
+  members : Array[ValueMember],
+  use_custom_string_delimiters : Bool,
+  buf : StringBuilder,
+) -> Unit {
   let omit_null = pcf_omit_null_properties(members)
   let visible = pcf_module_order_members(visible_members(members))
   let mut emitted = 0
@@ -797,7 +1123,7 @@ fn render_pcf_module(members : Array[ValueMember], buf : StringBuilder) -> Unit 
     if emitted > 0 {
       buf.write_char('\n')
     }
-    render_pcf_object_member(visible[i], 0, buf)
+    render_pcf_object_member(visible[i], 0, use_custom_string_delimiters, buf)
     emitted = emitted + 1
   }
 }

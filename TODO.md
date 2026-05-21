@@ -1,6 +1,6 @@
 # Release TODO
 
-Current coverage: 326 / 391 PCF gold-match (83.4%).
+Current coverage: 331 / 391 PCF gold-match (84.7%).
 Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-05-21.
 
 Release focus:
@@ -25,7 +25,7 @@ End-user blocker priority is based on "will a normal Pkl config author hit this?
 
 1. Resource / read / glob: file/resource access, `read*()`, and `import*` glob behavior are release blockers for multi-file configs and CLI usage.
 2. `for` / generators: completed for with-gold upstream fixtures. Keep this as a regression-sensitive area because real configs use list/map comprehensions and generated object bodies heavily.
-3. Renderer API surface: `api` has many DIFFs, but not all are equal. Treat public output formats as blockers only if we advertise them for this release. Keep `pcf` / `json` stable; renderer converter coverage now includes direct `renderDocument` / `renderValue` calls across PCF / JSON / YAML / plist / XML, PCF indent options, validation diagnostics for non-renderable values, XML class-keyed converters, path-keyed wildcard converters, direct CDATA/comment helpers, and `xml.Element` rename fixtures. Protobuf text currently covers the promoted `protobuf3.txtpb` path; decide whether the remaining XML / Protobuf diagnostics and inline formatting are release-supported or experimental.
+3. Renderer API surface: `api` has many DIFFs, but not all are equal. Treat public output formats as blockers only if we advertise them for this release. Keep `pcf` / `json` stable; renderer converter coverage now includes direct `renderDocument` / `renderValue` calls across PCF / JSON / YAML / plist / XML, PCF indent and custom string delimiter options, validation diagnostics for non-renderable values, XML class-keyed converters, path-keyed wildcard converters, direct CDATA/comment helpers, and `xml.Element` rename fixtures. JSON parser converters and YAML `parseAll` now gold-match their targeted fixtures. Protobuf text currently covers the promoted `protobuf3.txtpb` path; decide whether the remaining XML / Protobuf diagnostics and inline formatting are release-supported or experimental.
 4. Basic scalar / collection parity: `Bytes`, `DataSize`, `Duration`, `Int`, `Float`, `Map`, nullable, and `new` semantics are gold-matching for `basic`; remaining first-release scalar / collection gaps are long-tail `as` / const provenance cases.
 5. Deep stdlib / reflect parity: important for long-term compatibility, but not a first release blocker unless a public API or real package depends on it.
 

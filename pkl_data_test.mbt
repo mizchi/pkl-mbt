@@ -790,6 +790,32 @@ test "PKL-152b: PcfRenderer renderDocument honors indent option" {
 }
 
 ///|
+test "PKL-152c: PcfRenderer renderValue honors custom string delimiters" {
+  let source =
+    #|local renderer = new PcfRenderer {
+    #|  useCustomStringDelimiters = true
+    #|}
+    #|out = renderer.renderValue(new Dynamic {
+    #|  slashHash = "\\#"
+    #|  quoted = "\"AS IS\""
+    #|})
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut out_value : Value? = None
+  for entry in members {
+    if entry.name == "out" {
+      out_value = Some(entry.value)
+    }
+  }
+  guard out_value is Some(StringValue(out)) else { panic() }
+  inspect(out.contains("slashHash = ##\"\\#\"##"), content="true")
+  inspect(out.contains("quoted = #\"\"AS IS\"\"#"), content="true")
+}
+
+///|
 test "PKL-152b: Pair converter result is not recursively scalar-converted" {
   let source =
     #|local renderer = new PcfRenderer {

@@ -672,9 +672,9 @@ fn render_pcf_value_inline(value : Value) -> String {
       // (lambdas/pipeOperator's diagnostic for `Person`).
       match find_object_class_tag(members) {
         Some(class_name) => render_pcf_class_inline(class_name, members, buf)
-        None => render_pcf_inline(value, 0, buf)
+        None => render_pcf_inline(value, 0, false, buf)
       }
-    _ => render_pcf_inline(value, 0, buf)
+    _ => render_pcf_inline(value, 0, false, buf)
   }
   buf.to_string()
 }
@@ -748,7 +748,7 @@ fn render_pcf_value_inline_compact(
         buf.write_string(" }")
       }
     }
-    _ => render_pcf_inline(value, 0, buf)
+    _ => render_pcf_inline(value, 0, false, buf)
   }
   buf.to_string()
 }

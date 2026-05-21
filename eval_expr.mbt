@@ -5548,6 +5548,7 @@ fn eval_expr_with_bindings(
               method_name == "toBytes" ||
               method_name == "isSubclassOf" ||
               method_name == "parse" ||
+              method_name == "parseAll" ||
               method_name == "renderValue" ||
               method_name == "renderDocument" {
               match
@@ -5604,7 +5605,19 @@ fn eval_expr_with_bindings(
                           let use_mapping = parser_use_mapping(receiver_members)
                           try {
                             let parsed = @json.parse(source_text[:])
-                            Some(json_to_value(parsed, use_mapping))
+                            Some(
+                              apply_parser_converters(
+                                json_to_value(parsed, use_mapping),
+                                receiver_members,
+                                bindings,
+                                env,
+                                class_env,
+                                cache,
+                                declarations,
+                                diagnostics,
+                                resolve_import,
+                              ),
+                            )
                           } catch {
                             // PKL-148bb: Apple Pkl's `json.Parser.parse`
                             // surfaces a single fixed diagnostic for
@@ -5632,7 +5645,9 @@ fn eval_expr_with_bindings(
                         None => None
                       }
                     }
-                  } else if method_name == "parse" &&
+                  } else if (
+                      method_name == "parse" || method_name == "parseAll"
+                    ) &&
                     reflect_kind(receiver_members) is Some("YamlParser") {
                     // PKL-146: `<yaml.Parser>.parse(source)` routes
                     // through `@yaml.Yaml::load_from_string` and
@@ -5644,7 +5659,7 @@ fn eval_expr_with_bindings(
                     if arguments.length() != 1 {
                       diagnostics.push(
                         diag(
-                          "yaml.Parser.parse expects 1 argument, got \{arguments.length()}",
+                          "yaml.Parser.\{method_name} expects 1 argument, got \{arguments.length()}",
                         ),
                       )
                       None
@@ -5667,10 +5682,57 @@ fn eval_expr_with_bindings(
                             let docs = @yaml.Yaml::load_from_string(
                               source_text[:],
                             )
-                            if docs.length() == 0 {
-                              Some(NullValue)
+                            if method_name == "parseAll" {
+                              let elements : Array[Value] = []
+                              for doc in docs {
+                                elements.push(
+                                  apply_parser_converters(
+                                    yaml_to_value(doc, use_mapping),
+                                    receiver_members,
+                                    bindings,
+                                    env,
+                                    class_env,
+                                    cache,
+                                    declarations,
+                                    diagnostics,
+                                    resolve_import,
+                                  ),
+                                )
+                              }
+                              Some(ListValue(elements))
+                            } else if docs.length() == 0 {
+                              Some(
+                                apply_parser_converters(
+                                  NullValue,
+                                  receiver_members,
+                                  bindings,
+                                  env,
+                                  class_env,
+                                  cache,
+                                  declarations,
+                                  diagnostics,
+                                  resolve_import,
+                                ),
+                              )
+                            } else if docs.length() > 1 {
+                              diagnostics.push(
+                                diag("Error parsing YAML document."),
+                              )
+                              None
                             } else {
-                              Some(yaml_to_value(docs[0], use_mapping))
+                              Some(
+                                apply_parser_converters(
+                                  yaml_to_value(docs[0], use_mapping),
+                                  receiver_members,
+                                  bindings,
+                                  env,
+                                  class_env,
+                                  cache,
+                                  declarations,
+                                  diagnostics,
+                                  resolve_import,
+                                ),
+                              )
                             }
                           } catch {
                             // PKL-148bb: match Apple Pkl's fixed wording.
@@ -5684,7 +5746,9 @@ fn eval_expr_with_bindings(
                         }
                         Some(_) => {
                           diagnostics.push(
-                            diag("yaml.Parser.parse expects a String argument"),
+                            diag(
+                              "yaml.Parser.\{method_name} expects a String argument",
+                            ),
                           )
                           None
                         }
@@ -8718,19 +8782,22 @@ fn eval_value_renderer_method(
           let indent_text = xml_renderer_option(
             renderer_members, "indent", "  ",
           )
+          let use_custom_string_delimiters = renderer_bool_option(
+            renderer_members, "useCustomStringDelimiters", false,
+          )
           if method_name == "renderDocument" {
             Some(
               StringValue(
-                render_value_as_pcf_document_with_indent(
-                  rendered_value, indent_text,
+                render_value_as_pcf_document_with_options(
+                  rendered_value, indent_text, use_custom_string_delimiters,
                 ),
               ),
             )
           } else {
             Some(
               StringValue(
-                render_value_as_pcf_fragment_with_indent(
-                  rendered_value, indent_text,
+                render_value_as_pcf_fragment_with_options(
+                  rendered_value, indent_text, use_custom_string_delimiters,
                 ),
               ),
             )
@@ -8840,6 +8907,18 @@ fn xml_renderer_option(
 ) -> String {
   match lookup_member(renderer_members, name) {
     Some(StringValue(s)) => s
+    _ => default
+  }
+}
+
+///|
+fn renderer_bool_option(
+  renderer_members : Array[ValueMember],
+  name : String,
+  default : Bool,
+) -> Bool {
+  match lookup_member(renderer_members, name) {
+    Some(BoolValue(b)) => b
     _ => default
   }
 }

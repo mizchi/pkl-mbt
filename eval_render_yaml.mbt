@@ -385,7 +385,7 @@ fn render_yaml_scalar(value : Value, buf : StringBuilder) -> Unit {
       // Composite values reach this path only via the same renderer fallback
       // that PCF / JSON use, so produce a deterministic flow form rather than
       // panic. Anything richer is handled by the block-mode entry points.
-      render_pcf_inline(value, 0, buf)
+      render_pcf_inline(value, 0, false, buf)
   }
 }
 
@@ -614,7 +614,7 @@ fn yaml_coerce_key(value : Value) -> String {
     NullValue => "null"
     _ => {
       let buf = StringBuilder::new()
-      render_pcf_inline(value, 0, buf)
+      render_pcf_inline(value, 0, false, buf)
       buf.to_string()
     }
   }

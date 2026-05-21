@@ -2404,6 +2404,484 @@ fn apply_value_renderer_converters(
 }
 
 ///|
+fn apply_parser_converters(
+  value : Value,
+  parser_members : Array[ValueMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  let path_converters = collect_path_converters_from_renderer_members(
+    parser_members,
+  )
+  let class_converters = collect_class_converters_from_renderer_members(
+    parser_members,
+  )
+  let mut current = value
+  if path_converters.length() > 0 {
+    current = apply_parser_path_converters(
+      current, path_converters, bindings, env, class_env, cache, declarations, diagnostics,
+      resolve_import,
+    )
+  }
+  if class_converters.length() > 0 {
+    current = walk_parser_class_converter(
+      current, class_converters, bindings, env, class_env, cache, declarations, diagnostics,
+      resolve_import,
+    )
+  }
+  current
+}
+
+///|
+fn apply_parser_path_converters(
+  value : Value,
+  converters : Array[(String, Value)],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  let mut current = value
+  for entry in converters {
+    let (path, callback) = entry
+    current = if path.has_prefix("^") {
+      rewrite_at_path(
+        current, path, callback, bindings, env, class_env, cache, declarations, diagnostics,
+        resolve_import,
+      )
+    } else {
+      rewrite_at_path_anywhere(
+        current, path, callback, bindings, env, class_env, cache, declarations, diagnostics,
+        resolve_import,
+      )
+    }
+  }
+  current
+}
+
+///|
+fn rewrite_at_path_anywhere(
+  value : Value,
+  path : String,
+  callback : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  let segments = split_path(path)
+  if segments.length() == 0 {
+    return value
+  }
+  rewrite_walk_anywhere(
+    value, segments, callback, bindings, env, class_env, cache, declarations, diagnostics,
+    resolve_import,
+  )
+}
+
+///|
+fn rewrite_walk_anywhere(
+  value : Value,
+  segments : Array[String],
+  callback : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  let current = rewrite_walk(
+    value, segments, 0, callback, bindings, env, class_env, cache, declarations,
+    diagnostics, resolve_import,
+  )
+  rewrite_walk_anywhere_children(
+    current, segments, callback, bindings, env, class_env, cache, declarations, diagnostics,
+    resolve_import,
+  )
+}
+
+///|
+fn rewrite_walk_anywhere_children(
+  value : Value,
+  segments : Array[String],
+  callback : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  match value {
+    ObjectValue(members) => {
+      let next : Array[ValueMember] = []
+      for field in members {
+        if is_invisible_member_name(field.name) {
+          next.push(field)
+        } else {
+          next.push({
+            name: field.name,
+            value: rewrite_walk_anywhere(
+              field.value,
+              segments,
+              callback,
+              bindings,
+              env,
+              class_env,
+              cache,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ),
+            source: field.source,
+            annotations: field.annotations,
+          })
+        }
+      }
+      ObjectValue(next)
+    }
+    ListingValue(elements) => {
+      let next : Array[Value] = []
+      for element in elements {
+        next.push(
+          rewrite_walk_anywhere(
+            element, segments, callback, bindings, env, class_env, cache, declarations,
+            diagnostics, resolve_import,
+          ),
+        )
+      }
+      ListingValue(next)
+    }
+    DefaultedListingValue(raw, elements, default_value) => {
+      let next : Array[Value] = []
+      for element in elements {
+        next.push(
+          rewrite_walk_anywhere(
+            element, segments, callback, bindings, env, class_env, cache, declarations,
+            diagnostics, resolve_import,
+          ),
+        )
+      }
+      DefaultedListingValue(raw, next, default_value)
+    }
+    ListValue(elements) => {
+      let next : Array[Value] = []
+      for element in elements {
+        next.push(
+          rewrite_walk_anywhere(
+            element, segments, callback, bindings, env, class_env, cache, declarations,
+            diagnostics, resolve_import,
+          ),
+        )
+      }
+      ListValue(next)
+    }
+    SetValue(elements) => {
+      let next : Array[Value] = []
+      for element in elements {
+        next.push(
+          rewrite_walk_anywhere(
+            element, segments, callback, bindings, env, class_env, cache, declarations,
+            diagnostics, resolve_import,
+          ),
+        )
+      }
+      SetValue(next)
+    }
+    MappingValue(entries) => {
+      let next : Array[ValueEntry] = []
+      for entry in entries {
+        next.push({
+          key: entry.key,
+          value: rewrite_walk_anywhere(
+            entry.value,
+            segments,
+            callback,
+            bindings,
+            env,
+            class_env,
+            cache,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ),
+        })
+      }
+      MappingValue(next)
+    }
+    DefaultedMappingValue(raw, entries, default_value) => {
+      let next : Array[ValueEntry] = []
+      for entry in entries {
+        next.push({
+          key: entry.key,
+          value: rewrite_walk_anywhere(
+            entry.value,
+            segments,
+            callback,
+            bindings,
+            env,
+            class_env,
+            cache,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ),
+        })
+      }
+      DefaultedMappingValue(raw, next, default_value)
+    }
+    MapValue(entries) => {
+      let next : Array[ValueEntry] = []
+      for entry in entries {
+        next.push({
+          key: entry.key,
+          value: rewrite_walk_anywhere(
+            entry.value,
+            segments,
+            callback,
+            bindings,
+            env,
+            class_env,
+            cache,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ),
+        })
+      }
+      MapValue(next)
+    }
+    PairValue(first, second) =>
+      PairValue(
+        rewrite_walk_anywhere(
+          first, segments, callback, bindings, env, class_env, cache, declarations,
+          diagnostics, resolve_import,
+        ),
+        rewrite_walk_anywhere(
+          second, segments, callback, bindings, env, class_env, cache, declarations,
+          diagnostics, resolve_import,
+        ),
+      )
+    _ => value
+  }
+}
+
+///|
+fn walk_parser_class_converter(
+  value : Value,
+  converters : Array[(String, Value)],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  let children_converted = walk_parser_class_converter_children(
+    value, converters, bindings, env, class_env, cache, declarations, diagnostics,
+    resolve_import,
+  )
+  match pick_class_converter(children_converted, converters, class_env) {
+    Some(callback) =>
+      match
+        apply_function_value(
+          "parser converter",
+          callback,
+          [children_converted],
+          bindings,
+          env,
+          class_env,
+          cache,
+          [],
+          declarations,
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(converted) => converted
+        None => children_converted
+      }
+    None => children_converted
+  }
+}
+
+///|
+fn walk_parser_class_converter_children(
+  value : Value,
+  converters : Array[(String, Value)],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  match value {
+    ObjectValue(members) => {
+      let next : Array[ValueMember] = []
+      for field in members {
+        if is_invisible_member_name(field.name) {
+          next.push(field)
+        } else {
+          next.push({
+            name: field.name,
+            value: walk_parser_class_converter(
+              field.value,
+              converters,
+              bindings,
+              env,
+              class_env,
+              cache,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ),
+            source: field.source,
+            annotations: field.annotations,
+          })
+        }
+      }
+      ObjectValue(next)
+    }
+    ListingValue(xs) => {
+      let next : Array[Value] = []
+      for x in xs {
+        next.push(
+          walk_parser_class_converter(
+            x, converters, bindings, env, class_env, cache, declarations, diagnostics,
+            resolve_import,
+          ),
+        )
+      }
+      ListingValue(next)
+    }
+    DefaultedListingValue(raw, xs, default_value) => {
+      let next : Array[Value] = []
+      for x in xs {
+        next.push(
+          walk_parser_class_converter(
+            x, converters, bindings, env, class_env, cache, declarations, diagnostics,
+            resolve_import,
+          ),
+        )
+      }
+      DefaultedListingValue(raw, next, default_value)
+    }
+    ListValue(xs) => {
+      let next : Array[Value] = []
+      for x in xs {
+        next.push(
+          walk_parser_class_converter(
+            x, converters, bindings, env, class_env, cache, declarations, diagnostics,
+            resolve_import,
+          ),
+        )
+      }
+      ListValue(next)
+    }
+    SetValue(xs) => {
+      let next : Array[Value] = []
+      for x in xs {
+        next.push(
+          walk_parser_class_converter(
+            x, converters, bindings, env, class_env, cache, declarations, diagnostics,
+            resolve_import,
+          ),
+        )
+      }
+      SetValue(next)
+    }
+    MappingValue(entries) => {
+      let next : Array[ValueEntry] = []
+      for e in entries {
+        next.push({
+          key: e.key,
+          value: walk_parser_class_converter(
+            e.value,
+            converters,
+            bindings,
+            env,
+            class_env,
+            cache,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ),
+        })
+      }
+      MappingValue(next)
+    }
+    DefaultedMappingValue(raw, entries, default_value) => {
+      let next : Array[ValueEntry] = []
+      for e in entries {
+        next.push({
+          key: e.key,
+          value: walk_parser_class_converter(
+            e.value,
+            converters,
+            bindings,
+            env,
+            class_env,
+            cache,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ),
+        })
+      }
+      DefaultedMappingValue(raw, next, default_value)
+    }
+    MapValue(entries) => {
+      let next : Array[ValueEntry] = []
+      for e in entries {
+        next.push({
+          key: e.key,
+          value: walk_parser_class_converter(
+            e.value,
+            converters,
+            bindings,
+            env,
+            class_env,
+            cache,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ),
+        })
+      }
+      MapValue(next)
+    }
+    PairValue(first, second) =>
+      PairValue(
+        walk_parser_class_converter(
+          first, converters, bindings, env, class_env, cache, declarations, diagnostics,
+          resolve_import,
+        ),
+        walk_parser_class_converter(
+          second, converters, bindings, env, class_env, cache, declarations, diagnostics,
+          resolve_import,
+        ),
+      )
+    _ => value
+  }
+}
+
+///|
 fn walk_output_member_class_converters(
   field : ValueMember,
   converters : Array[(String, Value)],
@@ -3004,11 +3482,33 @@ fn rewrite_walk(
         let next : Array[ValueEntry] = []
         for entry in entries {
           let exact_segment = path_segment_exact_name(segment)
+          let wildcard_base = path_segment_wildcard_base(segment)
           let key_matches = match entry.key {
             StringValue(k) => segment == "*" || k == exact_segment
             _ => false
           }
-          if key_matches {
+          let key_matches_wildcard_base = match (entry.key, wildcard_base) {
+            (StringValue(k), Some(base)) => k == base
+            _ => false
+          }
+          if key_matches_wildcard_base {
+            next.push({
+              key: entry.key,
+              value: rewrite_collection_items(
+                entry.value,
+                segments,
+                idx + 1,
+                callback,
+                bindings,
+                env,
+                class_env,
+                cache,
+                declarations,
+                diagnostics,
+                resolve_import,
+              ),
+            })
+          } else if key_matches {
             next.push({
               key: entry.key,
               value: rewrite_walk(
@@ -3035,11 +3535,33 @@ fn rewrite_walk(
         let next : Array[ValueEntry] = []
         for entry in entries {
           let exact_segment = path_segment_exact_name(segment)
+          let wildcard_base = path_segment_wildcard_base(segment)
           let key_matches = match entry.key {
             StringValue(k) => segment == "*" || k == exact_segment
             _ => false
           }
-          if key_matches {
+          let key_matches_wildcard_base = match (entry.key, wildcard_base) {
+            (StringValue(k), Some(base)) => k == base
+            _ => false
+          }
+          if key_matches_wildcard_base {
+            next.push({
+              key: entry.key,
+              value: rewrite_collection_items(
+                entry.value,
+                segments,
+                idx + 1,
+                callback,
+                bindings,
+                env,
+                class_env,
+                cache,
+                declarations,
+                diagnostics,
+                resolve_import,
+              ),
+            })
+          } else if key_matches {
             next.push({
               key: entry.key,
               value: rewrite_walk(
@@ -3066,11 +3588,33 @@ fn rewrite_walk(
         let next : Array[ValueEntry] = []
         for entry in entries {
           let exact_segment = path_segment_exact_name(segment)
+          let wildcard_base = path_segment_wildcard_base(segment)
           let key_matches = match entry.key {
             StringValue(k) => segment == "*" || k == exact_segment
             _ => false
           }
-          if key_matches {
+          let key_matches_wildcard_base = match (entry.key, wildcard_base) {
+            (StringValue(k), Some(base)) => k == base
+            _ => false
+          }
+          if key_matches_wildcard_base {
+            next.push({
+              key: entry.key,
+              value: rewrite_collection_items(
+                entry.value,
+                segments,
+                idx + 1,
+                callback,
+                bindings,
+                env,
+                class_env,
+                cache,
+                declarations,
+                diagnostics,
+                resolve_import,
+              ),
+            })
+          } else if key_matches {
             next.push({
               key: entry.key,
               value: rewrite_walk(
