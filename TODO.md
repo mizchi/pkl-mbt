@@ -110,7 +110,8 @@ Required work:
 - [x] Add CLI file globstar suffix scanning, simple character classes, deterministic ordering, and unsafe URI character encoding for file resources.
 - [x] Add package-cache-backed `read*()` resources and `import*()` ordered key discovery for package URI globs.
 - [x] Implement top-level `import* ... as name` clause binding and inferred-name binding.
-- [ ] Finish `read*()` empty glob behavior and directory diagnostics.
+- [x] Add deferred directory diagnostics for `import*("").toMap()` and direct directory glob matches.
+- [ ] Finish `read*()` empty glob behavior and any remaining directory diagnostics.
 - [ ] Finish lazy `import*` module-value parity for file glob amends and package URI globs.
 - [x] Preserve Apple-compatible visible URI normalization for globstar parent segments such as `**/../`.
 - [ ] Resolve package-glob module bodies through dependency aliases instead of the current key-only fallback.

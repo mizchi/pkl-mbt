@@ -961,6 +961,30 @@ test "import glob keys do not evaluate matched modules eagerly" {
 }
 
 ///|
+test "import glob directory errors are deferred until toMap" {
+  reset_sandbox_io_cache()
+  register_import_glob("fixtures/main.pkl", "", [""])
+  register_import_glob_errors("fixtures/main.pkl", "", {
+    "": "I/O error loading module `file:///fixtures/`. IOException: Is a directory",
+  })
+  let source =
+    #|keys = import*("").keys.toListing()
+    #|err = module.catch(() -> import*("").toMap())
+
+  let expected =
+    #|keys {
+    #|  ""
+    #|}
+    #|err = "I/O error loading module `file:///fixtures/`. IOException: Is a directory"
+
+  let session = AnalysisSession::new()
+  session.set_source("fixtures/main.pkl", source)
+  guard session.eval_path("fixtures/main.pkl") is EvalOk(value) else { panic() }
+  inspect(render_value(value), content=expected)
+  reset_sandbox_io_cache()
+}
+
+///|
 test "read glob resolves env and prop schemes" {
   @env.set_env_var("PKL_MBT_GLOB_NAME1", "value1")
   @env.set_env_var("PKL_MBT_GLOB_NAME2", "value2")

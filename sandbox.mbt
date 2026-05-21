@@ -38,6 +38,7 @@ priv struct SandboxConfig {
   read_resources : Map[String, SandboxResource]
   read_globs : Map[String, Array[SandboxResource]]
   import_globs : Map[String, Array[String]]
+  import_glob_errors : Map[String, Map[String, String]]
 }
 
 ///|
@@ -57,6 +58,7 @@ let sandbox_config : SandboxConfig = {
   read_resources: Map([], capacity=8),
   read_globs: Map([], capacity=8),
   import_globs: Map([], capacity=8),
+  import_glob_errors: Map([], capacity=8),
 }
 
 ///|
@@ -311,6 +313,7 @@ pub fn reset_sandbox_io_cache() -> Unit {
   sandbox_config.read_resources.clear()
   sandbox_config.read_globs.clear()
   sandbox_config.import_globs.clear()
+  sandbox_config.import_glob_errors.clear()
 }
 
 ///|
@@ -363,9 +366,30 @@ pub fn register_import_glob(
 }
 
 ///|
+pub fn register_import_glob_errors(
+  from : String,
+  pattern : String,
+  errors : Map[String, String],
+) -> Unit {
+  sandbox_config.import_glob_errors[sandbox_io_key(from, pattern)] = errors
+}
+
+///|
 fn sandbox_lookup_import_glob(
   from : String,
   pattern : String,
 ) -> Array[String]? {
   sandbox_config.import_globs.get(sandbox_io_key(from, pattern))
+}
+
+///|
+fn sandbox_lookup_import_glob_error(
+  from : String,
+  pattern : String,
+  uri : String,
+) -> String? {
+  match sandbox_config.import_glob_errors.get(sandbox_io_key(from, pattern)) {
+    Some(errors) => errors.get(uri)
+    None => None
+  }
 }

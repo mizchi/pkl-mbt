@@ -27,6 +27,8 @@ pub fn parse_source(String) -> ParseResult
 
 pub fn register_import_glob(String, String, Array[String]) -> Unit
 
+pub fn register_import_glob_errors(String, String, Map[String, String]) -> Unit
+
 pub fn register_read_glob(String, String, Array[SandboxResource]) -> Unit
 
 pub fn register_read_resource(String, String, String, String, String) -> Unit

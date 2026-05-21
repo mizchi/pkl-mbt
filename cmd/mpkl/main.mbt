@@ -1254,7 +1254,60 @@ fn glob_resources_from(
 }
 
 ///|
-fn glob_visible_uris_from(from : String, pattern : String) -> Array[String] {
+priv struct ImportGlobScan {
+  uris : Array[String]
+  errors : Map[String, String]
+}
+
+///|
+fn import_glob_directory_error(
+  resolved : String,
+  append_slash : Bool,
+) -> String {
+  let uri = file_uri_for_path(resolved)
+  let display_uri = if append_slash && !uri.has_suffix("/") {
+    uri + "/"
+  } else {
+    uri
+  }
+  "I/O error loading module `\{display_uri}`. IOException: Is a directory"
+}
+
+///|
+fn import_glob_scan_from(from : String, pattern : String) -> ImportGlobScan {
+  let uris = glob_visible_uris_from_files(from, pattern)
+  let errors : Map[String, String] = Map([], capacity=4)
+  if pattern == "" {
+    let resolved = module_parent_dir(from)
+    let is_dir = @fs.is_dir(resolved) catch { _ => false }
+    if is_dir {
+      uris.push("")
+      errors[""] = import_glob_directory_error(resolved, true)
+    }
+  } else {
+    let resolved = resolve_import_path(from, pattern)
+    let is_dir = @fs.is_dir(resolved) catch { _ => false }
+    if is_dir {
+      uris.push(pattern)
+      errors[pattern] = import_glob_directory_error(resolved, false)
+    }
+  }
+  { uris, errors }
+}
+
+///|
+fn register_import_glob_scan(from : String, pattern : String) -> ImportGlobScan {
+  let scan = import_glob_scan_from(from, pattern)
+  @pkl.register_import_glob(from, pattern, scan.uris)
+  @pkl.register_import_glob_errors(from, pattern, scan.errors)
+  scan
+}
+
+///|
+fn glob_visible_uris_from_files(
+  from : String,
+  pattern : String,
+) -> Array[String] {
   let uris : Array[String] = []
   for resource in glob_resources_from(from, pattern) {
     uris.push(resource.uri)
@@ -1308,12 +1361,7 @@ fn register_expr_io(from : String, expr : @pkl.Expr) -> Unit {
         register_expr_io(from, arg)
       }
     }
-    ImportGlobExpr(pattern) =>
-      @pkl.register_import_glob(
-        from,
-        pattern,
-        glob_visible_uris_from(from, pattern),
-      )
+    ImportGlobExpr(pattern) => ignore(register_import_glob_scan(from, pattern))
     ObjectLiteral(members) | TypedObjectLiteral(_, members) =>
       for field in members {
         register_expr_io(from, field.value)
@@ -1400,18 +1448,19 @@ async fn load_expr_imports(
         loaded,
       )
     ImportGlobExpr(pattern) => {
-      let visible_uris = glob_visible_uris_from(from, pattern)
-      @pkl.register_import_glob(from, pattern, visible_uris)
-      for visible_uri in visible_uris {
+      let scan = register_import_glob_scan(from, pattern)
+      for visible_uri in scan.uris {
         if is_package_uri_like(visible_uri) {
           continue
         }
-        load_path(
-          session,
-          resolve_import_path(from, visible_uri),
-          push_stack(stack, from),
-          loaded,
-        )
+        if scan.errors.get(visible_uri) is None {
+          load_path(
+            session,
+            resolve_import_path(from, visible_uri),
+            push_stack(stack, from),
+            loaded,
+          )
+        }
       }
     }
     ObjectLiteral(members) =>
@@ -1588,18 +1637,19 @@ async fn load_path(
   }
   for decl in parsed.program.imports {
     if decl.is_glob {
-      let visible_uris = glob_visible_uris_from(path, decl.uri)
-      @pkl.register_import_glob(path, decl.uri, visible_uris)
-      for visible_uri in visible_uris {
+      let scan = register_import_glob_scan(path, decl.uri)
+      for visible_uri in scan.uris {
         if is_package_uri_like(visible_uri) {
           continue
         }
-        load_path(
-          session,
-          resolve_import_path(path, visible_uri),
-          push_stack(stack, path),
-          loaded,
-        )
+        if scan.errors.get(visible_uri) is None {
+          load_path(
+            session,
+            resolve_import_path(path, visible_uri),
+            push_stack(stack, path),
+            loaded,
+          )
+        }
       }
     } else {
       load_path(

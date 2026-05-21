@@ -138,6 +138,17 @@ test "read glob scanner preserves globstar parent visible prefix" {
 }
 
 ///|
+test "import glob scanner includes directory matches for deferred loading" {
+  let from = "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/basic/importGlob.pkl"
+  let empty = import_glob_scan_from(from, "").uris
+  inspect(empty.length(), content="1")
+  inspect(empty[0], content="")
+  let direct = import_glob_scan_from(from, "../../input-helper/globtest").uris
+  inspect(direct.length(), content="1")
+  inspect(direct[0], content="../../input-helper/globtest")
+}
+
+///|
 test "read glob scanner supports package globstar" {
   @pkl.configure_sandbox_package_caches([
     "third_party/apple-pkl/pkl-commons-test/src/main/files/packages",
@@ -164,10 +175,10 @@ test "package glob scanner keeps absolute URI escaping" {
   @pkl.configure_sandbox_package_caches([
     "third_party/apple-pkl/pkl-commons-test/src/main/files/packages",
   ])
-  let uris = glob_visible_uris_from(
-    "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/basic/importGlob.pkl",
-    "package://localhost:0/packageContainingWildcardCharacters@1.0.0#/name%20*",
-  )
+  let uris = import_glob_scan_from(
+      "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/basic/importGlob.pkl",
+      "package://localhost:0/packageContainingWildcardCharacters@1.0.0#/name%20*",
+    ).uris
   inspect(uris.length(), content="1")
   inspect(
     uris[0],

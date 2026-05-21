@@ -536,7 +536,12 @@ fn eval_import_glob_value(
         Some(uris) => {
           let entries : Array[ValueEntry] = []
           for visible_uri in uris {
-            entries.push({ key: StringValue(visible_uri), value: NullValue })
+            let value = match
+              sandbox_lookup_import_glob_error(path, pattern, visible_uri) {
+              Some(message) => deferred_error_value(message)
+              None => NullValue
+            }
+            entries.push({ key: StringValue(visible_uri), value })
           }
           Some(MappingValue(entries))
         }

@@ -183,6 +183,13 @@ fn eval_mapping_property(
     }
     "toMap" => {
       // PKL-148: lift the Mapping into a Map value preserving order.
+      match first_deferred_error_message(MappingValue(entries)) {
+        Some(message) => {
+          diagnostics.push(diag(message))
+          return None
+        }
+        None => ()
+      }
       let kvs : Array[ValueEntry] = []
       for entry in entries {
         kvs.push({ key: entry.key, value: entry.value })
@@ -1069,6 +1076,13 @@ fn eval_mapping_method(
           diag("Mapping.toMap expects 0 arguments, got \{arg_values.length()}"),
         )
         return None
+      }
+      match first_deferred_error_message(MappingValue(entries)) {
+        Some(message) => {
+          diagnostics.push(diag(message))
+          return None
+        }
+        None => ()
       }
       Some(MappingValue(entries))
     }
