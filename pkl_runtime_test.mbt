@@ -1466,6 +1466,82 @@ test "PKL-148c: constraint expression with implicit-receiver property access" {
 }
 
 ///|
+test "PKL-148c: constraint expression sees receiver and enclosing methods" {
+  let session = AnalysisSession::new()
+  let source =
+    #|import "pkl:test"
+    #|
+    #|const function add(x, y) = x + y
+    #|
+    #|class X {
+    #|  function subtract(x, y) = x - y
+    #|  y: Y(multiply(subtract(add(5, 4), 3), 2) == z)
+    #|}
+    #|
+    #|class Y {
+    #|  function multiply(x, y) = x * y
+    #|  z: Int
+    #|}
+    #|
+    #|res = test.catch(() -> new X { y { z = 13 } }.y)
+  session.set_source("constraints7.pkl", source)
+  guard session.eval_path("constraints7.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut message = ""
+  for entry in members {
+    if entry.name == "res" {
+      match entry.value {
+        StringValue(value) => message = value
+        _ => ()
+      }
+    }
+  }
+  inspect(
+    message,
+    content="Type constraint `multiply(subtract(add(5, 4), 3), 2) == z` violated. Value: new Y { z = 13 }",
+  )
+}
+
+///|
+test "PKL-148c: constraint-position function checks collection parameter eagerly" {
+  let session = AnalysisSession::new()
+  let source =
+    #|import "pkl:test"
+    #|
+    #|const local isOddLengthOfBirds = (it: Listing<Bird>) -> it.length.isOdd
+    #|
+    #|class Bird
+    #|
+    #|class MyTest {
+    #|  birds: Listing(isOddLengthOfBirds) = new {
+    #|    1
+    #|    2
+    #|    3
+    #|  }
+    #|}
+    #|
+    #|res = test.catch(() -> new MyTest {}.birds)
+  session.set_source("constraints13.pkl", source)
+  guard session.eval_path("constraints13.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut message = ""
+  for entry in members {
+    if entry.name == "res" {
+      match entry.value {
+        StringValue(value) => message = value
+        _ => ()
+      }
+    }
+  }
+  inspect(
+    message,
+    content="Expected value of type `constraints13#Bird`, but got type `Int`. Value: 1",
+  )
+}
+
+///|
 test "PKL-148c: if-condition diagnostic uses Apple Pkl wording" {
   let session = AnalysisSession::new()
   session.set_source(
@@ -1800,6 +1876,38 @@ test "PKL-148: value.getClass().simpleName mirrors the runtime type" {
 }
 
 ///|
+test "PKL-148: module.getClass exposes reflect property doc comments" {
+  let session = AnalysisSession::new()
+  let source =
+    #|import "pkl:reflect"
+    #|
+    #|/// doc comment
+    #|// line comments can appear between doc comments
+    #|/*
+    #| block comments also
+    #|*/
+    #|/// doc continuation
+    #|foo = 1
+    #|
+    #|theComment = reflect.Class(module.getClass()).properties["foo"].docComment
+  session.set_source("lineCommentBetween.pkl", source)
+  guard session.eval_path("lineCommentBetween.pkl")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut comment = ""
+  for entry in members {
+    if entry.name == "theComment" {
+      match entry.value {
+        StringValue(value) => comment = value
+        _ => ()
+      }
+    }
+  }
+  inspect(comment, content="doc comment\ndoc continuation")
+}
+
+///|
 test "PKL-148: typed empty new {} expands class defaults" {
   let session = AnalysisSession::new()
   session.set_source(
@@ -2096,6 +2204,99 @@ test "PKL-148ba: Mixin pipe applies generated elements and entries" {
   inspect(rendered.contains("value = \"B\""), content="true")
   inspect(rendered.contains("[\"base\"] = \"base\""), content="true")
   inspect(rendered.contains("[\"next\"] = \"next\""), content="true")
+}
+
+///|
+test "PKL-148bm: Mixin object apply mirrors pipe semantics" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:test"
+      #|class Person { name: String }
+      #|local mixin1: Mixin = new { name = "Other" }
+      #|local mixin2: Mixin<Person> = new { name = "Typed" }
+      #|res1 = new Person { name = "Base" } |> mixin1
+      #|res2 = mixin2.apply(new Person { name = "Base" })
+      #|err1 = test.catch(() -> mixin1.apply(new Person {}, new Person {}))
+      #|err2 = test.catch(() -> mixin2.apply(1))
+      #|
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("res1 {\n  name = \"Other\""), content="true")
+  inspect(rendered.contains("res2 {\n  name = \"Typed\""), content="true")
+  inspect(
+    rendered.contains("err1 = \"Expected 1 function arguments but got 2.\""),
+    content="true",
+  )
+  inspect(
+    rendered.contains(
+      "err2 = \"Expected value of type `main#Person`, but got type `Int`. Value: 1\"",
+    ),
+    content="true",
+  )
+}
+
+///|
+test "PKL-148bn: typealias Mapping constructor accepts entries" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|class Person { name: String }
+      #|typealias PersonMapping = Mapping<String, Person>
+      #|res = new PersonMapping {
+      #|  ["one"] = new Person { name = "One" }
+      #|  ["two"] = new { name = "Two" }
+      #|  ["three"] { name = "Three" }
+      #|}
+      #|
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("[\"one\"] {\n    name = \"One\""), content="true")
+  inspect(rendered.contains("[\"two\"] {\n    name = \"Two\""), content="true")
+  inspect(
+    rendered.contains("[\"three\"] {\n    name = \"Three\""),
+    content="true",
+  )
+}
+
+///|
+test "PKL-148bo: new rejects external and unstarred union types" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:test"
+      #|class Person { name: String }
+      #|setErr = test.catch(() -> new Set {})
+      #|unionErr = test.catch(() -> new String|Person {})
+      #|literalErr = test.catch(() -> new "foo" {})
+      #|
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered.contains(
+      "setErr = \"Cannot instantiate, or amend an instance of, external class `Set`.\"",
+    ),
+    content="true",
+  )
+  inspect(
+    rendered.contains("unionErr = \"Cannot instantiate type `String|Person`.\""),
+    content="true",
+  )
+  inspect(
+    rendered.contains(
+      "literalErr = \"Cannot instantiate, or amend an instance of, external class `String`.\"",
+    ),
+    content="true",
+  )
 }
 
 ///|

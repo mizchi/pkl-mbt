@@ -1009,6 +1009,201 @@ fn parse_constraint_expression(text : String) -> Expr? {
 }
 
 ///|
+fn constraint_function_collection_parameter_error(
+  fn_value : Value,
+  argument_value : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> String? {
+  match fn_value {
+    FunctionValue(parameters, _, _, captured_env, _) => {
+      if parameters.length() != 1 {
+        return None
+      }
+      let parameter_type_name = match
+        strip_lazy_collection_annotation_marker_opt(parameters[0].type_name) {
+        Some(name) => name
+        None => return None
+      }
+      if type_annotation_collection_branch_count(
+          parameter_type_name, declarations,
+        ) ==
+        0 {
+        return None
+      }
+      let call_cache = copy_value_bindings(captured_env)
+      push_module_metadata_from_cache(call_cache, cache)
+      match
+        cast_value_to_type_annotation(
+          parameter_type_name, argument_value, bindings, env, class_env, call_cache,
+          stack, declarations, resolve_import,
+        ) {
+        TypeCastOk(casted) =>
+          match
+            binding_collection_host_constraint_rejection_message(
+              Some(parameter_type_name),
+              casted,
+              declarations,
+            ) {
+            Some(message) => Some(message)
+            None =>
+              match first_deferred_error_message(casted) {
+                Some(message) =>
+                  Some(
+                    qualify_collection_parameter_error_message(
+                      message, parameter_type_name, class_env, call_cache, declarations,
+                    ),
+                  )
+                None => None
+              }
+          }
+        TypeCastErr(message) => Some(message)
+      }
+    }
+    _ => None
+  }
+}
+
+///|
+fn collection_parameter_value_type_name(
+  annotation : String,
+  declarations : Array[Declaration],
+) -> String? {
+  let aliases = eval_type_alias_bindings(declarations)
+  let resolved = eval_resolved_type_alias(
+    strip_lazy_collection_annotation_marker(annotation),
+    aliases,
+  )
+  let normalized = strip_balanced_outer_type_parens(
+    pkl_strip_default_type_marker(pkl_constraint_trim(resolved)),
+  )
+  let base = match pkl_constrained_type_base_name(normalized) {
+    Some(name) => name
+    None => normalized
+  }
+  let inner = match generic_argument_text(base, "Listing") {
+    Some(text) => Some(text)
+    None =>
+      match generic_argument_text(base, "List") {
+        Some(text) => Some(text)
+        None =>
+          match generic_argument_text(base, "Set") {
+            Some(text) => Some(text)
+            None =>
+              match generic_argument_text(base, "Collection") {
+                Some(text) => Some(text)
+                None =>
+                  match generic_argument_text(base, "Mapping") {
+                    Some(text) => {
+                      let parts = split_top_level_generic_arguments(text)
+                      if parts.length() == 2 {
+                        Some(parts[1])
+                      } else {
+                        None
+                      }
+                    }
+                    None =>
+                      match generic_argument_text(base, "Map") {
+                        Some(text) => {
+                          let parts = split_top_level_generic_arguments(text)
+                          if parts.length() == 2 {
+                            Some(parts[1])
+                          } else {
+                            None
+                          }
+                        }
+                        None => None
+                      }
+                  }
+              }
+          }
+      }
+  }
+  match inner {
+    Some(text) => {
+      let cleaned = strip_balanced_outer_type_parens(
+        pkl_strip_default_type_marker(pkl_constraint_trim(text)),
+      )
+      Some(
+        match pkl_constrained_type_base_name(cleaned) {
+          Some(name) => name
+          None => cleaned
+        },
+      )
+    }
+    None => None
+  }
+}
+
+///|
+fn qualify_collection_parameter_error_message(
+  message : String,
+  annotation : String,
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+) -> String {
+  let expected = match
+    collection_parameter_value_type_name(annotation, declarations) {
+    Some(name) => name
+    None => return message
+  }
+  let module_name = match module_name_from_cache(cache) {
+    Some(name) => name
+    None => return message
+  }
+  if lookup_class_binding(class_env, expected) is None {
+    return message
+  }
+  let prefix = "Expected value of type `\{expected}`"
+  if !message.has_prefix(prefix) {
+    return message
+  }
+  "Expected value of type `\{module_name}#\{expected}`" +
+  String::unsafe_substring(message, start=prefix.length(), end=message.length())
+}
+
+///|
+fn push_constraint_method_scope(
+  constraint_cache : Array[ValueBinding],
+  class_name : String,
+  source_name : String,
+  property_value : Value,
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+) -> Unit {
+  push_sibling_class_methods(
+    constraint_cache, class_name, class_env, env, cache,
+  )
+  match property_value {
+    ObjectValue(receiver_members) => {
+      push_receiver_method_bindings(constraint_cache, receiver_members)
+      match find_object_class_tag(receiver_members) {
+        Some(receiver_class_name) =>
+          push_sibling_class_methods(
+            constraint_cache, receiver_class_name, class_env, env, constraint_cache,
+          )
+        None => ()
+      }
+    }
+    _ => ()
+  }
+  match pkl_constrained_type_base_name(source_name) {
+    Some(base_name) =>
+      push_sibling_class_methods(
+        constraint_cache, base_name, class_env, env, constraint_cache,
+      )
+    None => ()
+  }
+}
+
+///|
 /// PKL-148c: run an arbitrary constraint expression against a candidate
 /// value with `this` bound. When the candidate is an `ObjectValue`, the
 /// object's members are also hoisted into the env so the implicit
@@ -1108,6 +1303,11 @@ fn eval_runtime_constraint_for_property(
     push_constraint_enclosing_member_bindings(
       new_env, enclosing_members, property_name,
     )
+    let constraint_cache = copy_value_bindings(cache)
+    push_constraint_method_scope(
+      constraint_cache, class_name, source_name, property_value, new_env, class_env,
+      cache,
+    )
     // PKL-148c: rewrite bare `Identifier(name)` nodes inside the
     // constraint expression to `MemberAccess(Identifier("this"), name)`
     // when `name` is neither a binding nor in env. Apple Pkl treats
@@ -1116,12 +1316,12 @@ fn eval_runtime_constraint_for_property(
     // body. Pre-rewriting the tree keeps the existing
     // `eval_expr_with_bindings` flow untouched.
     let rewritten = rewrite_implicit_this_in_expr(
-      expr, bindings, new_env, cache,
+      expr, bindings, new_env, constraint_cache,
     )
     let probe_diags : Array[Diagnostic] = []
     let mut probe_result = eval_expr_with_bindings(
-      rewritten, bindings, new_env, class_env, cache, stack, declarations, probe_diags,
-      resolve_import,
+      rewritten, bindings, new_env, class_env, constraint_cache, stack, declarations,
+      probe_diags, resolve_import,
     )
     // Apple Pkl treats a constraint-position function reference as a
     // unary call applied to the candidate (`Int(isValid)` ≡
@@ -1130,7 +1330,15 @@ fn eval_runtime_constraint_for_property(
     // probe as `function.apply(this)` so the predicate's result drives
     // the rejection.
     let mut had_function_apply = false
-    if probe_result is Some(FunctionValue(_, _, _, _, _)) {
+    if probe_result is Some(FunctionValue(_, _, _, _, _) as fn_value) {
+      match
+        constraint_function_collection_parameter_error(
+          fn_value, property_value, bindings, new_env, class_env, constraint_cache,
+          stack, declarations, resolve_import,
+        ) {
+        Some(message) => return Some(message)
+        None => ()
+      }
       had_function_apply = true
       let apply_diags : Array[Diagnostic] = []
       let apply_result = eval_expr_with_bindings(
@@ -1138,7 +1346,7 @@ fn eval_runtime_constraint_for_property(
         bindings,
         new_env,
         class_env,
-        cache,
+        constraint_cache,
         stack,
         declarations,
         apply_diags,

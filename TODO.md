@@ -1,11 +1,11 @@
 # Release TODO
 
-Current coverage: 315 / 391 PCF gold-match (80.6%).
+Current coverage: 321 / 391 PCF gold-match (82.1%).
 Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-05-21.
 
 Release focus:
 
-- `basic`: 80 PASS / 6 DIFF
+- `basic`: 82 PASS / 4 DIFF
 - `generators`: 21 PASS / 0 DIFF
 
 Planned order:
@@ -26,7 +26,7 @@ End-user blocker priority is based on "will a normal Pkl config author hit this?
 1. Resource / read / glob: file/resource access, `read*()`, and `import*` glob behavior are release blockers for multi-file configs and CLI usage.
 2. `for` / generators: completed for with-gold upstream fixtures. Keep this as a regression-sensitive area because real configs use list/map comprehensions and generated object bodies heavily.
 3. Renderer API surface: `api` has many DIFFs, but not all are equal. Treat public output formats as blockers only if we advertise them for this release. Keep `pcf` / `json` stable; renderer converter coverage now includes direct `renderDocument` / `renderValue` calls across PCF / JSON / YAML / plist / XML, validation diagnostics for non-renderable values, XML class-keyed converters, path-keyed wildcard converters, direct CDATA/comment helpers, and `xml.Element` rename fixtures. Protobuf text currently covers the promoted `protobuf3.txtpb` path; decide whether the remaining XML / Protobuf diagnostics and inline formatting are release-supported or experimental.
-4. Basic scalar / collection parity: `Bytes`, `DataSize`, `Duration`, `Int`, `Float`, `Map`, and nullable semantics are gold-matching for `basic`; remaining first-release scalar / collection gaps are long-tail `as` / `new` / const provenance cases.
+4. Basic scalar / collection parity: `Bytes`, `DataSize`, `Duration`, `Int`, `Float`, `Map`, nullable, and `new` semantics are gold-matching for `basic`; remaining first-release scalar / collection gaps are long-tail `as` / const provenance cases.
 5. Deep stdlib / reflect parity: important for long-term compatibility, but not a first release blocker unless a public API or real package depends on it.
 
 For this release pass, Resource / Glob, Numeric / Bytes, nullable basics, and the advertised renderer validation surface are gold-matching for their targeted fixtures.
@@ -40,13 +40,11 @@ Measured from the release binary against Apple Pkl LanguageSnippetTests gold fil
 - `basic/amendsChains`
 - `basic/as`
 - `basic/constModifier`
-- `basic/new`
-- `basic/newType`
 - `basic/underscore`
 
 `generators` remaining DIFFs: none.
 
-Adjacent typed-collection DIFFs: `listings/typeCheck` and `mappings/typeCheck` now gold-match.
+Adjacent typed-collection / grammar DIFFs: `basic/new`, `basic/newType`, `listings/typeCheck`, `mappings/typeCheck`, `listings/listing5`, `parser/lineCommentBetween`, `classes/constraints7`, and `classes/constraints13` now gold-match.
 
 ## Priority 1: Numeric And Bytes Parity
 
@@ -212,6 +210,8 @@ Completed in this slice:
 - `basic/is2`
 - `basic/as2`
 - `basic/as3`
+- `basic/new`
+- `basic/newType`
 
 Implemented work:
 
@@ -222,12 +222,11 @@ Implemented work:
 - Kept renderer-class casts compatible with `ValueRenderer` so `api/pcfRenderer9` remains gold-match.
 - Fixed lazy typed generated Listing / Mapping values for `listings2/typeCheck` and `mappings2/typeCheck`.
 - Fixed union-aware typed collection retention for `listings/typeCheck` and `mappings/typeCheck`, including lazy single-collection union branches, eager Set hash validation, `Pair<T, U>` nested collection annotations, and `new Mapping<K, V>` type-argument retention.
+- Finished `Mixin` / `Mixin<T>` pipe and `.apply()` dispatch, Mixin property override merge semantics, typealias `Mapping<K, V>` constructors, and `new` rejection diagnostics for external / unstarred union / string-literal types.
 
 Target fixtures:
 
 - `basic/as`
-- `basic/new`
-- `basic/newType`
 
 Required work:
 
@@ -235,7 +234,6 @@ Required work:
 - Improve `is` for generic collection types and constrained types.
 - Stabilize object class identity for user classes, reflect `Class`, and diagnostics.
 - Represent function type arity in diagnostics (`Function1`, `Function2`) where Apple Pkl expects it.
-- Finish `Mixin` / `Mixin<T>` apply and pipe support for `newType`.
 
 Main dependencies:
 

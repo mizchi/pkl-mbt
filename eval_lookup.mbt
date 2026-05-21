@@ -26,8 +26,118 @@ fn reflect_kind(members : Array[ValueMember]) -> String? {
 fn reflect_reflectee_name(members : Array[ValueMember]) -> String? {
   match lookup_member(members, "reflectee") {
     Some(StringValue(name)) => Some(name)
+    Some(ObjectValue(inner_members)) =>
+      match reflect_kind(inner_members) {
+        Some("Class") => reflect_reflectee_name(inner_members)
+        _ => None
+      }
     _ => None
   }
+}
+
+///|
+fn strip_doc_comment_line(text : String) -> String {
+  if !text.has_prefix("///") {
+    return text
+  }
+  let body = String::unsafe_substring(text, start=3, end=text.length())
+  if body.has_prefix(" ") {
+    String::unsafe_substring(body, start=1, end=body.length())
+  } else {
+    body
+  }
+}
+
+///|
+fn join_doc_comment_lines(lines : Array[String]) -> String {
+  let buf = StringBuilder::new()
+  for i = 0; i < lines.length(); i = i + 1 {
+    if i > 0 {
+      buf.write_string("\n")
+    }
+    buf.write_string(lines[i])
+  }
+  buf.to_string()
+}
+
+///|
+fn module_property_doc_comment_from_source(
+  source : String,
+  property_name : String,
+) -> String? {
+  let tokens = tokenize(source)
+  let lines : Array[String] = []
+  for token in tokens {
+    if token.kind() == whitespace() || token.kind() == newline() {
+      continue
+    }
+    if token.kind() == comment() {
+      let text = token.text()
+      if text.has_prefix("///") && !text.has_prefix("////") {
+        lines.push(strip_doc_comment_line(text))
+      }
+      continue
+    }
+    if token.kind() == identifier() && token.text() == property_name {
+      if lines.length() == 0 {
+        return None
+      }
+      return Some(join_doc_comment_lines(lines))
+    }
+    lines.clear()
+  }
+  None
+}
+
+///|
+fn reflect_property_object(
+  name : String,
+  type_name : String?,
+  doc_comment : String?,
+) -> Value {
+  let type_value = match type_name {
+    Some(t) => StringValue(t)
+    None => NullValue
+  }
+  let doc_value = match doc_comment {
+    Some(text) => StringValue(text)
+    None => NullValue
+  }
+  ObjectValue([
+    { name: "name", value: StringValue(name), source: None, annotations: [] },
+    { name: "typeName", value: type_value, source: None, annotations: [] },
+    { name: "docComment", value: doc_value, source: None, annotations: [] },
+  ])
+}
+
+///|
+fn reflect_module_class_properties(
+  bindings : Array[Binding],
+  cache : Array[ValueBinding],
+) -> Value {
+  let source = match lookup_value(cache, "@__module_source") {
+    Some(StringValue(text)) => Some(text)
+    _ => None
+  }
+  let entries : Array[ValueEntry] = []
+  for binding in bindings {
+    if !binding.exported || binding.name == "output" {
+      continue
+    }
+    let doc_comment = match source {
+      Some(text) => module_property_doc_comment_from_source(text, binding.name)
+      None => None
+    }
+    entries.push({
+      key: StringValue(binding.name),
+      value: reflect_property_object(
+        binding.name,
+        binding.type_name,
+        doc_comment,
+      ),
+    })
+  }
+  MappingValue(entries)
 }
 
 ///|
@@ -44,25 +154,8 @@ fn reflect_class_properties(
       ClassDeclaration(class_decl) =>
         if class_decl.name == class_name {
           for prop in class_decl.properties {
-            let type_value = match prop.type_name {
-              Some(t) => StringValue(t)
-              None => NullValue
-            }
             result.push(
-              ObjectValue([
-                {
-                  name: "name",
-                  value: StringValue(prop.name),
-                  source: None,
-                  annotations: [],
-                },
-                {
-                  name: "typeName",
-                  value: type_value,
-                  source: None,
-                  annotations: [],
-                },
-              ]),
+              reflect_property_object(prop.name, prop.type_name, None),
             )
           }
         }

@@ -2017,6 +2017,10 @@ fn eval_class_default_members_seen(
   // built fresh per class layer).
   let defaults_cache = copy_value_bindings(cache)
   defaults_cache.push({ name: "@__class_default_scope", value: BoolValue(true) })
+  defaults_cache.push({
+    name: "@__constructing_class",
+    value: StringValue(type_name),
+  })
   push_super_dispatch_marker(defaults_cache, type_name)
   if base_values.length() > 0 {
     defaults_cache.push({ name: "super", value: ObjectValue(base_values) })

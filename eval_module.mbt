@@ -892,6 +892,7 @@ fn add_current_module_class_binding(
 fn eval_program(
   program : Program,
   current_module_path : String?,
+  current_module_source : String?,
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
   resolve_import_classes : (String) -> Array[ClassExport]?,
@@ -933,6 +934,11 @@ fn eval_program(
   match current_module_path {
     Some(path) =>
       cache.push({ name: "@__module_path", value: StringValue(path) })
+    None => ()
+  }
+  match current_module_source {
+    Some(source) =>
+      cache.push({ name: "@__module_source", value: StringValue(source) })
     None => ()
   }
   // PKL-148bh: stash the declared module name (`module Foo` header)

@@ -1138,14 +1138,18 @@ fn render_listing_union_rejection_value(elements : Array[Value]) -> String {
   }
   let buf = StringBuilder::new()
   buf.write_string("new Listing { ")
+  let mut masked_tail = false
   for i = 0; i < elements.length(); i = i + 1 {
     if i > 0 {
       buf.write_string("; ")
     }
-    if deferred_error_message(elements[i]) is None {
+    if masked_tail {
+      buf.write_string("?")
+    } else if deferred_error_message(elements[i]) is None {
       buf.write_string(render_pcf_value_inline(elements[i]))
     } else {
       buf.write_string("?")
+      masked_tail = true
     }
   }
   buf.write_string(" }")
@@ -1525,7 +1529,7 @@ fn apply_mixin_pipe_value(
       let mut ok = true
       for value_member in mixin_members {
         if !is_invisible_member_name(value_member.name) && ok {
-          ok = push_dynamic_object_member(merged, value_member, diagnostics)
+          ok = push_mixin_object_member(merged, value_member, diagnostics)
         }
       }
       if ok {
@@ -1745,6 +1749,41 @@ fn strip_balanced_outer_type_parens(type_name : String) -> String {
     )
   } else {
     trimmed
+  }
+}
+
+///|
+fn instantiation_type_name_resolved(
+  type_name : String,
+  declarations : Array[Declaration],
+) -> String {
+  let aliases = eval_type_alias_bindings(declarations)
+  strip_balanced_outer_type_parens(
+    pkl_constraint_trim(eval_resolved_type_alias(type_name, aliases)),
+  )
+}
+
+///|
+fn instantiation_external_class_name(
+  type_name : String,
+  declarations : Array[Declaration],
+) -> String {
+  let mut name = pkl_strip_default_type_marker(
+    instantiation_type_name_resolved(type_name, declarations),
+  )
+  if name.has_suffix("?") {
+    name = String::unsafe_substring(name, start=0, end=name.length() - 1)
+  }
+  match pkl_constrained_type_base_name(name) {
+    Some(base) => name = trim_spaces(base)
+    None => ()
+  }
+  if name.length() >= 2 && name.has_prefix("\"") && name.has_suffix("\"") {
+    return "String"
+  }
+  match name.find("<") {
+    Some(idx) => String::unsafe_substring(name, start=0, end=idx)
+    None => name
   }
 }
 
@@ -2316,6 +2355,16 @@ fn cast_value_to_single_type_annotation(
         )
     }
   }
+  if head == "Mixin" {
+    return match value {
+      ObjectValue(members) =>
+        TypeCastOk(ObjectValue(tag_object_with_class(members, trimmed)))
+      _ =>
+        TypeCastErr(
+          as_cast_type_mismatch_message(display_type, value, class_env, cache),
+        )
+    }
+  }
   if value is ObjectValue(_) {
     match lookup_value(env, head) {
       Some(ObjectValue(_)) => return TypeCastOk(value)
@@ -2740,6 +2789,100 @@ fn eval_expr_with_bindings(
       )
     }
     TypedObjectLiteral(type_name, members) => {
+      let instantiation_name = instantiation_type_name_resolved(
+        type_name, declarations,
+      )
+      let instantiation_choices = split_top_level_union_choices(
+        instantiation_name,
+      )
+      if instantiation_choices.length() > 1 {
+        let mut default_choice : String? = None
+        for choice in instantiation_choices {
+          let trimmed = trim_spaces(choice)
+          if trimmed.has_prefix("*") {
+            default_choice = Some(
+              trim_spaces(
+                String::unsafe_substring(trimmed, start=1, end=trimmed.length()),
+              ),
+            )
+            break
+          }
+        }
+        match default_choice {
+          Some(default_type_name) =>
+            return eval_expr_with_bindings(
+              TypedObjectLiteral(default_type_name, members),
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            )
+          None => {
+            diagnostics.push(
+              diag("Cannot instantiate type `\{instantiation_name}`."),
+            )
+            return None
+          }
+        }
+      }
+      let external_class_name = instantiation_external_class_name(
+        type_name, declarations,
+      )
+      if is_external_only_class_name(external_class_name) &&
+        !(lookup_class_binding(class_env, type_name) is Some(_)) &&
+        !(lookup_class_binding(class_env, external_class_name) is Some(_)) {
+        diagnostics.push(
+          diag(
+            "Cannot instantiate, or amend an instance of, external class `\{external_class_name}`.",
+          ),
+        )
+        return None
+      }
+      match type_annotation_collection_head(type_name, declarations) {
+        Some("Listing") | Some("List") | Some("Set") | Some("Collection") =>
+          match object_literal_to_listing_literal(ObjectLiteral(members)) {
+            Some(listing_expr) =>
+              return eval_expr_with_bindings(
+                CallExpr(Identifier("@__typed_listing"), [
+                  StringLiteral(type_name),
+                  listing_expr,
+                ]),
+                bindings,
+                env,
+                class_env,
+                cache,
+                stack,
+                declarations,
+                diagnostics,
+                resolve_import,
+              )
+            None => ()
+          }
+        Some("Mapping") | Some("Map") =>
+          match object_literal_to_mapping_literal(ObjectLiteral(members)) {
+            Some(mapping_expr) =>
+              return eval_expr_with_bindings(
+                CallExpr(Identifier("@__typed_listing"), [
+                  StringLiteral(type_name),
+                  mapping_expr,
+                ]),
+                bindings,
+                env,
+                class_env,
+                cache,
+                stack,
+                declarations,
+                diagnostics,
+                resolve_import,
+              )
+            None => ()
+          }
+        _ => ()
+      }
       // PKL-152: Apple Pkl's stdlib scalar / collection-constructor
       // classes (`Int`, `Float`, `Bool`, `String`, `List`, `Set`,
       // `Map`, `Pair`, `IntSeq`, `Bytes`, `Duration`, `DataSize`,
@@ -3610,7 +3753,11 @@ fn eval_expr_with_bindings(
                   "properties" =>
                     match reflect_reflectee_name(members) {
                       Some(name) =>
-                        Some(reflect_class_properties(name, declarations))
+                        if name == "module" {
+                          Some(reflect_module_class_properties(bindings, cache))
+                        } else {
+                          Some(reflect_class_properties(name, declarations))
+                        }
                       None => lookup_member(members, member_name)
                     }
                   "methods" =>
@@ -5324,6 +5471,48 @@ fn eval_expr_with_bindings(
                 target_expr, method_name, arguments, false, bindings, env, class_env,
                 cache, stack, declarations, diagnostics, resolve_import,
               )
+            } else if method_name == "getClass" && arguments.length() == 0 {
+              // PKL-148: `value.getClass()` returns a `pkl:reflect.Class`
+              // mirror exposing `simpleName` / `name`. snippetTest's
+              // `api/any.pkl` exercises this on every primitive variant
+              // — Int, Float, Bool, String, Duration, DataSize, List,
+              // Map, Listing, Mapping, Dynamic, Pair, Null.
+              match target_expr {
+                Identifier("module") =>
+                  Some(synth_class_mirror_for_name("module"))
+                _ =>
+                  match
+                    eval_expr_with_bindings(
+                      target_expr, bindings, env, class_env, cache, stack, declarations,
+                      diagnostics, resolve_import,
+                    ) {
+                    // PKL-152: a user-class instance's getClass() must
+                    // produce `<module>#<simple>` for `.name` so the
+                    // converter dispatch (api/anyConverter) and reflect
+                    // round-trip both agree. Read the module name from
+                    // the `@__module_name` cache marker and qualify the
+                    // mirror when the class is non-stdlib.
+                    Some(value) => {
+                      let bare = eval_value_type_name(value)
+                      let module_name = match
+                        lookup_value(cache, "@__module_name") {
+                        Some(StringValue(s)) => s
+                        _ => ""
+                      }
+                      if module_name.length() > 0 && !is_stdlib_class_name(bare) {
+                        Some(
+                          synth_class_mirror_for_qualified(
+                            bare,
+                            Some(module_name),
+                          ),
+                        )
+                      } else {
+                        Some(synth_class_mirror_for_value(value))
+                      }
+                    }
+                    None => None
+                  }
+              }
             } else if target_expr is Identifier(class_name) &&
               lookup_class_binding(class_env, class_name) is Some(_) {
               // PKL-148d: `Person.bar()` where `Person` is a class name
@@ -5334,40 +5523,6 @@ fn eval_expr_with_bindings(
                 diag("Cannot find method `\{method_name}` in class `Class`."),
               )
               None
-            } else if method_name == "getClass" && arguments.length() == 0 {
-              // PKL-148: `value.getClass()` returns a `pkl:reflect.Class`
-              // mirror exposing `simpleName` / `name`. snippetTest's
-              // `api/any.pkl` exercises this on every primitive variant
-              // — Int, Float, Bool, String, Duration, DataSize, List,
-              // Map, Listing, Mapping, Dynamic, Pair, Null.
-              match
-                eval_expr_with_bindings(
-                  target_expr, bindings, env, class_env, cache, stack, declarations,
-                  diagnostics, resolve_import,
-                ) {
-                // PKL-152: a user-class instance's getClass() must
-                // produce `<module>#<simple>` for `.name` so the
-                // converter dispatch (api/anyConverter) and reflect
-                // round-trip both agree. Read the module name from
-                // the `@__module_name` cache marker and qualify the
-                // mirror when the class is non-stdlib.
-                Some(value) => {
-                  let bare = eval_value_type_name(value)
-                  let module_name = match
-                    lookup_value(cache, "@__module_name") {
-                    Some(StringValue(s)) => s
-                    _ => ""
-                  }
-                  if module_name.length() > 0 && !is_stdlib_class_name(bare) {
-                    Some(
-                      synth_class_mirror_for_qualified(bare, Some(module_name)),
-                    )
-                  } else {
-                    Some(synth_class_mirror_for_value(value))
-                  }
-                }
-                None => None
-              }
             } else if is_listing_method_name(method_name) ||
               is_mapping_method_name(method_name) ||
               is_string_method_name(method_name) ||
@@ -7364,6 +7519,27 @@ fn push_dynamic_object_member(
       true
     }
   }
+}
+
+///|
+fn push_mixin_object_member(
+  values : Array[ValueMember],
+  value_member : ValueMember,
+  diagnostics : Array[Diagnostic],
+) -> Bool {
+  if value_member.name.has_prefix("@element$") ||
+    value_member.name.has_prefix("@subscript$") {
+    return push_dynamic_object_member(values, value_member, diagnostics)
+  }
+  for i = 0; i < values.length(); i = i + 1 {
+    if !is_invisible_member_name(values[i].name) &&
+      values[i].name == value_member.name {
+      values[i] = value_member
+      return true
+    }
+  }
+  values.push(value_member)
+  true
 }
 
 ///|
@@ -10579,6 +10755,42 @@ fn eval_object_members_with_implicit_env(
                   value,
                   property_diagnostics,
                 ) {
+                let runtime_reject = if defer_property_errors {
+                  match lookup_value(cache, "@__constructing_class") {
+                    Some(StringValue(class_name)) => {
+                      let enclosing_members : Array[ValueMember] = []
+                      for prior in values {
+                        enclosing_members.push(prior)
+                      }
+                      enclosing_members.push({
+                        name: field.name,
+                        value,
+                        source: Some(field.value),
+                        annotations: field.annotations,
+                      })
+                      eval_runtime_constraint_for_property(
+                        class_name,
+                        strip_member_visibility_prefix(field.name),
+                        value,
+                        enclosing_members,
+                        local_bindings,
+                        local_env,
+                        class_env,
+                        cache,
+                        stack,
+                        declarations,
+                        resolve_import,
+                      )
+                    }
+                    _ => None
+                  }
+                } else {
+                  None
+                }
+                match runtime_reject {
+                  Some(message) => property_diagnostics.push(diag(message))
+                  None => ()
+                }
                 values.push({
                   name: field.name,
                   value,

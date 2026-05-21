@@ -450,7 +450,10 @@ fn push_module_metadata_from_cache(
   call_cache : Array[ValueBinding],
   caller_cache : Array[ValueBinding],
 ) -> Unit {
-  for name in ["@__module_name", "@__module_path", "@__module_imports"] {
+  for
+    name in [
+      "@__module_name", "@__module_path", "@__module_source", "@__module_imports",
+    ] {
     if lookup_value(call_cache, name) is None {
       match lookup_value(caller_cache, name) {
         Some(v) => call_cache.push({ name, value: v })
@@ -1681,6 +1684,14 @@ fn class_method_call_available(
 }
 
 ///|
+fn mixin_apply_target_type_name(members : Array[ValueMember]) -> String? {
+  match find_object_class_tag(members) {
+    Some(tag) => generic_argument_text(tag, "Mixin")
+    None => None
+  }
+}
+
+///|
 fn eval_callable_call(
   callee : Expr,
   arguments : Array[Expr],
@@ -1853,6 +1864,50 @@ fn eval_callable_call(
                 }
             }
             return Some(StringValue(qualified))
+          } else if method_name == "apply" &&
+            (
+              object_class_tag_matches(members, "Mixin") ||
+              object_members_are_mixin_body(members)
+            ) {
+            if arguments.length() != 1 {
+              diagnostics.push(
+                diag(
+                  "Expected 1 function arguments but got \{arguments.length()}.",
+                ),
+              )
+              return None
+            }
+            match
+              eval_expr_with_bindings(
+                arguments[0],
+                bindings,
+                env,
+                class_env,
+                cache,
+                stack,
+                declarations,
+                diagnostics,
+                resolve_import,
+              ) {
+              Some(target) => {
+                match
+                  eval_callable_argument_type_rejection_message(
+                    mixin_apply_target_type_name(members),
+                    target,
+                    class_env,
+                    cache,
+                    declarations,
+                  ) {
+                  Some(message) => {
+                    diagnostics.push(diag(message))
+                    return None
+                  }
+                  None => ()
+                }
+                return apply_mixin_pipe_value(target, members, diagnostics)
+              }
+              None => return None
+            }
           }
         _ => ()
       }

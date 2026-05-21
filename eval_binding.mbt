@@ -89,7 +89,9 @@ fn capture_value_bindings(
     // reflect/read dispatch and get reintroduced from the caller cache
     // at application time. Keeping them out of captured_env prevents
     // ordinary function values from growing hidden bindings.
-    if binding.name == "@__module_name" || binding.name == "@__module_path" {
+    if binding.name == "@__module_name" ||
+      binding.name == "@__module_path" ||
+      binding.name == "@__module_source" {
       continue
     }
     captured.push(binding)
@@ -619,8 +621,13 @@ fn object_class_tag_matches(
   expected : String,
 ) -> Bool {
   match find_object_class_tag(members) {
-    Some(class_name) =>
-      class_name == expected || class_name.has_suffix(".\{expected}")
+    Some(class_name) => {
+      let class_head = match class_name.find("<") {
+        Some(idx) => String::unsafe_substring(class_name, start=0, end=idx)
+        None => class_name
+      }
+      class_head == expected || class_head.has_suffix(".\{expected}")
+    }
     None => false
   }
 }

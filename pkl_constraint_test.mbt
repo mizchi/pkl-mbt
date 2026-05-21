@@ -2245,7 +2245,7 @@ test "Pkl listing body union Listing annotation rejects when no branch matches t
           name: "out",
           value: ListingValue([
             StringValue(
-              "Expected value of type `Listing<String(length.isOdd)>|Listing<String(length == 4)>`, but got a different `Listing`. Value: new Listing { \"Ba\"; ?; \"Bazz\"; \"Qux\" }",
+              "Expected value of type `Listing<String(length.isOdd)>|Listing<String(length == 4)>`, but got a different `Listing`. Value: new Listing { \"Ba\"; ?; ?; ? }",
             ),
           ]),
           source: None,

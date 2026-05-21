@@ -712,6 +712,13 @@ fn eval_value_matches_bare_type(
       value is MappingValue(_) || value is DefaultedMappingValue(_, _, _)
     "Pair" => value is PairValue(_, _)
     "IntSeq" => value is IntSeqValue(_, _, _)
+    "Mixin" =>
+      match value {
+        ObjectValue(members) =>
+          object_class_tag_matches(members, "Mixin") ||
+          object_members_are_mixin_body(members)
+        _ => false
+      }
     "Object" | "Dynamic" | "Typed" => value is ObjectValue(_)
     "Class" =>
       match value {
@@ -896,7 +903,12 @@ fn eval_source_with_import_details_named_at(
   }
   match
     eval_program(
-      promoted_program, current_module_path, diagnostics, resolve_import, resolve_import_classes,
+      promoted_program,
+      current_module_path,
+      Some(source),
+      diagnostics,
+      resolve_import,
+      resolve_import_classes,
     ) {
     Some(value) =>
       if diagnostics.length() == 0 {
