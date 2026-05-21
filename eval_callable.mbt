@@ -450,7 +450,7 @@ fn push_module_metadata_from_cache(
   call_cache : Array[ValueBinding],
   caller_cache : Array[ValueBinding],
 ) -> Unit {
-  for name in ["@__module_name", "@__module_path"] {
+  for name in ["@__module_name", "@__module_path", "@__module_imports"] {
     if lookup_value(call_cache, name) is None {
       match lookup_value(caller_cache, name) {
         Some(v) => call_cache.push({ name, value: v })
@@ -1743,21 +1743,24 @@ fn eval_callable_call(
       resolve_import,
     ) {
     Some(FunctionValue(parameters, body, return_type_name, captured_env, _id)) =>
-      eval_lambda_application(
-        callee_label(callee),
-        parameters,
-        body,
-        return_type_name,
-        captured_env,
-        arguments,
-        bindings,
-        env,
-        class_env,
-        cache,
-        stack,
-        declarations,
-        diagnostics,
-        resolve_import,
+      tag_xml_comment_call_result(
+        callee,
+        eval_lambda_application(
+          callee_label(callee),
+          parameters,
+          body,
+          return_type_name,
+          captured_env,
+          arguments,
+          bindings,
+          env,
+          class_env,
+          cache,
+          stack,
+          declarations,
+          diagnostics,
+          resolve_import,
+        ),
       )
     Some(NullValue) =>
       match callee {
@@ -1772,6 +1775,37 @@ fn eval_callable_call(
       None
     }
     None => None
+  }
+}
+
+///|
+fn tag_xml_comment_call_result(callee : Expr, value : Value?) -> Value? {
+  match (callee, value) {
+    (_, Some(ObjectValue(members))) => {
+      let visible = visible_members(members)
+      if !(callee is Identifier("comment")) &&
+        !(visible.length() == 1 && visible[0].name == "text") {
+        return value
+      }
+      let tagged_members = if lookup_member(members, "__xmlKind") is Some(_) {
+        members
+      } else {
+        let next : Array[ValueMember] = [
+          {
+            name: hidden_member_name("__xmlKind"),
+            value: StringValue("Comment"),
+            source: None,
+            annotations: [],
+          },
+        ]
+        for field in members {
+          next.push(field)
+        }
+        next
+      }
+      Some(ObjectValue(tag_object_with_class(tagged_members, "xml.Comment")))
+    }
+    _ => value
   }
 }
 

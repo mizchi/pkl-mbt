@@ -25,6 +25,10 @@ GOLD_FIXTURES=(
   "api/pcfRenderer6"
   "api/plistRenderer2b"
   "api/xmlRenderer2b"
+  "api/xmlRenderer4"
+  "api/xmlRenderer5"
+  "api/xmlRendererValidation10"
+  "api/xmlRendererValidation11"
   "api/yamlRenderer2b"
   "basic/baseModule"
   "basic/comments"
@@ -262,8 +266,13 @@ XML_GOLD_FIXTURES=(
   "api/xmlRenderer2.xml"
   "api/xmlRenderer3.xml"
   "api/xmlRenderer6.xml"
+  "api/xmlRenderer9.xml"
   "api/xmlRendererCData.xml"
   "api/xmlRendererElement.xml"
+  "api/xmlRendererInline.xml"
+  "api/xmlRendererInline2.xml"
+  "api/xmlRendererInline3.xml"
+  "api/xmlRendererHtml.xml"
 )
 
 # PKL-126c: textproto renderer fixtures whose `output { renderer =

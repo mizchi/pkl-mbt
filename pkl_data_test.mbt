@@ -352,6 +352,243 @@ test "PKL-126b: xml DOM helpers preserve CDATA and comment identity" {
 }
 
 ///|
+test "PKL-126b: xml renderer methods reject unsupported value types" {
+  let source =
+    #|import "pkl:test"
+    #|import "pkl:xml"
+    #|class Person { name: String }
+    #|typealias Email = String
+    #|local renderer = new xml.Renderer {}
+    #|nullErr = test.catch(() -> renderer.renderValue(null))
+    #|durationErr = test.catch(() -> renderer.renderValue(1.min))
+    #|dataSizeErr = test.catch(() -> renderer.renderValue(1.mb))
+    #|classErr = test.catch(() -> renderer.renderValue(Person))
+    #|aliasErr = test.catch(() -> renderer.renderValue(Email))
+    #|functionErr = test.catch(() -> renderer.renderValue((x) -> x))
+    #|converterErr = test.catch(() -> new xml.Renderer {
+    #|  converters {
+    #|    [Int] = (_) -> throw("ouch")
+    #|  }
+    #|}.renderValue(42))
+    #|intSeqErr = test.catch(() -> renderer.renderValue(IntSeq(1, 4)))
+    #|pairErr = test.catch(() -> renderer.renderValue(Pair(1, 2)))
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let pcf = @pkl.render_value(value)
+  inspect(
+    pcf.contains("Cannot render value of type `Null` as XML. Value: null"),
+    content="true",
+  )
+  inspect(
+    pcf.contains("Cannot render value of type `Duration` as XML. Value: 1.min"),
+    content="true",
+  )
+  inspect(
+    pcf.contains("Cannot render value of type `DataSize` as XML. Value: 1.mb"),
+    content="true",
+  )
+  inspect(
+    pcf.contains(
+      "Cannot render value of type `Class` as XML. Value: main#Person",
+    ),
+    content="true",
+  )
+  inspect(
+    pcf.contains(
+      "Cannot render value of type `TypeAlias` as XML. Value: main#Email",
+    ),
+    content="true",
+  )
+  inspect(
+    pcf.contains(
+      "Cannot render value of type `Function1` as XML. Value: new Function1 {}",
+    ),
+    content="true",
+  )
+  inspect(pcf.contains("converterErr = \"ouch\""), content="true")
+  inspect(
+    pcf.contains(
+      "Cannot render value of type `IntSeq` as XML. Value: IntSeq(1, 4)",
+    ),
+    content="true",
+  )
+  inspect(
+    pcf.contains("Cannot render value of type `Pair` as XML. Value: Pair(1, 2)"),
+    content="true",
+  )
+}
+
+///|
+test "PKL-126b: xml Element attributes render as XML attributes and validate names" {
+  let source =
+    #|import "pkl:test"
+    #|import "pkl:xml"
+    #|local v10 = new xml.Renderer { xmlVersion = "1.0" }
+    #|local v11 = new xml.Renderer { xmlVersion = "1.1" }
+    #|ok = v10.renderValue((xml.Element("bar")) {
+    #|  attributes {
+    #|    ["xs:myTag"] = "my tag value"
+    #|  }
+    #|})
+    #|escaped = v10.renderValue((xml.Element("bar")) {
+    #|  attributes {
+    #|    ["bar"] = "buz\"><script>maliciousThing();</script>"
+    #|  }
+    #|})
+    #|badAttr = test.catch(() -> v10.renderValue((xml.Element("bar")) {
+    #|  attributes {
+    #|    ["bar baz"] = "biz"
+    #|  }
+    #|}))
+    #|badElement = test.catch(() -> v10.renderValue(xml.Element("bar>")))
+    #|badUnicode = test.catch(() -> v10.renderValue(xml.Element("😍😎😡")))
+    #|unicodeOk = v11.renderValue((xml.Element("div")) {
+    #|  attributes {
+    #|    ["😍😎😡"] = "bar"
+    #|  }
+    #|})
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let pcf = @pkl.render_value(value)
+  inspect(
+    pcf.contains("<bar xs:myTag=\\\"my tag value\\\"></bar>"),
+    content="true",
+  )
+  inspect(
+    pcf.contains(
+      "<bar bar=\\\"buz&quot;&gt;&lt;script&gt;maliciousThing();&lt;/script&gt;\\\"></bar>",
+    ),
+    content="true",
+  )
+  inspect(
+    pcf.contains("Invalid XML 1.0 attribute name: `bar baz`"),
+    content="true",
+  )
+  inspect(pcf.contains("Invalid XML 1.0 element name: `bar>`"), content="true")
+  inspect(
+    pcf.contains("Invalid XML 1.0 element name: `😍😎😡`"),
+    content="true",
+  )
+  inspect(pcf.contains("<div 😍😎😡=\\\"bar\\\"></div>"), content="true")
+}
+
+///|
+test "PKL-126b: xml property converters render directive text inline" {
+  let source =
+    #|import "pkl:xml"
+    #|class LineComment extends ConvertProperty {
+    #|  text: String
+    #|  prefix: String
+    #|  suffix: String
+    #|  render = (prop, renderer) -> Pair(prop.key, new RenderDirective {
+    #|    text = List(
+    #|      (renderer as ValueRenderer).renderValue(prop.value),
+    #|      prefix,
+    #|      outer.text,
+    #|      suffix,
+    #|    ).join("")
+    #|  })
+    #|}
+    #|@xml.Property { name = "FOO" }
+    #|foo = "a"
+    #|@LineComment { text = "bar" }
+    #|bar = "b"
+    #|output {
+    #|  renderer = new xml.Renderer {
+    #|    convertPropertyTransformers {
+    #|      [LineComment] { prefix = "<!-- "; suffix = " -->" }
+    #|    }
+    #|  }
+    #|}
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let out = @pkl.render_value_as_xml(value)
+  inspect(out.contains("<FOO>a</FOO>"), content="true")
+  inspect(out.contains("<bar>b<!-- bar --></bar>"), content="true")
+  inspect(out.contains("<text>"), content="false")
+}
+
+///|
+test "PKL-126b: xml Inline scalar fragments concatenate before block fragments" {
+  let source =
+    #|import "pkl:xml"
+    #|content {
+    #|  xml.Inline(List("pigeon", "parrot"))
+    #|  xml.Inline(new Listing { "pigeon"; "parrot" })
+    #|  xml.Inline(new Dynamic { name = "pigeon"; age = 42 })
+    #|}
+    #|output { renderer = new xml.Renderer {} }
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let out = @pkl.render_value_as_xml(value)
+  inspect(
+    out.contains("<content>pigeonparrotpigeonparrot\n    <name>pigeon</name>"),
+    content="true",
+  )
+}
+
+///|
+test "PKL-126b: xml function-returned helpers keep DOM identity" {
+  let source =
+    #|import "pkl:xml"
+    #|function comment(text: String) = xml.Comment(text)
+    #|a {
+    #|  comment("this is a comment")
+    #|}
+    #|output { value = a; renderer = new xml.Renderer {} }
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let out = @pkl.render_value_as_xml(value)
+  inspect(out.contains("<!--this is a comment-->"), content="true")
+  inspect(out.contains("<text>"), content="false")
+}
+
+///|
+test "PKL-126b: xml adjacent inline strings before element helpers are separate body entries" {
+  let source =
+    #|import "pkl:xml"
+    #|function h1() = xml.Element("h1")
+    #|function strong() = (xml.Element("strong")) { isBlockFormat = false }
+    #|hobbies { "swimming"; "surfing"; "fire making" }
+    #|a = (h1()) { "My " hobbies.toList().length " " (strong()) { "favorite" } " hobbies:" }
+    #|output { value = a; renderer = new xml.Renderer {} }
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let out = @pkl.render_value_as_xml(value)
+  inspect(
+    out.contains("<h1>My 3 <strong>favorite</strong> hobbies:</h1>"),
+    content="true",
+  )
+}
+
+///|
+test "PKL-126b: xml Inline rejects nested Element and Inline helpers" {
+  let source =
+    #|import "pkl:test"
+    #|import "pkl:xml"
+    #|local pigeon = new {
+    #|  name = "Pigeon"
+    #|  age = 42
+    #|}
+    #|elementErr = test.catch(() -> (new xml.Renderer {}).renderValue(
+    #|  new Dynamic { x = xml.Inline((xml.Element("pigeon2")) { pigeon }) }))
+    #|inlineErr = test.catch(() -> (new xml.Renderer {}).renderValue(
+    #|  new Dynamic { x = xml.Inline(xml.Inline(pigeon)) }))
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let pcf = @pkl.render_value(value)
+  inspect(pcf.contains("`xml.Element` is not supported here."), content="true")
+  inspect(pcf.contains("`xml.Inline` is not supported here."), content="true")
+}
+
+///|
 test "PKL-126b: xml class-keyed converters rewrite containers before children" {
   let source =
     #|import "pkl:xml"

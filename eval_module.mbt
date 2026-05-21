@@ -1372,17 +1372,34 @@ fn append_path_converters_from_renderer_members(
 ) -> Unit {
   for renderer_member in renderer_members {
     if renderer_member.name == "converters" {
-      match renderer_member.value {
-        MappingValue(entries) =>
-          for entry in entries {
-            match entry.key {
-              StringValue(path) => out.push((path, entry.value))
-              _ => ()
-            }
-          }
-        _ => ()
-      }
+      append_path_converters_from_value(out, renderer_member.value)
     }
+  }
+}
+
+///|
+fn append_path_converters_from_value(
+  out : Array[(String, Value)],
+  value : Value,
+) -> Unit {
+  match value {
+    MappingValue(entries)
+    | DefaultedMappingValue(_, entries, _)
+    | MapValue(entries) =>
+      for entry in entries {
+        match entry.key {
+          StringValue(path) => out.push((path, entry.value))
+          _ => ()
+        }
+      }
+    ObjectValue(members) =>
+      for field in visible_members(members) {
+        match converter_entry_from_subscript_member(field) {
+          Some((StringValue(path), callback)) => out.push((path, callback))
+          _ => ()
+        }
+      }
+    _ => ()
   }
 }
 
@@ -1472,21 +1489,59 @@ fn append_class_converters_from_renderer_members(
 ) -> Unit {
   for renderer_member in renderer_members {
     if renderer_member.name == "converters" {
-      match renderer_member.value {
-        MappingValue(entries) =>
-          for entry in entries {
-            match entry.key {
-              ObjectValue(class_mirror_members) =>
-                match lookup_member(class_mirror_members, "name") {
-                  Some(StringValue(name)) => out.push((name, entry.value))
-                  _ => ()
-                }
-              _ => ()
-            }
-          }
-        _ => ()
-      }
+      append_class_converters_from_value(out, renderer_member.value)
     }
+  }
+}
+
+///|
+fn append_class_converters_from_value(
+  out : Array[(String, Value)],
+  value : Value,
+) -> Unit {
+  match value {
+    MappingValue(entries)
+    | DefaultedMappingValue(_, entries, _)
+    | MapValue(entries) =>
+      for entry in entries {
+        match class_name_from_mirror_value(entry.key) {
+          Some(name) => out.push((name, entry.value))
+          None => ()
+        }
+      }
+    ObjectValue(members) =>
+      for field in visible_members(members) {
+        match converter_entry_from_subscript_member(field) {
+          Some((key, callback)) =>
+            match class_name_from_mirror_value(key) {
+              Some(name) => out.push((name, callback))
+              None => ()
+            }
+          None => ()
+        }
+      }
+    _ => ()
+  }
+}
+
+///|
+fn converter_entry_from_subscript_member(
+  field : ValueMember,
+) -> (Value, Value)? {
+  if !field.name.has_prefix("@subscript$") {
+    return None
+  }
+  match field.value {
+    ObjectValue(pair_members) =>
+      match
+        (
+          lookup_member(pair_members, "@key"),
+          lookup_member(pair_members, "@value"),
+        ) {
+        (Some(key), Some(value)) => Some((key, value))
+        _ => None
+      }
+    _ => None
   }
 }
 
@@ -1950,6 +2005,12 @@ fn apply_single_convert_property_annotation(
       None => ()
     }
   }
+  if annotation.class_name == "xml.Property" {
+    match protobuf_annotation_string_field(annotation.body_text, "name") {
+      Some(next_name) => return Some((next_name, property_value))
+      None => ()
+    }
+  }
   let class_name = class_binding_name_from_mirror(annotation.class_name)
   let matching_transformer = pick_convert_property_transformer(
     class_name, transformers, class_env,
@@ -2198,7 +2259,7 @@ fn apply_value_renderer_converters(
     )
   }
   if class_converters.length() > 0 {
-    current = apply_class_converters(
+    current = walk_class_converter(
       current, class_converters, bindings, env, class_env, cache, declarations, diagnostics,
       resolve_import,
     )

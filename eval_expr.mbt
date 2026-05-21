@@ -7345,6 +7345,9 @@ fn is_xml_constructor_receiver(
   class_env : Array[ClassBinding],
   cache : Array[ValueBinding],
 ) -> Bool {
+  if import_name == "xml" {
+    return true
+  }
   if lookup_class_binding(class_env, import_name + "." + constructor_name)
     is Some(_) {
     return true
@@ -7373,6 +7376,76 @@ fn is_xml_constructor_receiver(
 fn xml_constructor_name(name : String) -> String? {
   match name {
     "Element" | "Inline" | "CData" | "Comment" => Some(name)
+    _ => None
+  }
+}
+
+///|
+fn tag_xml_function_element_from_source(source : Expr, value : Value) -> Value {
+  match tag_xml_value_from_runtime_type(value) {
+    Some(tagged) => return tagged
+    None => ()
+  }
+  match source {
+    CallExpr(Identifier("comment"), _) =>
+      match value {
+        ObjectValue(members) => {
+          let tagged_members = if lookup_member(members, "__xmlKind") is Some(_) {
+            members
+          } else {
+            let next : Array[ValueMember] = [
+              {
+                name: hidden_member_name("__xmlKind"),
+                value: StringValue("Comment"),
+                source: None,
+                annotations: [],
+              },
+            ]
+            for field in members {
+              next.push(field)
+            }
+            next
+          }
+          ObjectValue(tag_object_with_class(tagged_members, "xml.Comment"))
+        }
+        _ => value
+      }
+    _ => value
+  }
+}
+
+///|
+fn tag_xml_value_from_runtime_type(value : Value) -> Value? {
+  match value {
+    ObjectValue(members) => {
+      let kind = match eval_value_type_name(value) {
+        name if name.has_suffix("Element") => Some("Element")
+        name if name.has_suffix("Inline") => Some("Inline")
+        name if name.has_suffix("CData") => Some("CData")
+        name if name.has_suffix("Comment") => Some("Comment")
+        _ => None
+      }
+      match kind {
+        Some(xml_kind) =>
+          if lookup_member(members, "__xmlKind") is Some(_) {
+            Some(value)
+          } else {
+            let next : Array[ValueMember] = [
+              {
+                name: hidden_member_name("__xmlKind"),
+                value: StringValue(xml_kind),
+                source: None,
+                annotations: [],
+              },
+            ]
+            for field in members {
+              next.push(field)
+            }
+            Some(ObjectValue(next))
+          }
+        None => None
+      }
+    }
     _ => None
   }
 }
@@ -7473,10 +7546,14 @@ fn eval_value_renderer_method(
       resolve_import,
     ) {
     Some(value) => {
+      let diagnostics_before_converters = diagnostics.length()
       let rendered_value = apply_value_renderer_converters(
         value, renderer_members, bindings, env, class_env, cache, declarations, diagnostics,
         resolve_import,
       )
+      if diagnostics.length() > diagnostics_before_converters {
+        return None
+      }
       match format {
         "pcf" => Some(StringValue(render_value(rendered_value)))
         "json" => Some(StringValue(render_value_as_json(rendered_value)))
@@ -7508,20 +7585,38 @@ fn eval_value_renderer_method(
           let indent_text = xml_renderer_option(
             renderer_members, "indent", "  ",
           )
+          let xml_version = xml_renderer_option(
+            renderer_members, "xmlVersion", "1.0",
+          )
           if method_name == "renderDocument" {
+            let root_element_name = xml_renderer_option(
+              renderer_members, "rootElementName", "root",
+            )
+            match
+              xml_render_document_error(
+                rendered_value, root_element_name, xml_version,
+              ) {
+              Some(message) => {
+                diagnostics.push(diag(message))
+                return None
+              }
+              None => ()
+            }
             Some(
               StringValue(
                 render_value_as_xml_with_options(
-                  rendered_value,
-                  xml_renderer_option(
-                    renderer_members, "rootElementName", "root",
-                  ),
-                  indent_text,
-                  xml_renderer_option(renderer_members, "xmlVersion", "1.0"),
+                  rendered_value, root_element_name, indent_text, xml_version,
                 ),
               ),
             )
           } else {
+            match xml_render_value_error(rendered_value, xml_version) {
+              Some(message) => {
+                diagnostics.push(diag(message))
+                return None
+              }
+              None => ()
+            }
             Some(
               StringValue(
                 render_value_as_xml_fragment(rendered_value, indent_text),
@@ -9121,13 +9216,15 @@ fn eval_object_members_with_implicit_env(
           diagnostics,
           resolve_import,
         ) {
-        Some(v) =>
+        Some(v) => {
+          let value = tag_xml_function_element_from_source(field.value, v)
           values.push({
             name: field.name,
-            value: v,
-            source: None,
+            value,
+            source: Some(field.value),
             annotations: field.annotations,
           })
+        }
         None => ()
       }
       continue

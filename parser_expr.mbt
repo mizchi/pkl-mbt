@@ -364,6 +364,7 @@ fn Parser::parse_postfix_expr(self : Parser) -> Expr {
       expr = CallExpr(Identifier("read*"), arguments)
       continue
     }
+    let mut separated_call = false
     if next_kind == dot() || next_kind == qdot() {
       // PKL-107: pull byte_offset along with self.pos so subsequent
       // position-tagged diagnostics still point at the right source
@@ -374,7 +375,9 @@ fn Parser::parse_postfix_expr(self : Parser) -> Expr {
       }
       self.pos = trivia_end
     } else {
+      let before_whitespace = self.pos
       self.skip_whitespace()
+      separated_call = self.pos > before_whitespace
     }
     if self.at(dot()) || self.at(qdot()) {
       let unsupported_start = self.current_offset()
@@ -403,6 +406,10 @@ fn Parser::parse_postfix_expr(self : Parser) -> Expr {
         MemberAccess(expr, field_name)
       }
     } else if self.at(lparen()) {
+      if separated_call && !expr_allows_whitespace_call(expr) {
+        keep_going = false
+        continue
+      }
       self.builder.start_node_at(checkpoint, call_expr())
       ignore(self.bump())
       let arguments : Array[Expr] = []
@@ -502,6 +509,20 @@ fn Parser::parse_postfix_expr(self : Parser) -> Expr {
     }
   }
   expr
+}
+
+///|
+fn expr_allows_whitespace_call(expr : Expr) -> Bool {
+  match expr {
+    Identifier(_)
+    | MemberAccess(_, _)
+    | SafeMemberAccess(_, _)
+    | CallExpr(_, _)
+    | NullSafeCallExpr(_, _)
+    | SubscriptAccess(_, _)
+    | NonNullExpr(_) => true
+    _ => false
+  }
 }
 
 ///|

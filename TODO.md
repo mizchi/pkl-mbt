@@ -1,6 +1,6 @@
 # Release TODO
 
-Current coverage: 297 / 391 PCF gold-match (76.0%).
+Current coverage: 301 / 391 PCF gold-match (77.0%).
 Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-05-21.
 
 Release focus:
@@ -274,7 +274,7 @@ Main dependencies:
 ## Issue Sync
 
 - #4 Lazy local evaluation: implemented through the local-scope fixture slice and closed as completed.
-- #6 XML / Protobuf renderer bodies: XML promoted fixtures now include `xmlRenderer1`, `xmlRenderer2`, `xmlRenderer3`, `xmlRenderer6`, `xmlRendererCData`, and `xmlRendererElement`; direct renderer-method converter PCF fixtures now cover `pcfRenderer2b`, `jsonRenderer2b`, `yamlRenderer2b`, `plistRenderer2b`, and `xmlRenderer2b`; Protobuf text still promotes `protobuf3.txtpb`. Remaining XML / Protobuf gaps are release blockers only if those advanced surfaces are release-supported output formats; otherwise document them as experimental follow-up.
+- #6 XML / Protobuf renderer bodies: all upstream XML `.xml` renderer fixtures now promote (`xmlRenderer1`, `xmlRenderer2`, `xmlRenderer3`, `xmlRenderer6`, `xmlRenderer9`, `xmlRendererCData`, `xmlRendererElement`, `xmlRendererInline`, `xmlRendererInline2`, `xmlRendererInline3`, `xmlRendererHtml`); direct renderer-method / validation PCF fixtures now cover `pcfRenderer2b`, `jsonRenderer2b`, `yamlRenderer2b`, `plistRenderer2b`, `xmlRenderer2b`, `xmlRenderer4`, `xmlRenderer5`, `xmlRendererValidation10`, and `xmlRendererValidation11`; Protobuf text still promotes `protobuf3.txtpb`. Remaining Protobuf gaps are release blockers only if those advanced surfaces are release-supported output formats; otherwise document them as experimental follow-up.
 - #8 Umbrella practical blockers: update after each release slice.
 - #1 Stdlib module evaluation gaps: relevant for long-term stdlib parity, especially external declarations, variance, and `pkl:` module loading.
 
