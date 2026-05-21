@@ -779,7 +779,7 @@
   - body: _not yet implemented_
 
 - [ ] **nullable read form** (minor) — verifies: PKL-103 — tags: parser, evaluator, read, nullable
-  > Apple Pkl's `read?(uri)` mirrors `read(uri)` but returns `null` instead of pushing a diagnostic when the URI scheme is rejected by the sandbox or the resource is missing. The parser recognises `?` followed by `(` after a primary expression and emits a new `NullSafeCallExpr(callee, args)` AST node; the evaluator handles the `read?` case by routing through `eval_read_uri` with a throwaway diagnostic sink — anything that would have surfaced an error becomes `NullValue` instead. The typechecker reports the result as `NullableType(StringType)` so downstream nullable chains see the right shape. A `?` not followed by `(` stays the existing unsupported-syntax fall-through.
+  > Apple Pkl's `read?(uri)` mirrors `read(uri)` but returns `null` for missing resources while preserving sandbox policy failures such as rejected schemes. The parser recognises `?` followed by `(` after a primary expression and emits a new `NullSafeCallExpr(callee, args)` AST node; the evaluator handles the `read?` case by routing through `eval_read_uri` with a throwaway diagnostic sink, then promotes missing-resource failures to `NullValue` while replaying explicit sandbox refusals. The typechecker reports the result as `NullableType(StringType)` so downstream nullable chains see the right shape. A `?` not followed by `(` stays the existing unsupported-syntax fall-through.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-098
   - decisions: 2 entry(ies)
@@ -1568,7 +1568,7 @@
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli read nullable** — verifies: PKL-103 — tags: moonbit, cli, evaluator, read, nullable, contract
-  > The native CLI evaluates a fixture that uses `read?(uri)` for both a missing env var and a non-`env:` scheme. Both calls return `null` instead of pushing a diagnostic, matching Apple Pkl's null-safe semantics.
+  > The native CLI evaluates a fixture that uses `read?(uri)` for both a missing env var and a sandbox-rejected scheme. Missing resources return `null`; sandbox policy failures keep Apple-compatible diagnostics.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli reflect introspection** — verifies: PKL-143 — tags: moonbit, cli, stdlib, reflect, contract

@@ -1616,12 +1616,18 @@ test "PKL-103: read?(uri) returns null when env var is missing" {
 }
 
 ///|
-test "PKL-103: read?(uri) returns null when scheme is rejected" {
-  guard eval_source("x = read?(\"https://example.com/missing\")")
+test "PKL-103: read?(uri) preserves sandbox policy failures" {
+  guard eval_source(
+      "x = module.catch(() -> read?(\"https://example.com/missing\"))",
+    )
     is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  assert_true(members[0].value == NullValue)
+  guard members[0].value is StringValue(message) else { panic() }
+  inspect(
+    message,
+    content="Refusing to read resource `https://example.com/missing` because it does not match any entry in the resource allowlist (`--allowed-resources`).",
+  )
 }
 
 ///|

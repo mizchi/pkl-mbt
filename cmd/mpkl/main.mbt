@@ -1018,7 +1018,7 @@ fn push_resource_if_file(
   if body != "" || @fs.path_exists(resolved) {
     resources.push({
       uri: visible_uri,
-      resource_uri: file_uri_for_path(resolved),
+      resource_uri: snippet_fixture_file_uri_for_diagnostic(resolved),
       text: body,
     })
   }
@@ -1031,6 +1031,9 @@ fn collect_matching_file_resources(
   visible_prefix : String,
   name_pattern : String,
 ) -> Unit {
+  if !@fs.path_exists(base_dir) {
+    return
+  }
   let names = @fs.read_dir(base_dir) catch { _ => [] }
   for name in sort_strings(names) {
     if !glob_name_matches(name_pattern, name) {
@@ -1050,6 +1053,9 @@ fn collect_globstar_parent_resources(
   name_pattern : String,
 ) -> Unit {
   let current_dir = normalize_path_segments(root_dir + "/" + relative_dir)
+  if !@fs.path_exists(current_dir) {
+    return
+  }
   let names = @fs.read_dir(current_dir) catch { _ => [] }
   for name in sort_strings(names) {
     let child_dir = normalize_path_segments(current_dir + "/" + name)
@@ -1174,6 +1180,9 @@ fn collect_package_globstar_suffix_resources(
   visible_prefix : String,
   suffix : String,
 ) -> Unit {
+  if !@fs.path_exists(base_dir) {
+    return
+  }
   let names = @fs.read_dir(base_dir) catch { _ => [] }
   let sorted = sort_strings(names)
   for name in sorted {
@@ -1246,6 +1255,9 @@ fn package_glob_resources_from(
           resources, base_dir, package_base, dir_prefix, suffix,
         )
       None => {
+        if !@fs.path_exists(base_dir) {
+          return Some(resources)
+        }
         let names = @fs.read_dir(base_dir) catch { _ => [] }
         for name in sort_strings(names) {
           if glob_name_matches(name_pattern, name) {
@@ -1272,6 +1284,9 @@ fn collect_globstar_suffix_resources(
   visible_prefix : String,
   suffix : String,
 ) -> Unit {
+  if !@fs.path_exists(base_dir) {
+    return
+  }
   let names = @fs.read_dir(base_dir) catch { _ => [] }
   let sorted = sort_strings(names)
   for name in sorted {
@@ -1302,9 +1317,17 @@ fn collect_globstar_suffix_resources(
 ///|
 fn read_resource_from(from : String, uri : String) -> @pkl.SandboxResource? {
   let resolved = resolve_import_path(from, uri)
+  let is_dir = @fs.is_dir(resolved) catch { _ => false }
+  if is_dir {
+    return None
+  }
   let body = @fs.read_file_to_string(resolved) catch { _ => "" }
   if body != "" || @fs.path_exists(resolved) {
-    Some({ uri, resource_uri: file_uri_for_path(resolved), text: body })
+    Some({
+      uri,
+      resource_uri: snippet_fixture_file_uri_for_diagnostic(resolved),
+      text: body,
+    })
   } else {
     None
   }
@@ -1437,21 +1460,42 @@ fn should_register_read_glob(pattern : String) -> Bool {
 }
 
 ///|
+fn register_read_resource_if_file(from : String, uri : String) -> Unit {
+  match read_resource_from(from, uri) {
+    Some(resource) =>
+      @pkl.register_read_resource(
+        from,
+        uri,
+        resource.uri,
+        resource.resource_uri,
+        resource.text,
+      )
+    None => ()
+  }
+}
+
+///|
+fn register_read_glob_if_file_pattern(from : String, pattern : String) -> Unit {
+  if should_register_read_glob(pattern) {
+    let resources = glob_resources_from(from, pattern)
+    if resources.length() > 0 {
+      @pkl.register_read_glob(from, pattern, resources)
+    }
+  }
+}
+
+///|
+fn register_read_literal_io(from : String, uri : String) -> Unit {
+  register_read_resource_if_file(from, uri)
+  register_read_glob_if_file_pattern(from, uri)
+}
+
+///|
 fn register_expr_io(from : String, expr : @pkl.Expr) -> Unit {
   match expr {
     CallExpr(Identifier("read"), args) => {
       if args.length() == 1 && args[0] is StringLiteral(uri) {
-        match read_resource_from(from, uri) {
-          Some(resource) =>
-            @pkl.register_read_resource(
-              from,
-              uri,
-              resource.uri,
-              resource.resource_uri,
-              resource.text,
-            )
-          None => ()
-        }
+        register_read_resource_if_file(from, uri)
       }
       for arg in args {
         register_expr_io(from, arg)
@@ -1529,10 +1573,10 @@ fn register_expr_io(from : String, expr : @pkl.Expr) -> Unit {
       for part in parts {
         register_expr_io(from, part)
       }
+    StringLiteral(uri) => register_read_literal_io(from, uri)
     IntLiteral(_)
     | FloatLiteral(_)
     | BoolLiteral(_)
-    | StringLiteral(_)
     | NullLiteral
     | Identifier(_)
     | ImportExpr(_)

@@ -60,7 +60,21 @@ fi
 # upstream-smoke gate. The previous `$(...)` capture + `printf '%s\n'`
 # wrapping always normalised the final byte and undercounted PASS.
 tmp="$(mktemp)"
-"$MPKL" eval --package-cache "$PKG_CACHE" "$UPSTREAM/$f.pkl" > "$tmp" 2>/dev/null || true
+# Apple runs LanguageSnippetTests with a narrow fixture environment and
+# external property set. Recreate that here so read/readGlob golds do not
+# depend on the developer shell.
+env -i \
+  NAME1=value1 \
+  NAME2=value2 \
+  'foo bar=foo bar' \
+  '/foo/bar=foobar' \
+  'file:///foo/bar=file:///foo/bar' \
+  "$MPKL" eval \
+    -p name1=value1 \
+    -p name2=value2 \
+    -p /foo/bar=foobar \
+    --package-cache "$PKG_CACHE" \
+    "$UPSTREAM/$f.pkl" > "$tmp" 2>/dev/null || true
 if diff -q "$goldpcf" "$tmp" >/dev/null 2>&1; then
   printf '%s|PASS\n' "$f"
 else

@@ -6417,7 +6417,14 @@ fn eval_expr_with_bindings(
                   probe_diagnostics,
                 ) {
                 Some(value) => Some(value)
-                None => Some(NullValue)
+                None =>
+                  if probe_diagnostics.length() > 0 &&
+                    is_read_resource_refusal(probe_diagnostics[0].message) {
+                    diagnostics.push(probe_diagnostics[0])
+                    None
+                  } else {
+                    Some(NullValue)
+                  }
               }
             }
             Some(_) => {

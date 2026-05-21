@@ -3,7 +3,7 @@ test "PKL-106: read prop missing surfaces diagnostic" {
   configure_sandbox_props(Map([], capacity=8))
   let result = eval_source("api_key = read(\"prop:ABSENT\")")
   guard result is EvalError(diagnostics) else { panic() }
-  inspect(diagnostics[0].message, content="read: prop ABSENT is not set")
+  inspect(diagnostics[0].message, content="Cannot find resource `prop:ABSENT`.")
 }
 
 ///|

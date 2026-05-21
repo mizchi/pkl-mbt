@@ -799,7 +799,7 @@ test "read built-in errors on missing env: variable" {
   }
   inspect(
     diagnostics[0].message,
-    content="read: env variable PKL_MBT_TEST_MISSING is not set",
+    content="Cannot find resource `env:PKL_MBT_TEST_MISSING`.",
   )
 }
 
@@ -810,7 +810,7 @@ test "read built-in rejects unsupported schemes" {
   }
   inspect(
     diagnostics[0].message,
-    content="read: scheme file: is not allowed by the sandbox policy",
+    content="Refusing to read resource `file:/etc/hosts` because it does not match any entry in the resource allowlist (`--allowed-resources`).",
   )
 }
 
@@ -819,7 +819,20 @@ test "read built-in rejects URIs without a scheme" {
   guard eval_source("res = read(\"foo\")") is EvalError(diagnostics) else {
     panic()
   }
-  inspect(diagnostics[0].message, content="read: missing URI scheme in \"foo\"")
+  inspect(diagnostics[0].message, content="Cannot find resource `foo`.")
+}
+
+///|
+test "read null-safe preserves sandbox policy failures" {
+  guard eval_source("res = module.catch(() -> read?(\"forbidden:resource\"))")
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is StringValue(message) else { panic() }
+  inspect(
+    message,
+    content="Refusing to read resource `forbidden:resource` because it does not match any entry in the resource allowlist (`--allowed-resources`).",
+  )
 }
 
 ///|

@@ -4077,7 +4077,7 @@ local readNullable = new Scenario {
   id = "PKL-103"
   name = "nullable read form"
   description =
-    "Apple Pkl's `read?(uri)` mirrors `read(uri)` but returns `null` instead of pushing a diagnostic when the URI scheme is rejected by the sandbox or the resource is missing. The parser recognises `?` followed by `(` after a primary expression and emits a new `NullSafeCallExpr(callee, args)` AST node; the evaluator handles the `read?` case by routing through `eval_read_uri` with a throwaway diagnostic sink — anything that would have surfaced an error becomes `NullValue` instead. The typechecker reports the result as `NullableType(StringType)` so downstream nullable chains see the right shape. A `?` not followed by `(` stays the existing unsupported-syntax fall-through."
+    "Apple Pkl's `read?(uri)` mirrors `read(uri)` but returns `null` for missing resources while preserving sandbox policy failures such as rejected schemes. The parser recognises `?` followed by `(` after a primary expression and emits a new `NullSafeCallExpr(callee, args)` AST node; the evaluator handles the `read?` case by routing through `eval_read_uri` with a throwaway diagnostic sink, then promotes missing-resource failures to `NullValue` while replaying explicit sandbox refusals. The typechecker reports the result as `NullableType(StringType)` so downstream nullable chains see the right shape. A `?` not followed by `(` stays the existing unsupported-syntax fall-through."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-098" }
   tags { "parser"; "evaluator"; "read"; "nullable" }

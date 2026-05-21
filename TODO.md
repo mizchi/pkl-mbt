@@ -1,20 +1,20 @@
 # Release TODO
 
-Current coverage: 282 / 391 PCF gold-match (72.1%).
+Current coverage: 285 / 391 PCF gold-match (72.9%).
 Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-05-21.
 
 Release focus:
 
-- `basic`: 70 PASS / 16 DIFF
+- `basic`: 73 PASS / 13 DIFF
 - `generators`: 21 PASS / 0 DIFF
 
 Planned order:
 
 1. Done: Priority 4: Spread And Predicate Member Semantics
 2. Done: Priority 3: `for` / Shape-Aware Object Body Evaluation
-3. Current: Priority 2: Resource And Glob Host Surface
-4. Renderer API surface: keep the advertised output formats honest
-5. Priority 1: Numeric And Bytes Parity
+3. Done: Priority 2: Resource And Glob Host Surface for with-gold `basic/read`, `basic/readGlob`, and `basic/importGlob`
+4. Current: Priority 1: Numeric And Bytes Parity
+5. Renderer API surface: keep the advertised output formats honest
 6. Priority 5: remaining Generic `as` / `is` / Typed Collection Retention
 
 Priority 6 is deferred unless it becomes a direct blocker for one of the above slices.
@@ -29,7 +29,7 @@ End-user blocker priority is based on "will a normal Pkl config author hit this?
 4. Basic scalar / collection parity: `Int`, `Float`, `Bytes`, `DataSize`, `Duration`, and `Map` differences are real but narrower than generators/resource access.
 5. Deep stdlib / reflect parity: important for long-term compatibility, but not a first release blocker unless a public API or real package depends on it.
 
-For this release pass, move to Resource / Glob. Element / entry generators, typed generator binding checks, function-body generators, mixin generators, and lexical-scope generators are done.
+For this release pass, Resource / Glob is gold-matching for the `basic` fixtures. Move next to Numeric / Bytes parity unless a real package exposes a remaining resource-policy gap.
 
 ## Current DIFF Snapshot
 
@@ -44,14 +44,11 @@ Measured from the release binary against Apple Pkl LanguageSnippetTests gold fil
 - `basic/dataSize`
 - `basic/duration`
 - `basic/float`
-- `basic/importGlob`
 - `basic/int`
 - `basic/map`
 - `basic/new`
 - `basic/newType`
 - `basic/nullable`
-- `basic/read`
-- `basic/readGlob`
 - `basic/underscore`
 
 `generators` remaining DIFFs: none.
@@ -94,7 +91,7 @@ Main dependencies:
 
 ## Priority 2: Resource And Glob Host Surface
 
-Status: in progress. This is mostly CLI / host service work and remains useful for release because it affects real-world file/resource use.
+Status: completed for the with-gold `basic/read`, `basic/readGlob`, and `basic/importGlob` fixtures. Keep the remaining sandbox-policy decisions as release-scope product choices, not gold blockers.
 
 Target fixtures:
 
@@ -113,7 +110,8 @@ Required work:
 - [x] Add deferred directory diagnostics for `import*("").toMap()` and direct directory glob matches.
 - [x] Resolve file-backed `import*` module values lazily on member access and mapping predicate amends.
 - [x] Synthesize `output.text` for amended imported modules with renderer blocks.
-- [ ] Finish `read*()` empty glob behavior and any remaining directory diagnostics.
+- [x] Gold-match `read()` and `read*()` fixture env / prop / file behavior under the controlled upstream snippet-test host environment.
+- [ ] Finish `read*()` empty glob behavior if a user-facing repro appears outside the current gold fixtures.
 - [x] Finish lazy `import*` module-value parity for file glob amends and package URI globs.
 - [x] Preserve Apple-compatible visible URI normalization for globstar parent segments such as `**/../`.
 - [x] Preserve escaped wildcard literal chars in raw `import*` URI strings.

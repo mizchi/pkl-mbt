@@ -837,14 +837,14 @@ local cliPlatformSemver = new Test {
 local cliReadNullable = new Test {
   name = "cli read nullable"
   description =
-    "The native CLI evaluates a fixture that uses `read?(uri)` for both a missing env var and a non-`env:` scheme. Both calls return `null` instead of pushing a diagnostic, matching Apple Pkl's null-safe semantics."
+    "The native CLI evaluates a fixture that uses `read?(uri)` for both a missing env var and a sandbox-rejected scheme. Missing resources return `null`; sandbox policy failures keep Apple-compatible diagnostics."
   tags { "moonbit"; "cli"; "evaluator"; "read"; "nullable"; "contract" }
   specRef { "PKL-103" }
   cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_read_nullable.pkl"
   workdir = ".."
   expectStdoutContains {
     "maybe_missing = null"
-    "maybe_bad_scheme = null"
+    "maybe_bad_scheme = \"Refusing to read resource `https://example.com/foo` because it does not match any entry in the resource allowlist (`--allowed-resources`).\""
   }
   timeoutSec = 120
 }

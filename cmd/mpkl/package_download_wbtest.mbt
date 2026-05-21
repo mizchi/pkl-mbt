@@ -118,6 +118,10 @@ test "read glob scanner supports recursive globstar" {
     resources[3].uri,
     content="../../input-helper/globtest/child/moduleC.pkl",
   )
+  inspect(
+    resources[0].resource_uri,
+    content="file:///$snippetsDir/input-helper/globtest/module%20with%20%5Bweird%5D%20~!characters.pkl",
+  )
 }
 
 ///|
@@ -164,6 +168,67 @@ test "import glob scanner treats escaped wildcard chars as literals" {
     uris[0],
     content="../../input-helper/globtest/module with [weird] ~!characters.pkl",
   )
+}
+
+///|
+test "register expr io preloads string literal resource arguments for dynamic read" {
+  @pkl.reset_sandbox_io_cache()
+  let from = "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/basic/read.pkl"
+  let source =
+    #|local function doRead(uri) = read(uri)
+    #|result = doRead("globtest/file2.txt").text
+  let parsed = @pkl.parse_source(source)
+  for binding in parsed.program.bindings {
+    register_expr_io(from, binding.value)
+  }
+  let session = @pkl.AnalysisSession::new()
+  session.set_source(from, source)
+  guard session.eval_path(from) is @pkl.EvalOk(@pkl.ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is @pkl.StringValue(text) else { panic() }
+  inspect(text, content="file2\n")
+  @pkl.reset_sandbox_io_cache()
+}
+
+///|
+test "register expr io preloads string literal glob arguments for dynamic read star" {
+  @pkl.reset_sandbox_io_cache()
+  let from = "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/basic/readGlob.pkl"
+  let source =
+    #|local function doRead(pattern) = read*(pattern)
+    #|result = doRead("globtest/file*.txt")
+  let parsed = @pkl.parse_source(source)
+  for binding in parsed.program.bindings {
+    register_expr_io(from, binding.value)
+  }
+  let session = @pkl.AnalysisSession::new()
+  session.set_source(from, source)
+  guard session.eval_path(from) is @pkl.EvalOk(value) else { panic() }
+  inspect(
+    @pkl.render_value(value),
+    content=(
+      #|result {
+      #|  ["globtest/file1.txt"] {
+      #|    uri = "file:///$snippetsDir/input/basic/globtest/file1.txt"
+      #|    text = """
+      #|      file1
+      #|      
+      #|      """
+      #|    base64 = "ZmlsZTEK"
+      #|  }
+      #|  ["globtest/file2.txt"] {
+      #|    uri = "file:///$snippetsDir/input/basic/globtest/file2.txt"
+      #|    text = """
+      #|      file2
+      #|      
+      #|      """
+      #|    base64 = "ZmlsZTIK"
+      #|  }
+      #|}
+    ),
+  )
+  @pkl.reset_sandbox_io_cache()
 }
 
 ///|

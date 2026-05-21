@@ -636,12 +636,12 @@ fn eval_read_uri(
           match sandbox_lookup_read_resource(path, uri) {
             Some(resource) => Some(sandbox_resource_value(resource))
             None => {
-              diagnostics.push(diag("read: missing URI scheme in \"\{uri}\""))
+              diagnostics.push(diag(read_resource_not_found_message(uri)))
               None
             }
           }
         None => {
-          diagnostics.push(diag("read: missing URI scheme in \"\{uri}\""))
+          diagnostics.push(diag(read_resource_not_found_message(uri)))
           None
         }
       }
@@ -652,7 +652,7 @@ fn eval_read_uri(
         match @env.get_env_var(rest) {
           Some(value) => Some(StringValue(value))
           None => {
-            diagnostics.push(diag("read: env variable \{rest} is not set"))
+            diagnostics.push(diag(read_resource_not_found_message(uri)))
             None
           }
         }
@@ -660,18 +660,31 @@ fn eval_read_uri(
         match sandbox_lookup_prop(rest) {
           Some(value) => Some(StringValue(value))
           None => {
-            diagnostics.push(diag("read: prop \{rest} is not set"))
+            diagnostics.push(diag(read_resource_not_found_message(uri)))
             None
           }
         }
       } else {
-        diagnostics.push(
-          diag("read: scheme \{scheme}: is not allowed by the sandbox policy"),
-        )
+        diagnostics.push(diag(read_resource_refused_message(uri)))
         None
       }
     }
   }
+}
+
+///|
+fn read_resource_not_found_message(uri : String) -> String {
+  "Cannot find resource `\{uri}`."
+}
+
+///|
+fn read_resource_refused_message(uri : String) -> String {
+  "Refusing to read resource `\{uri}` because it does not match any entry in the resource allowlist (`--allowed-resources`)."
+}
+
+///|
+fn is_read_resource_refusal(message : String) -> Bool {
+  message.has_prefix("Refusing to read resource `")
 }
 
 ///|
