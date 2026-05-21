@@ -13,6 +13,7 @@ fn render_json_value(value : Value, indent : Int, buf : StringBuilder) -> Unit {
     BoolValue(true) => buf.write_string("true")
     BoolValue(false) => buf.write_string("false")
     NullValue => buf.write_string("null")
+    DeferredImportValue(_) => buf.write_string("null")
     StringValue(s) => render_json_string(s, buf)
     ObjectValue(members) =>
       render_json_object_from_members(members, indent, buf)

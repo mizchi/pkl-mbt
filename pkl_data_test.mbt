@@ -926,11 +926,32 @@ test "package import glob keeps visible keys without eager module load" {
 
   let expected =
     #|result {
-    #|  ["package://localhost:0/birds@0.5.0#/Bird.pkl"] = null
+    #|  ["package://localhost:0/birds@0.5.0#/Bird.pkl"] {}
     #|}
 
   let session = AnalysisSession::new()
   session.set_source("fixtures/main.pkl", source)
+  guard session.eval_path("fixtures/main.pkl") is EvalOk(value) else { panic() }
+  inspect(render_value(value), content=expected)
+  reset_sandbox_io_cache()
+}
+
+///|
+test "package import glob module values resolve lazily on member access" {
+  reset_sandbox_io_cache()
+  let pattern = "package://localhost:0/birds@0.5.0#/*.pkl"
+  let visible = "package://localhost:0/birds@0.5.0#/Bird.pkl"
+  register_import_glob("fixtures/main.pkl", pattern, [visible])
+  let source = "names = import*(\"\{pattern}\").toMap().values.map((it) -> it.name)"
+
+  let expected =
+    #|names {
+    #|  "Bird"
+    #|}
+
+  let session = AnalysisSession::new()
+  session.set_source("fixtures/main.pkl", source)
+  session.set_source(visible, "name = \"Bird\"")
   guard session.eval_path("fixtures/main.pkl") is EvalOk(value) else { panic() }
   inspect(render_value(value), content=expected)
   reset_sandbox_io_cache()
@@ -981,6 +1002,78 @@ test "import glob directory errors are deferred until toMap" {
   session.set_source("fixtures/main.pkl", source)
   guard session.eval_path("fixtures/main.pkl") is EvalOk(value) else { panic() }
   inspect(render_value(value), content=expected)
+  reset_sandbox_io_cache()
+}
+
+///|
+test "import glob module values resolve lazily on member access" {
+  reset_sandbox_io_cache()
+  register_import_glob("fixtures/main.pkl", "*.pkl", ["./moduleA.pkl"])
+  let source =
+    #|keys = import*("*.pkl").keys.toListing()
+    #|names = import*("*.pkl").toMap().values.map((it) -> it.name)
+
+  let expected =
+    #|keys {
+    #|  "./moduleA.pkl"
+    #|}
+    #|names {
+    #|  "moduleA"
+    #|}
+
+  let session = AnalysisSession::new()
+  session.set_source("fixtures/main.pkl", source)
+  session.set_source("fixtures/moduleA.pkl", "name = \"moduleA\"")
+  guard session.eval_path("fixtures/main.pkl") is EvalOk(value) else { panic() }
+  inspect(render_value(value), content=expected)
+  reset_sandbox_io_cache()
+}
+
+///|
+test "import glob module values materialize for mapping predicate amends" {
+  reset_sandbox_io_cache()
+  register_import_glob("fixtures/main.pkl", "*.pkl", ["./moduleA.pkl"])
+  let source =
+    #|values = (import*("*.pkl")) {
+    #|  [[true]] {
+    #|    extra = name
+    #|  }
+    #|}.toMap().values.map((it) -> it.extra)
+
+  let expected =
+    #|values {
+    #|  "moduleA"
+    #|}
+
+  let session = AnalysisSession::new()
+  session.set_source("fixtures/main.pkl", source)
+  session.set_source("fixtures/moduleA.pkl", "name = \"moduleA\"")
+  guard session.eval_path("fixtures/main.pkl") is EvalOk(value) else { panic() }
+  inspect(render_value(value), content=expected)
+  reset_sandbox_io_cache()
+}
+
+///|
+test "import glob amended modules synthesize output text" {
+  reset_sandbox_io_cache()
+  register_import_glob("fixtures/main.pkl", "*.pkl", ["./moduleA.pkl"])
+  let source =
+    #|texts = (import*("*.pkl")) {
+    #|  [[true]] {
+    #|    output {
+    #|      renderer = new YamlRenderer {}
+    #|    }
+    #|  }
+    #|}.toMap().values.map((it) -> it.output.text)
+
+  let session = AnalysisSession::new()
+  session.set_source("fixtures/main.pkl", source)
+  session.set_source("fixtures/moduleA.pkl", "name = \"moduleA\"")
+  guard session.eval_path("fixtures/main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is ListingValue([StringValue(text)]) else { panic() }
+  inspect(text, content="name: moduleA\n")
   reset_sandbox_io_cache()
 }
 

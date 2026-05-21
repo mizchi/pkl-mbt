@@ -528,7 +528,7 @@ fn eval_import_glob_value(
   pattern : String,
   current_module_path : String?,
   diagnostics : Array[Diagnostic],
-  _resolve_import : (String) -> EvalResult?,
+  resolve_import : (String) -> EvalResult?,
 ) -> Value? {
   match current_module_path {
     Some(path) =>
@@ -539,7 +539,16 @@ fn eval_import_glob_value(
             let value = match
               sandbox_lookup_import_glob_error(path, pattern, visible_uri) {
               Some(message) => deferred_error_value(message)
-              None => NullValue
+              None =>
+                if visible_uri.has_prefix("package://") ||
+                  visible_uri.has_prefix("projectpackage://") {
+                  match resolve_import(visible_uri) {
+                    Some(EvalOk(value)) => value
+                    _ => DeferredImportValue(visible_uri)
+                  }
+                } else {
+                  DeferredImportValue(visible_uri)
+                }
             }
             entries.push({ key: StringValue(visible_uri), value })
           }

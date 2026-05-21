@@ -173,7 +173,11 @@ fn package_cache_parts(uri : String, rest : String) -> PackageCacheParts? {
   }
   let package_root_relative = "\{name}@\{version}"
   let package_dir_relative = package_root_relative + "/package"
-  let suffix = join_relative_segments(extra, fragment, rest)
+  let suffix = join_relative_segments(
+    extra,
+    percent_decode_uri_path(fragment),
+    rest,
+  )
   let file_relative = if suffix == "" {
     package_dir_relative
   } else {

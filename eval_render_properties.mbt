@@ -88,6 +88,7 @@ fn write_compact_json_value(value : Value, buf : StringBuilder) -> Unit {
     BoolValue(true) => buf.write_string("true")
     BoolValue(false) => buf.write_string("false")
     NullValue => buf.write_string("null")
+    DeferredImportValue(_) => buf.write_string("null")
     StringValue(s) => render_json_string(s, buf)
     ObjectValue(members) => {
       let visible = visible_members(members)

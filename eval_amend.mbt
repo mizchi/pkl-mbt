@@ -1624,7 +1624,17 @@ fn eval_mapping_amend(
             let body_expr = args[1]
             for i = 0; i < base_result.length(); i = i + 1 {
               let entry = result[i]
-              let entry_value = entry.value
+              let entry_value = match entry.value {
+                DeferredImportValue(uri) =>
+                  match
+                    resolve_deferred_import_value(
+                      uri, diagnostics, resolve_import,
+                    ) {
+                    Some(resolved) => resolved
+                    None => return None
+                  }
+                _ => entry.value
+              }
               let pred_env = copy_value_bindings(env)
               pred_env.push({ name: "this", value: entry_value })
               pred_env.push({ name: "key", value: entry.key })

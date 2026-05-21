@@ -110,6 +110,14 @@ test "analysis session resolves import clauses for typechecking and evaluation" 
 }
 
 ///|
+test "parse raw import glob string preserves escaped wildcard literal" {
+  let parsed = parse_source("x = import*(#\"foo\\[bar].pkl\"#)")
+  inspect(parsed.diagnostics.length(), content="0")
+  guard parsed.program.bindings[0].value is ImportGlobExpr(uri) else { panic() }
+  inspect(uri, content="foo\\[bar].pkl")
+}
+
+///|
 test "analysis session self import sees current module partial bindings" {
   let session = AnalysisSession::new()
   session.set_source("main.pkl", "a = \"hawk\"\nb = import(\"main.pkl\").a")
@@ -700,8 +708,8 @@ test "render Pkl module bindings as YAML mapping" {
 
 ///|
 test "render Pkl listings and mappings as YAML" {
-  inspect(render_value_as_yaml(ListingValue([])), content="[]\n")
-  inspect(render_value_as_yaml(MappingValue([])), content="{}\n")
+  inspect(render_value_as_yaml(ListingValue([])), content=" []\n")
+  inspect(render_value_as_yaml(MappingValue([])), content=" {}\n")
   inspect(
     render_value_as_yaml(
       ListingValue([StringValue("string"), BoolValue(true), IntValue(42)]),

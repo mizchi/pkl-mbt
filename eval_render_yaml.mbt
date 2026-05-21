@@ -11,14 +11,14 @@ fn render_yaml_root(value : Value, buf : StringBuilder) -> Unit {
     ObjectValue(members) => {
       let visible = visible_members(members)
       if visible.length() == 0 {
-        buf.write_string("{}\n")
+        buf.write_string(" {}\n")
       } else {
         render_yaml_mapping_members(visible, 0, buf)
       }
     }
     MappingValue(entries) | DefaultedMappingValue(_, entries, _) =>
       if entries.length() == 0 {
-        buf.write_string("{}\n")
+        buf.write_string(" {}\n")
       } else {
         render_yaml_mapping_entries(entries, 0, buf)
       }
@@ -26,7 +26,7 @@ fn render_yaml_root(value : Value, buf : StringBuilder) -> Unit {
     | DefaultedListingValue(_, elements, _)
     | ListValue(elements) =>
       if elements.length() == 0 {
-        buf.write_string("[]\n")
+        buf.write_string(" []\n")
       } else {
         render_yaml_sequence(elements, 0, buf)
       }

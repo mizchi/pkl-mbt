@@ -39,6 +39,10 @@ fn render_plist_value(value : Value, indent : Int, buf : StringBuilder) -> Unit 
       write_plist_indent(buf, indent)
       buf.write_string("<string></string>")
     }
+    DeferredImportValue(_) => {
+      write_plist_indent(buf, indent)
+      buf.write_string("<dict/>")
+    }
     StringValue(s) => {
       write_plist_indent(buf, indent)
       buf.write_string("<string>")

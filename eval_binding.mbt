@@ -606,6 +606,7 @@ fn eval_value_type_name(value : Value) -> String {
     IntSeqValue(_, _, _) => "IntSeq"
     SetValue(_) => "Set"
     MapValue(_) => "Map"
+    DeferredImportValue(_) => "Module"
   }
 }
 

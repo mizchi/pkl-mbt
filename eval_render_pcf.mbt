@@ -40,7 +40,8 @@ fn pcf_is_block_value(value : Value) -> Bool {
     | ListingValue(_)
     | DefaultedListingValue(_, _, _)
     | MappingValue(_)
-    | DefaultedMappingValue(_, _, _) => true
+    | DefaultedMappingValue(_, _, _)
+    | DeferredImportValue(_) => true
     // PKL-148h: `ListValue` renders through the `List(...)` constructor
     // form (handled in `render_pcf_scalar`), not as a `new { ... }`
     // block — so callers must NOT prefix it with `new`.
@@ -112,6 +113,7 @@ fn render_pcf_scalar_with_indent(
       buf.write_char('"')
     }
     NullValue => buf.write_string("null")
+    DeferredImportValue(_) => buf.write_string("new {}")
     FunctionValue(_, _, _, _, _) => buf.write_string("<function>")
     DurationValue(n, unit) => buf.write_string("\{n}.\{unit}")
     DataSizeValue(n, unit) => buf.write_string("\{n}.\{unit}")
@@ -310,7 +312,8 @@ fn render_pcf_block_body(
     | ListingValue([])
     | DefaultedListingValue(_, [], _)
     | MappingValue([])
-    | DefaultedMappingValue(_, [], _) => buf.write_string("{}")
+    | DefaultedMappingValue(_, [], _)
+    | DeferredImportValue(_) => buf.write_string("{}")
     ObjectValue(members) => {
       let visible = visible_members(members)
       if visible.length() == 0 {

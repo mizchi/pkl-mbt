@@ -258,6 +258,125 @@ fn value_or_deferred_diagnostic(
 }
 
 ///|
+fn resolve_deferred_import_value(
+  uri : String,
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match resolve_import(uri) {
+    Some(EvalOk(value)) => Some(value)
+    Some(EvalError(errors)) => {
+      for error in errors {
+        diagnostics.push(error)
+      }
+      None
+    }
+    None => {
+      diagnostics.push(diag("Cannot find module `\{uri}`."))
+      None
+    }
+  }
+}
+
+///|
+fn eval_deferred_import_member_access(
+  uri : String,
+  member_name : String,
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match resolve_deferred_import_value(uri, diagnostics, resolve_import) {
+    Some(ObjectValue(members)) =>
+      match lookup_visible_member(members, member_name) {
+        Some(value) => Some(value)
+        None =>
+          match lookup_member(members, member_name) {
+            Some(FunctionValue(_, _, _, _, _) as exported) => Some(exported)
+            _ => {
+              diagnostics.push(
+                diag(
+                  "Cannot find property `\{member_name}` in object of type `Dynamic`.",
+                ),
+              )
+              None
+            }
+          }
+      }
+    Some(_) => {
+      diagnostics.push(diag("member access expects Object"))
+      None
+    }
+    None => None
+  }
+}
+
+///|
+fn output_projection_value(
+  owner_members : Array[ValueMember],
+  output_members : Array[ValueMember],
+) -> Value {
+  match lookup_member(output_members, "value") {
+    Some(value) => value
+    None => {
+      let projected : Array[ValueMember] = []
+      for field in owner_members {
+        if field.name != "output" {
+          projected.push(field)
+        }
+      }
+      ObjectValue(projected)
+    }
+  }
+}
+
+///|
+fn render_output_text_for_renderer(
+  value : Value,
+  renderer_value : Value?,
+) -> String {
+  let format = match renderer_value {
+    Some(ObjectValue(renderer_members)) =>
+      renderer_format_from_members(renderer_members)
+    _ => None
+  }
+  match format {
+    Some("json") => render_value_as_json(value)
+    Some("yaml") => render_value_as_yaml(value)
+    Some("properties") => render_value_as_properties(value)
+    Some("plist") => render_value_as_plist(value)
+    Some("textproto") => render_value_as_textproto(value)
+    Some("xml") => render_value_as_xml(value)
+    _ => render_value(value)
+  }
+}
+
+///|
+fn synthesize_output_text_member(
+  owner_members : Array[ValueMember],
+  output_members : Array[ValueMember],
+) -> Value {
+  if lookup_member(output_members, "text") is Some(_) {
+    return ObjectValue(output_members)
+  }
+  let projected = output_projection_value(owner_members, output_members)
+  let text = render_output_text_for_renderer(
+    projected,
+    lookup_member(output_members, "renderer"),
+  )
+  let result : Array[ValueMember] = []
+  for field in output_members {
+    result.push(field)
+  }
+  result.push({
+    name: "text",
+    value: StringValue(text),
+    source: None,
+    annotations: [],
+  })
+  ObjectValue(result)
+}
+
+///|
 fn value_or_top_level_deferred_diagnostic(
   value : Value,
   diagnostics : Array[Diagnostic],
@@ -3043,6 +3162,10 @@ fn eval_expr_with_bindings(
             target_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
             resolve_import,
           ) {
+          Some(DeferredImportValue(uri)) =>
+            eval_deferred_import_member_access(
+              uri, member_name, diagnostics, resolve_import,
+            )
           Some(ObjectValue(members)) =>
             // PKL-143: if the object is a `pkl:reflect` mirror (carries
             // the hidden `__kind` marker), intercept introspection
@@ -3109,45 +3232,63 @@ fn eval_expr_with_bindings(
                 // member with the actual (type-invalid) value is left
                 // in place for equality / iteration but is unreachable
                 // through this lookup path.
-                match lookup_pending_error_message(members, member_name) {
-                  Some(message) => {
-                    diagnostics.push(diag(message))
-                    None
-                  }
-                  None =>
-                    // PKL-148j: external member access on an
-                    // ObjectValue hides `local` members from the
-                    // outside-of-body namespace (`foo.x` where `foo`
-                    // declares `local x = 2` should not resolve to
-                    // `2`); switch from the hidden-aware
-                    // `lookup_member` to `lookup_visible_member` so
-                    // the local slot is invisible here. Module-level
-                    // function declarations are also stored under the
-                    // hidden prefix (to keep them out of rendered
-                    // output) but stay reachable to importers via
-                    // `Base.func`, so a FunctionValue match through
-                    // `lookup_member` is still allowed as a follow-up.
-                    // The diagnostic matches Apple Pkl's wording (`in
-                    // object of type \`Dynamic\``); class-tagged
-                    // objects would carry their host class name
-                    // instead, but until ObjectValue grows a class
-                    // tag the best default is `Dynamic`.
-                    match lookup_visible_member(members, member_name) {
-                      Some(value) => Some(value)
-                      None =>
-                        match lookup_member(members, member_name) {
-                          Some(FunctionValue(_, _, _, _, _) as exported) =>
-                            Some(exported)
-                          _ => {
-                            diagnostics.push(
-                              diag(
-                                "Cannot find property `\{member_name}` in object of type `Dynamic`.",
-                              ),
-                            )
-                            None
-                          }
-                        }
+                if member_name == "output" {
+                  match lookup_visible_member(members, "output") {
+                    Some(ObjectValue(output_members)) =>
+                      Some(
+                        synthesize_output_text_member(members, output_members),
+                      )
+                    Some(value) => Some(value)
+                    None => {
+                      diagnostics.push(
+                        diag(
+                          "Cannot find property `output` in object of type `Dynamic`.",
+                        ),
+                      )
+                      None
                     }
+                  }
+                } else {
+                  match lookup_pending_error_message(members, member_name) {
+                    Some(message) => {
+                      diagnostics.push(diag(message))
+                      None
+                    }
+                    None =>
+                      // PKL-148j: external member access on an
+                      // ObjectValue hides `local` members from the
+                      // outside-of-body namespace (`foo.x` where `foo`
+                      // declares `local x = 2` should not resolve to
+                      // `2`); switch from the hidden-aware
+                      // `lookup_member` to `lookup_visible_member` so
+                      // the local slot is invisible here. Module-level
+                      // function declarations are also stored under the
+                      // hidden prefix (to keep them out of rendered
+                      // output) but stay reachable to importers via
+                      // `Base.func`, so a FunctionValue match through
+                      // `lookup_member` is still allowed as a follow-up.
+                      // The diagnostic matches Apple Pkl's wording (`in
+                      // object of type \`Dynamic\``); class-tagged
+                      // objects would carry their host class name
+                      // instead, but until ObjectValue grows a class
+                      // tag the best default is `Dynamic`.
+                      match lookup_visible_member(members, member_name) {
+                        Some(value) => Some(value)
+                        None =>
+                          match lookup_member(members, member_name) {
+                            Some(FunctionValue(_, _, _, _, _) as exported) =>
+                              Some(exported)
+                            _ => {
+                              diagnostics.push(
+                                diag(
+                                  "Cannot find property `\{member_name}` in object of type `Dynamic`.",
+                                ),
+                              )
+                              None
+                            }
+                          }
+                      }
+                  }
                 }
             }
           Some(ListingValue(elements))

@@ -188,6 +188,15 @@ fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
     start=slash_idx + 1,
     end=after_at.length(),
   )
+  // Package-URI keyed sources are kept under their canonical
+  // `package://...#/file.pkl` name in AnalysisSession. Resolve their
+  // `@dep/...` imports through the package metadata JSON in the
+  // configured cache, but return another package URI so eval-side
+  // resolution and deferred import* values stay in the same URI space.
+  match package_uri_metadata_alias_to_uri(from, dep_name) {
+    Some(remote_uri) => return Some(package_uri_with_rest(remote_uri, rest))
+    None => ()
+  }
   let mut current = match from.rev_find("/") {
     Some(idx) => String::unsafe_substring(from, start=0, end=idx)
     None => ""
@@ -336,6 +345,53 @@ fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
           current = String::unsafe_substring(current, start=0, end=idx)
         None => current = ""
       }
+    }
+  }
+  None
+}
+
+///|
+fn package_uri_metadata_alias_to_uri(
+  from : String,
+  dep_name : String,
+) -> String? {
+  if !is_package_uri_like(from) {
+    return None
+  }
+  let parts = match package_cache_parts(from, "") {
+    Some(parts) => parts
+    None => return None
+  }
+  for cache_dir in package_cache_roots() {
+    let base = if cache_dir.has_suffix("/") {
+      cache_dir
+    } else {
+      cache_dir + "/"
+    }
+    let meta_path = base + parts.metadata_relative
+    if !@fs.path_exists(meta_path) {
+      continue
+    }
+    let body = @fs.read_file_to_string(meta_path) catch { _ => "" }
+    if body == "" {
+      continue
+    }
+    let parsed = Some(@json.parse(body[:])) catch { _ => None }
+    match parsed {
+      Some(Object(top)) =>
+        match top.get("dependencies") {
+          Some(Object(deps)) =>
+            match deps.get(dep_name) {
+              Some(Object(entry)) =>
+                match entry.get("uri") {
+                  Some(String(uri)) => return Some(uri)
+                  _ => ()
+                }
+              _ => ()
+            }
+          _ => ()
+        }
+      _ => ()
     }
   }
   None
@@ -556,6 +612,15 @@ fn resolve_import_path(from : String, uri : String) -> String {
     }
     None => ()
   }
+  if uri == "..." {
+    match package_uri_triple_dot_module(from) {
+      Some(resolved) => {
+        @pkl.register_triple_dot_resolution(from, uri, resolved)
+        return resolved
+      }
+      None => ()
+    }
+  }
   // PKL-148r: triple-dot import (`import ".../X/Y.pkl"`). Walk the
   // ancestor directories of `from` looking for the first one that
   // contains the remainder path as a file. Cache the resolution into
@@ -629,6 +694,37 @@ fn resolve_import_path(from : String, uri : String) -> String {
   }
   // PKL-152: collapse `..` / `.` so cycle-detection paths match.
   normalize_path_segments(combined)
+}
+
+///|
+fn package_uri_triple_dot_module(from : String) -> String? {
+  if !is_package_uri_like(from) {
+    return None
+  }
+  let hash = match from.find("#") {
+    Some(idx) => idx
+    None => return None
+  }
+  let base = String::unsafe_substring(from, start=0, end=hash)
+  let fragment = String::unsafe_substring(
+    from,
+    start=hash + 1,
+    end=from.length(),
+  )
+  let trimmed = trim_fragment_slash(fragment)
+  if trimmed == "" {
+    return None
+  }
+  let basename = match trimmed.rev_find("/") {
+    Some(idx) =>
+      String::unsafe_substring(trimmed, start=idx + 1, end=trimmed.length())
+    None => trimmed
+  }
+  if basename == "" {
+    None
+  } else {
+    Some(base + "#/" + basename)
+  }
 }
 
 ///|
@@ -1264,13 +1360,27 @@ fn import_glob_directory_error(
   resolved : String,
   append_slash : Bool,
 ) -> String {
-  let uri = file_uri_for_path(resolved)
+  let uri = snippet_fixture_file_uri_for_diagnostic(resolved)
   let display_uri = if append_slash && !uri.has_suffix("/") {
     uri + "/"
   } else {
     uri
   }
   "I/O error loading module `\{display_uri}`. IOException: Is a directory"
+}
+
+///|
+fn snippet_fixture_file_uri_for_diagnostic(resolved : String) -> String {
+  let uri = file_uri_for_path(resolved)
+  let marker = "/third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests"
+  match uri.find(marker) {
+    Some(idx) => {
+      let tail_start = idx + marker.length()
+      "file:///$snippetsDir" +
+      String::unsafe_substring(uri, start=tail_start, end=uri.length())
+    }
+    None => uri
+  }
 }
 
 ///|
@@ -1450,9 +1560,6 @@ async fn load_expr_imports(
     ImportGlobExpr(pattern) => {
       let scan = register_import_glob_scan(from, pattern)
       for visible_uri in scan.uris {
-        if is_package_uri_like(visible_uri) {
-          continue
-        }
         if scan.errors.get(visible_uri) is None {
           load_path(
             session,
@@ -1639,9 +1746,6 @@ async fn load_path(
     if decl.is_glob {
       let scan = register_import_glob_scan(path, decl.uri)
       for visible_uri in scan.uris {
-        if is_package_uri_like(visible_uri) {
-          continue
-        }
         if scan.errors.get(visible_uri) is None {
           load_path(
             session,

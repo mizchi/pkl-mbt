@@ -560,6 +560,27 @@ fn strip_heredoc_indent(body : String) -> String {
 
 ///|
 fn unquote(text : String) -> String {
+  let mut hash_count = 0
+  while hash_count < text.length() &&
+        text[hash_count].to_int().unsafe_to_char() == '#' {
+    hash_count = hash_count + 1
+  }
+  if hash_count > 0 &&
+    hash_count + 1 <= text.length() &&
+    text[hash_count].to_int().unsafe_to_char() == '"' {
+    let suffix_len = hash_count + 1
+    if text.length() >= hash_count + suffix_len {
+      let quote_end = text.length() - hash_count - 1
+      if quote_end >= hash_count &&
+        text[quote_end].to_int().unsafe_to_char() == '"' {
+        return String::unsafe_substring(
+          text,
+          start=hash_count + 1,
+          end=quote_end,
+        )
+      }
+    }
+  }
   if text.length() >= 2 && text[0].to_int().unsafe_to_char() == '"' {
     let end = text.length() - 1
     if text[end].to_int().unsafe_to_char() == '"' {

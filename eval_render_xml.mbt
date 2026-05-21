@@ -364,6 +364,7 @@ fn render_xml_inline_content(value : Value, buf : StringBuilder) -> Unit {
     BoolValue(false) => buf.write_string("false")
     StringValue(s) => write_xml_escaped_text(s, buf)
     NullValue => ()
+    DeferredImportValue(_) => ()
     DurationValue(n, unit) => {
       buf.write_string("\{n} ")
       buf.write_string(unit)

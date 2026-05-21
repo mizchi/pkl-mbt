@@ -133,6 +133,12 @@ fn push_stack(stack : Array[String], path : String) -> Array[String] {
 
 ///|
 fn resolve_import_path(from : String, uri : String) -> String {
+  if uri == "..." {
+    match lookup_triple_dot_resolution(from, uri) {
+      Some(resolved) => return resolved
+      None => return uri
+    }
+  }
   // PKL-148r: triple-dot import — the CLI loader's FS-aware walk has
   // already cached the resolution into the sandbox registry. Consult
   // it here so the analysis layer can produce the same absolute path

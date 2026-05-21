@@ -111,11 +111,14 @@ Required work:
 - [x] Add package-cache-backed `read*()` resources and `import*()` ordered key discovery for package URI globs.
 - [x] Implement top-level `import* ... as name` clause binding and inferred-name binding.
 - [x] Add deferred directory diagnostics for `import*("").toMap()` and direct directory glob matches.
+- [x] Resolve file-backed `import*` module values lazily on member access and mapping predicate amends.
+- [x] Synthesize `output.text` for amended imported modules with renderer blocks.
 - [ ] Finish `read*()` empty glob behavior and any remaining directory diagnostics.
-- [ ] Finish lazy `import*` module-value parity for file glob amends and package URI globs.
+- [x] Finish lazy `import*` module-value parity for file glob amends and package URI globs.
 - [x] Preserve Apple-compatible visible URI normalization for globstar parent segments such as `**/../`.
-- [ ] Resolve package-glob module bodies through dependency aliases instead of the current key-only fallback.
-- [ ] Reconcile upstream fixture URI rendering where Apple gold uses `$snippetsDir` placeholders.
+- [x] Preserve escaped wildcard literal chars in raw `import*` URI strings.
+- [x] Resolve package-glob module bodies through dependency aliases instead of the current key-only fallback.
+- [x] Reconcile `import*` directory diagnostic URI rendering where Apple gold uses `$snippetsDir` placeholders.
 - [ ] Decide whether direct `file:` / `https:` / `package:` `read()` should be release-supported or stay sandbox-blocked.
 
 Main dependencies:

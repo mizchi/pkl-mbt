@@ -14,6 +14,7 @@ pub(all) enum Value {
   BoolValue(Bool)
   StringValue(String)
   NullValue
+  DeferredImportValue(String)
   ObjectValue(Array[ValueMember])
   ListingValue(Array[Value])
   // PKL-148h: `List(...)` constructor result, kept distinct from

@@ -143,9 +143,27 @@ test "import glob scanner includes directory matches for deferred loading" {
   let empty = import_glob_scan_from(from, "").uris
   inspect(empty.length(), content="1")
   inspect(empty[0], content="")
-  let direct = import_glob_scan_from(from, "../../input-helper/globtest").uris
+  let direct_scan = import_glob_scan_from(from, "../../input-helper/globtest")
+  let direct = direct_scan.uris
   inspect(direct.length(), content="1")
   inspect(direct[0], content="../../input-helper/globtest")
+  inspect(
+    direct_scan.errors["../../input-helper/globtest"],
+    content="I/O error loading module `file:///$snippetsDir/input-helper/globtest`. IOException: Is a directory",
+  )
+}
+
+///|
+test "import glob scanner treats escaped wildcard chars as literals" {
+  let from = "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/basic/importGlob.pkl"
+  let uris = import_glob_scan_from(
+      from, "../../input-helper/globtest/module with \\[weird] ~!characters.pkl",
+    ).uris
+  inspect(uris.length(), content="1")
+  inspect(
+    uris[0],
+    content="../../input-helper/globtest/module with [weird] ~!characters.pkl",
+  )
 }
 
 ///|

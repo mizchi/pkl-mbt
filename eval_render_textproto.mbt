@@ -323,6 +323,7 @@ fn render_textproto_scalar(value : Value, buf : StringBuilder) -> Unit {
     BoolValue(false) => buf.write_string("false")
     StringValue(s) => write_textproto_string(s, buf)
     NullValue => buf.write_string("null")
+    DeferredImportValue(_) => buf.write_string("{}")
     RegexValue(pattern) => write_textproto_string(pattern, buf)
     BytesValue(bytes) => write_textproto_string(@base64.encode(bytes[:]), buf)
     DataSizeValue(n, unit) => write_textproto_string("\{n}.\{unit}", buf)
