@@ -6,6 +6,11 @@ pub fn render_value_as_json(value : Value) -> String {
 }
 
 ///|
+pub fn render_value_as_json_document(value : Value) -> String {
+  render_value_as_json(value) + "\n"
+}
+
+///|
 fn render_json_value(value : Value, indent : Int, buf : StringBuilder) -> Unit {
   match value {
     IntValue(n) => buf.write_string("\{n}")

@@ -870,8 +870,13 @@ fn Parser::parse_object_expr_with_expected_type(
       StringLiteral(type_name),
       self.parse_listing_body(),
     ])
-  } else if type_name == "Mapping" || type_name.has_prefix("Mapping<") {
+  } else if type_name == "Mapping" {
     self.parse_mapping_body()
+  } else if type_name.has_prefix("Mapping<") {
+    CallExpr(Identifier("@__typed_listing"), [
+      StringLiteral(type_name),
+      self.parse_mapping_body(),
+    ])
   } else if type_name == "" {
     match expected_type_name {
       Some("Dynamic") =>

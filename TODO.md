@@ -1,11 +1,11 @@
 # Release TODO
 
-Current coverage: 301 / 391 PCF gold-match (77.0%).
+Current coverage: 315 / 391 PCF gold-match (80.6%).
 Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-05-21.
 
 Release focus:
 
-- `basic`: 79 PASS / 7 DIFF
+- `basic`: 80 PASS / 6 DIFF
 - `generators`: 21 PASS / 0 DIFF
 
 Planned order:
@@ -25,11 +25,11 @@ End-user blocker priority is based on "will a normal Pkl config author hit this?
 
 1. Resource / read / glob: file/resource access, `read*()`, and `import*` glob behavior are release blockers for multi-file configs and CLI usage.
 2. `for` / generators: completed for with-gold upstream fixtures. Keep this as a regression-sensitive area because real configs use list/map comprehensions and generated object bodies heavily.
-3. Renderer API surface: `api` has many DIFFs, but not all are equal. Treat public output formats as blockers only if we advertise them for this release. Keep `pcf` / `json` stable; renderer converter coverage now includes direct `renderDocument` / `renderValue` calls across PCF / JSON / YAML / plist / XML plus XML class-keyed converters, path-keyed wildcard converters, direct CDATA/comment helpers, and `xml.Element` rename fixtures. Protobuf text currently covers the promoted `protobuf3.txtpb` path; decide whether the remaining XML / Protobuf diagnostics and inline formatting are release-supported or experimental.
-4. Basic scalar / collection parity: `Bytes`, `DataSize`, `Duration`, `Int`, `Float`, and `Map` are gold-matching for `basic`; remaining first-release scalar / collection gaps are long-tail `as` / `new` / nullable / const provenance cases.
+3. Renderer API surface: `api` has many DIFFs, but not all are equal. Treat public output formats as blockers only if we advertise them for this release. Keep `pcf` / `json` stable; renderer converter coverage now includes direct `renderDocument` / `renderValue` calls across PCF / JSON / YAML / plist / XML, validation diagnostics for non-renderable values, XML class-keyed converters, path-keyed wildcard converters, direct CDATA/comment helpers, and `xml.Element` rename fixtures. Protobuf text currently covers the promoted `protobuf3.txtpb` path; decide whether the remaining XML / Protobuf diagnostics and inline formatting are release-supported or experimental.
+4. Basic scalar / collection parity: `Bytes`, `DataSize`, `Duration`, `Int`, `Float`, `Map`, and nullable semantics are gold-matching for `basic`; remaining first-release scalar / collection gaps are long-tail `as` / `new` / const provenance cases.
 5. Deep stdlib / reflect parity: important for long-term compatibility, but not a first release blocker unless a public API or real package depends on it.
 
-For this release pass, Resource / Glob and Numeric / Bytes parity are gold-matching for the `basic` fixtures. Move next to renderer API surface unless a real package exposes a remaining resource-policy gap.
+For this release pass, Resource / Glob, Numeric / Bytes, nullable basics, and the advertised renderer validation surface are gold-matching for their targeted fixtures.
 
 ## Current DIFF Snapshot
 
@@ -42,17 +42,11 @@ Measured from the release binary against Apple Pkl LanguageSnippetTests gold fil
 - `basic/constModifier`
 - `basic/new`
 - `basic/newType`
-- `basic/nullable`
 - `basic/underscore`
 
 `generators` remaining DIFFs: none.
 
-Adjacent typed-collection DIFFs worth pulling into Priority 5:
-
-- `listings/typeCheck`
-- `listings2/typeCheck`
-- `mappings/typeCheck`
-- `mappings2/typeCheck`
+Adjacent typed-collection DIFFs: `listings/typeCheck` and `mappings/typeCheck` now gold-match.
 
 ## Priority 1: Numeric And Bytes Parity
 
@@ -226,6 +220,8 @@ Implemented work:
 - Added generic `as` cast overlays for `List`, `Set`, `Map`, `Listing`, and `Mapping`; immutable collections validate eagerly while `Listing` / `Mapping` preserve deferred element / value errors until access.
 - Preserved lazy collection-local bindings in Listing / Mapping bodies so earlier dynamic elements are not invalidated by later unused locals, and collection-local `local x` shadows module cache during eval and type resolution.
 - Kept renderer-class casts compatible with `ValueRenderer` so `api/pcfRenderer9` remains gold-match.
+- Fixed lazy typed generated Listing / Mapping values for `listings2/typeCheck` and `mappings2/typeCheck`.
+- Fixed union-aware typed collection retention for `listings/typeCheck` and `mappings/typeCheck`, including lazy single-collection union branches, eager Set hash validation, `Pair<T, U>` nested collection annotations, and `new Mapping<K, V>` type-argument retention.
 
 Target fixtures:
 
@@ -255,7 +251,6 @@ Needed for correctness, but less likely to unlock many fixtures quickly unless i
 Target fixtures:
 
 - `basic/constModifier`
-- Some `basic/nullable`
 - Generator lexical-scope edge cases
 
 Required work:
@@ -274,7 +269,7 @@ Main dependencies:
 ## Issue Sync
 
 - #4 Lazy local evaluation: implemented through the local-scope fixture slice and closed as completed.
-- #6 XML / Protobuf renderer bodies: all upstream XML `.xml` renderer fixtures now promote (`xmlRenderer1`, `xmlRenderer2`, `xmlRenderer3`, `xmlRenderer6`, `xmlRenderer9`, `xmlRendererCData`, `xmlRendererElement`, `xmlRendererInline`, `xmlRendererInline2`, `xmlRendererInline3`, `xmlRendererHtml`); direct renderer-method / validation PCF fixtures now cover `pcfRenderer2b`, `jsonRenderer2b`, `yamlRenderer2b`, `plistRenderer2b`, `xmlRenderer2b`, `xmlRenderer4`, `xmlRenderer5`, `xmlRendererValidation10`, and `xmlRendererValidation11`; Protobuf text still promotes `protobuf3.txtpb`. Remaining Protobuf gaps are release blockers only if those advanced surfaces are release-supported output formats; otherwise document them as experimental follow-up.
+- #6 XML / Protobuf renderer bodies: all upstream XML `.xml` renderer fixtures now promote (`xmlRenderer1`, `xmlRenderer2`, `xmlRenderer3`, `xmlRenderer6`, `xmlRenderer9`, `xmlRendererCData`, `xmlRendererElement`, `xmlRendererInline`, `xmlRendererInline2`, `xmlRendererInline3`, `xmlRendererHtml`); direct renderer-method / validation PCF fixtures now cover `pcfRenderer2b`, `pcfRenderer4`, `pcfRenderer5`, `jsonRenderer2b`, `jsonRenderer4`, `jsonRenderer5`, `yamlRenderer2b`, `yamlRenderer4`, `yamlRenderer5`, `plistRenderer2b`, `pListRenderer4`, `pListRenderer5`, `propertiesRenderer4`, `propertiesRenderer5`, `xmlRenderer2b`, `xmlRenderer4`, `xmlRenderer5`, `xmlRendererValidation10`, and `xmlRendererValidation11`; Protobuf text still promotes `protobuf3.txtpb`. Remaining Protobuf gaps are release blockers only if those advanced surfaces are release-supported output formats; otherwise document them as experimental follow-up.
 - #8 Umbrella practical blockers: update after each release slice.
 - #1 Stdlib module evaluation gaps: relevant for long-term stdlib parity, especially external declarations, variance, and `pkl:` module loading.
 

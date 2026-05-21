@@ -181,7 +181,9 @@ fn collection_annotation_uses_listing_marker(name : String) -> Bool {
   unwrapped.contains("Listing<") ||
   unwrapped.contains("List<") ||
   unwrapped.contains("Set<") ||
-  unwrapped.contains("Collection<")
+  unwrapped.contains("Collection<") ||
+  unwrapped.contains("Mapping<") ||
+  unwrapped.contains("Map<")
 }
 
 ///|

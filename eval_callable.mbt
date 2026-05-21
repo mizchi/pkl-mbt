@@ -513,6 +513,50 @@ fn eval_callable_argument_rejection_message(
 }
 
 ///|
+priv enum CallableCollectionAnnotationCast {
+  CallableCollectionCastSkipped
+  CallableCollectionCastOk(Value)
+  CallableCollectionCastErr(String)
+}
+
+///|
+fn cast_callable_collection_annotation(
+  type_name : String?,
+  value : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> CallableCollectionAnnotationCast {
+  let annotation = match type_name {
+    Some(name) => name
+    None => return CallableCollectionCastSkipped
+  }
+  if type_annotation_collection_branch_count(annotation, declarations) == 0 {
+    return CallableCollectionCastSkipped
+  }
+  match
+    cast_value_to_type_annotation(
+      annotation, value, bindings, env, class_env, cache, stack, declarations, resolve_import,
+    ) {
+    TypeCastOk(casted) =>
+      match
+        binding_collection_host_constraint_rejection_message(
+          Some(annotation),
+          casted,
+          declarations,
+        ) {
+        Some(message) => CallableCollectionCastErr(message)
+        None => CallableCollectionCastOk(casted)
+      }
+    TypeCastErr(message) => CallableCollectionCastErr(message)
+  }
+}
+
+///|
 
 ///|
 /// PKL-148bh: runtime predicate check for a callable parameter
@@ -879,10 +923,30 @@ fn eval_callable_return_value(
   let clean_return_type_name = strip_lazy_collection_annotation_marker_opt(
     return_type_name,
   )
-  let (return_value, overlaid) = overlay_collection_annotation_if_possible(
-    return_type_name, value, bindings, env, class_env, cache, stack, declarations,
-    resolve_import,
-  )
+  let mut return_value = value
+  let mut overlaid = false
+  match
+    cast_callable_collection_annotation(
+      clean_return_type_name, return_value, bindings, env, class_env, cache, stack,
+      declarations, resolve_import,
+    ) {
+    CallableCollectionCastOk(casted) => {
+      return_value = casted
+      overlaid = true
+    }
+    CallableCollectionCastErr(message) => {
+      diagnostics.push(diag(message))
+      return None
+    }
+    CallableCollectionCastSkipped => {
+      let (overlay_value, overlay_ok) = overlay_collection_annotation_if_possible(
+        return_type_name, return_value, bindings, env, class_env, cache, stack, declarations,
+        resolve_import,
+      )
+      return_value = overlay_value
+      overlaid = overlay_ok
+    }
+  }
   if overlaid {
     return Some(return_value)
   }
@@ -944,17 +1008,37 @@ fn eval_lambda_application(
     let parameter_type_name = strip_lazy_collection_annotation_marker_opt(
       parameters[i].type_name,
     )
-    let (argument_value, overlaid) = overlay_collection_annotation_if_possible(
-      parameters[i].type_name,
-      argument_values[i],
-      bindings,
-      call_cache,
-      class_env,
-      call_cache,
-      stack,
-      declarations,
-      resolve_import,
-    )
+    let mut argument_value = argument_values[i]
+    let mut overlaid = false
+    match
+      cast_callable_collection_annotation(
+        parameter_type_name, argument_value, bindings, call_cache, class_env, call_cache,
+        stack, declarations, resolve_import,
+      ) {
+      CallableCollectionCastOk(casted) => {
+        argument_value = casted
+        overlaid = true
+      }
+      CallableCollectionCastErr(message) => {
+        diagnostics.push(diag(message))
+        return None
+      }
+      CallableCollectionCastSkipped => {
+        let (overlay_value, overlay_ok) = overlay_collection_annotation_if_possible(
+          parameters[i].type_name,
+          argument_value,
+          bindings,
+          call_cache,
+          class_env,
+          call_cache,
+          stack,
+          declarations,
+          resolve_import,
+        )
+        argument_value = overlay_value
+        overlaid = overlay_ok
+      }
+    }
     if !overlaid {
       match
         eval_callable_argument_type_rejection_message(
@@ -1105,17 +1189,37 @@ fn apply_function_value(
         let parameter_type_name = strip_lazy_collection_annotation_marker_opt(
           parameters[i].type_name,
         )
-        let (argument_value, overlaid) = overlay_collection_annotation_if_possible(
-          parameters[i].type_name,
-          args[i],
-          bindings,
-          call_cache,
-          class_env,
-          call_cache,
-          stack,
-          declarations,
-          resolve_import,
-        )
+        let mut argument_value = args[i]
+        let mut overlaid = false
+        match
+          cast_callable_collection_annotation(
+            parameter_type_name, argument_value, bindings, call_cache, class_env,
+            call_cache, stack, declarations, resolve_import,
+          ) {
+          CallableCollectionCastOk(casted) => {
+            argument_value = casted
+            overlaid = true
+          }
+          CallableCollectionCastErr(message) => {
+            diagnostics.push(diag(message))
+            return None
+          }
+          CallableCollectionCastSkipped => {
+            let (overlay_value, overlay_ok) = overlay_collection_annotation_if_possible(
+              parameters[i].type_name,
+              argument_value,
+              bindings,
+              call_cache,
+              class_env,
+              call_cache,
+              stack,
+              declarations,
+              resolve_import,
+            )
+            argument_value = overlay_value
+            overlaid = overlay_ok
+          }
+        }
         if !overlaid {
           match
             eval_callable_argument_type_rejection_message(
@@ -1284,38 +1388,55 @@ fn eval_class_method_call(
                     method_cache, type_name, class_env, env, cache,
                   )
                   for i = 0; i < function_decl.parameters.length(); i = i + 1 {
+                    let parameter_type_name = strip_lazy_collection_annotation_marker_opt(
+                      function_decl.parameters[i].type_name,
+                    )
+                    let mut argument_value = argument_values[i]
+                    let mut overlaid = false
                     match
-                      eval_callable_argument_type_rejection_message(
-                        function_decl.parameters[i].type_name,
-                        argument_values[i],
-                        class_env,
-                        method_cache,
-                        declarations,
+                      cast_callable_collection_annotation(
+                        parameter_type_name, argument_value, bindings, method_cache,
+                        class_env, method_cache, stack, declarations, resolve_import,
                       ) {
-                      Some(message) => {
+                      CallableCollectionCastOk(casted) => {
+                        argument_value = casted
+                        overlaid = true
+                      }
+                      CallableCollectionCastErr(message) => {
                         diagnostics.push(diag(message))
                         return None
                       }
-                      None => ()
+                      CallableCollectionCastSkipped => ()
                     }
-                    match
-                      eval_callable_argument_rejection_message(
-                        function_decl.parameters[i].type_name,
-                        argument_values[i],
-                        declarations,
-                      ) {
-                      Some(message) => {
-                        // PKL-148o: bare upstream wording — see
-                        // `eval_lambda_application` for the rationale.
-                        let _ = method_name
-                        diagnostics.push(diag(message))
-                        return None
+                    if !overlaid {
+                      match
+                        eval_callable_argument_type_rejection_message(
+                          parameter_type_name, argument_value, class_env, method_cache,
+                          declarations,
+                        ) {
+                        Some(message) => {
+                          diagnostics.push(diag(message))
+                          return None
+                        }
+                        None => ()
                       }
-                      None => ()
+                      match
+                        eval_callable_argument_rejection_message(
+                          parameter_type_name, argument_value, declarations,
+                        ) {
+                        Some(message) => {
+                          // PKL-148o: bare upstream wording — see
+                          // `eval_lambda_application` for the rationale.
+                          let _ = method_name
+                          diagnostics.push(diag(message))
+                          return None
+                        }
+                        None => ()
+                      }
                     }
                     method_cache.push({
                       name: function_decl.parameters[i].name,
-                      value: argument_values[i],
+                      value: argument_value,
                     })
                   }
                   match

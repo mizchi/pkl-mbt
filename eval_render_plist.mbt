@@ -13,6 +13,13 @@ pub fn render_value_as_plist(value : Value) -> String {
 }
 
 ///|
+pub fn render_value_as_plist_fragment(value : Value) -> String {
+  let buf = StringBuilder::new()
+  render_plist_value(value, 0, buf)
+  buf.to_string()
+}
+
+///|
 fn render_plist_value(value : Value, indent : Int, buf : StringBuilder) -> Unit {
   match value {
     IntValue(n) => {

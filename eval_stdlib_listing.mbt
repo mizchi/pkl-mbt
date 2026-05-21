@@ -172,7 +172,16 @@ fn eval_listing_property(
     // PKL-148h: `.toList()` tags as `ListValue` (round-trips through
     // the `List(...)` constructor form); `.toListing()` keeps the
     // Listing block tag. `.toSet` deduplicates and tags as Set.
-    "toList" => Some(ListValue(elements))
+    "toList" => {
+      match first_deferred_error_message(ListingValue(elements)) {
+        Some(message) => {
+          diagnostics.push(diag(message))
+          return None
+        }
+        None => ()
+      }
+      Some(ListValue(elements))
+    }
     "toListing" => Some(ListingValue(elements))
     "toSet" => {
       let seen : Array[Value] = []
@@ -812,6 +821,13 @@ fn eval_listing_method(
           diag("Listing.toList expects 0 arguments, got \{arg_values.length()}"),
         )
         return None
+      }
+      match first_deferred_error_message(ListingValue(elements)) {
+        Some(message) => {
+          diagnostics.push(diag(message))
+          return None
+        }
+        None => ()
       }
       Some(ListValue(elements))
     }

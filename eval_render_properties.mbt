@@ -5,8 +5,16 @@ pub fn render_value_as_properties(value : Value) -> String {
     ObjectValue(members) => render_properties_members(members, "", buf)
     MappingValue(entries) | DefaultedMappingValue(_, entries, _) =>
       render_properties_entries(entries, "", buf)
+    MapValue(entries) => render_properties_entries(entries, "", buf)
     _ => ()
   }
+  buf.to_string()
+}
+
+///|
+pub fn render_value_as_properties_fragment(value : Value) -> String {
+  let buf = StringBuilder::new()
+  write_properties_scalar(value, buf)
   buf.to_string()
 }
 

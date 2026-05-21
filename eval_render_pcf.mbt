@@ -12,6 +12,26 @@ pub fn render_value(value : Value) -> String {
 }
 
 ///|
+pub fn render_value_as_pcf_document(value : Value) -> String {
+  render_value(value) + "\n"
+}
+
+///|
+pub fn render_value_as_pcf_fragment(value : Value) -> String {
+  let buf = StringBuilder::new()
+  match value {
+    ObjectValue(_)
+    | ListingValue(_)
+    | DefaultedListingValue(_, _, _)
+    | MappingValue(_)
+    | DefaultedMappingValue(_, _, _)
+    | DeferredImportValue(_) => render_pcf_block_body(value, 0, buf)
+    _ => render_pcf_inline(value, 0, buf)
+  }
+  buf.to_string()
+}
+
+///|
 fn escape_string(value : String) -> String {
   let buf = StringBuilder::new()
   for c in value {

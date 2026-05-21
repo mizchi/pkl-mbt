@@ -149,6 +149,31 @@ fn checked_int64_mul(a : Int64, b : Int64) -> Int64? {
 }
 
 ///|
+fn binding_collection_host_constraint_rejection_message(
+  type_name : String?,
+  value : Value,
+  declarations : Array[Declaration],
+) -> String? {
+  match type_name {
+    Some(annotation) => {
+      let aliases = eval_type_alias_bindings(declarations)
+      let resolved = eval_resolved_type_alias(annotation, aliases)
+      let source = strip_lazy_collection_annotation_marker(resolved)
+      match value {
+        ListingValue(elements)
+        | DefaultedListingValue(_, elements, _)
+        | ListValue(elements) =>
+          pkl_constrained_listing_rejection_message_from_source(
+            source, elements,
+          )
+        _ => None
+      }
+    }
+    None => None
+  }
+}
+
+///|
 fn resolve_binding_value(
   name : String,
   bindings : Array[Binding],
@@ -191,7 +216,47 @@ fn resolve_binding_value(
   }
   match shadow_binding {
     Some(binding) =>
-      if lookup_value(cache, "@__class_default_scope") is Some(_) &&
+      if binding.abstract_slot && binding.value is NullLiteral {
+        match
+          synthesize_default_for_type(
+            binding.type_name,
+            bindings,
+            env,
+            class_env,
+            cache,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(value) => {
+            let structural_reject = match binding.type_name {
+              Some(annotation) =>
+                eval_resolved_annotation_structural_rejection_message(
+                  annotation, value, declarations,
+                )
+              None => None
+            }
+            match structural_reject {
+              Some(message) => {
+                diagnostics.push(diag(message))
+                None
+              }
+              None =>
+                if pkl_constrained_type_annotation_value_is_valid(
+                    binding.type_name,
+                    value,
+                    diagnostics,
+                  ) {
+                  cache.push({ name: binding.name, value })
+                  Some(value)
+                } else {
+                  None
+                }
+            }
+          }
+          None => None
+        }
+      } else if lookup_value(cache, "@__class_default_scope") is Some(_) &&
         !binding.is_const &&
         !(binding.value is LambdaExpr(_, _, _)) {
         diagnostics.push(
@@ -321,35 +386,35 @@ fn resolve_binding_value(
               diagnostics,
               resolve_import,
             )
-            // PKL-148u: structural type rejection ahead of the
-            // constraint cascade. Module-level bindings surface
-            // the diagnostic eagerly (no lazy access-time
-            // intercept; the binding is evaluated once on
-            // reference). For class defaults, see the deferred
-            // `@error$` encoding in `eval_object_members`.
-            let structural_reject = match binding.type_name {
+            let typed_value = match binding.type_name {
               Some(annotation) =>
-                eval_resolved_annotation_structural_rejection_message(
-                  annotation, value, declarations,
-                )
-              None => None
+                match
+                  cast_value_to_type_annotation(
+                    annotation, value, bindings, env, class_env, cache, stack, declarations,
+                    resolve_import,
+                  ) {
+                  TypeCastOk(casted) => casted
+                  TypeCastErr(message) => {
+                    diagnostics.push(diag(message))
+                    return None
+                  }
+                }
+              None => value
             }
-            match structural_reject {
+            match
+              binding_collection_host_constraint_rejection_message(
+                binding.type_name,
+                typed_value,
+                declarations,
+              ) {
               Some(message) => {
                 diagnostics.push(diag(message))
                 None
               }
-              None =>
-                if pkl_constrained_type_annotation_value_is_valid(
-                    binding.type_name,
-                    value,
-                    diagnostics,
-                  ) {
-                  cache.push({ name: binding.name, value })
-                  Some(value)
-                } else {
-                  None
-                }
+              None => {
+                cache.push({ name: binding.name, value: typed_value })
+                Some(typed_value)
+              }
             }
           }
           None => None

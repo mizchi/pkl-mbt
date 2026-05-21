@@ -6,6 +6,16 @@ pub fn render_value_as_yaml(value : Value) -> String {
 }
 
 ///|
+pub fn render_value_as_yaml_fragment(value : Value) -> String {
+  let text = render_value_as_yaml(value)
+  if text.has_suffix("\n") {
+    String::unsafe_substring(text, start=0, end=text.length() - 1)
+  } else {
+    text
+  }
+}
+
+///|
 fn render_yaml_root(value : Value, buf : StringBuilder) -> Unit {
   match value {
     ObjectValue(members) => {
@@ -16,7 +26,9 @@ fn render_yaml_root(value : Value, buf : StringBuilder) -> Unit {
         render_yaml_mapping_members(visible, 0, buf)
       }
     }
-    MappingValue(entries) | DefaultedMappingValue(_, entries, _) =>
+    MappingValue(entries)
+    | DefaultedMappingValue(_, entries, _)
+    | MapValue(entries) =>
       if entries.length() == 0 {
         buf.write_string(" {}\n")
       } else {
@@ -24,7 +36,8 @@ fn render_yaml_root(value : Value, buf : StringBuilder) -> Unit {
       }
     ListingValue(elements)
     | DefaultedListingValue(_, elements, _)
-    | ListValue(elements) =>
+    | ListValue(elements)
+    | SetValue(elements) =>
       if elements.length() == 0 {
         buf.write_string(" []\n")
       } else {

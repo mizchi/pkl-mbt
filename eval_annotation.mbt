@@ -189,6 +189,10 @@ fn synthesize_default_for_type(
           break
         }
       }
+      match pkl_constrained_type_base_name(name) {
+        Some(base) => name = trim_spaces(base)
+        None => ()
+      }
       // Nullable types (`T?`) default to null.
       if name.has_suffix("?") || name == "Null" || name == "Nothing" {
         return Some(NullValue)

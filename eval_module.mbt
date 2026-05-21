@@ -994,6 +994,124 @@ fn eval_program(
     None => ()
   }
   for binding in program.bindings {
+    // Hidden top-level properties are not part of the rendered module
+    // surface, but they are still reachable through `super.x` /
+    // imported-module member access. Evaluate them against a local
+    // diagnostics buffer: successful values are exported as hidden
+    // members, while failing values stay lazy for same-module
+    // `test.catch(() -> x)` and are represented as deferred errors for
+    // cross-module access.
+    if is_hidden_member_name(binding.name) {
+      let hidden_diagnostics : Array[Diagnostic] = []
+      let resolved_value = if binding.abstract_slot {
+        synthesize_default_for_type(
+          binding.type_name,
+          bindings,
+          env,
+          class_env,
+          cache,
+          program.declarations,
+          hidden_diagnostics,
+          resolve_import,
+        )
+      } else {
+        match
+          eval_pkl_test_catch_binding_value(
+            binding.value,
+            bindings,
+            env,
+            class_env,
+            cache,
+            [],
+            program.declarations,
+            resolve_import,
+          ) {
+          Some(value) => {
+            cache.push({ name: binding.name, value })
+            Some(value)
+          }
+          None =>
+            resolve_binding_value(
+              binding.name,
+              bindings,
+              env,
+              class_env,
+              cache,
+              [],
+              program.declarations,
+              hidden_diagnostics,
+              resolve_import,
+            )
+        }
+      }
+      match resolved_value {
+        Some(raw_value) => {
+          let coerced = coerce_value_to_annotated_type(
+            raw_value,
+            binding.type_name,
+          )
+          let value = apply_class_defaults_for_type(
+            coerced,
+            binding.type_name,
+            bindings,
+            env,
+            class_env,
+            cache,
+            program.declarations,
+            hidden_diagnostics,
+            resolve_import,
+          )
+          if eval_constrained_type_annotation_value_is_valid(
+              binding.type_name,
+              value,
+              type_aliases,
+              hidden_diagnostics,
+            ) &&
+            eval_user_defined_constrained_type_annotation_value_is_valid(
+              binding.type_name,
+              value,
+              program.declarations,
+              hidden_diagnostics,
+            ) &&
+            eval_expr_class_property_constraints_are_valid(
+              binding.value,
+              value,
+              program.declarations,
+              hidden_diagnostics,
+            ) &&
+            eval_expr_alias_constraints_are_valid(
+              binding.value,
+              value,
+              type_aliases,
+              hidden_diagnostics,
+            ) {
+            members.push({
+              name: binding.name,
+              value,
+              source: Some(binding.value),
+              annotations: binding.annotations,
+            })
+          } else if hidden_diagnostics.length() > 0 {
+            members.push({
+              name: binding.name,
+              value: deferred_error_value(hidden_diagnostics[0].message),
+              source: Some(binding.value),
+              annotations: binding.annotations,
+            })
+          }
+        }
+        None =>
+          if hidden_diagnostics.length() > 0 {
+            members.push({
+              name: binding.name,
+              value: deferred_error_value(hidden_diagnostics[0].message),
+              source: Some(binding.value),
+              annotations: binding.annotations,
+            })
+          }
+      }
+      continue
+    }
     // PKL-140: abstract / external slot bindings (declared without a
     // `=` default) carry no value to render. Apple Pkl synthesises a
     // type-directed default for typed slots — a user class projects
@@ -1077,7 +1195,19 @@ fn eval_program(
             diagnostics,
             resolve_import,
           )
-          if eval_constrained_type_annotation_value_is_valid(
+          let no_deferred_error = match binding.type_name {
+            Some(_) =>
+              match first_deferred_error_message(value) {
+                Some(message) => {
+                  diagnostics.push(diag(message))
+                  false
+                }
+                None => true
+              }
+            None => true
+          }
+          if no_deferred_error &&
+            eval_constrained_type_annotation_value_is_valid(
               binding.type_name,
               value,
               type_aliases,
