@@ -429,7 +429,12 @@ fn push_sibling_class_methods(
   // most-derived override wins (virtual dispatch).
   let chain : Array[ClassBinding] = []
   let mut current : String? = Some(class_name)
+  let seen : Array[String] = []
   while current is Some(name) {
+    if contains_string(seen, name) {
+      break
+    }
+    seen.push(name)
     match lookup_class_binding(class_env, name) {
       Some(class_binding) => {
         chain.push(class_binding)

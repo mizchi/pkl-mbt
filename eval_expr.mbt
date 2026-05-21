@@ -7007,16 +7007,38 @@ fn collect_class_default_properties_in_order(
   class_env : Array[ClassBinding],
   declarations : Array[Declaration],
 ) -> Unit {
+  collect_class_default_properties_in_order_seen(
+    out,
+    type_name,
+    class_env,
+    declarations,
+    [],
+  )
+}
+
+///|
+fn collect_class_default_properties_in_order_seen(
+  out : Array[ClassProperty],
+  type_name : String,
+  class_env : Array[ClassBinding],
+  declarations : Array[Declaration],
+  seen : Array[String],
+) -> Unit {
+  if contains_string(seen, type_name) {
+    return
+  }
+  seen.push(type_name)
   match lookup_class_binding(class_env, type_name) {
     Some(class_binding) => {
       match class_binding.parent_name {
         Some(parent_name) => {
           let aliases = eval_type_alias_bindings(declarations)
-          collect_class_default_properties_in_order(
+          collect_class_default_properties_in_order_seen(
             out,
             eval_resolved_type_alias(parent_name, aliases),
             class_env,
             declarations,
+            seen,
           )
         }
         None => ()
@@ -7450,13 +7472,18 @@ fn eval_value_renderer_method(
       diagnostics,
       resolve_import,
     ) {
-    Some(value) =>
+    Some(value) => {
+      let rendered_value = apply_value_renderer_converters(
+        value, renderer_members, bindings, env, class_env, cache, declarations, diagnostics,
+        resolve_import,
+      )
       match format {
-        "pcf" => Some(StringValue(render_value(value)))
-        "json" => Some(StringValue(render_value_as_json(value)))
-        "yaml" => Some(StringValue(render_value_as_yaml(value)))
-        "properties" => Some(StringValue(render_value_as_properties(value)))
-        "plist" => Some(StringValue(render_value_as_plist(value)))
+        "pcf" => Some(StringValue(render_value(rendered_value)))
+        "json" => Some(StringValue(render_value_as_json(rendered_value)))
+        "yaml" => Some(StringValue(render_value_as_yaml(rendered_value)))
+        "properties" =>
+          Some(StringValue(render_value_as_properties(rendered_value)))
+        "plist" => Some(StringValue(render_value_as_plist(rendered_value)))
         "textproto" => {
           let indent_text = xml_renderer_option(
             renderer_members, "indent", "  ",
@@ -7464,13 +7491,15 @@ fn eval_value_renderer_method(
           if method_name == "renderDocument" {
             Some(
               StringValue(
-                render_value_as_textproto_with_indent(value, indent_text),
+                render_value_as_textproto_with_indent(
+                  rendered_value, indent_text,
+                ),
               ),
             )
           } else {
             Some(
               StringValue(
-                render_value_as_textproto_fragment(value, indent_text),
+                render_value_as_textproto_fragment(rendered_value, indent_text),
               ),
             )
           }
@@ -7483,7 +7512,7 @@ fn eval_value_renderer_method(
             Some(
               StringValue(
                 render_value_as_xml_with_options(
-                  value,
+                  rendered_value,
                   xml_renderer_option(
                     renderer_members, "rootElementName", "root",
                   ),
@@ -7493,11 +7522,16 @@ fn eval_value_renderer_method(
               ),
             )
           } else {
-            Some(StringValue(render_value_as_xml_fragment(value, indent_text)))
+            Some(
+              StringValue(
+                render_value_as_xml_fragment(rendered_value, indent_text),
+              ),
+            )
           }
         }
         _ => None
       }
+    }
     None => None
   }
 }

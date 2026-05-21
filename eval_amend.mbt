@@ -1885,6 +1885,37 @@ fn eval_class_default_members(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Array[ValueMember] {
+  eval_class_default_members_seen(
+    type_name,
+    bindings,
+    env,
+    class_env,
+    cache,
+    stack,
+    declarations,
+    diagnostics,
+    resolve_import,
+    [],
+  )
+}
+
+///|
+fn eval_class_default_members_seen(
+  type_name : String,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+  seen : Array[String],
+) -> Array[ValueMember] {
+  if contains_string(seen, type_name) {
+    return []
+  }
+  seen.push(type_name)
   let defaults : Array[ObjectMember] = []
   let base_values : Array[ValueMember] = []
   let own_methods : Array[FunctionDecl] = []
@@ -1901,9 +1932,9 @@ fn eval_class_default_members(
           let aliases = eval_type_alias_bindings(declarations)
           let resolved_parent = eval_resolved_type_alias(parent_name, aliases)
           for
-            value_member in eval_class_default_members(
+            value_member in eval_class_default_members_seen(
               resolved_parent, bindings, env, class_env, cache, stack, declarations,
-              diagnostics, resolve_import,
+              diagnostics, resolve_import, seen,
             ) {
             base_values.push(value_member)
           }
@@ -1911,6 +1942,9 @@ fn eval_class_default_members(
         None => ()
       }
       for property in class_binding.properties {
+        if type_name == "module" && stack_contains_binding(stack, property.name) {
+          continue
+        }
         match property.value {
           Some(value) =>
             defaults.push({

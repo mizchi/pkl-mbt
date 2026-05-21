@@ -1,6 +1,6 @@
 # Release TODO
 
-Current coverage: 291 / 391 PCF gold-match (74.4%).
+Current coverage: 297 / 391 PCF gold-match (76.0%).
 Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-05-21.
 
 Release focus:
@@ -25,7 +25,7 @@ End-user blocker priority is based on "will a normal Pkl config author hit this?
 
 1. Resource / read / glob: file/resource access, `read*()`, and `import*` glob behavior are release blockers for multi-file configs and CLI usage.
 2. `for` / generators: completed for with-gold upstream fixtures. Keep this as a regression-sensitive area because real configs use list/map comprehensions and generated object bodies heavily.
-3. Renderer API surface: `api` has many DIFFs, but not all are equal. Treat public output formats as blockers only if we advertise them for this release. Keep `pcf` / `json` stable, then decide whether `yaml`, `properties`, XML, Protobuf, plist, and JSONNet are release-supported or experimental.
+3. Renderer API surface: `api` has many DIFFs, but not all are equal. Treat public output formats as blockers only if we advertise them for this release. Keep `pcf` / `json` stable; renderer converter coverage now includes direct `renderDocument` / `renderValue` calls across PCF / JSON / YAML / plist / XML plus XML class-keyed converters, path-keyed wildcard converters, direct CDATA/comment helpers, and `xml.Element` rename fixtures. Protobuf text currently covers the promoted `protobuf3.txtpb` path; decide whether the remaining XML / Protobuf diagnostics and inline formatting are release-supported or experimental.
 4. Basic scalar / collection parity: `Bytes`, `DataSize`, `Duration`, `Int`, `Float`, and `Map` are gold-matching for `basic`; remaining first-release scalar / collection gaps are long-tail `as` / `new` / nullable / const provenance cases.
 5. Deep stdlib / reflect parity: important for long-term compatibility, but not a first release blocker unless a public API or real package depends on it.
 
@@ -274,13 +274,11 @@ Main dependencies:
 ## Issue Sync
 
 - #4 Lazy local evaluation: implemented through the local-scope fixture slice and closed as completed.
-- #6 XML / Protobuf renderer bodies: release blocker only if XML / Protobuf are release-supported output formats; otherwise document them as experimental follow-up.
+- #6 XML / Protobuf renderer bodies: XML promoted fixtures now include `xmlRenderer1`, `xmlRenderer2`, `xmlRenderer3`, `xmlRenderer6`, `xmlRendererCData`, and `xmlRendererElement`; direct renderer-method converter PCF fixtures now cover `pcfRenderer2b`, `jsonRenderer2b`, `yamlRenderer2b`, `plistRenderer2b`, and `xmlRenderer2b`; Protobuf text still promotes `protobuf3.txtpb`. Remaining XML / Protobuf gaps are release blockers only if those advanced surfaces are release-supported output formats; otherwise document them as experimental follow-up.
 - #8 Umbrella practical blockers: update after each release slice.
 - #1 Stdlib module evaluation gaps: relevant for long-term stdlib parity, especially external declarations, variance, and `pkl:` module loading.
 
 ## Suggested Release Path
 
-1. Continue with Priority 2 Resource / Glob so multi-file configs and CLI host reads behave predictably.
-2. Decide and document the release-supported renderer set. Fix only those API renderer fixtures as blockers; leave the rest marked experimental.
-3. Take Priority 1 for scalar / Bytes / Map parity.
-4. Return to remaining Priority 5 and Priority 6 edge cases only when they block a supported fixture or real package.
+1. Decide and document the release-supported renderer set. Fix only those API renderer fixtures as blockers; leave the rest marked experimental.
+2. Return to remaining Priority 5 and Priority 6 edge cases only when they block a supported fixture or real package.

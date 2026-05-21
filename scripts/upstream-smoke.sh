@@ -13,12 +13,19 @@ GOLD="third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/output"
 # tracked outside this list (the script gates regressions).
 GOLD_FIXTURES=(
   "annotation/annotation1"
+  "api/anyConverter"
   "api/jsonParser4"
+  "api/jsonRenderer2b"
   "api/jsonRendererEmptyComposites"
   "api/jsonRenderer7"
   "api/moduleOutput2"
   "api/pair"
+  "api/pcfRenderer2b"
+  "api/pcfRenderer3"
   "api/pcfRenderer6"
+  "api/plistRenderer2b"
+  "api/xmlRenderer2b"
+  "api/yamlRenderer2b"
   "basic/baseModule"
   "basic/comments"
   "basic/constModifier3"
@@ -252,6 +259,9 @@ PLIST_GOLD_FIXTURES=(
 # xml.Renderer {} }` path now matches the upstream `.xml` gold.
 XML_GOLD_FIXTURES=(
   "api/xmlRenderer1.xml"
+  "api/xmlRenderer2.xml"
+  "api/xmlRenderer3.xml"
+  "api/xmlRenderer6.xml"
   "api/xmlRendererCData.xml"
   "api/xmlRendererElement.xml"
 )

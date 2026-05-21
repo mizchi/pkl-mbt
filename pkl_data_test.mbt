@@ -352,6 +352,179 @@ test "PKL-126b: xml DOM helpers preserve CDATA and comment identity" {
 }
 
 ///|
+test "PKL-126b: xml class-keyed converters rewrite containers before children" {
+  let source =
+    #|import "pkl:xml"
+    #|class Person { name: String; age: Int }
+    #|person = new Person { name = "pigeon" }
+    #|items = List("pigeon", 41)
+    #|output {
+    #|  renderer = new xml.Renderer {
+    #|    rootElementName = "root"
+    #|    converters {
+    #|      [String] = (it) -> it.reverse()
+    #|      [Int] = (it) -> it + 1
+    #|      [List] = (it) -> it.reverse()
+    #|      [Person] = (it) -> (it) { age = 40 }
+    #|    }
+    #|  }
+    #|}
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let pcf = @pkl.render_value(ObjectValue(members))
+  inspect(pcf.contains("name = \"noegip\""), content="true")
+  inspect(pcf.contains("age = 41"), content="true")
+  inspect(pcf.contains("items = List(42, \"noegip\")"), content="true")
+  let mut root = ""
+  for m in members {
+    if m.name == "output" {
+      match m.value {
+        ObjectValue(output_members) =>
+          for output_member in output_members {
+            if output_member.name == "renderer" {
+              match output_member.value {
+                ObjectValue(renderer_members) =>
+                  for renderer_member in renderer_members {
+                    if renderer_member.name == "rootElementName" {
+                      match renderer_member.value {
+                        StringValue(s) => root = s
+                        _ => ()
+                      }
+                    }
+                  }
+                _ => ()
+              }
+            }
+          }
+        _ => ()
+      }
+    }
+  }
+  inspect(root, content="root")
+}
+
+///|
+test "PKL-126b: renderer path wildcard converters rewrite collections before exact paths" {
+  let source =
+    #|import "pkl:xml"
+    #|items = List("a", "b")
+    #|address {
+    #|  street = "Main St."
+    #|  zip = 12345
+    #|}
+    #|output {
+    #|  renderer = new xml.Renderer {
+    #|    converters {
+    #|      ["items[*]"] = (it) -> it + "!"
+    #|      ["address.street"] = (it) -> "Exact St."
+    #|      ["address.*"] = (it) -> "changed"
+    #|    }
+    #|  }
+    #|}
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let pcf = @pkl.render_value(ObjectValue(members))
+  inspect(pcf.contains("items = List(\"a!\", \"b!\")"), content="true")
+  inspect(pcf.contains("street = \"Exact St.\""), content="true")
+  inspect(pcf.contains("zip = \"changed\""), content="true")
+}
+
+///|
+test "PKL-126b: renderer method converters honor anchored path selectors" {
+  let source =
+    #|import "pkl:xml"
+    #|local renderer = new xml.Renderer {
+    #|  converters {
+    #|    ["^item"] = (it) -> it.toUpperCase()
+    #|    ["^[*].item"] = (it) -> it.toUpperCase()
+    #|    ["^[item]"] = (it) -> it.toUpperCase()
+    #|  }
+    #|}
+    #|local properties = renderer.renderDocument(new Dynamic {
+    #|  item = "yes"
+    #|  nested { item = "no" }
+    #|})
+    #|res1 = properties.contains("YES")
+    #|res2 = properties.contains("no")
+    #|res3 = !properties.contains("yes")
+    #|res4 = !properties.contains("NO")
+    #|local elements = renderer.renderDocument(new Dynamic {
+    #|  new { item = "yes" }
+    #|  new { new { item = "no" } }
+    #|})
+    #|res5 = elements.contains("YES")
+    #|res6 = elements.contains("no")
+    #|res7 = !elements.contains("yes")
+    #|res8 = !elements.contains("NO")
+    #|local entries = renderer.renderValue(new Dynamic {
+    #|  ["item"] = "yes"
+    #|  ["nested"] { ["item"] = "no" }
+    #|})
+    #|res9 = entries.contains("YES")
+    #|res10 = entries.contains("no")
+    #|res11 = !entries.contains("yes")
+    #|res12 = !entries.contains("NO")
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let pcf = @pkl.render_value(ObjectValue(members))
+  for i = 1; i <= 12; i = i + 1 {
+    inspect(pcf.contains("res\{i} = true"), content="true")
+  }
+}
+
+///|
+test "PKL-105: converter-produced RenderDirective is terminal" {
+  let source =
+    #|local renderer = new PcfRenderer {
+    #|  converters {
+    #|    [String] = (str) -> new RenderDirective { text = "(\(str))" }
+    #|  }
+    #|}
+    #|out = renderer.renderDocument(new Dynamic {
+    #|  property = "value"
+    #|})
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let pcf = @pkl.render_value(ObjectValue(members))
+  inspect(pcf.contains("(value)"), content="true")
+}
+
+///|
+test "error fixtures: invalid abstract module instantiation does not crash" {
+  let source =
+    #|abstract module cannotInstantiateAbstractModule
+    #|res1 = new module {}
+  match eval_source(source) {
+    EvalError(errors) => inspect(errors.length() > 0, content="true")
+    EvalOk(_) => inspect(true, content="true")
+  }
+}
+
+///|
+test "error fixtures: cyclic class inheritance does not crash" {
+  let source =
+    #|open class Recurring extends Recurring {
+    #|}
+    #|f: Recurring = new {}
+  match eval_source(source) {
+    EvalError(errors) => inspect(errors.length() > 0, content="true")
+    EvalOk(_) => inspect(true, content="true")
+  }
+}
+
+///|
 test "PKL-126c: protobuf text renderer emits scalar fields and nested messages" {
   let value : Value = ObjectValue([
     ValueMember::{

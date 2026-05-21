@@ -383,10 +383,25 @@ fn collect_class_default_bindings(
   type_name : String,
   class_env : Array[ClassBinding],
 ) -> Unit {
+  collect_class_default_bindings_seen(out, type_name, class_env, [])
+}
+
+///|
+fn collect_class_default_bindings_seen(
+  out : Array[Binding],
+  type_name : String,
+  class_env : Array[ClassBinding],
+  seen : Array[String],
+) -> Unit {
+  if contains_string(seen, type_name) {
+    return
+  }
+  seen.push(type_name)
   match lookup_class_binding(class_env, type_name) {
     Some(class_binding) => {
       match class_binding.parent_name {
-        Some(parent) => collect_class_default_bindings(out, parent, class_env)
+        Some(parent) =>
+          collect_class_default_bindings_seen(out, parent, class_env, seen)
         None => ()
       }
       for property in class_binding.properties {
@@ -415,10 +430,25 @@ fn collect_class_property_names(
   type_name : String,
   class_env : Array[ClassBinding],
 ) -> Unit {
+  collect_class_property_names_seen(out, type_name, class_env, [])
+}
+
+///|
+fn collect_class_property_names_seen(
+  out : Array[String],
+  type_name : String,
+  class_env : Array[ClassBinding],
+  seen : Array[String],
+) -> Unit {
+  if contains_string(seen, type_name) {
+    return
+  }
+  seen.push(type_name)
   match lookup_class_binding(class_env, type_name) {
     Some(class_binding) => {
       match class_binding.parent_name {
-        Some(parent) => collect_class_property_names(out, parent, class_env)
+        Some(parent) =>
+          collect_class_property_names_seen(out, parent, class_env, seen)
         None => ()
       }
       for property in class_binding.properties {
