@@ -2234,7 +2234,10 @@ async fn main {
               }
               println(trimmed)
             }
-            "pcf" => println(@pkl.render_value(value))
+            "pcf" => {
+              let (_, indent_text, _) = xml_options
+              println(@pkl.render_value_with_pcf_indent(value, indent_text))
+            }
             "plist" => {
               // PKL-126a: `render_value_as_plist` already terminates
               // the document with `</plist>\n`. Drop the trailing

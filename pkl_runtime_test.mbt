@@ -1074,7 +1074,7 @@ test "PKL-119b: IntSeq.step(0) rejects the zero step" {
   let result = eval_source("seq = IntSeq(0, 5).step(0)")
   guard result is EvalError(diagnostics) else { panic() }
   let messages = diagnostics.iter().map(fn(d) { d.message }).collect()
-  inspect(messages[0], content="IntSeq.step rejects 0")
+  inspect(messages[0], content="Type constraint `isNonZero` violated. Value: 0")
 }
 
 ///|
@@ -1083,7 +1083,7 @@ test "PKL-119b: IntSeq.toList materializes ascending elements" {
     is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  guard members[0].value is ListingValue(elements) else { panic() }
+  guard members[0].value is ListValue(elements) else { panic() }
   inspect(elements.length(), content="4")
   guard elements[0] is IntValue(first) else { panic() }
   guard elements[3] is IntValue(last) else { panic() }
@@ -1097,7 +1097,7 @@ test "PKL-119b: IntSeq.toList of empty ascending sequence is empty" {
     is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  guard members[0].value is ListingValue(elements) else { panic() }
+  guard members[0].value is ListValue(elements) else { panic() }
   inspect(elements.length(), content="0")
 }
 
@@ -1107,7 +1107,7 @@ test "PKL-119b: IntSeq.step(-1).toList descends" {
     is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  guard members[0].value is ListingValue(elements) else { panic() }
+  guard members[0].value is ListValue(elements) else { panic() }
   inspect(elements.length(), content="3")
   guard elements[0] is IntValue(first) else { panic() }
   guard elements[2] is IntValue(last) else { panic() }
@@ -1346,6 +1346,46 @@ test "PKL-148bi: constructor body amends function-valued class defaults" {
   let rendered = @pkl.render_value(value)
   inspect(rendered.contains("one = 1"), content="true")
   inspect(rendered.contains("amended = \"yes\""), content="true")
+}
+
+///|
+test "PKL-148bp: constructor body amends function defaults with signature placeholders" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|class Bird {
+      #|  name: String
+      #|  age: Int
+      #|}
+      #|class B {
+      #|  hidden mkBird: (String, Int) -> Bird = (_name, _age) -> new Bird {
+      #|    name = _name
+      #|    age = _age
+      #|  }
+      #|  bird = mkBird.apply("Robin", 2)
+      #|}
+      #|bird1 = new B {
+      #|  mkBird { _, _age ->
+      #|    name = "Swallow"
+      #|    age = _age
+      #|  }
+      #|}
+      #|bird2 = new B {
+      #|  mkBird { _name, _ ->
+      #|    name = _name
+      #|    age = 3
+      #|  }
+      #|}
+      #|
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("name = \"Swallow\""), content="true")
+  inspect(rendered.contains("age = 2"), content="true")
+  inspect(rendered.contains("name = \"Robin\""), content="true")
+  inspect(rendered.contains("age = 3"), content="true")
 }
 
 ///|
@@ -2032,6 +2072,51 @@ test "PKL-148ar: predicate members inside for amend listing entries" {
   inspect(rendered.contains("age = 99"), content="true")
   inspect(rendered.contains("age = 42"), content="false")
   inspect(rendered.contains("age = 33"), content="false")
+}
+
+///|
+test "PKL-152c: listing predicate members use collection implicit receiver" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|hidden xs = new Listing {
+      #|  new Listing { 1 }
+      #|  new Listing { 2; 3 }
+      #|}
+      #|res = (xs) {
+      #|  [[length > 1]] { 4 }
+      #|}
+      #|
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("2\n    3\n    4"), content="true")
+}
+
+///|
+test "PKL-152c: nested listing predicate amends collection elements" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|hidden xs = new Listing {
+      #|  new Listing { new Listing { 1 } }
+      #|  new Listing { new Listing { 2 }; new Listing { 2; 2 } }
+      #|}
+      #|res = (xs) {
+      #|  [[length > 1]] {
+      #|    [[toList().first < 3]] { -3 }
+      #|  }
+      #|}
+      #|
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("2\n      -3"), content="true")
+  inspect(rendered.contains("2\n      2\n      -3"), content="true")
 }
 
 ///|

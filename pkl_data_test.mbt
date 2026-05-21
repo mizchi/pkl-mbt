@@ -719,6 +719,33 @@ test "PKL-126b: renderer method converters honor anchored path selectors" {
 }
 
 ///|
+test "PKL-126b: renderer collection wildcard paths rewrite dynamic entry values" {
+  let source =
+    #|local renderer = new PropertiesRenderer {
+    #|  converters {
+    #|    ["^[*].item"] = (it) -> it.toUpperCase()
+    #|  }
+    #|}
+    #|local out = renderer.renderDocument(new Dynamic {
+    #|  ["foo"] { item = "yes" }
+    #|  ["bar"] { ["baz"] { item = "no" } }
+    #|})
+    #|res1 = out.contains("YES")
+    #|res2 = out.contains("no")
+    #|res3 = !out.contains("yes")
+    #|res4 = !out.contains("NO")
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let pcf = @pkl.render_value(ObjectValue(members))
+  for i = 1; i <= 4; i = i + 1 {
+    inspect(pcf.contains("res\{i} = true"), content="true")
+  }
+}
+
+///|
 test "PKL-105: converter-produced RenderDirective is terminal" {
   let source =
     #|local renderer = new PcfRenderer {
@@ -736,6 +763,55 @@ test "PKL-105: converter-produced RenderDirective is terminal" {
   }
   let pcf = @pkl.render_value(ObjectValue(members))
   inspect(pcf.contains("(value)"), content="true")
+}
+
+///|
+test "PKL-152b: PcfRenderer renderDocument honors indent option" {
+  let source =
+    #|local renderer = new PcfRenderer {
+    #|  indent = "    "
+    #|}
+    #|out = renderer.renderDocument(new Dynamic {
+    #|  xs = new Listing { 1 }
+    #|})
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut out_value : Value? = None
+  for entry in members {
+    if entry.name == "out" {
+      out_value = Some(entry.value)
+    }
+  }
+  guard out_value is Some(StringValue(out)) else { panic() }
+  inspect(out, content="xs {\n    1\n}\n")
+}
+
+///|
+test "PKL-152b: Pair converter result is not recursively scalar-converted" {
+  let source =
+    #|local renderer = new PcfRenderer {
+    #|  converters {
+    #|    [Int] = (it) -> it + 1
+    #|    [Pair] = (it) -> Pair(it.second, it.first)
+    #|  }
+    #|}
+    #|out = renderer.renderValue(Pair(1, 2))
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut out_value : Value? = None
+  for entry in members {
+    if entry.name == "out" {
+      out_value = Some(entry.value)
+    }
+  }
+  guard out_value is Some(StringValue(out)) else { panic() }
+  inspect(out, content="Pair(2, 1)")
 }
 
 ///|

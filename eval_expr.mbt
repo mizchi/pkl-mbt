@@ -438,7 +438,11 @@ fn merge_collection_default_members(
       Some(default_member) =>
         merged.push({
           name: raw_member.name,
-          value: deep_merge_amend_value(default_member.value, raw_member.value),
+          value: deep_merge_amend_member_value(
+            default_member.value,
+            raw_member.value,
+            raw_member.source,
+          ),
           source: raw_member.source,
           annotations: append_annotations(
             default_member.annotations,
@@ -8710,12 +8714,28 @@ fn eval_value_renderer_method(
         None => ()
       }
       match format {
-        "pcf" =>
+        "pcf" => {
+          let indent_text = xml_renderer_option(
+            renderer_members, "indent", "  ",
+          )
           if method_name == "renderDocument" {
-            Some(StringValue(render_value_as_pcf_document(rendered_value)))
+            Some(
+              StringValue(
+                render_value_as_pcf_document_with_indent(
+                  rendered_value, indent_text,
+                ),
+              ),
+            )
           } else {
-            Some(StringValue(render_value_as_pcf_fragment(rendered_value)))
+            Some(
+              StringValue(
+                render_value_as_pcf_fragment_with_indent(
+                  rendered_value, indent_text,
+                ),
+              ),
+            )
           }
+        }
         "json" =>
           if method_name == "renderDocument" {
             Some(StringValue(render_value_as_json_document(rendered_value)))
@@ -8836,6 +8856,25 @@ fn copy_function_parameters(
 }
 
 ///|
+fn copy_function_amend_parameters(
+  parameters : Array[FunctionParameter],
+) -> Array[FunctionParameter] {
+  let copied : Array[FunctionParameter] = []
+  for i = 0; i < parameters.length(); i = i + 1 {
+    let parameter = parameters[i]
+    copied.push({
+      name: if parameter.name == "_" {
+        "@__function_amend_arg" + i.to_string()
+      } else {
+        parameter.name
+      },
+      type_name: parameter.type_name,
+    })
+  }
+  copied
+}
+
+///|
 fn function_amend_regular_members(
   members : Array[ObjectMember],
 ) -> Array[ObjectMember] {
@@ -8882,7 +8921,7 @@ fn function_amend_parameters(
     if is_function_amend_parameter_member_name(object_member.name) {
       match object_member.value {
         LambdaExpr(parameters, _, _) =>
-          return copy_function_parameters(parameters)
+          return copy_function_amend_parameters(parameters)
         _ => ()
       }
     }
@@ -9814,7 +9853,8 @@ fn merge_objects_with_late_binding(
                 diagnostics, resolve_import,
               ),
             )
-          (_, ov) => ov
+          (_, ov) =>
+            deep_merge_amend_member_value(bm.value, ov, over_member.source)
         }
         let merged_source = match (bm.value, over_member.value) {
           (ObjectValue(_), ObjectValue(_)) => bm.source

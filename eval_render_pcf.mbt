@@ -12,8 +12,24 @@ pub fn render_value(value : Value) -> String {
 }
 
 ///|
+pub fn render_value_with_pcf_indent(
+  value : Value,
+  indent_text : String,
+) -> String {
+  pcf_apply_indent_text(render_value(value), indent_text)
+}
+
+///|
 pub fn render_value_as_pcf_document(value : Value) -> String {
   render_value(value) + "\n"
+}
+
+///|
+pub fn render_value_as_pcf_document_with_indent(
+  value : Value,
+  indent_text : String,
+) -> String {
+  pcf_apply_indent_text(render_value_as_pcf_document(value), indent_text)
 }
 
 ///|
@@ -27,6 +43,50 @@ pub fn render_value_as_pcf_fragment(value : Value) -> String {
     | DefaultedMappingValue(_, _, _)
     | DeferredImportValue(_) => render_pcf_block_body(value, 0, buf)
     _ => render_pcf_inline(value, 0, buf)
+  }
+  buf.to_string()
+}
+
+///|
+pub fn render_value_as_pcf_fragment_with_indent(
+  value : Value,
+  indent_text : String,
+) -> String {
+  pcf_apply_indent_text(render_value_as_pcf_fragment(value), indent_text)
+}
+
+///|
+fn pcf_apply_indent_text(text : String, indent_text : String) -> String {
+  if indent_text == "  " {
+    return text
+  }
+  let buf = StringBuilder::new()
+  let mut i = 0
+  let mut at_line_start = true
+  while i < text.length() {
+    if at_line_start {
+      let mut spaces = 0
+      while i < text.length() && text[i].to_int().unsafe_to_char() == ' ' {
+        spaces = spaces + 1
+        i = i + 1
+      }
+      for level = 0; level < spaces / 2; level = level + 1 {
+        buf.write_string(indent_text)
+      }
+      if spaces % 2 == 1 {
+        buf.write_char(' ')
+      }
+      at_line_start = false
+      if i >= text.length() {
+        break
+      }
+    }
+    let c = text[i].to_int().unsafe_to_char()
+    buf.write_char(c)
+    i = i + 1
+    if c == '\n' {
+      at_line_start = true
+    }
   }
   buf.to_string()
 }

@@ -562,7 +562,7 @@ local cliIntSeqValue = new Test {
     "step = 1"
     "sumToFive = 15"
     "byTwo = IntSeq(0, 10).step(2)"
-    "emptyAscending {}"
+    "emptyAscending = List()"
     "annotated = IntSeq(2, 4)"
     "annotatedStart = 2"
   }
@@ -1513,7 +1513,7 @@ local upstreamSmoke = new Test {
     "upstream eval ok: api/xmlRendererInline3.xml (gold match)"
     "upstream eval ok: api/xmlRendererHtml.xml (gold match)"
     "upstream eval ok: api/protobuf3.txtpb (gold match)"
-    "upstream-smoke: 224 gold-match fixtures passed"
+    "upstream-smoke: 250 gold-match fixtures passed"
     "upstream-smoke: 1 json gold-match fixtures passed"
     "upstream-smoke: 1 plist gold-match fixtures passed"
     "upstream-smoke: 11 xml gold-match fixtures passed"

@@ -615,7 +615,7 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
         ignore(self.expect(rbracket(), "]"))
         ignore(self.expect(rbracket(), "]]"))
         self.skip_whitespace()
-        let body_expr = if self.at(eq()) {
+        let mut body_expr = if self.at(eq()) {
           ignore(self.bump())
           self.skip_whitespace()
           self.parse_expr()
@@ -623,6 +623,13 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
           self.parse_object_body()
         } else {
           UnsupportedExpr
+        }
+        while ({
+                self.skip_trivia()
+                self.at(lbrace())
+              }) {
+          let members = self.parse_object_body_members()
+          body_expr = AmendExpr(body_expr, members)
         }
         members.push({
           name: "@predicate$" + offset.to_string(),
@@ -838,7 +845,12 @@ fn is_function_amend_marker_member_name(name : String) -> Bool {
 
 ///|
 fn Parser::function_amend_signature_at_current(self : Parser) -> Bool {
-  let mut i = self.skip_trivia_from(self.pos)
+  self.function_amend_signature_at_from(self.pos)
+}
+
+///|
+fn Parser::function_amend_signature_at_from(self : Parser, start : Int) -> Bool {
+  let mut i = self.skip_trivia_from(start)
   if i >= self.len || self.tokens[i].kind() != identifier() {
     return false
   }

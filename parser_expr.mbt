@@ -987,6 +987,7 @@ fn Parser::parse_inferred_new_body(self : Parser) -> Expr {
     body_first == when_kw() ||
     body_first == for_kw() ||
     body_first_is_triple_dot ||
+    self.function_amend_signature_at_from(body_first_idx) ||
     self.at_property_decl_from(body_first_idx) ||
     self.at_property_decl_from(prefix_skipped_idx) ||
     prefix_skipped_text == "function" ||

@@ -348,7 +348,7 @@ fn apply_predicate_members_to_object(
     let (pred_expr, body_expr) = match pred_field.value {
       CallExpr(Identifier("@__predicate_entry"), args) =>
         if args.length() == 2 {
-          (args[0], args[1])
+          (predicate_expr_with_implicit_receiver(args[0]), args[1])
         } else {
           (UnsupportedExpr, UnsupportedExpr)
         }
@@ -392,26 +392,10 @@ fn apply_predicate_members_to_object(
           resolve_import,
         ) {
         Some(BoolValue(true)) => {
-          let new_value = match body_expr {
-            ObjectLiteral(body_members) =>
-              match test_value {
-                ObjectValue(elem_members) => {
-                  let body_values = eval_object_members(
-                    body_members, bindings, pred_env, class_env, cache, stack, declarations,
-                    diagnostics, resolve_import,
-                  )
-                  Some(
-                    ObjectValue(merge_value_members(elem_members, body_values)),
-                  )
-                }
-                _ => Some(test_value)
-              }
-            _ =>
-              eval_expr_with_bindings(
-                body_expr, bindings, pred_env, class_env, cache, stack, declarations,
-                diagnostics, resolve_import,
-              )
-          }
+          let new_value = amend_predicate_body_expr_on_value(
+            test_value, body_expr, bindings, pred_env, class_env, cache, stack, declarations,
+            diagnostics, resolve_import,
+          )
           match new_value {
             Some(v) =>
               if is_subscript {
@@ -770,6 +754,197 @@ fn amend_members_need_mapping_member_semantics(
 }
 
 ///|
+fn predicate_implicit_receiver_name(name : String) -> Bool {
+  is_listing_property_name(name) ||
+  is_listing_method_name(name) ||
+  is_mapping_property_name(name) ||
+  is_mapping_method_name(name)
+}
+
+///|
+fn predicate_expr_with_implicit_receiver(expr : Expr) -> Expr {
+  match expr {
+    Identifier(name) if predicate_implicit_receiver_name(name) =>
+      MemberAccess(Identifier("this"), name)
+    CallExpr(Identifier(name), args) if predicate_implicit_receiver_name(name) => {
+      let next_args : Array[Expr] = []
+      for arg in args {
+        next_args.push(predicate_expr_with_implicit_receiver(arg))
+      }
+      CallExpr(MemberAccess(Identifier("this"), name), next_args)
+    }
+    CallExpr(callee, args) => {
+      let next_args : Array[Expr] = []
+      for arg in args {
+        next_args.push(predicate_expr_with_implicit_receiver(arg))
+      }
+      CallExpr(predicate_expr_with_implicit_receiver(callee), next_args)
+    }
+    NullSafeCallExpr(callee, args) => {
+      let next_args : Array[Expr] = []
+      for arg in args {
+        next_args.push(predicate_expr_with_implicit_receiver(arg))
+      }
+      NullSafeCallExpr(predicate_expr_with_implicit_receiver(callee), next_args)
+    }
+    MemberAccess(target, name) =>
+      MemberAccess(predicate_expr_with_implicit_receiver(target), name)
+    SafeMemberAccess(target, name) =>
+      SafeMemberAccess(predicate_expr_with_implicit_receiver(target), name)
+    SubscriptAccess(target, key) =>
+      SubscriptAccess(
+        predicate_expr_with_implicit_receiver(target),
+        predicate_expr_with_implicit_receiver(key),
+      )
+    NonNullExpr(inner) =>
+      NonNullExpr(predicate_expr_with_implicit_receiver(inner))
+    UnaryExpr(op, inner) =>
+      UnaryExpr(op, predicate_expr_with_implicit_receiver(inner))
+    BinaryExpr(op, left, right) =>
+      BinaryExpr(
+        op,
+        predicate_expr_with_implicit_receiver(left),
+        predicate_expr_with_implicit_receiver(right),
+      )
+    ConditionalExpr(cond, then_expr, else_expr) =>
+      ConditionalExpr(
+        predicate_expr_with_implicit_receiver(cond),
+        predicate_expr_with_implicit_receiver(then_expr),
+        predicate_expr_with_implicit_receiver(else_expr),
+      )
+    LetExpr(name, type_name, value_expr, body_expr) =>
+      LetExpr(
+        name,
+        type_name,
+        predicate_expr_with_implicit_receiver(value_expr),
+        predicate_expr_with_implicit_receiver(body_expr),
+      )
+    _ => expr
+  }
+}
+
+///|
+fn amend_predicate_body_members_on_value(
+  value : Value,
+  body_members : Array[ObjectMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match value {
+    ObjectValue(elem_members) => {
+      let body_values = eval_object_members(
+        body_members, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      )
+      Some(ObjectValue(merge_value_members(elem_members, body_values)))
+    }
+    ListingValue(elements) =>
+      eval_listing_subscript_amend(
+        elements,
+        body_members,
+        bindings,
+        env,
+        class_env,
+        cache,
+        stack,
+        declarations,
+        None,
+        diagnostics,
+        resolve_import,
+      )
+    DefaultedListingValue(_, elements, default_value) =>
+      eval_listing_subscript_amend(
+        elements,
+        body_members,
+        bindings,
+        env,
+        class_env,
+        cache,
+        stack,
+        declarations,
+        Some(default_value),
+        diagnostics,
+        resolve_import,
+      )
+    MappingValue(entries) =>
+      eval_mapping_amend(
+        entries,
+        body_members,
+        bindings,
+        env,
+        class_env,
+        cache,
+        stack,
+        declarations,
+        None,
+        diagnostics,
+        resolve_import,
+      )
+    DefaultedMappingValue(_, entries, default_value) =>
+      eval_mapping_amend(
+        entries,
+        body_members,
+        bindings,
+        env,
+        class_env,
+        cache,
+        stack,
+        declarations,
+        Some(default_value),
+        diagnostics,
+        resolve_import,
+      )
+    _ => Some(value)
+  }
+}
+
+///|
+fn amend_predicate_body_expr_on_value(
+  value : Value,
+  body_expr : Expr,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match body_expr {
+    ObjectLiteral(body_members) =>
+      amend_predicate_body_members_on_value(
+        value, body_members, bindings, env, class_env, cache, stack, declarations,
+        diagnostics, resolve_import,
+      )
+    AmendExpr(base_expr, members) =>
+      match
+        amend_predicate_body_expr_on_value(
+          value, base_expr, bindings, env, class_env, cache, stack, declarations,
+          diagnostics, resolve_import,
+        ) {
+        Some(base_value) =>
+          amend_predicate_body_members_on_value(
+            base_value, members, bindings, env, class_env, cache, stack, declarations,
+            diagnostics, resolve_import,
+          )
+        None => None
+      }
+    _ =>
+      eval_expr_with_bindings(
+        body_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      )
+  }
+}
+
+///|
 fn eval_listing_subscript_amend(
   elements : Array[Value],
   members : Array[ObjectMember],
@@ -1093,7 +1268,7 @@ fn eval_listing_subscript_amend(
             diagnostics.push(diag("object amendment expects Object"))
             return None
           } else {
-            let pred_expr = args[0]
+            let pred_expr = predicate_expr_with_implicit_receiver(args[0])
             let body_expr = args[1]
             for i = 0; i < base_length; i = i + 1 {
               let element = result[i]
@@ -1126,38 +1301,19 @@ fn eval_listing_subscript_amend(
                     )
                     return None
                   }
-                  match body_expr {
-                    ObjectLiteral(body_members) => {
-                      let amended_cache = copy_value_bindings(cache)
-                      amended_cache.push({ name: "this", value: element })
-                      match element {
-                        ObjectValue(elem_members) => {
-                          let body_values = eval_object_members(
-                            body_members, bindings, pred_env, class_env, amended_cache,
-                            stack, declarations, diagnostics, resolve_import,
-                          )
-                          result[i] = ObjectValue(
-                            merge_value_members(elem_members, body_values),
-                          )
-                          raw_result[i] = result[i]
-                          amended_indices.push(i)
-                        }
-                        _ => ()
-                      }
+                  let amended_cache = copy_value_bindings(cache)
+                  amended_cache.push({ name: "this", value: element })
+                  match
+                    amend_predicate_body_expr_on_value(
+                      element, body_expr, bindings, pred_env, class_env, amended_cache,
+                      stack, declarations, diagnostics, resolve_import,
+                    ) {
+                    Some(new_value) => {
+                      result[i] = new_value
+                      raw_result[i] = new_value
+                      amended_indices.push(i)
                     }
-                    _ =>
-                      match
-                        eval_expr_with_bindings(
-                          body_expr, bindings, pred_env, class_env, cache, stack,
-                          declarations, diagnostics, resolve_import,
-                        ) {
-                        Some(new_value) => {
-                          result[i] = new_value
-                          raw_result[i] = new_value
-                          amended_indices.push(i)
-                        }
-                        None => return None
-                      }
+                    None => return None
                   }
                 }
                 Some(BoolValue(false)) => ()
@@ -1620,7 +1776,7 @@ fn eval_mapping_amend(
             diagnostics.push(diag("object amendment expects Object"))
             return None
           } else {
-            let pred_expr = args[0]
+            let pred_expr = predicate_expr_with_implicit_receiver(args[0])
             let body_expr = args[1]
             for i = 0; i < base_result.length(); i = i + 1 {
               let entry = result[i]
@@ -1662,39 +1818,19 @@ fn eval_mapping_amend(
                     )
                     return None
                   }
-                  match body_expr {
-                    ObjectLiteral(body_members) => {
-                      let amended_cache = copy_value_bindings(cache)
-                      amended_cache.push({ name: "this", value: entry_value })
-                      match entry_value {
-                        ObjectValue(elem_members) => {
-                          let body_values = eval_object_members(
-                            body_members, bindings, pred_env, class_env, amended_cache,
-                            stack, declarations, diagnostics, resolve_import,
-                          )
-                          let new_value = ObjectValue(
-                            merge_value_members(elem_members, body_values),
-                          )
-                          raw_result[i] = { key: entry.key, value: new_value }
-                          result[i] = { key: entry.key, value: new_value }
-                          amended_keys.push(entry.key)
-                        }
-                        _ => ()
-                      }
+                  let amended_cache = copy_value_bindings(cache)
+                  amended_cache.push({ name: "this", value: entry_value })
+                  match
+                    amend_predicate_body_expr_on_value(
+                      entry_value, body_expr, bindings, pred_env, class_env, amended_cache,
+                      stack, declarations, diagnostics, resolve_import,
+                    ) {
+                    Some(new_value) => {
+                      raw_result[i] = { key: entry.key, value: new_value }
+                      result[i] = { key: entry.key, value: new_value }
+                      amended_keys.push(entry.key)
                     }
-                    _ =>
-                      match
-                        eval_expr_with_bindings(
-                          body_expr, bindings, pred_env, class_env, cache, stack,
-                          declarations, diagnostics, resolve_import,
-                        ) {
-                        Some(new_value) => {
-                          raw_result[i] = { key: entry.key, value: new_value }
-                          result[i] = { key: entry.key, value: new_value }
-                          amended_keys.push(entry.key)
-                        }
-                        None => return None
-                      }
+                    None => return None
                   }
                 }
                 Some(BoolValue(false)) => ()

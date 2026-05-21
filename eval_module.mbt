@@ -2669,17 +2669,9 @@ fn walk_class_converter_children(
       }
       MapValue(next)
     }
-    PairValue(first, second) =>
-      PairValue(
-        walk_class_converter(
-          first, converters, bindings, env, class_env, cache, declarations, diagnostics,
-          resolve_import,
-        ),
-        walk_class_converter(
-          second, converters, bindings, env, class_env, cache, declarations, diagnostics,
-          resolve_import,
-        ),
-      )
+    // Pair renders as a scalar constructor in Apple Pkl's value renderers.
+    // A `[Pair]` converter result is terminal for child class converters.
+    PairValue(_, _) => value
     _ => value
   }
 }
@@ -2889,6 +2881,25 @@ fn rewrite_walk(
             next.push({
               name: field.name,
               value: rewrite_walk(
+                field.value,
+                segments,
+                idx + 1,
+                callback,
+                bindings,
+                env,
+                class_env,
+                cache,
+                declarations,
+                diagnostics,
+                resolve_import,
+              ),
+              source: None,
+              annotations: field.annotations,
+            })
+          } else if segment == "[*]" && field.name.has_prefix("@subscript$") {
+            next.push({
+              name: field.name,
+              value: rewrite_dynamic_subscript_any_value(
                 field.value,
                 segments,
                 idx + 1,
@@ -3232,6 +3243,53 @@ fn rewrite_collection_items(
         })
       }
       MapValue(next)
+    }
+    _ => value
+  }
+}
+
+///|
+fn rewrite_dynamic_subscript_any_value(
+  value : Value,
+  segments : Array[String],
+  idx : Int,
+  callback : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  match value {
+    ObjectValue(members) => {
+      let next : Array[ValueMember] = []
+      for field in members {
+        if field.name == "@value" {
+          next.push({
+            name: field.name,
+            value: rewrite_walk(
+              field.value,
+              segments,
+              idx,
+              callback,
+              bindings,
+              env,
+              class_env,
+              cache,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ),
+            source: field.source,
+            annotations: field.annotations,
+          })
+        } else {
+          next.push(field)
+        }
+      }
+      ObjectValue(next)
     }
     _ => value
   }

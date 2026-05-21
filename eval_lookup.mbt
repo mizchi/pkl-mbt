@@ -730,7 +730,11 @@ fn merge_value_members(
       Some(value) =>
         merged.push({
           name: value_member.name,
-          value: deep_merge_amend_value(value_member.value, value.value),
+          value: deep_merge_amend_member_value(
+            value_member.value,
+            value.value,
+            value.source,
+          ),
           source: None,
           annotations: append_annotations(
             value_member.annotations,
@@ -800,21 +804,71 @@ fn find_member_exact(members : Array[ValueMember], name : String) -> Value? {
 }
 
 ///|
-/// PKL-148d: deep-merge an amend body into a base value. When both
-/// sides are ObjectValue, recursively merge their members so a nested
-/// amend (`(x) { foo { bar = 11 } }`) preserves the base's
-/// uninvolved members (`foo.num2`, `foo.baz.num3`). For other shapes
-/// the override wins outright — Apple Pkl treats a typed Listing /
-/// Mapping override as replacement, not append.
-fn deep_merge_amend_value(base : Value, replacement : Value) -> Value {
-  match (base, replacement) {
-    (ObjectValue(base_members), ObjectValue(over_members)) =>
-      ObjectValue(merge_value_members(base_members, over_members))
-    _ => replacement
+fn amend_source_is_collection_body(source : Expr?) -> Bool {
+  match source {
+    Some(ListingLiteral(_)) => true
+    Some(AmendExpr(base, _)) => amend_source_is_collection_body(Some(base))
+    Some(ObjectLiteral(members)) => {
+      for object_member in members {
+        if object_member.name.has_prefix("@element$") {
+          return true
+        }
+      }
+      false
+    }
+    _ => false
   }
 }
 
 ///|
+fn concat_amend_collection_value(base : Value, replacement : Value) -> Value? {
+  match (base, replacement) {
+    (ListingValue(base_elements), ListingValue(over_elements))
+    | (ListingValue(base_elements), ListValue(over_elements)) => {
+      let merged : Array[Value] = []
+      for element in base_elements {
+        merged.push(element)
+      }
+      for element in over_elements {
+        merged.push(element)
+      }
+      Some(ListingValue(merged))
+    }
+    (ListValue(base_elements), ListingValue(over_elements))
+    | (ListValue(base_elements), ListValue(over_elements)) => {
+      let merged : Array[Value] = []
+      for element in base_elements {
+        merged.push(element)
+      }
+      for element in over_elements {
+        merged.push(element)
+      }
+      Some(ListValue(merged))
+    }
+    _ => None
+  }
+}
+
+///|
+fn deep_merge_amend_member_value(
+  base : Value,
+  replacement : Value,
+  source : Expr?,
+) -> Value {
+  match (base, replacement) {
+    (ObjectValue(base_members), ObjectValue(over_members)) =>
+      ObjectValue(merge_value_members(base_members, over_members))
+    _ =>
+      if amend_source_is_collection_body(source) {
+        match concat_amend_collection_value(base, replacement) {
+          Some(value) => value
+          None => replacement
+        }
+      } else {
+        replacement
+      }
+  }
+}
 
 ///|
 /// Monotonic counter that hands out a fresh identity stamp every time

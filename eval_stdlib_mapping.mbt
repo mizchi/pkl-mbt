@@ -208,11 +208,10 @@ fn eval_mapping_property(
 
 ///|
 /// PKL-119b: dispatch methods on an IntSeqValue. `step(newValue)`
-/// returns a new IntSeq with the carrier step replaced; `toList` /
-/// `toListing` materialize to a `ListingValue` (the two are aliased
-/// until PKL-119c/d split List / Mapping out); `map(f)` materializes
-/// then applies the lambda to each element; `fold(initial, op)`
-/// reduces left-to-right.
+/// returns a new IntSeq with the carrier step replaced; `toList`
+/// materializes a `ListValue`, `toListing` materializes a
+/// `ListingValue`; `map(f)` materializes then applies the lambda to
+/// each element; `fold(initial, op)` reduces left-to-right.
 fn eval_intseq_method(
   start : Int64,
   end_v : Int64,
@@ -254,7 +253,9 @@ fn eval_intseq_method(
       match arg_values[0] {
         IntValue(new_step) =>
           if new_step == 0L {
-            diagnostics.push(diag("IntSeq.step rejects 0"))
+            diagnostics.push(
+              diag("Type constraint `isNonZero` violated. Value: 0"),
+            )
             None
           } else {
             Some(IntSeqValue(start, end_v, new_step))
@@ -274,7 +275,12 @@ fn eval_intseq_method(
         )
         return None
       }
-      Some(ListingValue(intseq_materialize(start, end_v, step)))
+      let elements = intseq_materialize(start, end_v, step)
+      if method_name == "toList" {
+        Some(ListValue(elements))
+      } else {
+        Some(ListingValue(elements))
+      }
     }
     "map" => {
       if arg_values.length() != 1 {
