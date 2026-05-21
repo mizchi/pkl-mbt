@@ -815,6 +815,17 @@ fn eval_listing_method(
       }
       Some(ListValue(elements))
     }
+    "toBytes" => {
+      if arg_values.length() != 0 {
+        diagnostics.push(
+          diag(
+            "Listing.toBytes expects 0 arguments, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      build_bytes_from_int_listing(elements, diagnostics)
+    }
     "toMap" =>
       if arg_values.length() == 0 {
         Some(MappingValue([]))

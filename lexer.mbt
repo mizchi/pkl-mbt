@@ -325,7 +325,11 @@ fn Lexer::next_token(self : Lexer) -> Token {
         }
         if probe < self.len && is_digit(self.char_at(probe)) {
           self.pos = probe
-          while self.pos < self.len && is_digit(self.char_at(self.pos)) {
+          while self.pos < self.len &&
+                (
+                  is_digit(self.char_at(self.pos)) ||
+                  self.char_at(self.pos) == '_'
+                ) {
             self.pos += 1
           }
         }
@@ -392,7 +396,8 @@ fn Lexer::next_token(self : Lexer) -> Token {
       self.char_at(self.pos) == '.' &&
       is_digit(self.char_at(self.pos + 1)) {
       self.pos += 1
-      while self.pos < self.len && is_digit(self.char_at(self.pos)) {
+      while self.pos < self.len &&
+            (is_digit(self.char_at(self.pos)) || self.char_at(self.pos) == '_') {
         self.pos += 1
       }
       is_float = true
@@ -413,7 +418,11 @@ fn Lexer::next_token(self : Lexer) -> Token {
         }
         if probe < self.len && is_digit(self.char_at(probe)) {
           self.pos = probe
-          while self.pos < self.len && is_digit(self.char_at(self.pos)) {
+          while self.pos < self.len &&
+                (
+                  is_digit(self.char_at(self.pos)) ||
+                  self.char_at(self.pos) == '_'
+                ) {
             self.pos += 1
           }
           is_float = true

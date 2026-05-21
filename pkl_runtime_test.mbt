@@ -494,6 +494,34 @@ test "PKL-120: pkl:math.pi constant" {
 }
 
 ///|
+test "PKL-148ay: Int power matches Apple Pkl negative exponent and overflow" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:math\"\nfraction = 2 ** -4\nzero = 0 ** -1\nminusOne = -1 ** -1\noverflow = module.catch(() -> 2 ** math.maxInt8)",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut fraction = 0.0
+  let mut zero_inf = false
+  let mut minus_one = 0.0
+  let mut overflow = ""
+  for slot in members {
+    match (slot.name, slot.value) {
+      ("fraction", FloatValue(v)) => fraction = v
+      ("zero", FloatValue(v)) => zero_inf = v.is_inf() && v > 0.0
+      ("minusOne", FloatValue(v)) => minus_one = v
+      ("overflow", StringValue(message)) => overflow = message
+      _ => ()
+    }
+  }
+  inspect(fraction, content="0.0625")
+  inspect(zero_inf, content="true")
+  inspect(minus_one, content="-1")
+  inspect(overflow, content="Integer overflow.")
+}
+
+///|
 test "PKL-131b: codegen dispatcher returns same output as codegen_moonbit for MoonBit target" {
   let parsed = @pkl.parse_source(
     "class Person {\n  name: String\n  age: Int\n}",
@@ -658,6 +686,26 @@ test "PKL-119d: Map.containsKey / .getOrNull / .getOrThrow" {
   inspect(miss, content="false")
   inspect(got, content="1")
   inspect(null_seen, content="true")
+}
+
+///|
+test "PKL-119d: Map subscript returns values and reports missing keys" {
+  let source =
+    #|m = Map("a", 1, "b", 2)
+    #|hit = m["b"]
+    #|miss = module.catch(() -> m["c"])
+  guard eval_source(source) is EvalOk(ObjectValue(members)) else { panic() }
+  let mut hit = 0L
+  let mut miss = ""
+  for slot in members {
+    match (slot.name, slot.value) {
+      ("hit", IntValue(n)) => hit = n
+      ("miss", StringValue(message)) => miss = message
+      _ => ()
+    }
+  }
+  inspect(hit, content="2")
+  inspect(miss, content="Cannot find key `\"c\"`.")
 }
 
 ///|
@@ -2140,10 +2188,99 @@ test "PKL-148ax: Bytes accepts varargs" {
   guard eval_source("bytes = Bytes(1, 2, 3, 4)") is EvalOk(value) else {
     panic()
   }
-  inspect(
-    @pkl.render_value(value),
-    content="bytes = Bytes(new Listing { 1; 2; 3; 4 })",
-  )
+  inspect(@pkl.render_value(value), content="bytes = Bytes(1, 2, 3, 4)")
+}
+
+///|
+test "PKL-148ax: Bytes addition and subscript match Apple Pkl" {
+  guard eval_source(
+      (
+        #|sum = Bytes(1, 2, 3) + Bytes(1, 2, 4)
+        #|empty = Bytes() + Bytes()
+        #|left = Bytes(1, 2, 3) + Bytes()
+        #|right = Bytes() + Bytes(1, 2, 4)
+        #|first = Bytes(1, 2, 3)[0]
+        #|last = Bytes(1, 2, 3)[2]
+        #|
+      ),
+    )
+    is EvalOk(value) else {
+    panic()
+  }
+  let expected =
+    #|sum = Bytes(1, 2, 3, 1, 2, 4)
+    #|empty = Bytes()
+    #|left = Bytes(1, 2, 3)
+    #|right = Bytes(1, 2, 4)
+    #|first = 1
+    #|last = 3
+  inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
+test "PKL-148ax: Bytes invalid operations use Apple diagnostics" {
+  guard eval_source(
+      (
+        #|badAdd = module.catch(() -> Bytes(1, 2, 3) + Bytes(1, 2, 4).toList())
+        #|badIndex = module.catch(() -> Bytes(1, 2, 3)[3])
+        #|badByte = module.catch(() -> Bytes(0, 1, 2, 0xffff))
+        #|
+      ),
+    )
+    is EvalOk(value) else {
+    panic()
+  }
+  let expected =
+    #|badAdd = "Operator `+` is not defined for operand types `Bytes` and `List`. Left operand : Bytes(1, 2, 3) Right operand: List(1, 2, 4)"
+    #|badIndex = "Element index `3` is out of range `0`..`2`. Value: Bytes(1, 2, 3)"
+    #|badByte = "Type constraint `isBetween(0, 255)` violated. Value: 65535"
+  inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
+test "PKL-148ax: List of Int converts to Bytes" {
+  guard eval_source("bytes = IntSeq(0, 3).toList().toBytes()") is EvalOk(value) else {
+    panic()
+  }
+  inspect(@pkl.render_value(value), content="bytes = Bytes(0, 1, 2, 3)")
+}
+
+///|
+test "PKL-148az: Duration and DataSize arithmetic matches Apple Pkl" {
+  guard eval_source(
+      (
+        #|durationAdd = 2.s + 3.min
+        #|durationHuge = 10.ns + 7.d
+        #|durationRatio = 2.2.h / 3.3.s
+        #|durationTrunc = 6.2.h ~/ 3.3.s
+        #|durationPower = 2.2.s ** 3.3
+        #|durationBad = module.catch(() -> 3 / 2.s)
+        #|dataAdd = 2.kb + 3.kib
+        #|dataHuge = 10.b + 11.pib
+        #|dataRatio = 2.2.mb / 3.3.b
+        #|dataTrunc = 6.2.mb ~/ 3.3.b
+        #|dataPower = 2.2.kb ** 3.3
+        #|dataBad = module.catch(() -> 3 / 2.kb)
+        #|
+      ),
+    )
+    is EvalOk(value) else {
+    panic()
+  }
+  let expected =
+    #|durationAdd = 3.033333333333333.min
+    #|durationHuge = 7.0000000000001155.d
+    #|durationRatio = 2400.0000000000005
+    #|durationTrunc = 6763
+    #|durationPower = 13.489468760533386.s
+    #|durationBad = "Operator `/` is not defined for operand types `Int` and `Duration`. Left operand : 3 Right operand: 2.s"
+    #|dataAdd = 4.953125.kib
+    #|dataHuge = 11.000000000000009.pib
+    #|dataRatio = 666666.6666666667
+    #|dataTrunc = 1878787
+    #|dataPower = 13.489468760533386.kb
+    #|dataBad = "Operator `/` is not defined for operand types `Int` and `DataSize`. Left operand : 3 Right operand: 2.kb"
+  inspect(@pkl.render_value(value), content=expected)
 }
 
 ///|

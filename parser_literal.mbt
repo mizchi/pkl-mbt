@@ -64,75 +64,18 @@ fn parse_int_text(text : String) -> Int64 {
 
 ///|
 fn parse_float_text(text : String) -> Double {
-  // PKL-092: parse `<int>.<frac>` into a Double by accumulating the
-  // integer and fractional parts separately. PKL-128: also handle
-  // scientific notation (`1e10`, `2.5e-3`, `4E+8`) — split at the
-  // exponent marker, parse the mantissa, then multiply by 10^exp.
-  // The lexer guarantees a digit+ exponent so the trailing parse can
-  // assume a non-empty signed integer.
-  let mut exp_idx = -1
-  for i = 0; i < text.length(); i = i + 1 {
-    let c = text[i].to_int().unsafe_to_char()
-    if c == 'e' || c == 'E' {
-      exp_idx = i
-      break
+  // PKL-092 / PKL-148ay: strip Pkl's `_` digit separators and delegate
+  // to the platform double parser. Hand-rolled `mantissa / 10^exp`
+  // underflows the subnormal edge (`4.9E-324`) to zero; the native
+  // parser keeps IEEE-754's minimum positive Double.
+  let buf = StringBuilder::new()
+  for c in text.iter() {
+    if c != '_' {
+      buf.write_char(c)
     }
   }
-  let mantissa_text = if exp_idx >= 0 {
-    String::unsafe_substring(text, start=0, end=exp_idx)
-  } else {
-    text
-  }
-  let mut int_part = 0.0
-  let mut frac_part = 0.0
-  let mut frac_scale = 1.0
-  let mut in_fraction = false
-  for i = 0; i < mantissa_text.length(); i = i + 1 {
-    let c = mantissa_text[i].to_int().unsafe_to_char()
-    if c == '.' {
-      in_fraction = true
-    } else if c >= '0' && c <= '9' {
-      let digit = (c.to_int() - '0'.to_int()).to_double()
-      if in_fraction {
-        frac_scale = frac_scale * 10.0
-        frac_part = frac_part + digit / frac_scale
-      } else {
-        int_part = int_part * 10.0 + digit
-      }
-    }
-  }
-  let mantissa = int_part + frac_part
-  if exp_idx < 0 {
-    return mantissa
-  }
-  let mut exp_start = exp_idx + 1
-  let mut exp_sign = 1.0
-  if exp_start < text.length() {
-    let sign_char = text[exp_start].to_int().unsafe_to_char()
-    if sign_char == '+' {
-      exp_start = exp_start + 1
-    } else if sign_char == '-' {
-      exp_sign = -1.0
-      exp_start = exp_start + 1
-    }
-  }
-  let mut exp_value = 0.0
-  for i = exp_start; i < text.length(); i = i + 1 {
-    let c = text[i].to_int().unsafe_to_char()
-    if c >= '0' && c <= '9' {
-      exp_value = exp_value * 10.0 + (c.to_int() - '0'.to_int()).to_double()
-    }
-  }
-  let mut power = 1.0
-  let mut steps = 0.0
-  while steps < exp_value {
-    power = power * 10.0
-    steps = steps + 1.0
-  }
-  if exp_sign > 0.0 {
-    mantissa * power
-  } else {
-    mantissa / power
+  @string.parse_double(buf.to_string()[:]) catch {
+    _ => 0.0
   }
 }
 

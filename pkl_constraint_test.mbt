@@ -943,11 +943,10 @@ test "Pkl Duration addition keeps the larger unit when units match" {
 }
 
 ///|
-test "Pkl Duration mixed-unit addition normalizes to the smaller unit" {
+test "Pkl Duration mixed-unit addition normalizes to the larger unit" {
   let session = AnalysisSession::new()
-  // `2.s + 3.min` chooses the smaller unit (`s`) so we can stay in Int.
-  // The upstream evaluator would emit `3.033333.min` via Float; this slice
-  // intentionally restricts to Int magnitudes (see Spec.pkl decisions).
+  // Apple Pkl chooses the coarser unit (`min`) and keeps the fractional
+  // magnitude.
   session.set_source("main.pkl", "a = 2.s + 3.min")
   assert_true(
     session.eval_path("main.pkl") ==
@@ -955,7 +954,7 @@ test "Pkl Duration mixed-unit addition normalizes to the smaller unit" {
       ObjectValue([
         ValueMember::{
           name: "a",
-          value: DurationValue(182, "s"),
+          value: DurationValue(3.033333333333333, "min"),
           source: None,
           annotations: [],
         },
@@ -980,7 +979,7 @@ test "Pkl Duration subtraction works for same and mixed units" {
         },
         ValueMember::{
           name: "b",
-          value: DurationValue(150, "s"),
+          value: DurationValue(2.5, "min"),
           source: None,
           annotations: [],
         },
@@ -1041,13 +1040,10 @@ test "Pkl Duration comparison normalizes to the base unit" {
 }
 
 ///|
-test "Pkl DataSize arithmetic and comparison normalize to the smaller unit" {
-  // Mixed-unit DataSize ops pick the smaller of the two as the result
-  // unit (e.g. `1.mb - 100.kb` settles in `kb`). Comparison routes through
-  // the same normalization so the wider unit gets expanded into the
-  // narrower. `kb` / `kib` are intentionally not mixed here because the
-  // 1000 vs 1024 factor pair loses precision under integer arithmetic;
-  // that gap is documented in the slice scope.
+test "Pkl DataSize arithmetic and comparison normalize to the larger unit" {
+  // Mixed-unit DataSize ops pick the coarser of the two as the result
+  // unit (e.g. `1.mb - 100.kb` settles in `mb`). Comparison routes through
+  // the same normalization.
   let session = AnalysisSession::new()
   session.set_source(
     "main.pkl", "a = 2.kb + 3.kb\nb = 1.mb - 100.kb\nc = 1.mb > 100.kb\nd = 1024.b == 1.kib",
@@ -1064,7 +1060,7 @@ test "Pkl DataSize arithmetic and comparison normalize to the smaller unit" {
         },
         ValueMember::{
           name: "b",
-          value: DataSizeValue(900, "kb"),
+          value: DataSizeValue(0.9, "mb"),
           source: None,
           annotations: [],
         },
@@ -2431,7 +2427,7 @@ test "Pkl String.toBytes encodes the string as UTF-8 bytes" {
 }
 
 ///|
-test "render Pkl Bytes values as Bytes(new Listing { ... }) PCF literals" {
+test "render Pkl Bytes values as Bytes(...) PCF literals" {
   let value : Value = ObjectValue([
     ValueMember::{
       name: "data",
@@ -2443,7 +2439,7 @@ test "render Pkl Bytes values as Bytes(new Listing { ... }) PCF literals" {
   inspect(
     render_value(value),
     content=(
-      #|data = Bytes(new Listing { 65; 66; 67 })
+      #|data = Bytes(65, 66, 67)
     ),
   )
 }

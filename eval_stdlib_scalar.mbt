@@ -579,13 +579,10 @@ fn datasize_decimal_unit_for(unit : String) -> String {
 }
 
 ///|
-/// Pick the unit with the smaller magnitude-per-unit so the resulting
-/// arithmetic always rounds toward the finer side and stays expressible
-/// in Int. For Duration this collapses to the ladder ordering (ns < us <
-/// ms < s < min < h < d). For DataSize the comparison is by direct
-/// byte factor (with the `tb`+ overflow ceiling caveat).
-fn smaller_duration_unit(a : String, b : String) -> String {
-  if duration_unit_level(a) <= duration_unit_level(b) {
+/// Pick the unit with the larger magnitude-per-unit. Apple Pkl renders
+/// mixed Duration / DataSize arithmetic in the coarser of the two units.
+fn larger_duration_unit(a : String, b : String) -> String {
+  if duration_unit_level(a) >= duration_unit_level(b) {
     a
   } else {
     b
@@ -593,10 +590,10 @@ fn smaller_duration_unit(a : String, b : String) -> String {
 }
 
 ///|
-fn smaller_datasize_unit(a : String, b : String) -> String {
+fn larger_datasize_unit(a : String, b : String) -> String {
   let fa = datasize_byte_factor(a)
   let fb = datasize_byte_factor(b)
-  if fa <= fb {
+  if fa >= fb {
     a
   } else {
     b
@@ -771,7 +768,9 @@ fn build_bytes_from_int_listing(
     match element {
       IntValue(n) =>
         if n < 0 || n > 255 {
-          diagnostics.push(diag("Bytes element \{n} is out of range 0..255"))
+          diagnostics.push(
+            diag("Type constraint `isBetween(0, 255)` violated. Value: \{n}"),
+          )
           return None
         } else {
           buf.push(n.to_byte())
@@ -1696,7 +1695,11 @@ fn format_fixed_float(d : Double, decimals : Int) -> String {
   }
   let negative = d < 0.0 || is_negative_zero(d)
   let abs_value = if negative { 0.0 - d } else { d }
-  let text = render_float_text(abs_value)
+  // `toFixed` works from the plain decimal expansion when the runtime
+  // provides one. `render_float_text` intentionally switches large values
+  // to Apple-style scientific PCF, which would route otherwise-fixable
+  // values like 123456789.12345679 through the less precise scaled path.
+  let text = abs_value.to_string()
   if text.find("e") is None && text.find("E") is None {
     let (whole, fraction) = split_decimal_text(text)
     let fixed = format_fixed_decimal_text(whole, fraction, decimals)

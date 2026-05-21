@@ -1542,6 +1542,27 @@ fn render_bytes_value_inline(bytes : Bytes) -> String {
 }
 
 ///|
+fn concat_bytes(left : Bytes, right : Bytes) -> Bytes {
+  let out : Array[Byte] = []
+  for i = 0; i < left.length(); i = i + 1 {
+    out.push(left[i])
+  }
+  for i = 0; i < right.length(); i = i + 1 {
+    out.push(right[i])
+  }
+  Bytes::from_array(out)
+}
+
+///|
+fn undefined_operator_for_operand_types_message(
+  op : BinaryOp,
+  left : Value,
+  right : Value,
+) -> String {
+  "Operator `\{operator_name(op)}` is not defined for operand types `\{eval_value_type_name(left)}` and `\{eval_value_type_name(right)}`. Left operand : \{render_pcf_value_inline(left)} Right operand: \{render_pcf_value_inline(right)}"
+}
+
+///|
 fn apply_typed_listing_annotation(
   type_name : String,
   value : Value,
@@ -3670,6 +3691,7 @@ fn eval_expr_with_bindings(
           None
         }
         (Some(MappingValue(entries)), Some(key_value))
+        | (Some(MapValue(entries)), Some(key_value))
         | (Some(DefaultedMappingValue(_, entries, _)), Some(key_value)) =>
           match lookup_entry(entries, key_value) {
             Some(value) =>
@@ -3692,6 +3714,26 @@ fn eval_expr_with_bindings(
         // a one-character String — surrogate pairs count as a single
         // unit so `"🙈🙉🙊🐒"[2] == "🙊"` and the upper bound is the
         // code-point count, not the UTF-16 code-unit length.
+        (Some(BytesValue(bytes)), Some(IntValue(index64))) => {
+          let index = index64.to_int()
+          if index64 >= 0L && index < bytes.length() {
+            Some(IntValue(bytes[index].to_int().to_int64()))
+          } else {
+            diagnostics.push(
+              diag(
+                "Element index `\{format_int_with_commas(index64)}` is out of range `0`..`\{bytes.length() - 1}`. Value: \{render_bytes_value_inline(bytes)}",
+              ),
+            )
+            None
+          }
+        }
+        (Some(BytesValue(_)), Some(key_value)) => {
+          let actual = eval_value_type_name(key_value)
+          diagnostics.push(
+            diag("Expected key of type `Int`, but got type `\{actual}`."),
+          )
+          None
+        }
         (Some(StringValue(s)), Some(IntValue(index64))) => {
           let code_points : Array[String] = []
           for c in s.iter() {
@@ -5958,13 +6000,15 @@ fn eval_expr_with_bindings(
                 Some(IntValue(a % b))
               }
             Power =>
-              match int_pow(a, b) {
-                Some(value) => Some(IntValue(value))
-                None => {
-                  diagnostics.push(
-                    diag("operator ** expects non-negative exponent"),
-                  )
-                  None
+              if b < 0L {
+                Some(FloatValue(@math.pow(a.to_double(), b.to_double())))
+              } else {
+                match int_pow(a, b) {
+                  Some(value) => Some(IntValue(value))
+                  None => {
+                    diagnostics.push(diag("Integer overflow."))
+                    None
+                  }
                 }
               }
             LessThan => Some(BoolValue(a < b))
@@ -5981,98 +6025,96 @@ fn eval_expr_with_bindings(
           eval_float_binary(op, a.to_double(), b, diagnostics)
         (Some(FloatValue(a)), Some(IntValue(b))) =>
           eval_float_binary(op, a, b.to_double(), diagnostics)
-        (Some(DurationValue(av, au)), Some(DurationValue(bv, bu))) =>
-          // Same-unit arithmetic keeps the magnitudes raw to avoid Int32
-          // overflow on the intermediate ns conversion (one `1.s` already
-          // grosses 1e9 ns — `4.s` alone overflows). Mixed-unit operations
-          // pick the smaller unit so the result stays expressible as an
-          // Int; the upstream evaluator switches to Float for fractional
-          // mixed-unit cases, which is the documented gap for this slice.
-          if au == bu {
-            match op {
-              Add => Some(DurationValue(av + bv, au))
-              Subtract => Some(DurationValue(av - bv, au))
-              LessThan => Some(BoolValue(av < bv))
-              LessOrEqual => Some(BoolValue(av <= bv))
-              GreaterThan => Some(BoolValue(av > bv))
-              GreaterOrEqual => Some(BoolValue(av >= bv))
-              Equal => Some(BoolValue(av == bv))
-              NotEqual => Some(BoolValue(av != bv))
-              _ => {
-                diagnostics.push(
-                  diag(
-                    "operator \{operator_name(op)} not defined for Duration operands",
-                  ),
-                )
+        (Some(DurationValue(av, au)), Some(DurationValue(bv, bu))) => {
+          let target = larger_duration_unit(au, bu)
+          let a_in = duration_in_unit(av, au, target)
+          let b_in = duration_in_unit(bv, bu, target)
+          match op {
+            Add => Some(DurationValue(a_in + b_in, target))
+            Subtract => Some(DurationValue(a_in - b_in, target))
+            LessThan => Some(BoolValue(a_in < b_in))
+            LessOrEqual => Some(BoolValue(a_in <= b_in))
+            GreaterThan => Some(BoolValue(a_in > b_in))
+            GreaterOrEqual => Some(BoolValue(a_in >= b_in))
+            Equal => Some(BoolValue(a_in == b_in))
+            NotEqual => Some(BoolValue(a_in != b_in))
+            Divide => {
+              let divisor = duration_in_unit(bv, bu, au)
+              if divisor == 0.0 {
+                diagnostics.push(diag("division by zero"))
                 None
+              } else {
+                Some(FloatValue(av / divisor))
               }
             }
-          } else {
-            let target = smaller_duration_unit(au, bu)
-            let a_in = duration_in_unit(av, au, target)
-            let b_in = duration_in_unit(bv, bu, target)
-            match op {
-              Add => Some(DurationValue(a_in + b_in, target))
-              Subtract => Some(DurationValue(a_in - b_in, target))
-              LessThan => Some(BoolValue(a_in < b_in))
-              LessOrEqual => Some(BoolValue(a_in <= b_in))
-              GreaterThan => Some(BoolValue(a_in > b_in))
-              GreaterOrEqual => Some(BoolValue(a_in >= b_in))
-              Equal => Some(BoolValue(a_in == b_in))
-              NotEqual => Some(BoolValue(a_in != b_in))
-              _ => {
-                diagnostics.push(
-                  diag(
-                    "operator \{operator_name(op)} not defined for Duration operands",
-                  ),
-                )
+            IntDivide => {
+              let divisor = duration_in_unit(bv, bu, au)
+              if divisor == 0.0 {
+                diagnostics.push(diag("division by zero"))
                 None
+              } else {
+                Some(IntValue(double_trunc(av / divisor).to_int64()))
               }
+            }
+            _ => {
+              diagnostics.push(
+                diag(
+                  undefined_operator_for_operand_types_message(
+                    op,
+                    DurationValue(av, au),
+                    DurationValue(bv, bu),
+                  ),
+                ),
+              )
+              None
             }
           }
-        (Some(DataSizeValue(av, au)), Some(DataSizeValue(bv, bu))) =>
-          if au == bu {
-            match op {
-              Add => Some(DataSizeValue(av + bv, au))
-              Subtract => Some(DataSizeValue(av - bv, au))
-              LessThan => Some(BoolValue(av < bv))
-              LessOrEqual => Some(BoolValue(av <= bv))
-              GreaterThan => Some(BoolValue(av > bv))
-              GreaterOrEqual => Some(BoolValue(av >= bv))
-              Equal => Some(BoolValue(av == bv))
-              NotEqual => Some(BoolValue(av != bv))
-              _ => {
-                diagnostics.push(
-                  diag(
-                    "operator \{operator_name(op)} not defined for DataSize operands",
-                  ),
-                )
+        }
+        (Some(DataSizeValue(av, au)), Some(DataSizeValue(bv, bu))) => {
+          let target = larger_datasize_unit(au, bu)
+          let a_in = datasize_in_unit(av, au, target)
+          let b_in = datasize_in_unit(bv, bu, target)
+          match op {
+            Add => Some(DataSizeValue(a_in + b_in, target))
+            Subtract => Some(DataSizeValue(a_in - b_in, target))
+            LessThan => Some(BoolValue(a_in < b_in))
+            LessOrEqual => Some(BoolValue(a_in <= b_in))
+            GreaterThan => Some(BoolValue(a_in > b_in))
+            GreaterOrEqual => Some(BoolValue(a_in >= b_in))
+            Equal => Some(BoolValue(a_in == b_in))
+            NotEqual => Some(BoolValue(a_in != b_in))
+            Divide => {
+              let divisor = datasize_in_unit(bv, bu, au)
+              if divisor == 0.0 {
+                diagnostics.push(diag("division by zero"))
                 None
+              } else {
+                Some(FloatValue(av / divisor))
               }
             }
-          } else {
-            let target = smaller_datasize_unit(au, bu)
-            let a_in = datasize_in_unit(av, au, target)
-            let b_in = datasize_in_unit(bv, bu, target)
-            match op {
-              Add => Some(DataSizeValue(a_in + b_in, target))
-              Subtract => Some(DataSizeValue(a_in - b_in, target))
-              LessThan => Some(BoolValue(a_in < b_in))
-              LessOrEqual => Some(BoolValue(a_in <= b_in))
-              GreaterThan => Some(BoolValue(a_in > b_in))
-              GreaterOrEqual => Some(BoolValue(a_in >= b_in))
-              Equal => Some(BoolValue(a_in == b_in))
-              NotEqual => Some(BoolValue(a_in != b_in))
-              _ => {
-                diagnostics.push(
-                  diag(
-                    "operator \{operator_name(op)} not defined for DataSize operands",
-                  ),
-                )
+            IntDivide => {
+              let divisor = datasize_in_unit(bv, bu, au)
+              if divisor == 0.0 {
+                diagnostics.push(diag("division by zero"))
                 None
+              } else {
+                Some(IntValue(double_trunc(av / divisor).to_int64()))
               }
+            }
+            _ => {
+              diagnostics.push(
+                diag(
+                  undefined_operator_for_operand_types_message(
+                    op,
+                    DataSizeValue(av, au),
+                    DataSizeValue(bv, bu),
+                  ),
+                ),
+              )
+              None
             }
           }
+        }
         // PKL-119be (IntSeq equality follow-up): Apple Pkl treats two
         // IntSeq operands as equal when they produce the same Int
         // sequence — empty IntSeqs are equal regardless of endpoints
@@ -6099,6 +6141,8 @@ fn eval_expr_with_bindings(
             }
           }
         }
+        (Some(BytesValue(left_bytes)), Some(BytesValue(right_bytes))) if op ==
+          Add => Some(BytesValue(concat_bytes(left_bytes, right_bytes)))
         // PKL-148: Listing / Set / Map / String concatenation via `+`.
         // Apple Pkl's `Listing + Listing` returns a new Listing with the
         // right-hand elements appended; `Set + Set` is union (right-hand
@@ -6267,6 +6311,14 @@ fn eval_expr_with_bindings(
           k != 0 => Some(DurationValue(n / k.to_double(), unit))
         (Some(DurationValue(n, unit)), Some(FloatValue(k))) if op == Divide &&
           k != 0.0 => Some(DurationValue(n / k, unit))
+        (Some(DurationValue(n, unit)), Some(IntValue(k))) if op == IntDivide &&
+          k != 0 => Some(DurationValue(double_trunc(n / k.to_double()), unit))
+        (Some(DurationValue(n, unit)), Some(FloatValue(k))) if op == IntDivide &&
+          k != 0.0 => Some(DurationValue(double_trunc(n / k), unit))
+        (Some(DurationValue(n, unit)), Some(IntValue(k))) if op == Power =>
+          Some(DurationValue(@math.pow(n, k.to_double()), unit))
+        (Some(DurationValue(n, unit)), Some(FloatValue(k))) if op == Power =>
+          Some(DurationValue(@math.pow(n, k), unit))
         (Some(DataSizeValue(n, unit)), Some(IntValue(k))) if op == Multiply =>
           Some(DataSizeValue(n * k.to_double(), unit))
         (Some(DataSizeValue(n, unit)), Some(FloatValue(k))) if op == Multiply =>
@@ -6279,6 +6331,42 @@ fn eval_expr_with_bindings(
           k != 0 => Some(DataSizeValue(n / k.to_double(), unit))
         (Some(DataSizeValue(n, unit)), Some(FloatValue(k))) if op == Divide &&
           k != 0.0 => Some(DataSizeValue(n / k, unit))
+        (Some(DataSizeValue(n, unit)), Some(IntValue(k))) if op == IntDivide &&
+          k != 0 => Some(DataSizeValue(double_trunc(n / k.to_double()), unit))
+        (Some(DataSizeValue(n, unit)), Some(FloatValue(k))) if op == IntDivide &&
+          k != 0.0 => Some(DataSizeValue(double_trunc(n / k), unit))
+        (Some(DataSizeValue(n, unit)), Some(IntValue(k))) if op == Power =>
+          Some(DataSizeValue(@math.pow(n, k.to_double()), unit))
+        (Some(DataSizeValue(n, unit)), Some(FloatValue(k))) if op == Power =>
+          Some(DataSizeValue(@math.pow(n, k), unit))
+        (Some(DurationValue(_, _) as a), Some(b)) if op != Equal &&
+          op != NotEqual => {
+          diagnostics.push(
+            diag(undefined_operator_for_operand_types_message(op, a, b)),
+          )
+          None
+        }
+        (Some(a), Some(DurationValue(_, _) as b)) if op != Equal &&
+          op != NotEqual => {
+          diagnostics.push(
+            diag(undefined_operator_for_operand_types_message(op, a, b)),
+          )
+          None
+        }
+        (Some(DataSizeValue(_, _) as a), Some(b)) if op != Equal &&
+          op != NotEqual => {
+          diagnostics.push(
+            diag(undefined_operator_for_operand_types_message(op, a, b)),
+          )
+          None
+        }
+        (Some(a), Some(DataSizeValue(_, _) as b)) if op != Equal &&
+          op != NotEqual => {
+          diagnostics.push(
+            diag(undefined_operator_for_operand_types_message(op, a, b)),
+          )
+          None
+        }
         // Sets are unordered; their derived `==` would compare element
         // arrays positionally. Fall back to a multiset comparison
         // (same elements, ignoring order) so `Set(1, 2) == Set(2, 1)`.
@@ -6304,6 +6392,18 @@ fn eval_expr_with_bindings(
           Some(BoolValue(map_entries_equal(xs, ys)))
         (Some(MappingValue(xs)), Some(MappingValue(ys))) if op == NotEqual =>
           Some(BoolValue(!map_entries_equal(xs, ys)))
+        (Some(BytesValue(_) as a), Some(b)) if op != Equal && op != NotEqual => {
+          diagnostics.push(
+            diag(undefined_operator_for_operand_types_message(op, a, b)),
+          )
+          None
+        }
+        (Some(a), Some(BytesValue(_) as b)) if op != Equal && op != NotEqual => {
+          diagnostics.push(
+            diag(undefined_operator_for_operand_types_message(op, a, b)),
+          )
+          None
+        }
         (Some(a), Some(b)) if op == Equal => Some(BoolValue(values_equal(a, b)))
         (Some(a), Some(b)) if op == NotEqual =>
           Some(BoolValue(!values_equal(a, b)))

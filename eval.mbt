@@ -91,9 +91,9 @@ pub(all) enum Value {
   // and renderers can round-trip the value through `Regex("...")`.
   RegexValue(String)
   // PKL-083: Bytes value backed by MoonBit's `Bytes`. Constructed via
-  // `Bytes(<Listing of Int>)` or `Bytes.fromBase64("...")`; PCF
-  // round-trips through the Listing constructor and JSON / YAML /
-  // Properties project the base64 string.
+  // `Bytes(<Listing of Int>)`, `Bytes(<Int>...)`, or
+  // `Bytes.fromBase64("...")`; PCF round-trips through the varargs
+  // constructor and JSON / YAML / Properties project the base64 string.
   BytesValue(Bytes)
 } derive(Eq, Debug)
 

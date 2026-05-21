@@ -906,9 +906,9 @@ local cliScientificFloat = new Test {
   cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_scientific_float.pkl"
   workdir = ".."
   expectStdoutContains {
-    "big = 10000000000.0"
+    "big = 1.0E10"
     "small = 0.0025"
-    "upper = 400000000.0"
+    "upper = 4.0E8"
     "mid = 150.0"
   }
   timeoutSec = 120

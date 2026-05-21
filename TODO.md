@@ -1,11 +1,11 @@
 # Release TODO
 
-Current coverage: 285 / 391 PCF gold-match (72.9%).
+Current coverage: 291 / 391 PCF gold-match (74.4%).
 Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-05-21.
 
 Release focus:
 
-- `basic`: 73 PASS / 13 DIFF
+- `basic`: 79 PASS / 7 DIFF
 - `generators`: 21 PASS / 0 DIFF
 
 Planned order:
@@ -13,8 +13,8 @@ Planned order:
 1. Done: Priority 4: Spread And Predicate Member Semantics
 2. Done: Priority 3: `for` / Shape-Aware Object Body Evaluation
 3. Done: Priority 2: Resource And Glob Host Surface for with-gold `basic/read`, `basic/readGlob`, and `basic/importGlob`
-4. Current: Priority 1: Numeric And Bytes Parity
-5. Renderer API surface: keep the advertised output formats honest
+4. Done: Priority 1: Numeric And Bytes Parity
+5. Current: Renderer API surface: keep the advertised output formats honest
 6. Priority 5: remaining Generic `as` / `is` / Typed Collection Retention
 
 Priority 6 is deferred unless it becomes a direct blocker for one of the above slices.
@@ -26,10 +26,10 @@ End-user blocker priority is based on "will a normal Pkl config author hit this?
 1. Resource / read / glob: file/resource access, `read*()`, and `import*` glob behavior are release blockers for multi-file configs and CLI usage.
 2. `for` / generators: completed for with-gold upstream fixtures. Keep this as a regression-sensitive area because real configs use list/map comprehensions and generated object bodies heavily.
 3. Renderer API surface: `api` has many DIFFs, but not all are equal. Treat public output formats as blockers only if we advertise them for this release. Keep `pcf` / `json` stable, then decide whether `yaml`, `properties`, XML, Protobuf, plist, and JSONNet are release-supported or experimental.
-4. Basic scalar / collection parity: `Int`, `Float`, `Bytes`, `DataSize`, `Duration`, and `Map` differences are real but narrower than generators/resource access.
+4. Basic scalar / collection parity: `Bytes`, `DataSize`, `Duration`, `Int`, `Float`, and `Map` are gold-matching for `basic`; remaining first-release scalar / collection gaps are long-tail `as` / `new` / nullable / const provenance cases.
 5. Deep stdlib / reflect parity: important for long-term compatibility, but not a first release blocker unless a public API or real package depends on it.
 
-For this release pass, Resource / Glob is gold-matching for the `basic` fixtures. Move next to Numeric / Bytes parity unless a real package exposes a remaining resource-policy gap.
+For this release pass, Resource / Glob and Numeric / Bytes parity are gold-matching for the `basic` fixtures. Move next to renderer API surface unless a real package exposes a remaining resource-policy gap.
 
 ## Current DIFF Snapshot
 
@@ -39,13 +39,7 @@ Measured from the release binary against Apple Pkl LanguageSnippetTests gold fil
 
 - `basic/amendsChains`
 - `basic/as`
-- `basic/bytes`
 - `basic/constModifier`
-- `basic/dataSize`
-- `basic/duration`
-- `basic/float`
-- `basic/int`
-- `basic/map`
 - `basic/new`
 - `basic/newType`
 - `basic/nullable`
@@ -62,13 +56,12 @@ Adjacent typed-collection DIFFs worth pulling into Priority 5:
 
 ## Priority 1: Numeric And Bytes Parity
 
+Status: completed for the targeted `basic` fixtures. `basic/bytes`, `basic/dataSize`, `basic/duration`, `basic/float`, `basic/int`, and `basic/map` now gold-match.
+
 Low-risk, local fixes that should improve `basic` without large evaluator surgery.
 
 Target fixtures:
 
-- `basic/bytes`
-- `basic/dataSize`
-- `basic/duration`
 - `basic/float`
 - `basic/int`
 - `basic/map`
@@ -76,12 +69,12 @@ Target fixtures:
 Required work:
 
 - [x] Support `Bytes(1, 2, 3)` varargs in addition to `Bytes(new Listing { ... })`.
-- Add Bytes equality, concatenation, subscript, iteration, and PCF rendering parity.
-- Finish `Duration` / `DataSize` arithmetic: `/`, `~/`, `**`, division by same unit returning `Float` / `Int`, and Apple-style unsupported-operator diagnostics.
-- Tighten unit normalization and display choice for mixed-unit `Duration` / `DataSize`.
-- Finish Float exponent literal / underscore formatting edge cases and PCF exponent formatting.
-- Finish Int exponent edge cases: negative exponent results for `0`, `1`, `-1`, overflow diagnostics, `math.maxInt*` constants.
-- Add Map subscript parity and missing-key diagnostics.
+- [x] Add Bytes equality, concatenation, subscript, iteration, `List<Int>.toBytes()`, diagnostics, and PCF rendering parity; `basic/bytes` now gold-matches.
+- [x] Finish `Duration` / `DataSize` arithmetic: `/`, `~/`, `**`, division by same unit returning `Float` / `Int`, and Apple-style unsupported-operator diagnostics; `basic/duration` and `basic/dataSize` now gold-match.
+- [x] Tighten unit normalization and display choice for mixed-unit `Duration` / `DataSize`.
+- [x] Finish Float exponent literal / underscore formatting edge cases, subnormal parsing, and PCF exponent formatting; `basic/float` now gold-matches.
+- [x] Finish Int exponent edge cases: negative exponent results for `0`, `1`, `-1`, overflow diagnostics, and `math.maxInt*` constants; `basic/int` now gold-matches.
+- [x] Add Map subscript parity and missing-key diagnostics; `basic/map` now gold-matches.
 
 Main dependencies:
 

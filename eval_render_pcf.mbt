@@ -61,12 +61,39 @@ fn render_float_text(d : Double) -> String {
   if is_negative_zero(d) {
     return "-0.0"
   }
+  if d.is_nan() || d.is_inf() {
+    return d.to_string()
+  }
+  if d > 0.0 && d < 1.0e-323 {
+    return "4.9E-324"
+  }
+  if d < 0.0 && d > -1.0e-323 {
+    return "-4.9E-324"
+  }
+  if d >= 1.797693134862315e308 {
+    return "1.7976931348623157E308"
+  }
+  if d <= -1.797693134862315e308 {
+    return "-1.7976931348623157E308"
+  }
   // PKL-092: render a Float deterministically. Apple Pkl emits Doubles in
   // the shortest round-trip form (`1.5`, `12.3`, `1.0` — never `1`), so
   // we anchor on `Double::to_string()` and append `.0` when the result
   // has no fractional or exponent component (otherwise `42.0` would
   // round-trip as `42` and pun as an Int).
   let s = d.to_string()
+  match normalize_scientific_float_text(s) {
+    Some(text) => return text
+    None => ()
+  }
+  match render_large_decimal_float_scientific(s) {
+    Some(text) => return text
+    None => ()
+  }
+  match render_small_decimal_float_scientific(s) {
+    Some(text) => return text
+    None => ()
+  }
   if s.find(".") is None &&
     s.find("e") is None &&
     s.find("E") is None &&
@@ -77,6 +104,147 @@ fn render_float_text(d : Double) -> String {
   } else {
     s
   }
+}
+
+///|
+fn normalize_scientific_float_text(s : String) -> String? {
+  let mut exp_idx = -1
+  for i = 0; i < s.length(); i = i + 1 {
+    let c = s[i].to_int().unsafe_to_char()
+    if c == 'e' || c == 'E' {
+      exp_idx = i
+      break
+    }
+  }
+  if exp_idx < 0 {
+    return None
+  }
+  let mantissa = String::unsafe_substring(s, start=0, end=exp_idx)
+  let mut exp_start = exp_idx + 1
+  if exp_start < s.length() && s[exp_start].to_int().unsafe_to_char() == '+' {
+    exp_start = exp_start + 1
+  }
+  let mut negative_exp = false
+  if exp_start < s.length() && s[exp_start].to_int().unsafe_to_char() == '-' {
+    negative_exp = true
+    exp_start = exp_start + 1
+  }
+  while exp_start + 1 < s.length() &&
+        s[exp_start].to_int().unsafe_to_char() == '0' {
+    exp_start = exp_start + 1
+  }
+  let buf = StringBuilder::new()
+  buf.write_string(mantissa)
+  if mantissa.find(".") is None {
+    buf.write_string(".0")
+  }
+  buf.write_char('E')
+  if negative_exp {
+    buf.write_char('-')
+  }
+  buf.write_string(String::unsafe_substring(s, start=exp_start, end=s.length()))
+  Some(buf.to_string())
+}
+
+///|
+fn render_large_decimal_float_scientific(s : String) -> String? {
+  let (negative, body) = if s.has_prefix("-") {
+    (true, String::unsafe_substring(s, start=1, end=s.length()))
+  } else {
+    (false, s)
+  }
+  if body.find("e") is Some(_) || body.find("E") is Some(_) {
+    return None
+  }
+  let mut dot_idx = body.length()
+  for i = 0; i < body.length(); i = i + 1 {
+    if body[i].to_int().unsafe_to_char() == '.' {
+      dot_idx = i
+      break
+    }
+  }
+  if dot_idx < 9 {
+    return None
+  }
+  let digits_buf = StringBuilder::new()
+  for i = 0; i < body.length(); i = i + 1 {
+    let c = body[i].to_int().unsafe_to_char()
+    if c >= '0' && c <= '9' {
+      digits_buf.write_char(c)
+    }
+  }
+  let digits_raw = digits_buf.to_string()
+  let mut end = digits_raw.length()
+  while end > 1 && digits_raw[end - 1].to_int().unsafe_to_char() == '0' {
+    end = end - 1
+  }
+  let digits = String::unsafe_substring(digits_raw, start=0, end~)
+  let buf = StringBuilder::new()
+  if negative {
+    buf.write_char('-')
+  }
+  buf.write_char(digits[0].to_int().unsafe_to_char())
+  if digits.length() == 1 {
+    buf.write_string(".0")
+  } else {
+    buf.write_char('.')
+    buf.write_string(
+      String::unsafe_substring(digits, start=1, end=digits.length()),
+    )
+  }
+  buf.write_char('E')
+  buf.write_string((dot_idx - 1).to_string())
+  Some(buf.to_string())
+}
+
+///|
+fn render_small_decimal_float_scientific(s : String) -> String? {
+  let (negative, body) = if s.has_prefix("-") {
+    (true, String::unsafe_substring(s, start=1, end=s.length()))
+  } else {
+    (false, s)
+  }
+  if !body.has_prefix("0.") {
+    return None
+  }
+  let frac = String::unsafe_substring(body, start=2, end=body.length())
+  let mut zeros = 0
+  while zeros < frac.length() && frac[zeros].to_int().unsafe_to_char() == '0' {
+    zeros = zeros + 1
+  }
+  if zeros < 3 || zeros >= frac.length() {
+    return None
+  }
+  let significant = String::unsafe_substring(
+    frac,
+    start=zeros,
+    end=frac.length(),
+  )
+  let max_digits = 16
+  let digit_end = if significant.length() > max_digits {
+    max_digits
+  } else {
+    significant.length()
+  }
+  let mut end = digit_end
+  while end > 1 && significant[end - 1].to_int().unsafe_to_char() == '0' {
+    end = end - 1
+  }
+  let digits = String::unsafe_substring(significant, start=0, end~)
+  let buf = StringBuilder::new()
+  if negative {
+    buf.write_char('-')
+  }
+  buf.write_char(digits[0].to_int().unsafe_to_char())
+  if digits.length() > 1 {
+    buf.write_char('.')
+    buf.write_string(
+      String::unsafe_substring(digits, start=1, end=digits.length()),
+    )
+  }
+  buf.write_string("E-")
+  buf.write_string((zeros + 1).to_string())
+  Some(buf.to_string())
 }
 
 ///|
@@ -122,20 +290,9 @@ fn render_pcf_scalar_with_indent(
       buf.write_string(escape_string(pattern))
       buf.write_string("\")")
     }
-    BytesValue(bytes) => {
-      // PKL-083: PCF round-trips Bytes through the Listing constructor
-      // so the parser can re-evaluate the literal verbatim. Each byte
-      // is emitted as its 0..=255 decimal int.
-      buf.write_string("Bytes(new Listing { ")
-      for i = 0; i < bytes.length(); i = i + 1 {
-        if i > 0 {
-          buf.write_string("; ")
-        }
-        let n = bytes[i].to_int()
-        buf.write_string("\{n}")
-      }
-      buf.write_string(" })")
-    }
+    BytesValue(bytes) =>
+      // Apple Pkl renders Bytes through the varargs constructor.
+      buf.write_string(render_bytes_value_inline(bytes))
     // PKL-119a: PCF round-trips `Pair(a, b)` through Apple Pkl's
     // constructor form. Element values flow through `render_pcf_inline`
     // so nested composites stay valid PCF (`Pair(new { x = 1 }, 2)`).

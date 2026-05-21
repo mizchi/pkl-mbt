@@ -99,31 +99,53 @@ fn capture_value_bindings(
 
 ///|
 fn int_pow(base : Int64, exponent : Int64) -> Int64? {
-  if exponent < 0L {
-    return None
-  }
   if exponent == 0L {
     return Some(1L)
   }
-  if base == 0L {
-    return Some(0L)
-  }
-  if base == 1L {
-    return Some(1L)
-  }
-  if base == -1L {
-    return if exponent % 2L == 0L { Some(1L) } else { Some(-1L) }
-  }
-  if exponent > 62L {
-    return None
-  }
   let mut result = 1L
-  let mut i = 0L
-  while i < exponent {
-    result = result * base
-    i += 1L
+  let mut factor = base
+  let mut remaining = exponent
+  while remaining > 0L {
+    if remaining % 2L == 1L {
+      match checked_int64_mul(result, factor) {
+        Some(next) => result = next
+        None => return None
+      }
+    }
+    remaining = remaining / 2L
+    if remaining > 0L {
+      match checked_int64_mul(factor, factor) {
+        Some(next) => factor = next
+        None => return None
+      }
+    }
   }
   Some(result)
+}
+
+///|
+fn checked_int64_mul(a : Int64, b : Int64) -> Int64? {
+  if a == 0L || b == 0L {
+    return Some(0L)
+  }
+  let max = 9223372036854775807L
+  let min = 0L - 9223372036854775807L - 1L
+  let ok = if a > 0L {
+    if b > 0L {
+      a <= max / b
+    } else {
+      b >= min / a
+    }
+  } else if b > 0L {
+    a >= min / b
+  } else {
+    a >= max / b
+  }
+  if ok {
+    Some(a * b)
+  } else {
+    None
+  }
 }
 
 ///|

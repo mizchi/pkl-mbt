@@ -270,6 +270,10 @@ fn builtin_stdlib_source(uri : String) -> String? {
       // them out of the imported module's `ObjectValue`. Lambda-valued
       // bindings round-trip through the regular `exported: true` path.
       let source =
+        #|minInt8 = 0 - 128
+        #|minInt16 = 0 - 32768
+        #|maxInt8 = 127
+        #|maxInt16 = 32767
         #|maxInt32 = 2147483647
         #|minInt32 = 0 - 2147483647 - 1
         #|maxInt = 9223372036854775807

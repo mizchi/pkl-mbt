@@ -62,12 +62,24 @@ test "Int builtins compose with String / Listing pipelines" {
 test "pkl:math exposes Int range constants" {
   let session = AnalysisSession::new()
   session.set_source(
-    "main.pkl", "import \"pkl:math\" as math\nmax32 = math.maxInt32\nmin32 = math.minInt32\nmax = math.maxInt\nmin = math.minInt",
+    "main.pkl", "import \"pkl:math\" as math\nmax8 = math.maxInt8\nmax16 = math.maxInt16\nmax32 = math.maxInt32\nmin32 = math.minInt32\nmax = math.maxInt\nmin = math.minInt",
   )
   assert_true(
     session.eval_path("main.pkl") ==
     EvalOk(
       ObjectValue([
+        ValueMember::{
+          name: "max8",
+          value: IntValue(127),
+          source: None,
+          annotations: [],
+        },
+        ValueMember::{
+          name: "max16",
+          value: IntValue(32767),
+          source: None,
+          annotations: [],
+        },
         ValueMember::{
           name: "max32",
           value: IntValue(2147483647),
@@ -326,6 +338,20 @@ test "Float literal evaluates as FloatValue" {
         },
       ]),
     ),
+  )
+}
+
+///|
+test "PKL-148ay: Float literals keep underscore exponents and subnormal edge" {
+  guard eval_source(
+      "large = 123_456_789.123_456_789\nexp = 123.4_56e7\nsmall = 1_23.456e-1_0\nmin = 4.9E-324",
+    )
+    is EvalOk(value) else {
+    panic()
+  }
+  inspect(
+    @pkl.render_value(value),
+    content="large = 1.2345678912345679E8\nexp = 1.23456E9\nsmall = 1.23456E-8\nmin = 4.9E-324",
   )
 }
 

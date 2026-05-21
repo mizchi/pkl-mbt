@@ -1468,7 +1468,7 @@ local durationAndDataSizeLiterals = new Scenario {
   id = "PKL-082"
   name = "Duration and DataSize literals with arithmetic comparison and unit conversion"
   description =
-    "Member access on an Int literal whose name is a recognised Duration unit (`ns` / `us` / `ms` / `s` / `min` / `h` / `d`) produces a `DurationValue(Int, String)` carrying the original magnitude and unit; the matching DataSize units (`b` / `kb` / `kib` / `mb` / `mib` / `gb` / `gib` / `tb` / `tib` / `pb` / `pib`) produce a `DataSizeValue`. Same-unit `+` / `-` operate on the raw magnitudes and preserve the unit; mixed-unit `+` / `-` and comparison (`<` / `<=` / `>` / `>=` / `==` / `!=`) normalize to the smaller of the two units by stepping along the unit ladder one factor at a time so the running magnitude never overflows Int32. `.value` and `.unit` accessors expose the underlying Int and unit name; `.toUnit(name)` re-expresses the value in another aligned unit (e.g. `1.h.toUnit(\"min\") == 60.min`). Unary negation flips the sign while keeping the unit. The PCF renderer emits the values back as the `<n>.<unit>` literal; JSON / YAML / Properties project them as the same lexical form coerced to a string."
+    "Member access on an Int or Float literal whose name is a recognised Duration unit (`ns` / `us` / `ms` / `s` / `min` / `h` / `d`) produces a `DurationValue(Double, String)` carrying the original magnitude and unit; the matching DataSize units (`b` / `kb` / `kib` / `mb` / `mib` / `gb` / `gib` / `tb` / `tib` / `pb` / `pib`) produce a `DataSizeValue`. Same-unit `+` / `-` operate on the raw magnitudes and preserve the unit; mixed-unit `+` / `-` and comparison (`<` / `<=` / `>` / `>=` / `==` / `!=`) normalize to the coarser of the two units to match Apple Pkl PCF output. Scalar `*`, `/`, `~/`, and `**` preserve the receiver unit; Duration/DataSize divided by another value of the same family returns a Float ratio, while `~/` returns the truncated Int ratio. Unsupported scalar-left operations such as `3 / 2.s` surface Apple-style undefined-operator diagnostics. `.value` and `.unit` accessors expose the underlying Number and unit name; `.toUnit(name)` re-expresses the value in another aligned unit (e.g. `1.h.toUnit(\"min\") == 60.min`). Unary negation flips the sign while keeping the unit. The PCF renderer emits the values back as the `<n>.<unit>` literal; JSON / YAML / Properties project them as the same lexical form coerced to a string."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-009" }
   tags { "evaluator"; "renderer"; "duration"; "datasize" }
@@ -1476,22 +1476,22 @@ local durationAndDataSizeLiterals = new Scenario {
   severity = "minor"
   decisions {
     new Decision {
-      date = "2026-05-15"
-      summary = "Restrict the slice to Int magnitudes and document the Float gap"
+      date = "2026-05-21"
+      summary = "Carry magnitudes as Double and match Apple mixed-unit rendering"
       rationale =
-        "Apple Pkl tracks the magnitude as a `Number` (Int or Float) and switches to Float on the first fractional-result mixed-unit operation (e.g. `2.s + 3.min` yields `3.033333333333333.min`). The MoonBit value model has no `FloatValue` yet (that lands with PKL-092), so this slice ships Int-only magnitudes. Same-unit arithmetic is exact; mixed-unit arithmetic rounds toward the smaller unit by integer division when the step is non-aligned (notably the binary↔decimal DataSize crossings `kb ↔ kib`). The decision is documented in the slice scope so callers know which operations are reliable and which are deferred."
+        "Apple Pkl tracks Duration / DataSize magnitudes as `Number` and switches to fractional values as soon as mixed-unit arithmetic needs them (`2.s + 3.min` renders as `3.033333333333333.min`). The value model now stores these magnitudes as `Double`, so Int and Float literal paths share the same representation and the renderer can preserve Apple-compatible fractional PCF output. This is required for `basic/duration` and `basic/dataSize` to gold-match."
     }
     new Decision {
-      date = "2026-05-15"
-      summary = "Pick the smaller of two units as the result of mixed-unit arithmetic"
+      date = "2026-05-21"
+      summary = "Pick the coarser of two units as the result of mixed-unit arithmetic"
       rationale =
-        "The natural alternative — normalize to the base unit (ns / b) — overflows Int32 immediately: `1.s` is already 1e9 ns and `1.h` is 3.6e12 ns. Picking the smaller of the two operand units keeps the multiplier small (`min → s` is 60, `gb → mb` is 1000) and matches the way most user input flows (people add minutes to a base of seconds, not seconds to a base of nanoseconds). The result type stays exact for aligned-unit ladders (ns..d for Duration; the decimal-only and binary-only paths for DataSize)."
+        "The earlier smaller-unit strategy made values exact but diverged from Apple Pkl: `2.s + 3.min` rendered as `182.s` instead of `3.033333333333333.min`, and `2.kb + 3.kib` rendered as `5.072.kb` instead of `4.953125.kib`. Choosing the coarser operand unit matches the upstream evaluator and keeps large mixed-unit values readable (`10.ns + 7.d` stays in days, `10.b + 11.pib` stays in pib)."
     }
     new Decision {
-      date = "2026-05-15"
+      date = "2026-05-21"
       summary = "Walk the unit ladder step-by-step instead of multiplying through a flat factor"
       rationale =
-        "A flat `factor_in_ns(from) * magnitude / factor_in_ns(to)` table already overflows Int32 once `from` is `min` or coarser (1 min = 6e10 ns). Walking the unit ladder one step at a time — `h → min × 60`, `min → s × 60`, `s → ms × 1000`, etc. — keeps every intermediate value as small as possible and lets us defer Int64 to the PKL-092 Float slice. The DataSize side reuses a single-step `byte_factor` lookup capped at `gib` (~1.07e9 b, the last value that fits in Int32); `tb` and coarser construct fine but a `-1` sentinel from `datasize_byte_factor` makes the mixed-unit path bail rather than silently corrupt the result."
+        "Duration conversion still walks one step at a time — `h → min × 60`, `min → s × 60`, `s → ms × 1000`, etc. — because it avoids large flat constants and reproduces the floating-point rounding Apple exposes for division ratios such as `2.2.h / 3.3.s`. DataSize conversion uses a Double byte-factor table so decimal and binary units (`kb` / `kib`, `mb` / `mib`, ... up through `pib`) can be converted without integer overflow."
     }
     new Decision {
       date = "2026-05-15"
@@ -1883,7 +1883,8 @@ local intSeqValueVariantScenario = new Scenario {
     }
     new Decision {
       date = "2026-05-16"
-      summary = "Method-call inference intercepted in `infer_call_expr`, not modelled as method signatures"
+      summary =
+        "Method-call inference intercepted in `infer_call_expr`, not modelled as method signatures"
       rationale =
         "Listing's own collection methods are still typecheck-silent (`xs.map((x) -> x)` typechecks as `member access expects Object` but evaluates fine). Adding a full method-signature table for IntSeq would have either set a precedent we'd need to backfill for Listing / Mapping or introduced a one-off table that lived in a different place from the runtime dispatcher. The lightweight intercept in `infer_call_expr` produces the right return type for the common surface (`.toList` / `.toListing` / `.map` / `.fold` / `.step(n)`) without that broader refactor — when the collection-method-signature work lands (the bigger PKL-110-style slice), the intercept moves into it."
     }
@@ -1921,7 +1922,8 @@ local pklMappingAmendAndForwardLocalRefsScenario = new Scenario {
     }
     new Decision {
       date = "2026-05-18"
-      summary = "Use existing AmendExpr base dispatch for `[key] { body }` deep-merge instead of synthesizing an Expr"
+      summary =
+        "Use existing AmendExpr base dispatch for `[key] { body }` deep-merge instead of synthesizing an Expr"
       rationale =
         "An earlier draft introduced an `IntrinsicValue(Value)` expression variant to feed a pre-evaluated existing entry value back through `AmendExpr`'s base dispatch. Adding a new AST variant for a single use site cluttered the AST and would have required corresponding typecheck / lint / codegen handling. Inlining the dispatch (ObjectValue → merge_value_members; ListingValue / ListValue → eval_listing_subscript_amend; MappingValue → recursive eval_mapping_amend; scalar → override) keeps the AST stable and routes through the same merge primitives. The trade-off: a recursive `[k] { [k2] { ... } }` chain re-enters eval_mapping_amend rather than the central AmendExpr arm, but the shapes are identical and the gold fixtures don't probe the difference."
     }
@@ -1962,7 +1964,8 @@ local pklBinaryContinuationAcrossSeparatorsScenario = new Scenario {
 
 local pklAsIsCompoundTypeOperandsScenario = new Scenario {
   id = "PKL-148at"
-  name = "as and is accept union nullable generic head function type and string literal right operands"
+  name =
+    "as and is accept union nullable generic head function type and string literal right operands"
   description =
     "Apple Pkl's `as` / `is` operators accept compound type-name right operands beyond the bare identifier form pkl-mbt previously supported. Five coupled changes lift the surface. (1) Union `Int|String` — `eval_value_accepts_type_annotation` splits the type name at top-level `|` (honouring `<...>` / `(...)` / `[...]` nesting via `split_top_level_union_choices`) and accepts when ANY choice does. (2) Generic head strip — `Listing<Int>` / `Set<UInt32>` / `Map<String, Int>` recurse on the bare head; shape-preserving runtime acceptance matches Apple Pkl's semantics where per-element constraints fire lazily. (3) Function type `(Int) -> Int` / `(A, B, C) -> D` — detect the `(...) ->` shape and accept any FunctionValue whose parameter count matches the comma-separated arity in the leading parens (parameter / return types are validated lazily at call time). (4) String-literal singleton `\"Pigeon\"` already had cascade support from PKL-148ai; this slice adds `string_token()` recognition to `parse_type_operand_expr` so the parser routes the literal through `parse_type_text` instead of falling back to `parse_add_expr`. (5) `parse_type_operand_expr` also accepts `(` openings so the parser sees the full type text for paren-wrapped types (`(Int|String)`) and function types. The As eval site simplifies: the cascade now handles unions / nullables / generic heads uniformly, so it no longer needs to do its own head-strip (the strip was lossy for nullable — `Map<String, Int>?` became `Map`, losing the `?` and rejecting `null`). +1 fixture (`parser/newline`), 149 → 150. basic/as2 still does not flip — Apple Pkl's `as` is element-validating (not shape-preserving) for `List(...) as List<String>` (rejects when elements aren't strings); a separate slice has to wire the per-element validation."
   contributes { "GOAL-PKL-PURE" }
@@ -2005,7 +2008,8 @@ local pklFunctionReturnTypeFunctionFormScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-18"
-      summary = "Inline the colon-aware walk at the function-return site rather than adding a flag to `parse_type_annotation`"
+      summary =
+        "Inline the colon-aware walk at the function-return site rather than adding a flag to `parse_type_annotation`"
       rationale =
         "Adding a `stop_at_arrow~ : Bool` parameter to `parse_type_annotation` would force every existing caller to update — most of them (lambda-parameter annotation at line 904 / 939 / 1404 / 2104 / 2128, let-decl at 3261) genuinely need the stop-at-arrow semantic to leave room for the trailing `->` of a lambda body or arrow function. Inlining the walk at the single contrary call site (function-decl return type) keeps the helper API stable and the changed semantic obvious where it matters."
     }
@@ -2031,19 +2035,22 @@ local pklPredicateMemberScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-18"
-      summary = "Encode predicate-member as `@predicate$<offset>` sentinel with `CallExpr(@__predicate_entry, ...)` payload"
+      summary =
+        "Encode predicate-member as `@predicate$<offset>` sentinel with `CallExpr(@__predicate_entry, ...)` payload"
       rationale =
         "Mirrors the established `@subscript$<offset>` + `CallExpr(@__index_entry, ...)` encoding from PKL-148w. The sentinel name keeps the parse-time member distinguishable from real properties (so renderers / equality skip it via `is_invisible_member_name` once that predicate is extended), and the synthetic CallExpr lets the AmendExpr evaluator decode the pred / body pair without growing a new ObjectMember field. A new ObjectMember discriminator would have required touching every parser path that constructs members; sticking with the existing sentinel + synthetic CallExpr pattern keeps the AST shape stable."
     }
     new Decision {
       date = "2026-05-18"
-      summary = "Two sites (listing path + Dynamic path) share the predicate semantic but not the implementation"
+      summary =
+        "Two sites (listing path + Dynamic path) share the predicate semantic but not the implementation"
       rationale =
         "The Listing branch operates on `Array[Value]` (`result`) and can splice predicate side-effects inline. The Dynamic branch operates on `Array[ValueMember]` (`base_members`) where elements live under `@element$<offset>` and entries under `@subscript$<offset>` — the indirection (member name carries the sentinel, member value carries the actual entry or an `@__index_entry` pair) means the loop needs different unpacking. Refactoring to one polymorphic helper would have required either an enum over base shapes or thread-through callbacks; two focused helpers (`eval_listing_subscript_amend`'s arm + `apply_predicate_members_to_object`) keep each call site readable and the unpacking local."
     }
     new Decision {
       date = "2026-05-18"
-      summary = "Implicit-receiver bindings for predicate evaluation push each member as a top-level env entry rather than wrapping `this` in a single ObjectValue"
+      summary =
+        "Implicit-receiver bindings for predicate evaluation push each member as a top-level env entry rather than wrapping `this` in a single ObjectValue"
       rationale =
         "Apple Pkl's predicate `name == \"Barn Owl\"` reads `name` as a bare identifier (resolved through the implicit-receiver chain). Pushing `{ name: \"name\", value: ... }` directly into `pred_env` makes the bare-name lookup hit before the outer scope's bindings — matches the existing constraint-eval convention where members are exposed top-level. An alternative would have rewritten `name` as `this.name` (similar to PKL-148c's implicit-receiver lowering) but that requires touching the predicate AST, which would have complicated the parse-time encoding. The env-push approach reuses the existing identifier resolution path with no AST rewrite."
     }
@@ -2063,7 +2070,8 @@ local pklPostfixTripleDotBailScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-18"
-      summary = "Bail from the postfix loop entirely on triple-dot rather than just suppressing trivia consumption"
+      summary =
+        "Bail from the postfix loop entirely on triple-dot rather than just suppressing trivia consumption"
       rationale =
         "An earlier sketch tried to keep the postfix loop running by only suppressing the trivia-skip when triple-dot is ahead. That still left the loop's `self.at(dot())` arm active — `0` followed immediately by `...` (no whitespace, e.g. `3...IntSeq(4, 10)`) would still enter the member-access path and consume the first dot. Breaking out of the loop entirely lets the caller's `at_triple_dot` arm see the spread untouched, which is the only correct interpretation when three dots are stacked (Apple Pkl rejects `0.1.2` etc.; member access on a numeric literal isn't a real surface)."
     }
@@ -2110,7 +2118,8 @@ local pklAmendChainAndUnionContinuationScenario = new Scenario {
 
 local pklRawStringInterpolationScenario = new Scenario {
   id = "PKL-148ao"
-  name = "raw string interpolation plus raw escape decoding plus unicode escape plus heredoc backslash"
+  name =
+    "raw string interpolation plus raw escape decoding plus unicode escape plus heredoc backslash"
   description =
     "Apple Pkl's raw string literal supports an `\\<N #>(expr)` interpolation marker — the same `\\(...)` shape as a non-raw string but prefixed with `N` `#`s, where `N` matches the leading hash count of the raw delimiter. Inside a raw string the same N-hash escape re-enables every standard escape: `\\#t` → tab, `\\##n` → newline, `\\#u{1F920}` → 🤠. PKL-148an landed the delimiter strip + verbatim text path; this slice closes the interpolation + escape loop. Four coupled changes. (1) Lexer learns to skip an entire `\\<N #>(...)` argument when scanning for the close delimiter — without it a `\"##` inside a nested raw string (e.g. `#\"a\\#(##\"b\"##)c\"#`) mis-terminates the outer literal. `is_raw_interp_marker` + `skip_raw_interp_arg` + `skip_nested_string_at` walk balanced `(...)` while recognising every nested string shape (single-line / heredoc, raw / non-raw, arbitrary hash count). (2) Parser's `assemble_string_parts` is parameterised on `hash_count`: 0 routes to the non-raw walker (looks for `\\(`, runs `decode_string_escapes` on literal segments), > 0 routes to the raw walker (looks for `\\<N #>(`, keeps literal segments verbatim, but decodes `\\<N #>X` inline by feeding the equivalent non-raw escape through `decode_string_escapes`). (3) `decode_string_escapes` gains a `\\u{HHHH}` arm — hex digits up to the matching `}`, emitted as a single code point. This was missing entirely (`\\u` fell through to the catch-all that wrote `u` literally), so non-raw `\"\\u{1F920}\"` and raw `\"\\#u{1F920}\"` both gain support in one place. (4) PCF heredoc render now escapes each content line via `escape_string_heredoc` (`\\` → `\\\\`, `\\t` → literal `\\t`, `\\r` → literal `\\r`); previously a heredoc string containing a literal `\\` round-tripped as a single backslash and broke gold-match for any multi-line value with escape-significant chars. +2 fixtures (basic/rawString, basic/stringMultiline — the latter benefits from the unicode escape arm), 145 → 147; basic category 57.0% → 59.3%."
   contributes { "GOAL-PKL-PURE" }
@@ -2121,7 +2130,8 @@ local pklRawStringInterpolationScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-18"
-      summary = "Parameterise the interpolation walker on `hash_count` rather than forking raw / non-raw paths"
+      summary =
+        "Parameterise the interpolation walker on `hash_count` rather than forking raw / non-raw paths"
       rationale =
         "The non-raw `\\(expr)` walker and the raw `\\<N #>(expr)` walker differ in two narrow ways: the escape character run length (0 hashes for non-raw, N for raw) and the literal-segment decoder (full escape decode for non-raw, verbatim for raw with an inline `\\<N #>X` re-decode). Doing both in one function keeps the marker-detection + balanced-paren walk + segment-parsing logic shared — duplicating the entire walker for raw would have meant two places to fix the same bug class (e.g. a nested string inside a balanced `(...)` arg). The `decode` closure + `is_raw` flag is enough to specialise the two leaf behaviours."
     }
@@ -2159,7 +2169,8 @@ local pklRawStringLiteralScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-18"
-      summary = "Support arbitrary leading `#` count in the lexer rather than hard-coding the single-hash form"
+      summary =
+        "Support arbitrary leading `#` count in the lexer rather than hard-coding the single-hash form"
       rationale =
         "Apple Pkl's fixture suite (basic/rawString res25-res34) exercises 1- to 5-hash forms (`#`, `##`, `###`, `####`, `#####`). Hard-coding the single-hash case would parse only res1-res24 and surface `unsupported expression` for every multi-hash literal — and the api/* renderer fixtures use multi-hash forms heavily inside their gold output. Implementing the count once is the same code volume as the single-hash case (one loop counting leading `#`s, two loops scanning the close with the captured count) and avoids a follow-up slice that would touch the same lexer arm."
     }
@@ -2171,7 +2182,8 @@ local pklRawStringLiteralScenario = new Scenario {
     }
     new Decision {
       date = "2026-05-18"
-      summary = "Raw heredoc indent stripping reuses `strip_heredoc_indent` rather than a dedicated path"
+      summary =
+        "Raw heredoc indent stripping reuses `strip_heredoc_indent` rather than a dedicated path"
       rationale =
         "Apple Pkl's `#\"\"\"...\"\"\"#` shape leaves the leading-newline trim and the close-delimiter-indent dedent untouched — the raw flag only disables escape / interpolation interpretation, not the structural indent processing. Reusing the existing helper keeps the indent semantics identical to non-raw heredocs (basic/stringMultiline gold-match) so the raw form behaves predictably under the same source-shape rules without a per-shape divergence."
     }
@@ -2191,7 +2203,8 @@ local pklPcfHeredocAndDynamicOrderingScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-18"
-      summary = "Heredoc form keyed on `indent > 0 && StringValue contains \"\\n\"` rather than a per-call-site flag"
+      summary =
+        "Heredoc form keyed on `indent > 0 && StringValue contains \"\\n\"` rather than a per-call-site flag"
       rationale =
         "Plumbing a `block_position` bool through every render call site (PairValue, SetValue, ListValue inline elements; ListingValue / ObjectValue block elements; mapping entries; property values) would double-touch every existing render path for a single new rule. The `indent` parameter is already 0 in inline contexts (Pair / List / Set elements pass 0 down to nested values) and > 0 in block contexts (ListingValue block elements pass indent+2). Keying the heredoc decision on `indent > 0` lets `render_pcf_inline` route the new branch without a new parameter, and the property / mapping-entry sites pick up the same shape by adding a sibling arm that matches the same predicate before falling through to `render_pcf_scalar`."
     }
@@ -2223,13 +2236,15 @@ local pklDeferredPropertyErrorSentinelRoutingScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-18"
-      summary = "`@error$` prefix relocated to parser.mbt so `is_invisible_member_name` gates the renderer in one place"
+      summary =
+        "`@error$` prefix relocated to parser.mbt so `is_invisible_member_name` gates the renderer in one place"
       rationale =
         "The deferred-rejection sentinel had been defined as a string literal inside `pending_error_member_name` in eval.mbt; the renderer's `visible_members` filter checked `is_invisible_member_name`, which only knew about `@hidden$` and `@local$`. Adding the `@error$` check directly inside the eval-side helper would have required every renderer / equality / iteration site to consult two predicates. Moving the constant + predicate into parser.mbt and folding it into the existing invisible set means a single edit to `is_invisible_member_name` cascades to every caller — including paths I'd otherwise have to remember to update (PCF mapping render, structural equality walks, deep-equality member iteration)."
     }
     new Decision {
       date = "2026-05-18"
-      summary = "Hoist the sentinel into env under `@error$<bare>` rather than wrapping the bare-name value in a throwing marker"
+      summary =
+        "Hoist the sentinel into env under `@error$<bare>` rather than wrapping the bare-name value in a throwing marker"
       rationale =
         "The alternative — wrapping the type-invalid value in a sentinel Value variant (e.g. `ErrorValue(message)`) — would touch every Value pattern match in the cascade and require equality / coercion to decide what an ErrorValue means in their context. The two-entry shape (`<bare>` → invalid value, `@error$<bare>` → message) keeps the existing value variants untouched and matches the on-disk member shape, so the env intercept reads identically to the `lookup_pending_error_message` short-circuit that the member-access path already uses. Lambdas close over env naturally — `test.catch(() -> p2)` sees the intercept without any extra plumbing through the Lambda value."
     }
@@ -2241,7 +2256,8 @@ local pklDeferredPropertyErrorSentinelRoutingScenario = new Scenario {
     }
     new Decision {
       date = "2026-05-20"
-      summary = "Object-body `local` members defer their own diagnostics without making visible properties lazy"
+      summary =
+        "Object-body `local` members defer their own diagnostics without making visible properties lazy"
       rationale =
         "`basic/localTypedObjectMember` needs `local bad: Int = \"nope\"` to stay quiet until a sibling references `bad`, but broadening `defer_property_errors` to every Dynamic property would turn visible failures into hidden `null` placeholders at render time. The narrow `defer_field_errors = defer_property_errors || is_local_member_name(field.name)` gate reuses the sentinel path only for local members in ordinary object bodies; visible properties continue to report eagerly unless they explicitly read a deferred local."
     }
@@ -2261,7 +2277,8 @@ local pklObjectBodyMemberHeaderDispatchScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-18"
-      summary = "Collapse `consume_member_visibility_modifiers` + `skip_member_header` into one `consume_member_header` loop"
+      summary =
+        "Collapse `consume_member_visibility_modifiers` + `skip_member_header` into one `consume_member_header` loop"
       rationale =
         "Calling the two passes in sequence assumed `local` / `hidden` always physically led the modifier run. Apple Pkl allows `const local`, `abstract local`, etc., so the visibility latch has to survive past arbitrary modifier prefixes. Doing both jobs in one loop — push to `pending_modifiers` when the token is a modifier ident, set the visibility enum when the token is `local_kw` / `hidden`, drain annotations when the token is `@` — removes the ordering dependency and lets later modifier-vs-visibility insertions (e.g. a future `nullable` modifier) extend the same loop instead of growing a new pass."
     }
@@ -2293,7 +2310,8 @@ local pklLiteralTypeUnionAndStringAffixPredicatesScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-18"
-      summary = "String-literal singleton arm lives in `eval_value_accepts_type_annotation` rather than a dedicated `eval_literal_type_*` helper"
+      summary =
+        "String-literal singleton arm lives in `eval_value_accepts_type_annotation` rather than a dedicated `eval_literal_type_*` helper"
       rationale =
         "All other type-annotation acceptance (Int, String, Listing, user classes, generics, nullable, constrained) already routes through `eval_value_accepts_type_annotation`. Splitting literal types into a parallel helper would force every caller (cascade entry, union choice walk, etc.) to consult both — easy to forget, easy to drift. The new arm sits inside the existing cascade so the union walk in `eval_callable_argument_type_rejection_message` automatically picks it up, and the recursive shape (constraint strip → optional strip → literal head check) flows through without extra wiring."
     }
@@ -2331,7 +2349,8 @@ local pklModuleSelfRefAndAmendModuleParentFallbackScenario = new Scenario {
     }
     new Decision {
       date = "2026-05-18"
-      summary = "Late-binding (parent's `aa = module.a` re-eval against child's `a`) deferred to a later slice"
+      summary =
+        "Late-binding (parent's `aa = module.a` re-eval against child's `a`) deferred to a later slice"
       rationale =
         "`basic/moduleRef3` (`extends \"moduleRefLibrary.pkl\"` + `const a = 44`) still expects `aa = 44`, but the parent's `aa` was eagerly computed in `eval_module_relation` against the parent's own `a = 42` before `super` was pushed. Re-evaluating parent members in the child's scope requires plumbing the parent's parsed Bindings through resolve_import (which currently only returns the evaluated Value); that's a deeper refactor and rides as its own slice instead of being bolted into this one."
     }
@@ -2357,19 +2376,22 @@ local pklObjectBodyLocalFunctionScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-18"
-      summary = "Lower object-body `local function` to a `@local$f = LambdaExpr(...)` ObjectMember instead of teaching ObjectMember to carry FunctionDecl"
+      summary =
+        "Lower object-body `local function` to a `@local$f = LambdaExpr(...)` ObjectMember instead of teaching ObjectMember to carry FunctionDecl"
       rationale =
         "ObjectMember carries an `Expr` value; FunctionDecl is its own structure (parameters / return_type / body / annotations). Adding a `MethodMember(FunctionDecl)` variant would ripple through every evaluator dispatcher that pattern-matches on ObjectMember.value. Lowering to LambdaExpr at parse time piggybacks on the existing prefix-strip logic in `eval_object_members` (`@local$f` hoists as bare `f` in the per-field env) and the existing `eval_callable_call` fallback that accepts any Identifier resolving to a FunctionValue — so the slice fits behind the parser surface with zero evaluator changes for the call-site path."
     }
     new Decision {
       date = "2026-05-18"
-      summary = "Add a dedicated `eval_type_name_is_unresolvable` helper rather than threading the resolvability check through the union-walk loop"
+      summary =
+        "Add a dedicated `eval_type_name_is_unresolvable` helper rather than threading the resolvability check through the union-walk loop"
       rationale =
         "The union-acceptance walk and the unresolvability gate ask different questions about the same shape: the former is `any choice accepts <value>`, the latter is `every choice fails to name a known type`. Folding them would tangle the loop with two early-exit conditions and a four-way state (accepted / value-rejected / unknown / known-but-rejected). A separate helper keeps each loop single-purpose; the cost is one extra pass over the choices on the rejection path, which is cold."
     }
     new Decision {
       date = "2026-05-18"
-      summary = "Restrict the unresolvability gate to callable parameter / return paths (not class-property defaults)"
+      summary =
+        "Restrict the unresolvability gate to callable parameter / return paths (not class-property defaults)"
       rationale =
         "Class-property defaults already short-circuit on unknown annotations earlier in the cascade (the `if !is_stdlib_class_name(head) && !(eval_lookup_class_decl is Some(_))` guard returns None without a diagnostic). Adding the gate there would change behaviour for fixtures that currently rely on the silent skip. Only the callable rejection paths surface a value-mismatch message that needs the unknown-type wording substitution — keeping the change scoped avoids opening a second front of diagnostic churn."
     }
@@ -2427,13 +2449,15 @@ local pklConstraintCascadeListMapOptionalScenario = new Scenario {
     }
     new Decision {
       date = "2026-05-18"
-      summary = "Use `pkl_constrained_type_base_name` to strip the outer constraint before generic argument extraction"
+      summary =
+        "Use `pkl_constrained_type_base_name` to strip the outer constraint before generic argument extraction"
       rationale =
         "`generic_argument_text(name, prefix)` requires `name.has_suffix(\">\")`. A source like `List<String(!isEmpty)>(!isEmpty)` ends with `)` so the function silently returned None and the element walk never fired. Stripping via the existing `pkl_constrained_type_base_name` helper produces `List<String(!isEmpty)>` which then passes the generic-argument check. The same helper is already used for the outer host predicate (`pkl_constrained_listing_rejection_message_from_source`), so the strip behaviour is consistent across the file."
     }
     new Decision {
       date = "2026-05-18"
-      summary = "Add `StringIsEmpty` / `NotStringIsEmpty` instead of folding into `StringLengthCompare(Equal, 0)`"
+      summary =
+        "Add `StringIsEmpty` / `NotStringIsEmpty` instead of folding into `StringLengthCompare(Equal, 0)`"
       rationale =
         "Apple Pkl's diagnostic wording uses `isEmpty` / `!isEmpty` verbatim — not `length == 0` / `!(length == 0)`. Reusing `StringLengthCompare` would force the diag-name renderer to special-case the threshold-zero shape, which is fragile when other length-with-0 cases (`length > 0` / `length >= 0`) shouldn't render as `isEmpty`. A dedicated predicate keeps the rendering one-to-one with the surface form."
     }
@@ -2535,7 +2559,8 @@ local pklClassMethodsLexicalScopeScenario = new Scenario {
     }
     new Decision {
       date = "2026-05-18"
-      summary = "Lexical-only scoping — each class layer pushes only its own methods, not inherited ones"
+      summary =
+        "Lexical-only scoping — each class layer pushes only its own methods, not inherited ones"
       rationale =
         "Apple Pkl's `class Foo1 { local function f() = \"original\"; x = f() }` keeps `f` resolution lexical: `x = f()` defined inside Foo1's body sees Foo1's `f`, even when invoked through `new Foo2 {}.x` where Foo2 declares its own `f`. The recursive `eval_class_default_members(\"Foo1\", ...)` call (from Foo2's level) pushes Foo1's methods during Foo1's defaults evaluation, so `x = f()` lands on Foo1's `FunctionValue`. Back at Foo2's layer, only Foo2's methods are pushed — Foo2's own defaults (if any) would see Foo2's `f`. This matches Apple's local-function lexical scoping (and works for non-local class methods too: same name, same arena)."
     }
@@ -2581,7 +2606,8 @@ local pklListingAmendGeneratorToleranceScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-18"
-      summary = "Splice generator payloads in-order during the per-member loop instead of two-phase evaluation"
+      summary =
+        "Splice generator payloads in-order during the per-member loop instead of two-phase evaluation"
       rationale =
         "Apple Pkl's amend-time semantics evaluate generators and subscripts in source order; a `when` block earlier in the body can grow the listing so a later `[N]` lands in-bounds. A two-phase approach (run all generators first, then run all subscripts) would diverge from upstream when the same body mixes both shapes with cross-dependencies. The single-pass splice keeps `result` as the running listing and matches the source-order eval."
     }
@@ -2607,13 +2633,15 @@ local pklDynamicShapeViaSentinelsScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-18"
-      summary = "Implement Dynamic shape via sentinel member names rather than a new Value variant (`DynamicValue { named, elements, entries }`)"
+      summary =
+        "Implement Dynamic shape via sentinel member names rather than a new Value variant (`DynamicValue { named, elements, entries }`)"
       rationale =
         "A new Value variant would force every consumer of the Value enum (renderers across PCF / JSON / YAML / Properties / plist, equality, operator dispatch, coercion, mbti surface, ~30 sites) to handle the new shape. The sentinel-name approach piggybacks on the existing `Array[ValueMember]` storage and the established `@hidden$` / `@local$` / `@error$` / `@spread` / `@when` / `@for` / `@subscript$` family — only one site (the PCF object-member renderer) needs to learn the new prefixes; all other code paths treat sentinel-named members as ordinary entries (`visible_members` keeps them visible, equality compares by name+value). The downside is rendering-order coupling (insertion order = render order) and inability to merge / dedupe sentinel slots — both acceptable for Dynamic where order matters anyway."
     }
     new Decision {
       date = "2026-05-18"
-      summary = "Route `{ ...x }` (triple-dot prefix) through the object-body parser, not the listing-body parser"
+      summary =
+        "Route `{ ...x }` (triple-dot prefix) through the object-body parser, not the listing-body parser"
       rationale =
         "Before PKL-148x the listing-body parser was the only spread-aware path; the object-body parser's @spread arm only accepted ObjectValue. With the Dynamic shape, the object-body @spread arm now absorbs every payload shape (Object merges, Listing / Set lower to @element$, Mapping / Map lower to @subscript$, Null silently skipped). Routing `{ ...x }` through the object body lets the spread resolve to whatever the runtime payload happens to be — fixing `spreadSyntaxTyped` (`new { ...dynamicObj }` merges members) without breaking `spreadSyntaxNullable` (`b { ...?listing }` lowers to `@element$` entries that render listing-style)."
     }
@@ -2633,13 +2661,15 @@ local pklListingSubscriptAmendScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-18"
-      summary = "Encode subscript-amend entries as `@subscript$<offset>` ObjectMembers with a `CallExpr(Identifier(\"@__index_entry\"), [key, value])` payload instead of adding a new AST variant"
+      summary =
+        "Encode subscript-amend entries as `@subscript$<offset>` ObjectMembers with a `CallExpr(Identifier(\"@__index_entry\"), [key, value])` payload instead of adding a new AST variant"
       rationale =
         "Adding an `IndexEntry(key, value)` Expr variant would touch every `match expr` site (12+ across the codebase) and the `derive(Eq, Debug)` machinery. The synthetic-CallExpr encoding lives entirely inside existing AST shapes — `@subscript$<offset>` is unique enough to avoid name collisions with user properties (`@` is the same prefix family as `@hidden$` / `@local$` / `@error$` / `@spread`), and the evaluator's pattern-match on `CallExpr(Identifier(\"@__index_entry\"), args)` reads as a one-line decode. The offset suffix disambiguates multiple subscript entries inside the same body."
     }
     new Decision {
       date = "2026-05-18"
-      summary = "Drop the `Collection: <pcf>` suffix from the listing-out-of-range diagnostic so the wording matches `listings/wrongIndex` gold"
+      summary =
+        "Drop the `Collection: <pcf>` suffix from the listing-out-of-range diagnostic so the wording matches `listings/wrongIndex` gold"
       rationale =
         "The existing `Element index N is out of range 0..M. Collection: <pcf>` form was introduced by PKL-148h's gold-match alignment for `SubscriptAccess` (`x[3]`). The amend-side path (`(x) { [3] = ... }`) uses the SAME `errorMessages.properties#elementIndexOutOfRange` template in upstream but renders WITHOUT the `Collection:` suffix — `listings/wrongIndex` gold cuts the diagnostic at the period after `\\`<upper>\\``. The subscript-amend helper emits the cut form to match gold byte-for-byte; the subscript-access path keeps the suffix it already aligned to (different gold fixture)."
     }
@@ -2659,7 +2689,8 @@ local pklClassParentTypealiasResolutionScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-18"
-      summary = "Resolve the typealias chain at the parent-name recursion site rather than rewriting `ClassBinding.parent_name` at collection time"
+      summary =
+        "Resolve the typealias chain at the parent-name recursion site rather than rewriting `ClassBinding.parent_name` at collection time"
       rationale =
         "Rewriting the field at `collect_class_bindings` time would require threading the alias bindings into the collector (which currently has no access to declarations beyond the class kind), and would make the on-disk shape diverge from the source AST. Resolving in-place at the recursion site keeps the AST canonical and the alias lookup local — same pattern as PKL-148r's analysis-side resolver consult. Other consumers of `parent_name` (constraint inheritance, reflect mirror, virtual-method dispatch) keep the source spelling for now; they'll be migrated in the same shape as gold fixtures surface the need."
     }
@@ -2679,19 +2710,22 @@ local pklLazyClassDefaultTypeRejectionScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-18"
-      summary = "Encode per-property class-default failures as `@error$<name>` sentinels instead of materialising a `ThunkValue` variant or a side-table of pending errors"
+      summary =
+        "Encode per-property class-default failures as `@error$<name>` sentinels instead of materialising a `ThunkValue` variant or a side-table of pending errors"
       rationale =
         "A `ThunkValue` variant would force every consumer of the `Value` enum (renderers, equality, operator dispatch, mbti surface) to handle the new shape — a multi-day refactor for a single Apple-Pkl correctness gap. A side-table keyed on `(object_id, property_name)` would need either weak references or explicit lifetime management. The sentinel-member approach lives inside the existing `Array[ValueMember]` storage, is invisible to renderers (the `@error$` prefix is already filtered out alongside `@hidden$` / `@local$` by `visible_members`), and only one access site (`MemberAccess` on `ObjectValue`) needs the `lookup_pending_error_message` consult. The downside — a phantom `name: NullValue` member when the original eval returned None — is masked by the same intercept (the sentinel wins) and doesn't leak into renders."
     }
     new Decision {
       date = "2026-05-18"
-      summary = "Apply the deferred-error encoding only inside `eval_class_default_members` (via `defer_property_errors=true`); user-body literals and module bindings keep eager rejection"
+      summary =
+        "Apply the deferred-error encoding only inside `eval_class_default_members` (via `defer_property_errors=true`); user-body literals and module bindings keep eager rejection"
       rationale =
         "Apple Pkl's lazy class-default semantics only apply to the CLASS BODY where each property's RHS evaluates independently on access. User-body amends (`new Person { name = 42 }`) and module-level bindings (`res2: Parameterized = List(42)`) are checked eagerly upstream and surface their diagnostics at construction time. Reusing the same flag across both would erase the PKL-148i literal-rejection wording for `new Person { name = 42 }` and silently accept module-level type mismatches until next access. Keeping the lazy variant strictly to class defaults preserves all three behaviours."
     }
     new Decision {
       date = "2026-05-18"
-      summary = "Quote the RESOLVED type name (with trailing `?` stripped) in rejection diagnostics, not the source alias"
+      summary =
+        "Quote the RESOLVED type name (with trailing `?` stripped) in rejection diagnostics, not the source alias"
       rationale =
         "Apple Pkl's `typeMismatch` template renders the resolved type — `String` for `Simple = String`, `Int|Boolean` for `Union = Int|Boolean`, `Duration` for `Nullable = Duration?`. Quoting the source alias (our previous behaviour) made the diagnostic less informative (the user has to chase the alias chain to see what the rejected value should have been) and broke gold-match for every typealias-using fixture. The strip-trailing-`?` rule matches the gold's `Duration` vs `Duration?` distinction; the union shape is preserved as-is so `Int|Boolean` lands verbatim."
     }
@@ -2711,13 +2745,15 @@ local pklTypeAliasNormalisationScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-18"
-      summary = "Reuse `typecheck.mbt:split_top_level_union_choices` from the eval-side check instead of duplicating the splitter"
+      summary =
+        "Reuse `typecheck.mbt:split_top_level_union_choices` from the eval-side check instead of duplicating the splitter"
       rationale =
         "The typecheck layer already has a `<>`-and-`()` aware top-level `|` splitter for static union acceptance; reusing it from eval avoids two parallel implementations that could drift on edge cases like `List<Int|String>|Set<Bytes>`. The two layers live in the same package so direct call is free."
     }
     new Decision {
       date = "2026-05-18"
-      summary = "Fall through to the function-shaped sibling binding before surfacing `cyclic property reference X`"
+      summary =
+        "Fall through to the function-shaped sibling binding before surfacing `cyclic property reference X`"
       rationale =
         "Apple Pkl's `qux = qux(...)` form is idiomatic — function namespace and property namespace are distinct, and the RHS `qux` resolves through the function namespace first. Our `all_eval_bindings` synthesises both into one `Array[Binding]` (functions first, then properties), and `find_binding` returns the LAST match (property), causing the cyclic. The fallback only fires when (a) the currently-resolving binding is non-function, and (b) a sibling LambdaExpr-valued binding exists with the same name — both conditions keep the change scoped so a real cycle on a function-only binding still surfaces the diagnostic."
     }
@@ -2737,19 +2773,22 @@ local pklSpreadMemberScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-18"
-      summary = "Encode object-body spread as a reserved-name `ObjectMember { name = \"@spread\" }` instead of adding a dedicated `SpreadMember` AST variant"
+      summary =
+        "Encode object-body spread as a reserved-name `ObjectMember { name = \"@spread\" }` instead of adding a dedicated `SpreadMember` AST variant"
       rationale =
         "The `@when` / `@for` sentinels already use the reserved-name pattern in `eval_object_members` to splice body generators into the parent — `@spread` slots into the same dispatch with a one-arm extension and avoids an AST-wide churn that would have to land in every consumer of `ObjectMember`. The listing and mapping arms use the pre-existing `WhenSpread(...)` synthetic-entry encoding for the same reason: keep the AST stable and route through the spread-flatten paths that already work for `when` blocks."
     }
     new Decision {
       date = "2026-05-18"
-      summary = "Treat `...x` against null silently (same as `...?x`) instead of surfacing a required-vs-optional diagnostic"
+      summary =
+        "Treat `...x` against null silently (same as `...?x`) instead of surfacing a required-vs-optional diagnostic"
       rationale =
         "Apple Pkl distinguishes `...x` (required, throws on null) from `...?x` (optional, silent skip on null), but none of the currently-gating gold fixtures exercise the required-spread-on-null path — `spreadSyntaxNullable` only uses `...?x`. Carrying the required-vs-optional bit through the AST would require either a new ObjectMember field (touches every consumer) or a separate AST variant, both more invasive than this slice's deliverable. The pragmatic uniform-silent-skip stance lands the foundation without forcing the wider refactor."
     }
     new Decision {
       date = "2026-05-18"
-      summary = "Keep the `parse_inferred_new_body` dispatch routing `{ ...x }` to listing rather than to object body"
+      summary =
+        "Keep the `parse_inferred_new_body` dispatch routing `{ ...x }` to listing rather than to object body"
       rationale =
         "A first attempt routed `{ ...x }` through the object-body parser so `spreadSyntaxTyped`'s `new { ...barnOwlDynamic }` could merge Dynamic members directly. That broke `spreadSyntaxNullable` whose `d { ...?c }` payload is a Listing — the object-body path can't accept ListingValue spread without a unified Dynamic value variant. Keeping the listing route preserves the +1 fixture; the typed-spread case (`spreadSyntaxTyped`) stays gated on the deferred Dynamic-shape refactor."
     }
@@ -2769,13 +2808,15 @@ local pklTripleDotImportResolverScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-18"
-      summary = "Split the resolver across CLI (FS) and analysis (registry lookup) instead of duplicating the ancestor walk in both"
+      summary =
+        "Split the resolver across CLI (FS) and analysis (registry lookup) instead of duplicating the ancestor walk in both"
       rationale =
         "The CLI loader is the only layer with FS access (the library surface deliberately stays IO-free so embedders in wasm sandboxes can depend on it). Doing the ancestor walk twice — once via `@fs.path_exists` at load time, once via the session source store at eval time — risked subtle drift if the walk order diverged. Caching the CLI's authoritative resolution into a sandbox-level `Map[String, String]` (keyed `\"<from>\\n<uri>\"`) gives the analysis layer a single, deterministic lookup that's guaranteed to agree with the path the CLI loaded the source under, without re-implementing the walk or pulling FS into the library."
     }
     new Decision {
       date = "2026-05-18"
-      summary = "Fall through to the bare uri (and the existing `Cannot find module` diagnostic) when no ancestor matches"
+      summary =
+        "Fall through to the bare uri (and the existing `Cannot find module` diagnostic) when no ancestor matches"
       rationale =
         "Returning the original `.../X` string preserves the diagnostic surface for the case where the triple-dot resolution legitimately has no answer (file genuinely absent). The alternative — synthesising a `not-found` path string — would produce noisy diagnostics like `Cannot find module \\`<concocted-prefix>/X\\``. Returning the original keeps the message readable and matches what the user typed."
     }
@@ -2795,13 +2836,15 @@ local pklOutputTextByteExactScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-18"
-      summary = "Route `output.text` through `@fs.write_string_to_file(\"/dev/stdout\", text)` instead of pulling in `mizchi/x/raw_fd` or shipping a bespoke `extern \"C\" fputs` stub"
+      summary =
+        "Route `output.text` through `@fs.write_string_to_file(\"/dev/stdout\", text)` instead of pulling in `mizchi/x/raw_fd` or shipping a bespoke `extern \"C\" fputs` stub"
       rationale =
         "MoonBit core only exposes `%println` (always appends `\\n`); adding raw_fd or libc FFI for a single CLI slot would inflate the dep tree and require per-target plumbing (native+js+wasm). `@fs.write_string_to_file` is already a dep, works on every target we ship to, and writing to `/dev/stdout` is the canonical Unix path for fd-1 emit. The `try / catch` keeps println as a graceful fallback on hosts where `/dev/stdout` isn't available (unlikely in our supported envs, but cheap insurance)."
     }
     new Decision {
       date = "2026-05-18"
-      summary = "Switch `eval_matches_gold` from `printf '%s\\n' \"$actual\"` wrapping to `mpkl eval > tmpfile; diff -u gold tmpfile`"
+      summary =
+        "Switch `eval_matches_gold` from `printf '%s\\n' \"$actual\"` wrapping to `mpkl eval > tmpfile; diff -u gold tmpfile`"
       rationale =
         "The shell-mediated `$(...)` + `printf '%s\\n'` shape silently normalised the CLI's trailing newline regardless of whether the gold file had one. That masked `api/moduleOutput`-shaped mismatches and meant our smoke gate wasn't enforcing the byte-for-byte contract the README advertises. A temp-file bytewise diff matches the contract; the existing PCF gold files all already terminate with `\\n` so no regressions (verified by re-running the script against the 110 prior-passing fixtures)."
     }
@@ -2821,13 +2864,15 @@ local pklShebangPreambleScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-17"
-      summary = "Emit shebang as a `comment()` trivia token instead of stripping bytes from the source string"
+      summary =
+        "Emit shebang as a `comment()` trivia token instead of stripping bytes from the source string"
       rationale =
         "The parser's `byte_offset` tracker increments by each consumed token's text length, so silently skipping bytes inside `tokenize` (without emitting a token) would skew every subsequent diagnostic position by the length of the shebang line. Routing the shebang through the existing `comment()` token kind preserves byte-offset accounting and reuses the trivia-skip logic that already handles `//` / `/* */`."
     }
     new Decision {
       date = "2026-05-17"
-      summary = "Guard the shebang branch on `start == 0` so a `#` later in the source stays unrecognized"
+      summary =
+        "Guard the shebang branch on `start == 0` so a `#` later in the source stays unrecognized"
       rationale =
         "Apple Pkl only honours the shebang as the very first bytes of the module. A `#!` appearing after any other token would be a syntax error upstream — the lexer should reflect that. Without the `start == 0` guard, a stray `#!` mid-module would silently swallow the rest of its line and produce confusing downstream errors."
     }
@@ -2847,13 +2892,15 @@ local pklCatchOrNullAndBareConstraintScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-17"
-      summary = "Drop the `<label> argument N` prefix at every eval-time callable parameter constraint call site"
+      summary =
+        "Drop the `<label> argument N` prefix at every eval-time callable parameter constraint call site"
       rationale =
         "Apple Pkl's runtime emits the bare `Type constraint X violated. Value: V` per the `typeConstraintViolated` template — no `function f argument 1 ...` prefix. Our four affected unit tests had encoded the wrong (prefixed) form, so passing them was not evidence the message lined up with upstream. The typecheck-side prefix in `typecheck.mbt` is a separate code path serving the static analysis surface (it carries the call-site context for IDE diagnostics, not snippetTest round-trips) — that path stays as-is. The eval-side change unblocks the constraint-emitting half of fixtures like `lambdas/typedLambdas` (res4 now matches gold), though the runtime constraint expression eval for lambdas-with-closure (res6's `length > n` against a captured `n`) is the remaining blocker for full gold-match."
     }
     new Decision {
       date = "2026-05-17"
-      summary = "Split binding-time intercept dispatch by detecting `catch` vs `catchOrNull` form, instead of branching inside the shared body"
+      summary =
+        "Split binding-time intercept dispatch by detecting `catch` vs `catchOrNull` form, instead of branching inside the shared body"
       rationale =
         "The pre-existing binding-time intercept passed every catch-shaped expression through `eval_pkl_test_catch_binding_value`, which had to decide whether to throw or return the value on no-throw. Mixing the two into one helper would require either a Boolean knob (ugly) or hard-coding the throw branch (wrong for catchOrNull). Adding the `PklTestCatchFormKind` enum + `pkl_test_catch_form_kind` predicate keeps each helper single-purpose; the call-expr-time intercept dispatches by callee match, and the binding-time intercept dispatches by AST shape, both routing into the same shared `eval_pkl_test_catch_outcome` core that returns a tagged ThrewOutcome / NoThrowOutcome."
     }
@@ -2873,13 +2920,15 @@ local pklAsCastAndLocalInListingScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-17"
-      summary = "`as` strips both `(...)` constraint and `<...>` generic head before the acceptance check, matching PKL-148l's callable-parameter normalisation"
+      summary =
+        "`as` strips both `(...)` constraint and `<...>` generic head before the acceptance check, matching PKL-148l's callable-parameter normalisation"
       rationale =
         "`Set(...) as Set<Listing<Int>>` should accept any SetValue without iterating the elements — Apple Pkl's runtime `as` is shape-preserving at the outermost head, with inner-element checks deferred to access time. Reusing the same two-step strip (`pkl_constrained_type_base_name` then `name.find(\"<\")`) keeps the behaviour aligned across `as`, callable parameter rejection, and class-property acceptance. The surface name is preserved in the diagnostic so `Expected value of type `Set<Listing<Int>>`, but got type `Set`. Value: …` still quotes the full annotation if the head itself doesn't match."
     }
     new Decision {
       date = "2026-05-17"
-      summary = "Listing-body local bindings desugar to nested `let` chains wrapped in `WhenSpread` rather than adding a new Expr variant"
+      summary =
+        "Listing-body local bindings desugar to nested `let` chains wrapped in `WhenSpread` rather than adding a new Expr variant"
       rationale =
         "A new `LocalBindingMarker` Expr variant would touch every exhaustive `match expr` pattern across analysis / typecheck / codegen / format / lint (~13 sites). The `let (NAME = VALUE) BODY` form already desugars to `CallExpr(LambdaExpr([{NAME}], BODY, None), [VALUE])` and the listing evaluator already recognises `WhenSpread(inner)` as a flatten-into-parent marker (used by `when` blocks). Wrapping the binding chain as `WhenSpread(CallExpr(LambdaExpr(...), [value]))` reuses both existing machineries, so the parser's `build_listing_body` is the only new code — every downstream consumer treats the produced AST as normal."
     }
@@ -2905,7 +2954,8 @@ local pklLocalDeclModifierScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-17"
-      summary = "`local class` / `local function` / `local typealias` parse as their non-local counterparts; export suppression is deferred"
+      summary =
+        "`local class` / `local function` / `local typealias` parse as their non-local counterparts; export suppression is deferred"
       rationale =
         "Apple Pkl uses `local` here purely as a visibility modifier (the declaration is invisible to importers but still resolvable in-module). pkl-mbt's primary driver path is single-module evaluation, so registering the declaration without tracking the export flag is enough to make every in-module reference resolve correctly and every typealias constraint fire. The alternative — wiring a `is_local: Bool` field through ClassDecl / FunctionDecl / TypeAliasDecl and every consumer — costs ~70 construction-site touches for a behavior (cross-module export filtering) that no current gold fixture exercises. When a cross-module fixture lands that actually depends on the export side, we add the flag then."
     }
@@ -2925,13 +2975,15 @@ local pklCallableParamTypeRejectionScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-17"
-      summary = "Basic-type parameter check emits the bare Apple Pkl wording with no `<label> argument N` prefix"
+      summary =
+        "Basic-type parameter check emits the bare Apple Pkl wording with no `<label> argument N` prefix"
       rationale =
         "The constraint-check call sites already wrap their message with `<label> argument N <message>` (`method add argument 1 Type constraint `isBetween(0, 10)` violated. Value: 11`), which matches how Apple Pkl prefixes constraint failures. Basic-type rejection however lands on the *same* wording as the return-side annotation rejection (`Expected value of type `Int`, but got type `Float`. Value: 1.1`) with no prefix at all — `test.catch(() -> x.sum(1.1, 2))` round-trips it through as a bare string. Keeping the two helpers separate (`_type_` vs the existing constraint helper) means each call site emits the right prefix shape without the wrapping logic having to inspect the message form."
     }
     new Decision {
       date = "2026-05-17"
-      summary = "Strip both trailing constraint `(...)` and generic `<...>` from the annotation head before the acceptance check"
+      summary =
+        "Strip both trailing constraint `(...)` and generic `<...>` from the annotation head before the acceptance check"
       rationale =
         "`pkl_constrained_type_base_name` only strips the constraint paren suffix, so `List<Set<...>>(thisisList)` collapses to `List<Set<...>>` — which `eval_value_accepts_type_annotation` doesn't recognize, false-positive-rejecting valid `ListValue` arguments in `types/ThisInTypeConstraint`. The existing default-synthesizer at `synthesize_default_for_type` already uses `name.find(\"<\")` to strip the generic suffix; this helper mirrors that pattern. The original `source` is preserved for the diagnostic so the user sees the full annotation in `Expected value of type `<source>`, …`, while the acceptance check runs against the bare head — matching Apple Pkl's runtime, which only looks at the outermost type."
     }
@@ -2957,7 +3009,8 @@ local pklMappingDupKeyAndPipeDiagnosticScenario = new Scenario {
     }
     new Decision {
       date = "2026-05-17"
-      summary = "Pipe operator evaluates the RHS before the LHS to capture the non-callable diagnostic"
+      summary =
+        "Pipe operator evaluates the RHS before the LHS to capture the non-callable diagnostic"
       rationale =
         "`x |> f` previously desugared straight into `CallExpr(f, [x])`, so the non-callable failure surfaced as the generic `call expects Function` and lost the pipe-operator context that `test.catch(() -> 42 |> 21)` round-trips into a string. Evaluating the RHS first, checking for `FunctionValue`, and routing the call through `CallExpr` only on a match preserves the existing fast path while letting the non-callable branch emit Apple Pkl's full `Operator `|>` is not defined for operand types `Int` and `Int`. Left operand : 42 Right operand: 21` (renders both operands inline through `render_pcf_value_inline`)."
     }
@@ -2995,7 +3048,8 @@ local pklLocalMemberVisibilityScenario = new Scenario {
     }
     new Decision {
       date = "2026-05-17"
-      summary = "Amend merge uses strict storage-name matching to keep local and visible namespaces independent"
+      summary =
+        "Amend merge uses strict storage-name matching to keep local and visible namespaces independent"
       rationale =
         "`merge_value_members` previously called `lookup_member` to find an amend body's override against the base — that lookup accepts either the bare or prefixed form, so `local l` in a base and visible `l` in an amend body collided on the same slot. Apple Pkl treats them as different namespaces: `(foo3) { l = \"override\" }` where `foo3` declares `local l = \"original\"` keeps the local at its old value AND adds a fresh visible `l` member. `find_member_exact` resolves only the literal storage name; using it in both merge passes keeps `@local$l` and bare `l` as independent slots, unblocking `basic/localPropertyOverride1` / `localPropertyOverride2`."
     }
@@ -3027,7 +3081,8 @@ local pklAmendTimeLiteralTypeRejectionScenario = new Scenario {
     }
     new Decision {
       date = "2026-05-17"
-      summary = "Class-aware ObjectValue tagging via hidden marker is the wrong shape — defer to ObjectValue enum refactor"
+      summary =
+        "Class-aware ObjectValue tagging via hidden marker is the wrong shape — defer to ObjectValue enum refactor"
       rationale =
         "A prototype of this slice stamped a hidden `__class = StringValue(class_name)` member onto each TypedObjectLiteral so AmendExpr could re-fire the host class's constraints downstream (covering `constraints11/12` res4-6's `(res3) { y = 0 }` against `Int(this > x)`). The marker broke 14 structural-equality unit tests that asserted exact `ObjectValue([...])` shape — the additional member changes the array. The right fix is a dedicated `ObjectValue(class_name: String?, members: Array[ValueMember])` variant change (~418 call sites), tracked in PKL-148j."
     }
@@ -3059,13 +3114,15 @@ local pklListValueSplitScenario = new Scenario {
     }
     new Decision {
       date = "2026-05-17"
-      summary = "`List + List` / `List + Set` preserves the List variant; `Set + List` widens to Set"
+      summary =
+        "`List + List` / `List + Set` preserves the List variant; `Set + List` widens to Set"
       rationale =
         "Apple Pkl's `Collection + Collection` dispatch is left-biased: the LHS variant decides the result shape. `List + List` appends and stays a `ListValue`, `List + Set` appends with no dedup (still a List), `Set + List` unions and stays a Set, `List + Listing` widens to Listing (left-side asymmetric — matches upstream's `Listing` super-type position in the join lattice). Eight dispatch arms cover the cross-product."
     }
     new Decision {
       date = "2026-05-17"
-      summary = "Subscript out-of-bounds diagnostic uses Apple Pkl's `Element index ... is out of range ... Collection: ...` wording"
+      summary =
+        "Subscript out-of-bounds diagnostic uses Apple Pkl's `Element index ... is out of range ... Collection: ...` wording"
       rationale =
         "`module.catch(() -> list[-1])` projects the runtime error as a String. Apple Pkl's wording embeds the rendered receiver inside the message (`Collection: List(1, \"two\", 3)`). Rendering the receiver through `render_pcf_value_inline` and templating the index range gives byte-exact gold match for the `basic/list` `subscript` block; the same template fires for Listing receivers (the tag inside the message follows the receiver's PCF render)."
     }
@@ -3135,13 +3192,15 @@ local pklUnorderedEqualityAndTypedDefaultsScenario = new Scenario {
     }
     new Decision {
       date = "2026-05-17"
-      summary = "No-arg property surface accepts the method-call form on String / Int / Float / Listing"
+      summary =
+        "No-arg property surface accepts the method-call form on String / Int / Float / Listing"
       rationale =
         "Apple Pkl projects `String.length`, `Int.abs`, `Float.isPositive`, `Listing.toSet` as both property reads (`str.reverse`) and zero-arg method calls (`str.reverse()`); the only difference is the trailing `()`. The method dispatchers used to reject the `()` form with `call expects Function`. Adding the same name set to each `is_*_method_name` predicate and routing them back to the property evaluator from the method dispatch keeps both shapes consistent without duplicating the property logic. `Float.isPositive` etc. previously had no `eval_float_property` at all — adding one parallels `eval_int_property` and unifies the Float dispatcher."
     }
     new Decision {
       date = "2026-05-17"
-      summary = "Typed-property defaults synthesised on `abstract_slot` bindings; extends imports class scope"
+      summary =
+        "Typed-property defaults synthesised on `abstract_slot` bindings; extends imports class scope"
       rationale =
         "Apple Pkl materialises a type-directed default when a property has a type but no `=` (`p: Person` becomes `new Person {}` with class defaults applied). The PKL-140 abstract-slot path used to skip these bindings — fine for stdlib `external` props, but it dropped every snippetTest fixture's typed-only declarations. `synthesize_default_for_type` handles nullable / string-literal / structural-collection / starred-union / user-class cases; non-resolvable types still get skipped so genuinely abstract slots stay abstract. For `extends`, the parent's classes need to be in scope by bare name in the child (it's inheritance, not a namespaced import), and a downstream importer of the child also needs to see the inherited classes — the analysis-side resolver follows the extends chain when collecting class exports."
     }
@@ -3453,7 +3512,8 @@ local pklJsonParserScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-17"
-      summary = "Detect Parser shape via the `useMapping : Boolean` slot, not a class-level kind marker"
+      summary =
+        "Detect Parser shape via the `useMapping : Boolean` slot, not a class-level kind marker"
       rationale =
         "The PKL-143 reflect work stamps a hidden `__kind` member inside lambda-returned `new { ... }` object literals, but `hidden` on a class property is not a recognised modifier in the parser today (`class Parser { hidden __kind: String = \"...\" }` would emit a visible `__kind` member, which leaks into renders). The `useMapping : Boolean` slot is already a load-bearing part of the Parser's public shape and no other synthetic stdlib class exposes both `.parse` and `useMapping`, so it's a stable enough discriminator. If a future synthetic class ends up with the same shape we add a real class-property `hidden` modifier (parser change) and switch the dispatch over."
     }
@@ -3485,7 +3545,8 @@ local intSeqEqualityScenario = new Scenario {
   decisions {
     new Decision {
       date = "2026-05-17"
-      summary = "Materialize and compare element-by-element rather than implementing a closed-form check"
+      summary =
+        "Materialize and compare element-by-element rather than implementing a closed-form check"
       rationale =
         "A closed-form check would walk the two ranges arithmetically without allocating Arrays, but the edge cases (mixed direction, mixed step sign, overflow at the boundary) are subtle enough that getting the formula right and reviewable costs more lines than the materialize-and-compare path. Materialization already exists for `.toList()` / `.map` / `.fold` / non-PCF renderers; reusing it keeps the equality logic a five-line function and lets a future closed-form check replace it without changing any caller. The 1M-element worst case is the same as those other materialization paths — already an accepted upper bound."
     }
@@ -4103,7 +4164,7 @@ local pklMathFloatOps = new Scenario {
   id = "PKL-120"
   name = "pkl:math Float operations"
   description =
-    "`pkl:math` exposes the Float-side helpers `sqrt`, `pow`, `log`, `exp`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`, `atan`, `atan2`, plus the constants `pi` and `e`. The synthetic `pkl:math` source forwards each public name to a `_pkl_math_<op>` intrinsic identifier; the CallExpr dispatcher in `eval.mbt` intercepts those names, evaluates the numeric arguments (Int promotes to Double), and computes the result via MoonBit's `math` module (or the `Double` intrinsics for `sqrt` / `floor` / `ceil` / `round`). Existing Int helpers (`maxInt32`, `minInt32`, `abs`, `min`, `max`) stay unchanged."
+    "`pkl:math` exposes the Float-side helpers `sqrt`, `pow`, `log`, `exp`, `floor`, `ceil`, `round`, `sin`, `cos`, `tan`, `atan`, `atan2`, plus the constants `pi` and `e`. The synthetic `pkl:math` source forwards each public name to a `_pkl_math_<op>` intrinsic identifier; the CallExpr dispatcher in `eval.mbt` intercepts those names, evaluates the numeric arguments (Int promotes to Double), and computes the result via MoonBit's `math` module (or the `Double` intrinsics for `sqrt` / `floor` / `ceil` / `round`). Existing Int constants and helpers (`maxInt8`, `maxInt16`, `maxInt32`, `maxInt`, `minInt*`, `abs`, `min`, `max`) stay on the same imported module surface."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-092" }
   tags { "stdlib"; "pkl-math"; "float" }
@@ -4176,7 +4237,7 @@ local scientificFloatAndHeredoc = new Scenario {
   id = "PKL-128b"
   name = "scientific Float and triple-quoted heredoc"
   description =
-    "Two parser-surface extensions that landed together because they share the lexer's literal-token path. (1) Scientific-notation Float literals — `1e10`, `2.5e-3`, `4E+8`. The lexer extends the existing Int / Float scan with an optional `e` / `E` + sign + digit suffix; `parse_float_text` splits at the exponent, parses the mantissa, then multiplies by 10^exp. (2) Triple-quoted heredoc strings — `\"\"\"<newline>...<indent>\"\"\"`. The lexer captures the whole literal as one `string_token` (three opening `\"`, body, three closing `\"`); `strip_heredoc_indent` then drops the leading newline and dedents each body line by the closing delimiter's indentation. The existing escape decoder still runs on the dedented body so `\\n`, `\\t`, etc. continue to work. String interpolation (PKL-128a) operates on the same dedented body."
+    "Two parser-surface extensions that landed together because they share the lexer's literal-token path. (1) Scientific-notation Float literals — `1e10`, `2.5e-3`, `4E+8` — including `_` separators in the fractional and exponent digit runs. The lexer extends the existing Int / Float scan with an optional `e` / `E` + sign + digit suffix; `parse_float_text` strips `_` separators and delegates to MoonBit's Double parser so subnormal values such as `4.9E-324` survive instead of underflowing through a hand-rolled `10^exp` loop. (2) Triple-quoted heredoc strings — `\"\"\"<newline>...<indent>\"\"\"`. The lexer captures the whole literal as one `string_token` (three opening `\"`, body, three closing `\"`); `strip_heredoc_indent` then drops the leading newline and dedents each body line by the closing delimiter's indentation. The existing escape decoder still runs on the dedented body so `\\n`, `\\t`, etc. continue to work. String interpolation (PKL-128a) operates on the same dedented body."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-001"; "PKL-128a" }
   tags { "parser"; "lexer"; "string"; "float" }
@@ -4759,7 +4820,7 @@ local floatNumericsAndConstraints = new Scenario {
   id = "PKL-092"
   name = "Float numerics and constraint predicates"
   description =
-    "Float numeric values flow through the entire stack. The lexer recognizes `<digits>.<digits>` as a Float token (Duration / DataSize `Int.<unit>` shorthand stays Int because `.identifier` is not promoted), the parser produces a new `FloatLiteral(Double)` Expr, and the evaluator carries the new `FloatValue(Double)` variant. Arithmetic widens automatically: `Int + Float` and `Float + Float` produce Float, comparisons (`<`, `<=`, `>`, `>=`, `==`, `!=`) admit any Int / Float mix, and `Int / Int` widens to Float to match Apple Pkl's `5 / 2 == 2.5` semantics. `IntDivide` / `Modulo` / `Power` keep their Int-only contract since their semantics are integer-domain. The typechecker gains a sibling `FloatType` and the `Number` annotation expands to `UnionType([IntType, FloatType])` so existing narrowing logic (union members, is-guards) keeps working. All four renderers (PCF / JSON / YAML / Properties) project Floats via a `render_float_text` helper that appends `.0` when the Double's shortest-round-trip form would otherwise look like an Int. The constraint cascade extends `pkl_constrained_int_predicates` to accept `Int(...)` / `Float(...)` / `Number(...)` as the host annotation, and a new `pkl_constraint_predicate_accepts_float` evaluator runs the existing Int-threshold predicates against Double values (widening thresholds to Double). `Float(isPositive)`, `Float(isBetween(0, 10))`, `Number(isPositive)`, and the negated / custom variants therefore fire on Float values; the rejection message format matches the Int side (`type annotation <name> constraint <p> rejects <v>`)."
+    "Float numeric values flow through the entire stack. The lexer recognizes `<digits>.<digits>` as a Float token (Duration / DataSize `Int.<unit>` shorthand stays Int because `.identifier` is not promoted), the parser produces a new `FloatLiteral(Double)` Expr, and the evaluator carries the new `FloatValue(Double)` variant. Arithmetic widens automatically: `Int + Float` and `Float + Float` produce Float, comparisons (`<`, `<=`, `>`, `>=`, `==`, `!=`) admit any Int / Float mix, and `Int / Int` widens to Float to match Apple Pkl's `5 / 2 == 2.5` semantics. `~/` on Float operands returns truncated Int, `%` on Float operands returns the truncated Float remainder, and Int `**` keeps an Int result for non-negative in-range exponents while negative Int exponents widen to Float and overflow surfaces `Integer overflow.`. The typechecker gains a sibling `FloatType` and the `Number` annotation expands to `UnionType([IntType, FloatType])` so existing narrowing logic (union members, is-guards) keeps working. All four renderers (PCF / JSON / YAML / Properties) project Floats via a `render_float_text` helper that appends `.0` when the Double's shortest-round-trip form would otherwise look like an Int and uses Apple-style uppercase scientific notation for small decimal values below `1e-3`, large decimal values at `1e8` and above, existing exponent strings, and finite/subnormal edge constants. The constraint cascade extends `pkl_constrained_int_predicates` to accept `Int(...)` / `Float(...)` / `Number(...)` as the host annotation, and a new `pkl_constraint_predicate_accepts_float` evaluator runs the existing Int-threshold predicates against Double values (widening thresholds to Double). `Float(isPositive)`, `Float(isBetween(0, 10))`, `Number(isPositive)`, and the negated / custom variants therefore fire on Float values; the rejection message format matches the Int side (`type annotation <name> constraint <p> rejects <v>`)."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-078" }
   tags { "evaluator"; "typechecker"; "renderer"; "constraint"; "float" }
@@ -4960,7 +5021,7 @@ local bytesLiteralAndMethods = new Scenario {
   id = "PKL-083"
   name = "Bytes literal and Bytes methods"
   description =
-    "`Bytes(<Listing of Int>)` is recognized as a constructor form ahead of the generic call path; each Listing element must be an Int in 0..=255 and the resulting `BytesValue` wraps a MoonBit `Bytes` instance. `Bytes.fromBase64(\"<base64>\")` is the static-style decoder counterpart, surfacing malformed base64 input as a diagnostic rather than a raise. The `.length` and `.base64` properties expose the byte count and the base64 encoding of the underlying bytes; `.getOrNull(i)` returns the byte at index `i` (as `IntValue` 0..=255) or `null` when out of range; `.toList()` materializes the bytes back into a `Listing<Int>` so existing list helpers keep working. `String.toBytes()` joins the dispatch table on the String side, encoding the input as UTF-8 via `moonbitlang/core/encoding/utf8`. The PCF renderer round-trips a `BytesValue` back through the constructor (`Bytes(new Listing { 65; 66; 67 })`) so the parser can re-evaluate the literal verbatim; JSON / YAML / Properties project the bytes as their base64 encoding (a quoted string), matching the projection shape used by Apple Pkl for opaque stdlib values."
+    "`Bytes(<Listing of Int>)` remains accepted, and Apple Pkl's `Bytes(<Int>...)` varargs constructor is recognized ahead of the generic call path; each element must be an Int in 0..=255 and the resulting `BytesValue` wraps a MoonBit `Bytes` instance. `Bytes.fromBase64(\"<base64>\")` is the static-style decoder counterpart, surfacing malformed base64 input as a diagnostic rather than a raise. The `.length` and `.base64` properties expose the byte count and the base64 encoding of the underlying bytes; `.getOrNull(i)` returns the byte at index `i` (as `IntValue` 0..=255) or `null` when out of range; `.toList()` materializes the bytes back into a `List<Int>` and `List<Int>.toBytes()` converts byte-valued lists back to `Bytes`. `String.toBytes()` joins the dispatch table on the String side, encoding the input as UTF-8 via `moonbitlang/core/encoding/utf8`. Bytes support equality, concatenation through `+`, and integer subscript access with Apple-compatible out-of-range diagnostics. The PCF renderer round-trips a `BytesValue` through the upstream constructor form (`Bytes(65, 66, 67)`); JSON / YAML / Properties project the bytes as their base64 encoding (a quoted string), matching the projection shape used by Apple Pkl for opaque stdlib values."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-077" }
   tags { "evaluator"; "renderer"; "bytes"; "stdlib" }
@@ -4977,13 +5038,13 @@ local bytesLiteralAndMethods = new Scenario {
       date = "2026-05-15"
       summary = "Validate byte values 0..=255 at construction, not at access"
       rationale =
-        "Out-of-range bytes are a programmer error that almost always originates from the Listing literal that built the Bytes — surfacing the rejection at the constructor (with the offending value in the diagnostic) points to the right line. Validating at access would push the failure to wherever the value happens to be read first, which loses the source location and lets the bad Bytes value flow through other operations (renderers, comparisons) before failing."
+        "Out-of-range bytes are a programmer error that almost always originates from the constructor argument or list value that built the Bytes — surfacing the rejection at construction (with the offending value in the diagnostic) points to the right line. Validating at access would push the failure to wherever the value happens to be read first, which loses the source location and lets the bad Bytes value flow through other operations (renderers, comparisons) before failing."
     }
     new Decision {
-      date = "2026-05-15"
-      summary = "Round-trip PCF through the Listing constructor; project base64 in non-PCF formats"
+      date = "2026-05-21"
+      summary = "Round-trip PCF through the varargs constructor; project base64 in non-PCF formats"
       rationale =
-        "PCF is the only output format that flows back into our parser, so the Listing-of-Int constructor is the only round-trip-safe form (the parser already understands `Bytes(<Listing>)` because of the constructor intercept). JSON / YAML / Properties do not have a native bytes type and base64 is the upstream-compatible representation — the same opaque-value pattern we use for Duration / DataSize / Regex. The two shapes intentionally differ because the round-trip target differs."
+        "Apple Pkl's PCF gold renders Bytes as `Bytes(1, 2, 3)`, not as the older Listing constructor form. The parser and evaluator now accept both `Bytes(<Listing>)` and `Bytes(<Int>...)`, so the upstream varargs form is round-trip-safe and byte-identical for `basic/bytes`. JSON / YAML / Properties do not have a native bytes type and base64 remains the upstream-compatible representation — the same opaque-value pattern we use for Duration / DataSize / Regex. The two shapes intentionally differ because the output formats differ."
     }
     new Decision {
       date = "2026-05-15"
@@ -5347,7 +5408,7 @@ local pklMathExpansion = new Scenario {
   id = "PKL-079"
   name = "expand pkl:math beyond maxInt32"
   description =
-    "`pkl:math` exposes Int range constants (`maxInt32`, `minInt32`, `maxInt`, `minInt`) and Int-side helpers (`abs(x)`, `min(a, b)`, `max(a, b)`). The helpers are declared as top-level lambda bindings inside the synthetic `pkl:math` source so they round-trip through the regular `exported: true` path and become members of the imported module's `ObjectValue` — `import \"pkl:math\" as math; math.max(a, b)` evaluates without further dispatch work. `maxInt` / `minInt` track the 32-bit `Int` representation; once a 64-bit slot exists they expand to match the Java-derived Apple Pkl bounds."
+    "`pkl:math` exposes Int range constants (`minInt8`, `maxInt8`, `minInt16`, `maxInt16`, `minInt32`, `maxInt32`, `minInt`, `maxInt`) and Int-side helpers (`abs(x)`, `min(a, b)`, `max(a, b)`). The helpers are declared as top-level lambda bindings inside the synthetic `pkl:math` source so they round-trip through the regular `exported: true` path and become members of the imported module's `ObjectValue` — `import \"pkl:math\" as math; math.max(a, b)` evaluates without further dispatch work. `maxInt` / `minInt` track Apple Pkl's signed 64-bit Int bounds, matching the evaluator's `Int64` value carrier."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-007"; "PKL-078" }
   tags { "stdlib"; "pkl-math" }
@@ -5364,7 +5425,7 @@ local pklMathExpansion = new Scenario {
       date = "2026-05-15"
       summary = "Track `maxInt` / `minInt` against the implemented Int width"
       rationale =
-        "Apple Pkl's `Int` is 64-bit (Java `long`), so its `maxInt` / `minInt` are `+/-2^63`. Our `IntValue` carries a 32-bit MoonBit `Int`. Reporting Apple Pkl's 64-bit limits here would mean lying about what literals will actually round-trip through evaluation (anything beyond 32-bit overflows during parsing today). The constants therefore expose the implementation-actual range; PKL-092 / a follow-up Int-64 slice will widen them once the value model supports the bigger slot."
+        "Apple Pkl's `Int` is 64-bit (Java `long`), so its `maxInt` / `minInt` are `+/-2^63`. `IntValue` now carries `Int64`, so the synthetic stdlib can expose the Apple bounds directly; narrower `Int8` / `Int16` / `Int32` constants are plain Int values that help upstream fixtures exercise overflow and exponent edge cases without needing dedicated typed integer value variants."
     }
     new Decision {
       date = "2026-05-15"

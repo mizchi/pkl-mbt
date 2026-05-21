@@ -93,9 +93,9 @@ let stdlib_probes : Array[StdlibProbe] = [
   },
   {
     group: "pkl:base",
-    name: "Duration mixed-unit addition (normalizes to smaller unit)",
+    name: "Duration mixed-unit addition (normalizes to coarser unit)",
     source: "v = (3.s + 500.ms).value",
-    expect: "v = 3500",
+    expect: "v = 3.5",
   },
   {
     group: "pkl:base",
