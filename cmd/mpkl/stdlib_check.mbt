@@ -185,12 +185,16 @@ let stdlib_probes : Array[StdlibProbe] = [
     source: "import \"pkl:test\"\nv = test.catch(() -> throw(\"boom\"))",
     expect: "v = \"boom\"",
   },
-  // pkl:reflect — mirror constants + introspection.
+  // pkl:reflect — mirror constants + introspection. `reflect.intType`
+  // returns a Class mirror (`name = "Int"` + typeArguments / referent
+  // slots), not a flat `"pkl.base#Int"` string — the latter was the
+  // shape of the very-early stub, before the full reflect surface
+  // landed.
   {
     group: "pkl:reflect",
     name: "intType mirror constant",
-    source: "import \"pkl:reflect\" as r\nv = r.intType",
-    expect: "v = \"pkl.base#Int\"",
+    source: "import \"pkl:reflect\" as r\nv = r.intType.name",
+    expect: "v = \"Int\"",
   },
   {
     group: "pkl:reflect",

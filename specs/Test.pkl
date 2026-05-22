@@ -342,7 +342,7 @@ local cliAnyType = new Test {
 local cliListingMappingStdlib = new Test {
   name = "cli listing mapping stdlib"
   description =
-    "The native CLI evaluates a fixture that exercises Listing.toList / length / isEmpty, Mapping.toMap / length / keys / values, and the `List<T>` type annotation. Mapping.keys renders as Set<K>, Mapping.values renders as Listing<V>, and the rendered PCF matches the equivalent literal."
+    "The native CLI evaluates a fixture that exercises Listing.toList / length / isEmpty, Mapping.toMap / length / keys / values, and the `List<T>` type annotation. Mapping.keys renders as Set<K>, Mapping.values renders as Listing<V>, and `Mapping.toMap()` projects to Map<K,V> rendered inline via `Map(\"a\", 1, ...)`."
   tags { "moonbit"; "cli"; "stdlib"; "pkf-pkspec"; "contract" }
   specRef { "PKL-134" }
   cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_listing_mapping_stdlib.pkl"
@@ -353,7 +353,7 @@ local cliListingMappingStdlib = new Test {
     "listLen = 3"
     "listEmpty = false"
     "m {"
-    "m2 {"
+    "m2 = Map("
     "mapLen = 2"
     "mapKeys = Set("
     "\"a\""
@@ -1223,14 +1223,16 @@ local cliTrace = new Test {
 local cliReflectStub = new Test {
   name = "cli reflect minimal stub"
   description =
-    "The native CLI evaluates a fixture that imports `pkl:reflect` and reads mirror constants plus the `Class` factory `reflectee` field, exercising the minimal stub registered in `builtin_stdlib_source`."
+    "The native CLI evaluates a fixture that imports `pkl:reflect` and reads mirror constants plus the `Class` factory `reflectee` field. The original stub returned flat \"pkl.base#Int\" strings; the current full reflect surface returns Class mirrors with `name` / `typeArguments` / `referent` slots, so the assertions check the mirror block shape and the reflectee pass-through."
   tags { "moonbit"; "cli"; "pkl-reflect"; "stdlib"; "contract" }
   specRef { "PKL-080" }
   cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_reflect.pkl"
   workdir = ".."
   expectStdoutContains {
-    "intMirror = \"pkl.base#Int\""
-    "stringMirror = \"pkl.base#String\""
+    "intMirror {"
+    "name = \"Int\""
+    "stringMirror {"
+    "name = \"String\""
     "fooReflectee = \"Foo\""
     "declared = \"Bar\""
   }
