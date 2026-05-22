@@ -863,6 +863,25 @@ test "PKL-115: parses typealias with single type parameter" {
 }
 
 ///|
+test "PKL-115: parses multiline typealias with equals on continuation" {
+  let parsed = parse_source(
+    (
+      #|typealias StringLiteralUnion
+      #|  = *"Qux"
+      #|  | "quux"
+      #|  | "QUUX"
+    ),
+  )
+  inspect(parsed.unsupported_syntax.length(), content="0")
+  inspect(parsed.program.declarations.length(), content="1")
+  guard parsed.program.declarations[0] is TypeAliasDeclaration(decl) else {
+    panic()
+  }
+  inspect(decl.name, content="StringLiteralUnion")
+  inspect(decl.target, content="*\"Qux\"|\"quux\"|\"QUUX\"")
+}
+
+///|
 test "PKL-115: generic typealias accepts matching argument" {
   guard typecheck_source(
       "typealias Box<T> = Listing<T>\nb: Box<Int> = new Listing { 1; 2; 3 }",

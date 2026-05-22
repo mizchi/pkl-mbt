@@ -1,17 +1,45 @@
 ///|
 pub fn render_value_as_json(value : Value) -> String {
+  render_value_as_json_with_indent(value, "  ")
+}
+
+///|
+pub fn render_value_as_json_with_indent(
+  value : Value,
+  indent_text : String,
+) -> String {
   let buf = StringBuilder::new()
-  render_json_value(value, 0, buf)
+  render_json_value(value, 0, indent_text, buf)
   buf.to_string()
 }
 
 ///|
 pub fn render_value_as_json_document(value : Value) -> String {
-  render_value_as_json(value) + "\n"
+  render_value_as_json_document_with_indent(value, "  ")
 }
 
 ///|
-fn render_json_value(value : Value, indent : Int, buf : StringBuilder) -> Unit {
+pub fn render_value_as_json_document_with_indent(
+  value : Value,
+  indent_text : String,
+) -> String {
+  render_value_as_json_with_indent(value, indent_text) + "\n"
+}
+
+///|
+fn render_json_value(
+  value : Value,
+  indent : Int,
+  indent_text : String,
+  buf : StringBuilder,
+) -> Unit {
+  match render_directive_text(value) {
+    Some(text) => {
+      buf.write_string(text)
+      return
+    }
+    None => ()
+  }
   match value {
     IntValue(n) => buf.write_string("\{n}")
     FloatValue(d) => buf.write_string(render_float_text(d))
@@ -21,12 +49,13 @@ fn render_json_value(value : Value, indent : Int, buf : StringBuilder) -> Unit {
     DeferredImportValue(_) => buf.write_string("null")
     StringValue(s) => render_json_string(s, buf)
     ObjectValue(members) =>
-      render_json_object_from_members(members, indent, buf)
+      render_json_object_from_members(members, indent, indent_text, buf)
     MappingValue(entries) | DefaultedMappingValue(_, entries, _) =>
-      render_json_object_from_entries(entries, indent, buf)
+      render_json_object_from_entries(entries, indent, indent_text, buf)
     ListingValue(elements)
     | DefaultedListingValue(_, elements, _)
-    | ListValue(elements) => render_json_array(elements, indent, buf)
+    | ListValue(elements) =>
+      render_json_array(elements, indent, indent_text, buf)
     FunctionValue(_, _, _, _, _) => buf.write_string("null")
     // Upstream Pkl projects Duration / DataSize to a literal-style string
     // (e.g. `"5.min"`) in JSON / YAML / Properties. Match that shape until
@@ -43,19 +72,26 @@ fn render_json_value(value : Value, indent : Int, buf : StringBuilder) -> Unit {
     BytesValue(bytes) => render_json_string(@base64.encode(bytes[:]), buf)
     // PKL-119a: Pair renders as a 2-element JSON array. Matches
     // Apple Pkl's `Pair`-to-JSON projection.
-    PairValue(first, second) => render_json_array([first, second], indent, buf)
+    PairValue(first, second) =>
+      render_json_array([first, second], indent, indent_text, buf)
     // PKL-119b: IntSeq materializes to an Int array first, then flows
     // through the standard JSON array projection.
     IntSeqValue(start, end_v, step) =>
-      render_json_array(intseq_materialize(start, end_v, step), indent, buf)
+      render_json_array(
+        intseq_materialize(start, end_v, step),
+        indent,
+        indent_text,
+        buf,
+      )
     // PKL-119c: Set renders as a JSON array. Uniqueness is already
     // enforced at construction, so the array element order matches
     // the upstream insertion-order semantics.
-    SetValue(elements) => render_json_array(elements, indent, buf)
+    SetValue(elements) => render_json_array(elements, indent, indent_text, buf)
     // PKL-119d: Map projects as a JSON object, matching the
     // existing MappingValue projection. The entry-walker coerces
     // non-string keys the same way `json_coerce_key` already does.
-    MapValue(entries) => render_json_object_from_entries(entries, indent, buf)
+    MapValue(entries) =>
+      render_json_object_from_entries(entries, indent, indent_text, buf)
   }
 }
 
@@ -99,6 +135,14 @@ fn json_hex4(code : Int) -> String {
 }
 
 ///|
+fn json_write_key(value : Value, buf : StringBuilder) -> Unit {
+  match render_directive_text(value) {
+    Some(text) => buf.write_string(text)
+    None => render_json_string(json_coerce_key(value), buf)
+  }
+}
+
+///|
 fn json_coerce_key(value : Value) -> String {
   match value {
     StringValue(s) => s
@@ -115,9 +159,13 @@ fn json_coerce_key(value : Value) -> String {
 }
 
 ///|
-fn write_json_indent(buf : StringBuilder, indent : Int) -> Unit {
+fn write_json_indent(
+  buf : StringBuilder,
+  indent : Int,
+  indent_text : String,
+) -> Unit {
   for i = 0; i < indent; i = i + 1 {
-    buf.write_char(' ')
+    buf.write_string(indent_text)
   }
 }
 
@@ -125,6 +173,7 @@ fn write_json_indent(buf : StringBuilder, indent : Int) -> Unit {
 fn render_json_object_from_members(
   members : Array[ValueMember],
   indent : Int,
+  indent_text : String,
   buf : StringBuilder,
 ) -> Unit {
   let visible = visible_members(members)
@@ -137,13 +186,13 @@ fn render_json_object_from_members(
     if i > 0 {
       buf.write_string(",\n")
     }
-    write_json_indent(buf, indent + 2)
+    write_json_indent(buf, indent + 1, indent_text)
     render_json_string(visible[i].name, buf)
     buf.write_string(": ")
-    render_json_value(visible[i].value, indent + 2, buf)
+    render_json_value(visible[i].value, indent + 1, indent_text, buf)
   }
   buf.write_char('\n')
-  write_json_indent(buf, indent)
+  write_json_indent(buf, indent, indent_text)
   buf.write_char('}')
 }
 
@@ -151,6 +200,7 @@ fn render_json_object_from_members(
 fn render_json_object_from_entries(
   entries : Array[ValueEntry],
   indent : Int,
+  indent_text : String,
   buf : StringBuilder,
 ) -> Unit {
   if entries.length() == 0 {
@@ -162,13 +212,13 @@ fn render_json_object_from_entries(
     if i > 0 {
       buf.write_string(",\n")
     }
-    write_json_indent(buf, indent + 2)
-    render_json_string(json_coerce_key(entries[i].key), buf)
+    write_json_indent(buf, indent + 1, indent_text)
+    json_write_key(entries[i].key, buf)
     buf.write_string(": ")
-    render_json_value(entries[i].value, indent + 2, buf)
+    render_json_value(entries[i].value, indent + 1, indent_text, buf)
   }
   buf.write_char('\n')
-  write_json_indent(buf, indent)
+  write_json_indent(buf, indent, indent_text)
   buf.write_char('}')
 }
 
@@ -176,6 +226,7 @@ fn render_json_object_from_entries(
 fn render_json_array(
   elements : Array[Value],
   indent : Int,
+  indent_text : String,
   buf : StringBuilder,
 ) -> Unit {
   if elements.length() == 0 {
@@ -187,11 +238,11 @@ fn render_json_array(
     if i > 0 {
       buf.write_string(",\n")
     }
-    write_json_indent(buf, indent + 2)
-    render_json_value(elements[i], indent + 2, buf)
+    write_json_indent(buf, indent + 1, indent_text)
+    render_json_value(elements[i], indent + 1, indent_text, buf)
   }
   buf.write_char('\n')
-  write_json_indent(buf, indent)
+  write_json_indent(buf, indent, indent_text)
   buf.write_char(']')
 }
 

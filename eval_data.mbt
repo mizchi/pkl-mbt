@@ -145,38 +145,239 @@ fn parser_use_mapping(members : Array[ValueMember]) -> Bool {
 }
 
 ///|
+fn parser_max_collection_aliases(members : Array[ValueMember]) -> Int {
+  match lookup_member(members, "maxCollectionAliases") {
+    Some(IntValue(n)) if n >= 0L => n.to_int()
+    _ => 50
+  }
+}
+
+///|
+fn normalize_yaml_folded_block_chomping(source : String) -> String {
+  // moonbit-community/yaml erases folded-vs-literal style in Yaml::String.
+  // Apple Pkl's parser fixtures expect plain `>` to behave like `>-`, so
+  // normalize the source before loading instead of post-processing every string.
+  let buf = StringBuilder::new()
+  let mut first = true
+  for line in source.split("\n") {
+    if first {
+      first = false
+    } else {
+      buf.write_char('\n')
+    }
+    buf.write_string(rewrite_yaml_folded_block_indicator_line(line.to_owned()))
+  }
+  buf.to_string()
+}
+
+///|
+fn rewrite_yaml_folded_block_indicator_line(line : String) -> String {
+  let chars : Array[Char] = []
+  for c in line {
+    chars.push(c)
+  }
+  for i = 0; i < chars.length(); i = i + 1 {
+    if chars[i] == '>' &&
+      yaml_is_folded_block_indicator_position(chars, i) &&
+      !yaml_block_indicator_has_chomping(chars, i) {
+      let buf = StringBuilder::new()
+      for j = 0; j < chars.length(); j = j + 1 {
+        buf.write_char(chars[j])
+        if j == i {
+          buf.write_char('-')
+        }
+      }
+      return buf.to_string()
+    }
+  }
+  line
+}
+
+///|
+fn yaml_is_folded_block_indicator_position(
+  chars : Array[Char],
+  index : Int,
+) -> Bool {
+  let mut prev = index - 1
+  while prev >= 0 && (chars[prev] == ' ' || chars[prev] == '\t') {
+    prev = prev - 1
+  }
+  prev < 0 || chars[prev] == ':' || chars[prev] == '-'
+}
+
+///|
+fn yaml_block_indicator_has_chomping(chars : Array[Char], index : Int) -> Bool {
+  let mut i = index + 1
+  while i < chars.length() {
+    let c = chars[i]
+    if c == '+' || c == '-' {
+      return true
+    }
+    if c >= '0' && c <= '9' {
+      i = i + 1
+      continue
+    }
+    if c == ' ' || c == '\t' || c == '#' {
+      return false
+    }
+    return true
+  }
+  false
+}
+
+///|
 /// PKL-146: convert a `moonbit-community/yaml` `Yaml` value into the
 /// corresponding Pkl `Value`. `use_mapping` controls how YAML maps
 /// project — `true` → `MappingValue` (key as `StringValue`); `false`
 /// → `ObjectValue` (Dynamic shape, the default). Numbers: YAML
-/// `Real(d)` becomes Pkl `IntValue` when integral + Int32-bounded
-/// else `FloatValue` (same rule as the JSON path); YAML `Integer`
-/// clamps Int64 → Int32 and falls back to FloatValue when out of
-/// range so no value silently truncates. `BadValue` projects as
+/// `Integer` becomes Pkl `Int`, while YAML `Real` remains Pkl
+/// `Float` even when the numeric value is integral (`450.00`),
+/// matching Apple Pkl parser converters. `BadValue` projects as
 /// `NullValue` — the upstream `yaml` package emits it for parse
 /// inputs the loader couldn't classify.
-fn yaml_to_value(y : @yaml.Yaml, use_mapping : Bool) -> Value {
+priv struct YamlAliasRefs {
+  array_refs : Array[(Array[@yaml.Yaml], Int, Int64)]
+  map_refs : Array[(Map[String, @yaml.Yaml], Int, Int64)]
+  mut next_id : Int64
+}
+
+///|
+/// moonbit-community/yaml resolves aliases by reusing the same collection
+/// object but drops the anchor id itself. Pre-scan collection refs so only
+/// repeated maps receive an internal alias tag; independent equal maps stay
+/// structurally equal and untagged.
+fn yaml_alias_refs_for_documents(docs : Array[@yaml.Yaml]) -> YamlAliasRefs {
+  let refs = YamlAliasRefs::{ array_refs: [], map_refs: [], next_id: 1L }
+  for doc in docs {
+    collect_yaml_alias_refs(doc, refs)
+  }
+  refs
+}
+
+///|
+fn collect_yaml_alias_refs(y : @yaml.Yaml, refs : YamlAliasRefs) -> Unit {
+  match y {
+    Array(items) => {
+      note_yaml_array_ref(refs, items)
+      for item in items {
+        collect_yaml_alias_refs(item, refs)
+      }
+    }
+    Map(map) => {
+      note_yaml_map_ref(refs, map)
+      for _, value in map {
+        collect_yaml_alias_refs(value, refs)
+      }
+    }
+    _ => ()
+  }
+}
+
+///|
+fn note_yaml_array_ref(refs : YamlAliasRefs, items : Array[@yaml.Yaml]) -> Unit {
+  for i = 0; i < refs.array_refs.length(); i = i + 1 {
+    let entry = refs.array_refs[i]
+    if physical_equal(entry.0, items) {
+      refs.array_refs[i] = (entry.0, entry.1 + 1, entry.2)
+      return
+    }
+  }
+  let id = refs.next_id
+  refs.next_id = refs.next_id + 1L
+  refs.array_refs.push((items, 1, id))
+}
+
+///|
+fn note_yaml_map_ref(
+  refs : YamlAliasRefs,
+  map : Map[String, @yaml.Yaml],
+) -> Unit {
+  for i = 0; i < refs.map_refs.length(); i = i + 1 {
+    let entry = refs.map_refs[i]
+    if physical_equal(entry.0, map) {
+      refs.map_refs[i] = (entry.0, entry.1 + 1, entry.2)
+      return
+    }
+  }
+  let id = refs.next_id
+  refs.next_id = refs.next_id + 1L
+  refs.map_refs.push((map, 1, id))
+}
+
+///|
+fn yaml_map_alias_id(
+  refs : YamlAliasRefs,
+  map : Map[String, @yaml.Yaml],
+) -> Int64? {
+  for entry in refs.map_refs {
+    if entry.1 > 1 && physical_equal(entry.0, map) {
+      return Some(entry.2)
+    }
+  }
+  None
+}
+
+///|
+fn yaml_collection_alias_count(refs : YamlAliasRefs) -> Int {
+  let mut count = 0
+  for entry in refs.array_refs {
+    if entry.1 > 1 {
+      count = count + entry.1 - 1
+    }
+  }
+  for entry in refs.map_refs {
+    if entry.1 > 1 {
+      count = count + entry.1 - 1
+    }
+  }
+  count
+}
+
+///|
+fn yaml_alias_member_name() -> String {
+  local_member_name("__yamlAnchorId")
+}
+
+///|
+fn attach_yaml_alias_member(
+  members : Array[ValueMember],
+  id : Int64?,
+) -> Array[ValueMember] {
+  match id {
+    Some(anchor_id) => {
+      let out : Array[ValueMember] = [
+        {
+          name: yaml_alias_member_name(),
+          value: IntValue(anchor_id),
+          source: None,
+          annotations: [],
+        },
+      ]
+      for field in members {
+        out.push(field)
+      }
+      out
+    }
+    None => members
+  }
+}
+
+///|
+fn yaml_to_value_with_aliases(
+  y : @yaml.Yaml,
+  use_mapping : Bool,
+  refs : YamlAliasRefs,
+) -> Value {
   match y {
     Null => NullValue
     Boolean(b) => BoolValue(b)
     Integer(i) => IntValue(i)
-    Real(d, ..) => {
-      // PKL-150: Pkl `Int` is i64. Widen to full Int64 range; falls
-      // back to FloatValue only when truly out of range or non-integral.
-      let truncated = d.to_int64().to_double()
-      if truncated == d &&
-        d >= -9223372036854775808.0 &&
-        d <= 9223372036854775807.0 {
-        IntValue(d.to_int64())
-      } else {
-        FloatValue(d)
-      }
-    }
+    Real(d, ..) => FloatValue(d)
     String(s) => StringValue(s)
     Array(items) => {
       let elements : Array[Value] = []
       for item in items {
-        elements.push(yaml_to_value(item, use_mapping))
+        elements.push(yaml_to_value_with_aliases(item, use_mapping, refs))
       }
       ListingValue(elements)
     }
@@ -184,7 +385,10 @@ fn yaml_to_value(y : @yaml.Yaml, use_mapping : Bool) -> Value {
       if use_mapping {
         let entries : Array[ValueEntry] = []
         for k, v in map {
-          entries.push({ key: StringValue(k), value: yaml_to_value(v, true) })
+          entries.push({
+            key: StringValue(k),
+            value: yaml_to_value_with_aliases(v, true, refs),
+          })
         }
         MappingValue(entries)
       } else {
@@ -192,12 +396,14 @@ fn yaml_to_value(y : @yaml.Yaml, use_mapping : Bool) -> Value {
         for k, v in map {
           members.push({
             name: k,
-            value: yaml_to_value(v, false),
+            value: yaml_to_value_with_aliases(v, false, refs),
             source: None,
             annotations: [],
           })
         }
-        ObjectValue(members)
+        ObjectValue(
+          attach_yaml_alias_member(members, yaml_map_alias_id(refs, map)),
+        )
       }
     BadValue => NullValue
   }
@@ -344,6 +550,14 @@ fn object_values_equal(
   xs : Array[ValueMember],
   ys : Array[ValueMember],
 ) -> Bool {
+  match
+    (
+      hidden_string_member(xs, "__module_path"),
+      hidden_string_member(ys, "__module_path"),
+    ) {
+    (Some(x_path), Some(y_path)) if x_path != y_path => return false
+    _ => ()
+  }
   // PKL-148bh: class identity is part of equality — `new Person {}`
   // and `new Person2 {}` carry distinct `@hidden$__class` tags so
   // they don't compare equal even though the visible-member arrays
@@ -380,6 +594,20 @@ fn object_values_equal(
     }
   }
   true
+}
+
+///|
+fn hidden_string_member(members : Array[ValueMember], name : String) -> String? {
+  let hidden = hidden_member_name(name)
+  for value_member in members {
+    if value_member.name == hidden {
+      match value_member.value {
+        StringValue(value) => return Some(value)
+        _ => return None
+      }
+    }
+  }
+  None
 }
 
 ///|

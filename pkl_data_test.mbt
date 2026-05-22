@@ -816,6 +816,227 @@ test "PKL-152c: PcfRenderer renderValue honors custom string delimiters" {
 }
 
 ///|
+test "PKL-153a: JsonRenderer renderDocument honors indent option" {
+  let source =
+    #|local renderer = new JsonRenderer {
+    #|  indent = "    "
+    #|}
+    #|out = renderer.renderDocument(new Dynamic {
+    #|  nested {
+    #|    value = 1
+    #|  }
+    #|})
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut out_value : Value? = None
+  for entry in members {
+    if entry.name == "out" {
+      out_value = Some(entry.value)
+    }
+  }
+  guard out_value is Some(StringValue(out)) else { panic() }
+  inspect(out, content="{\n    \"nested\": {\n        \"value\": 1\n    }\n}\n")
+}
+
+///|
+test "PKL-153a: JSON renderer writes RenderDirective text verbatim" {
+  let source =
+    #|local renderer = new JsonRenderer {}
+    #|out = renderer.renderDocument(new Dynamic {
+    #|  x = new RenderDirective { text = "\"a\", // comment" }
+    #|})
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut out_value : Value? = None
+  for entry in members {
+    if entry.name == "out" {
+      out_value = Some(entry.value)
+    }
+  }
+  guard out_value is Some(StringValue(out)) else { panic() }
+  inspect(out, content="{\n  \"x\": \"a\", // comment\n}\n")
+}
+
+///|
+test "PKL-153b: YAML renderer emits empty Set and Map inside sequences as YAML composites" {
+  let source =
+    #|local renderer = new YamlRenderer {}
+    #|out = renderer.renderDocument(new Dynamic {
+    #|  items = List(Set(), Map())
+    #|})
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut out_value : Value? = None
+  for entry in members {
+    if entry.name == "out" {
+      out_value = Some(entry.value)
+    }
+  }
+  guard out_value is Some(StringValue(out)) else { panic() }
+  inspect(
+    out,
+    content=(
+      #|items:
+      #|- []
+      #|- {}
+      #|
+    ),
+  )
+}
+
+///|
+test "PKL-153b: YAML renderer emits Bytes as binary scalars" {
+  let source =
+    #|local renderer = new YamlRenderer {}
+    #|out = renderer.renderDocument(new Dynamic {
+    #|  empty = Bytes()
+    #|  data = Bytes(1, 2, 3)
+    #|})
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut out_value : Value? = None
+  for entry in members {
+    if entry.name == "out" {
+      out_value = Some(entry.value)
+    }
+  }
+  guard out_value is Some(StringValue(out)) else { panic() }
+  inspect(out, content="empty: !!binary ''\ndata: !!binary AQID\n")
+}
+
+///|
+test "PKL-153b: YAML renderer preserves scalar mapping keys" {
+  let source =
+    #|local renderer = new YamlRenderer {}
+    #|out = renderer.renderDocument(new Dynamic {
+    #|  mapping = new Mapping {
+    #|    [5] = "a"
+    #|    [true] = "b"
+    #|    [null] = "c"
+    #|  }
+    #|})
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut out_value : Value? = None
+  for entry in members {
+    if entry.name == "out" {
+      out_value = Some(entry.value)
+    }
+  }
+  guard out_value is Some(StringValue(out)) else { panic() }
+  inspect(out.contains("  5: a"), content="true")
+  inspect(out.contains("  true: b"), content="true")
+  inspect(out.contains("  null: c"), content="true")
+}
+
+///|
+test "PKL-153b: renderer path converters target mapping keys with base subscript syntax" {
+  let source =
+    #|local renderer = new YamlRenderer {
+    #|  converters {
+    #|    ["mapping[key]"] = (_) -> "converted"
+    #|    ["map[key]"] = (_) -> "converted"
+    #|  }
+    #|}
+    #|out = renderer.renderDocument(new Dynamic {
+    #|  mapping {
+    #|    ["key"] = "value"
+    #|  }
+    #|  map = Map("key", "value")
+    #|})
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut out_value : Value? = None
+  for entry in members {
+    if entry.name == "out" {
+      out_value = Some(entry.value)
+    }
+  }
+  guard out_value is Some(StringValue(out)) else { panic() }
+  inspect(out.contains("mapping:\n  key: converted"), content="true")
+  inspect(out.contains("map:\n  key: converted"), content="true")
+}
+
+///|
+test "PKL-153b: YAML Property annotation renames rendered fields" {
+  let source =
+    #|import "pkl:yaml"
+    #|@yaml.Property { name = "FOO" }
+    #|foo = "a"
+    #|output {
+    #|  renderer = new YamlRenderer {}
+    #|}
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(render_value_as_yaml(value).contains("FOO: a"), content="true")
+}
+
+///|
+test "PKL-153b: YamlRenderer indentWidth emits block scalar indentation indicator" {
+  let source =
+    #|local renderer = new YamlRenderer { indentWidth = 4 }
+    #|out = renderer.renderDocument(new Dynamic {
+    #|  multiline = "  one\ntwo"
+    #|})
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut out_value : Value? = None
+  for entry in members {
+    if entry.name == "out" {
+      out_value = Some(entry.value)
+    }
+  }
+  guard out_value is Some(StringValue(out)) else { panic() }
+  inspect(out, content="multiline: |4-\n      one\n    two\n")
+}
+
+///|
+test "PKL-153b: YamlRenderer stream mode renders top-level collections as documents" {
+  let source =
+    #|local renderer = new YamlRenderer { isStream = true }
+    #|out = renderer.renderDocument(new Listing {
+    #|  "pigeon"
+    #|  42
+    #|  new Dynamic { name = "owl" }
+    #|})
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut out_value : Value? = None
+  for entry in members {
+    if entry.name == "out" {
+      out_value = Some(entry.value)
+    }
+  }
+  guard out_value is Some(StringValue(out)) else { panic() }
+  inspect(out, content="pigeon\n--- 42\n---\nname: owl\n")
+}
+
+///|
 test "PKL-152b: Pair converter result is not recursively scalar-converted" {
   let source =
     #|local renderer = new PcfRenderer {
@@ -935,6 +1156,384 @@ test "PKL-126c: protobuf Renderer renderValue dispatches through pkl:protobuf" {
   }
   guard members[0].value is StringValue(rendered) else { panic() }
   inspect(rendered, content="x: \"y\"")
+}
+
+///|
+test "PKL-126c: protobuf Renderer renderDocument handles nested collections" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:protobuf" as protobuf
+      #|
+      #|local renderer = new protobuf.Renderer {}
+      #|
+      #|class NestedStructures {
+      #|  plainString: String = "plain string"
+      #|  nestedListing: Listing<Listing<String>>
+      #|}
+      #|
+      #|out = renderer.renderDocument(new NestedStructures {
+      #|  nestedListing {
+      #|    new {
+      #|      "foo"
+      #|      "bar"
+      #|    }
+      #|  }
+      #|})
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut out : Value? = None
+  for field in members {
+    if field.name == "out" {
+      out = Some(field.value)
+    }
+  }
+  guard out is Some(StringValue(rendered)) else { panic() }
+  inspect(
+    rendered,
+    content=(
+      #|plainString: "plain string"
+      #|nestedListing: {
+      #|  it: "foo"
+      #|  it: "bar"
+      #|}
+      #|
+    ),
+  )
+}
+
+///|
+test "PKL-126c: protobuf renderDocument survives snippet examples body" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:protobuf" as protobuf
+      #|
+      #|local renderer = new protobuf.Renderer {}
+      #|
+      #|class Message {
+      #|  x: String = "y"
+      #|}
+      #|
+      #|examples {
+      #|  ["some"] {
+      #|    renderer.renderDocument(new Message {})
+      #|  }
+      #|}
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(
+    render_value(value),
+    content=(
+      #|examples {
+      #|  ["some"] {
+      #|    """
+      #|    x: "y"
+      #|    
+      #|    """
+      #|  }
+      #|}
+    ),
+  )
+}
+
+///|
+test "PKL-126c: protobuf renderDocument coerces empty nested listing entries" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:protobuf" as protobuf
+      #|
+      #|class Message {
+      #|  values: Mapping<String, Listing<String>>
+      #|}
+      #|
+      #|out = (new protobuf.Renderer {}).renderDocument(new Message {
+      #|  values {
+      #|    ["empty"] {}
+      #|  }
+      #|})
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut out : Value? = None
+  for field in members {
+    if field.name == "out" {
+      out = Some(field.value)
+    }
+  }
+  guard out is Some(StringValue(rendered)) else { panic() }
+  inspect(
+    rendered,
+    content=(
+      #|values: {
+      #|  key: "empty"
+      #|  value: {}
+      #|}
+      #|
+    ),
+  )
+}
+
+///|
+test "PKL-126c: protobuf renderValue applies protobuf diagnostics" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:test"
+      #|import "pkl:protobuf" as protobuf
+      #|
+      #|local renderer = new protobuf.Renderer {}
+      #|local function renderAny(it: Any): String = renderer.renderValue(it)
+      #|
+      #|class DynamicBehavior {
+      #|  myDynamic: Dynamic
+      #|}
+      #|
+      #|class DataSizeBehavior {
+      #|  myDataSize: DataSize
+      #|}
+      #|
+      #|class InvalidMappingKey {
+      #|  foo: Mapping<Dynamic, Int>
+      #|}
+      #|
+      #|typealias MixedKey = Int | Dynamic
+      #|
+      #|class InvalidAnnotatedKey {
+      #|  values: Mapping<MixedKey, Int> = new {
+      #|    [1] = 1
+      #|  }
+      #|}
+      #|
+      #|class NonConstDefault {
+      #|  message: String = test.catch(() -> renderAny(new Mapping { [new Dynamic {}] = 1 }))
+      #|}
+      #|
+      #|duration = renderer.renderValue(1.min)
+      #|constErr = (new NonConstDefault {}).message
+      #|mapErr = test.catch(() -> renderer.renderValue(Map(1, 2)))
+      #|mappingErr = test.catch(() -> renderer.renderValue(new Mapping { [1] = 2 }))
+      #|dynamicErr = test.catch(() -> renderer.renderValue(new DynamicBehavior {}))
+      #|dataSizeErr = test.catch(() -> renderer.renderValue(new DataSizeBehavior { myDataSize = 10.kb }))
+      #|keyErr = test.catch(() -> renderer.renderValue(new InvalidMappingKey {
+      #|  foo {
+      #|    [new Dynamic {}] = 1
+      #|  }
+      #|}))
+      #|annotatedKeyErr = test.catch(() -> renderer.renderValue(new InvalidAnnotatedKey {}))
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let pcf = @pkl.render_value(value)
+  inspect(pcf.contains("seconds: 60"), content="true")
+  inspect(pcf.contains("nanos: 0"), content="true")
+  inspect(
+    pcf.contains(
+      "Cannot call method `renderValue` from here because it is not `const`.",
+    ),
+    content="true",
+  )
+  inspect(
+    pcf.contains(
+      "The top-level value of a protobuf file must have type `Typed`, but got type `Map`.",
+    ),
+    content="true",
+  )
+  inspect(
+    pcf.contains(
+      "The top-level value of a protobuf file must have type `Typed`, but got type `Mapping`.",
+    ),
+    content="true",
+  )
+  inspect(
+    pcf.contains(
+      "Cannot render value of type `Dynamic` as Protobuf. Value: new Dynamic {}",
+    ),
+    content="true",
+  )
+  inspect(
+    pcf.contains(
+      "Cannot render value of type `DataSize` as Protobuf. Value: 10.kb",
+    ),
+    content="true",
+  )
+  inspect(
+    pcf.contains(
+      "Cannot render map with a non-scalar, floating point or byte array key type.",
+    ),
+    content="true",
+  )
+  inspect(
+    pcf.contains(
+      "annotatedKeyErr = \"Cannot render map with a non-scalar, floating point or byte array key type.\"",
+    ),
+    content="true",
+  )
+}
+
+///|
+test "PKL-126c: protobuf renderValue uses union field wrappers" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:protobuf" as protobuf
+      #|
+      #|typealias Choice = "A" | Int | Foo
+      #|
+      #|class Foo {
+      #|  foo: String
+      #|}
+      #|
+      #|class Bar extends Foo {
+      #|  foo = "bar"
+      #|}
+      #|
+      #|class Message {
+      #|  one: Choice
+      #|  many: Listing<Choice>
+      #|  maybe: (Foo|Bar)?
+      #|}
+      #|
+      #|out = (new protobuf.Renderer {}).renderValue(new Message {
+      #|  one = "A"
+      #|  many {
+      #|    1
+      #|    new Bar {}
+      #|  }
+      #|  maybe = new Bar {}
+      #|})
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut out : Value? = None
+  for field in members {
+    if field.name == "out" {
+      out = Some(field.value)
+    }
+  }
+  guard out is Some(StringValue(rendered)) else { panic() }
+  inspect(
+    rendered,
+    content=(
+      #|one: {
+      #|  it_String: "A"
+      #|}
+      #|many: {
+      #|  it_Int: 1
+      #|}
+      #|many: {
+      #|  it_Foo: {
+      #|    foo: "bar"
+      #|  }
+      #|}
+      #|maybe: {
+      #|  it_Bar: {
+      #|    foo: "bar"
+      #|  }
+      #|}
+    ),
+  )
+}
+
+///|
+test "PKL-126c: protobuf renderValue rejects subtype in non-union property" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:test"
+      #|import "pkl:protobuf" as protobuf
+      #|
+      #|class Foo {
+      #|  foo: String
+      #|}
+      #|
+      #|class Bar extends Foo {
+      #|  foo = "bar"
+      #|}
+      #|
+      #|class Message {
+      #|  value: Foo
+      #|}
+      #|
+      #|err = test.catch(() -> (new protobuf.Renderer {}).renderValue(new Message {
+      #|  value = new Bar {}
+      #|}))
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let pcf = @pkl.render_value(value)
+  inspect(
+    pcf.contains(
+      "Cannot render subtype main#Foo of specified type main#Bar in protobuf.",
+    ),
+    content="true",
+  )
+}
+
+///|
+test "PKL-126c: protobuf renderValue resolves outer in typed listing body" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:protobuf" as protobuf
+      #|
+      #|class Foo {
+      #|  foo: String
+      #|}
+      #|
+      #|class Bar extends Foo {
+      #|  foo = "Bar"
+      #|}
+      #|
+      #|class Message {
+      #|  bar: Bar
+      #|  foos: Listing<Foo>
+      #|}
+      #|
+      #|out = (new protobuf.Renderer {}).renderValue(new Message {
+      #|  foos {
+      #|    outer.bar
+      #|  }
+      #|})
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut out : Value? = None
+  for field in members {
+    if field.name == "out" {
+      out = Some(field.value)
+    }
+  }
+  guard out is Some(StringValue(rendered)) else { panic() }
+  inspect(
+    rendered,
+    content=(
+      #|bar: {
+      #|  foo: "Bar"
+      #|}
+      #|foos: {
+      #|  foo: "Bar"
+      #|}
+    ),
+  )
 }
 
 ///|

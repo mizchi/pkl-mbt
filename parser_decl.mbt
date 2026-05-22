@@ -610,7 +610,16 @@ fn Parser::parse_typealias_decl(self : Parser) -> TypeAliasDecl? {
     self.expect_text(">", "closing >")
   }
   let target = if ({
-      self.skip_whitespace()
+      // Apple Pkl allows a typealias declaration to break before the
+      // equals sign as well as after it:
+      //
+      //   typealias A
+      //     = "a"
+      //     | "b"
+      //
+      // `skip_whitespace` only skips spaces/tabs, so use full trivia
+      // here while still requiring an explicit `=`.
+      self.skip_trivia()
       self.at(eq())
     }) {
     ignore(self.bump())

@@ -737,7 +737,7 @@ test "render Pkl listings and mappings as YAML" {
 }
 
 ///|
-test "YAML Mapping keys coerce non-string values to strings" {
+test "YAML Mapping keys preserve scalar key syntax" {
   inspect(
     render_value_as_yaml(
       MappingValue([
@@ -747,9 +747,180 @@ test "YAML Mapping keys coerce non-string values to strings" {
       ]),
     ),
     content=(
-      #|'1': a
-      #|'true': b
-      #|'null': c
+      #|1: a
+      #|true: b
+      #|null: c
+      #|
+    ),
+  )
+}
+
+///|
+test "YAML renderer quotes Pkl and mapping keys like upstream" {
+  inspect(
+    render_value_as_yaml(
+      ObjectValue([
+        ValueMember::{
+          name: "`one[two`",
+          value: IntValue(42),
+          source: None,
+          annotations: [],
+        },
+      ]),
+    ),
+    content="'one[two': 42\n",
+  )
+  inspect(
+    render_value_as_yaml(
+      MappingValue([
+        ValueEntry::{ key: StringValue("one[two"), value: IntValue(42) },
+        ValueEntry::{ key: StringValue("one,two"), value: IntValue(42) },
+      ]),
+    ),
+    content="'one[two': 42\n'one,two': 42\n",
+  )
+}
+
+///|
+test "YAML renderer emits explicit mapping keys when required" {
+  let key_buf = StringBuilder::new()
+  for _i = 0; _i < 1025; _i = _i + 1 {
+    key_buf.write_char('a')
+  }
+  let long_key = key_buf.to_string()
+  let value : Value = ObjectValue([
+    ValueMember::{
+      name: "entries",
+      value: MappingValue([
+        ValueEntry::{ key: StringValue("one\ntwo"), value: IntValue(42) },
+        ValueEntry::{ key: StringValue(long_key), value: IntValue(42) },
+      ]),
+      source: None,
+      annotations: [],
+    },
+  ])
+  let out = render_value_as_yaml(value)
+  inspect(out.contains("  ? |-\n    one\n    two\n  : 42"), content="true")
+  inspect(out.contains("  ? aaaaaaaaaa"), content="true")
+}
+
+///|
+test "YAML renderer matches upstream block scalar chomping" {
+  let value : Value = ObjectValue([
+    ValueMember::{
+      name: "a1",
+      value: StringValue("\n"),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "d1",
+      value: StringValue("one\n"),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "d2",
+      value: StringValue("one\n\n"),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "j3",
+      value: StringValue("one\n   two"),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "l2",
+      value: StringValue("   \n"),
+      source: None,
+      annotations: [],
+    },
+  ])
+  inspect(
+    render_value_as_yaml(value),
+    content=(
+      #|a1: |+
+      #|
+      #|d1: |
+      #|  one
+      #|d2: |+
+      #|  one
+      #|
+      #|j3: |-
+      #|  one
+      #|     two
+      #|l2: |2
+      #|     
+      #|
+    ),
+  )
+}
+
+///|
+test "YAML renderer uses YAML double-quoted escape names" {
+  let value : Value = ObjectValue([
+    ValueMember::{
+      name: "`null`",
+      value: StringValue("\t\u{00}"),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "bell",
+      value: StringValue("\t\u{7}"),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "verticalTab",
+      value: StringValue("\t\u{b}"),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "escape",
+      value: StringValue("\t\u{1b}"),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "nextLine",
+      value: StringValue("\t\u{85}"),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "nbsp",
+      value: StringValue("\t\u{a0}"),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "lineSep",
+      value: StringValue("\t\u{2028}"),
+      source: None,
+      annotations: [],
+    },
+    ValueMember::{
+      name: "paragraphSep",
+      value: StringValue("\t\u{2029}"),
+      source: None,
+      annotations: [],
+    },
+  ])
+  inspect(
+    render_value_as_yaml(value),
+    content=(
+      #|'null': "\t\0"
+      #|bell: "\t\a"
+      #|verticalTab: "\t\v"
+      #|escape: "\t\e"
+      #|nextLine: "\t\N"
+      #|nbsp: "\t\_"
+      #|lineSep: "\t\L"
+      #|paragraphSep: "\t\P"
       #|
     ),
   )

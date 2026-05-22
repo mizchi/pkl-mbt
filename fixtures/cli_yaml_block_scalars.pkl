@@ -1,7 +1,7 @@
 // PKL-125: multiline string values render as YAML literal block
 // scalars (`|`, `|-`, `|+`) in block contexts (mapping value
 // position and sequence item position). Single-line strings and
-// strings carrying control characters other than `\n` / `\t` keep
+// strings carrying control characters other than `\n` keep
 // the existing double-quoted form so the renderer never emits an
 // invalid block scalar.
 output {
@@ -21,5 +21,7 @@ kept = "first\nsecond\n\n\n"
 single = "one liner"
 
 leading_space = "first\n  cannot block\nlast"
+
+first_line_space = "  first\nsecond"
 
 items = new Listing { "alpha\nbeta\ngamma"; "single" }

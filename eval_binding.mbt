@@ -91,7 +91,9 @@ fn capture_value_bindings(
     // ordinary function values from growing hidden bindings.
     if binding.name == "@__module_name" ||
       binding.name == "@__module_path" ||
-      binding.name == "@__module_source" {
+      binding.name == "@__module_source" ||
+      binding.name == "@__class_default_scope" ||
+      binding.name == "@__class_default_call_scope" {
       continue
     }
     captured.push(binding)

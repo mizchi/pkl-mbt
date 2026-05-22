@@ -88,6 +88,53 @@ fn basename(path : String) -> String {
 }
 
 ///|
+fn strip_package_checksum_from_version(version : String) -> String {
+  match version.find("::") {
+    Some(idx) => String::unsafe_substring(version, start=0, end=idx)
+    None => version
+  }
+}
+
+///|
+fn strip_package_checksum_from_path(path : String) -> String {
+  let at_idx = match path.rev_find("@") {
+    Some(idx) => idx
+    None => return path
+  }
+  let before_version = String::unsafe_substring(path, start=0, end=at_idx + 1)
+  let after_at = String::unsafe_substring(
+    path,
+    start=at_idx + 1,
+    end=path.length(),
+  )
+  let (version, extra) = match after_at.find("/") {
+    Some(idx) =>
+      (
+        String::unsafe_substring(after_at, start=0, end=idx),
+        String::unsafe_substring(after_at, start=idx, end=after_at.length()),
+      )
+    None => (after_at, "")
+  }
+  before_version + strip_package_checksum_from_version(version) + extra
+}
+
+///|
+fn strip_fixture_redirect_segments(path : String) -> String {
+  let mut rest = trim_leading_slashes(path)
+  let mut changed = true
+  while changed {
+    if rest.has_prefix("HTTP301/") {
+      rest = String::unsafe_substring(rest, start=8, end=rest.length())
+    } else if rest.has_prefix("HTTP307/") {
+      rest = String::unsafe_substring(rest, start=8, end=rest.length())
+    } else {
+      changed = false
+    }
+  }
+  rest
+}
+
+///|
 fn join_path(base : String, relative : String) -> String {
   if relative == "" {
     base
@@ -140,10 +187,12 @@ fn package_cache_parts(uri : String, rest : String) -> PackageCacheParts? {
   }
   let after_host = match without_fragment.find("/") {
     Some(idx) =>
-      String::unsafe_substring(
-        without_fragment,
-        start=idx + 1,
-        end=without_fragment.length(),
+      strip_fixture_redirect_segments(
+        String::unsafe_substring(
+          without_fragment,
+          start=idx + 1,
+          end=without_fragment.length(),
+        ),
       )
     None => return None
   }
@@ -171,7 +220,7 @@ fn package_cache_parts(uri : String, rest : String) -> PackageCacheParts? {
   if version == "" {
     return None
   }
-  let package_root_relative = "\{name}@\{version}"
+  let package_root_relative = "\{name}@\{strip_package_checksum_from_version(version)}"
   let package_dir_relative = package_root_relative + "/package"
   let suffix = join_relative_segments(
     extra,
@@ -222,7 +271,14 @@ fn package_uri_with_rest(uri : String, rest : String) -> String {
 fn package_metadata_url_from_uri(uri : String) -> String? {
   if uri.has_prefix("package://") {
     match parse_package_uri(uri) {
-      Some(parsed) => Some(package_metadata_url(parsed))
+      Some(parsed) =>
+        Some(
+          package_metadata_url({
+            authority: parsed.authority,
+            path: strip_package_checksum_from_path(parsed.path),
+            fragment: parsed.fragment,
+          }),
+        )
       None => None
     }
   } else if uri.has_prefix("projectpackage://") {
@@ -231,7 +287,7 @@ fn package_metadata_url_from_uri(uri : String) -> String? {
       Some(idx) => String::unsafe_substring(body, start=0, end=idx)
       None => body
     }
-    Some("https://\{without_fragment}")
+    Some("https://\{strip_package_checksum_from_path(without_fragment)}")
   } else {
     None
   }

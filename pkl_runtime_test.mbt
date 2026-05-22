@@ -260,11 +260,11 @@ test "PKL-125: YAML literal block scalar keeps with multi trailing newlines" {
 }
 
 ///|
-test "PKL-125: YAML falls back to double-quote when a line leads with space" {
+test "PKL-125: YAML uses an indentation indicator when the first line leads with space" {
   let v : Value = ObjectValue([
     ValueMember::{
       name: "p",
-      value: StringValue("first\n  cannot block\nlast"),
+      value: StringValue(" first\ncannot block\nlast"),
       source: None,
       annotations: [],
     },
@@ -272,7 +272,10 @@ test "PKL-125: YAML falls back to double-quote when a line leads with space" {
   inspect(
     render_value_as_yaml(v),
     content=(
-      #|p: "first\n  cannot block\nlast"
+      #|p: |2-
+      #|   first
+      #|  cannot block
+      #|  last
       #|
     ),
   )
@@ -2802,6 +2805,123 @@ test "PKL-146b: pkl:yaml.Parser.parseAll returns all documents" {
   guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
   let rendered = @pkl.render_value(value)
   inspect(rendered.contains("v = List(123, null, 456)"), content="true")
+}
+
+///|
+test "PKL-146c: pkl:yaml.Parser converters rewrite mapping keys and real scalars" {
+  let source =
+    #|import "pkl:yaml" as yaml
+    #|local parser = new yaml.Parser {
+    #|  converters {
+    #|    [String] = (it) -> it + "x"
+    #|    [Float] = (it) -> it + 1.23
+    #|    [Dynamic] = (it) -> (it) { other = "other" }
+    #|  }
+    #|}
+    #|v = parser.parse("name: Alice\nprice: 450.00\n")
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("namex = \"Alicex\""), content="true")
+  inspect(rendered.contains("pricex = 451.23"), content="true")
+  inspect(rendered.contains("other = \"other\""), content="true")
+  inspect(rendered.contains("otherx"), content="false")
+}
+
+///|
+test "PKL-146c: pkl:yaml.Parser folded scalars strip the clipped newline before converters" {
+  let source =
+    #|import "pkl:yaml" as yaml
+    #|local parser = new yaml.Parser {
+    #|  converters {
+    #|    [String] = (it) -> it + "x"
+    #|  }
+    #|}
+    #|v = parser.parse("""
+    #|  comment: >
+    #|    Late afternoon is best.
+    #|    Backup contact is Nancy
+    #|  """)
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered.contains(
+      "commentx = \"Late afternoon is best. Backup contact is Nancyx\"",
+    ),
+    content="true",
+  )
+}
+
+///|
+test "PKL-146c: pkl:yaml.Parser path converters preserve YAML anchor aliases" {
+  let source =
+    #|import "pkl:yaml" as yaml
+    #|local parser = new yaml.Parser {
+    #|  converters {
+    #|    ["left.family"] = (it) -> it.reverse()
+    #|  }
+    #|}
+    #|v = parser.parse("""
+    #|  left: &id001
+    #|    family: Dumars
+    #|  right: *id001
+    #|  """)
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("left {\n    family = \"sramuD\""), content="true")
+  inspect(rendered.contains("right {\n    family = \"sramuD\""), content="true")
+}
+
+///|
+test "PKL-146c: pkl:yaml.Parser path converters leave independent equal mappings alone" {
+  let source =
+    #|import "pkl:yaml" as yaml
+    #|local parser = new yaml.Parser {
+    #|  converters {
+    #|    ["left.family"] = (it) -> it.reverse()
+    #|  }
+    #|}
+    #|v = parser.parse("""
+    #|  left:
+    #|    family: Dumars
+    #|  right:
+    #|    family: Dumars
+    #|  """)
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("left {\n    family = \"sramuD\""), content="true")
+  inspect(rendered.contains("right {\n    family = \"Dumars\""), content="true")
+}
+
+///|
+test "PKL-146c: pkl:yaml.Parser maxCollectionAliases rejects excess collection aliases" {
+  let source =
+    #|import "pkl:yaml" as yaml
+    #|local parser = new yaml.Parser {
+    #|  maxCollectionAliases = 1
+    #|}
+    #|message = module.catch(() -> parser.parse("""
+    #|  left: &left ["x"]
+    #|  middle: *left
+    #|  right: *left
+    #|  """))
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered.contains(
+      "Error parsing YAML document: The number of aliases for collection nodes exceeds the allowed maximum of 1.",
+    ),
+    content="true",
+  )
 }
 
 ///|

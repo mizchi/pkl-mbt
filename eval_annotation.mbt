@@ -315,21 +315,29 @@ fn synthesize_default_for_type(
 ///|
 fn coerce_value_to_annotated_type(value : Value, type_name : String?) -> Value {
   match (value, type_name) {
-    (ObjectValue(members), Some(name)) if members.length() == 0 =>
-      if name == "Listing" ||
-        name == "List" ||
-        name.has_prefix("Listing<") ||
-        name.has_prefix("List<") {
+    (ObjectValue(members), Some(name)) if members.length() == 0 => {
+      let stripped = strip_lazy_collection_annotation_marker(name)
+      let trimmed = pkl_strip_default_type_marker(pkl_constraint_trim(stripped))
+      let base = match pkl_constrained_type_base_name(trimmed) {
+        Some(base) => base
+        None => trimmed
+      }
+      let head = match base.find("<") {
+        Some(idx) => String::unsafe_substring(base, start=0, end=idx)
+        None => base
+      }
+      if head == "Listing" || head == "List" {
         ListingValue([])
-      } else if name == "Mapping" || name.has_prefix("Mapping<") {
+      } else if head == "Mapping" {
         MappingValue([])
-      } else if name == "Set" || name.has_prefix("Set<") {
+      } else if head == "Set" {
         // PKL-119 will introduce SetValue; until then collapse to
         // ListingValue (matches how Listing/List share a variant today).
         ListingValue([])
       } else {
         value
       }
+    }
     _ => value
   }
 }

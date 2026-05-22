@@ -95,6 +95,19 @@ test "package cache path uses URI fragment as package file path" {
 }
 
 ///|
+test "package cache path strips checksum qualifier from package root" {
+  let uri = "package://localhost:0/birds@0.5.0::sha256:b27206b80f4f227752b6f02143887f3ea41e554542cec38f7b572b987566c4de#/catalog/Swallow.pkl"
+  inspect(
+    package_cache_relative(uri, ""),
+    content="birds@0.5.0/package/catalog/Swallow.pkl",
+  )
+  inspect(
+    package_metadata_url_from_uri(uri).unwrap(),
+    content="https://localhost:0/birds@0.5.0",
+  )
+}
+
+///|
 test "zip reader inflates deflated entries" {
   let zip = test_zip_one_file("dir/hello.pkl", b"x = 1\n", 8)
   let entries = read_zip_entries(zip)
@@ -229,6 +242,62 @@ test "register expr io preloads string literal glob arguments for dynamic read s
     ),
   )
   @pkl.reset_sandbox_io_cache()
+}
+
+///|
+test "project dependency glob keeps @ visible keys with projectpackage resources" {
+  @pkl.configure_sandbox_package_caches([
+    "third_party/apple-pkl/pkl-commons-test/src/main/files/packages",
+  ])
+  let resources = glob_resources_from(
+    "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/projects/project1/globbing.pkl",
+    "@birds/catalog/*.pkl",
+  )
+  inspect(resources.length(), content="2")
+  inspect(resources[0].uri, content="@birds/catalog/Ostrich.pkl")
+  inspect(
+    resources[0].resource_uri,
+    content="projectpackage://localhost:0/birds@0.5.0#/catalog/Ostrich.pkl",
+  )
+  @pkl.configure_sandbox_package_caches([])
+}
+
+///|
+test "package relative glob keeps relative keys with package resources" {
+  @pkl.configure_sandbox_package_caches([
+    "third_party/apple-pkl/pkl-commons-test/src/main/files/packages",
+  ])
+  let resources = glob_resources_from(
+    "package://localhost:0/birds@0.5.0#/catalog.pkl", "catalog/*.pkl",
+  )
+  inspect(resources.length(), content="2")
+  inspect(resources[0].uri, content="catalog/Ostrich.pkl")
+  inspect(
+    resources[0].resource_uri,
+    content="package://localhost:0/birds@0.5.0#/catalog/Ostrich.pkl",
+  )
+  @pkl.configure_sandbox_package_caches([])
+}
+
+///|
+test "package directory read returns sorted directory listing" {
+  @pkl.configure_sandbox_package_caches([
+    "third_party/apple-pkl/pkl-commons-test/src/main/files/packages",
+  ])
+  guard read_resource_from(
+      "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/projects/project1/basic.pkl",
+      "@birds/catalog",
+    )
+    is Some(resource) else {
+    panic()
+  }
+  inspect(resource.uri, content="@birds/catalog")
+  inspect(
+    resource.resource_uri,
+    content="projectpackage://localhost:0/birds@0.5.0#/catalog",
+  )
+  inspect(resource.text, content="Ostrich.pkl\nSwallow.pkl\n")
+  @pkl.configure_sandbox_package_caches([])
 }
 
 ///|

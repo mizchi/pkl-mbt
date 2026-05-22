@@ -6,6 +6,7 @@ cd "$ROOT"
 
 UPSTREAM="third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input"
 GOLD="third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/output"
+PKG_CACHE="third_party/apple-pkl/pkl-commons-test/src/main/files/packages"
 
 # PKL-096: list of upstream fixtures whose `pkl eval` output already
 # matches the gold `.pcf` byte-for-byte. Promote here only after a
@@ -15,6 +16,7 @@ GOLD_FIXTURES=(
   "annotation/annotation1"
   "api/anyConverter"
   "api/intseq"
+  "api/jsonParser1"
   "api/jsonParser2"
   "api/jsonParser3"
   "api/jsonParser4"
@@ -36,6 +38,8 @@ GOLD_FIXTURES=(
   "api/pListRenderer4"
   "api/pListRenderer5"
   "api/plistRenderer2b"
+  "api/protobuf"
+  "api/protobuf2"
   "api/propertiesRenderer2b"
   "api/propertiesRenderer4"
   "api/propertiesRenderer5"
@@ -46,8 +50,13 @@ GOLD_FIXTURES=(
   "api/xmlRendererValidation11"
   "api/yamlRenderer2b"
   "api/yamlParser2"
+  "api/yamlParser3"
+  "api/yamlParser4"
+  "api/yamlParser5"
   "api/yamlRenderer4"
   "api/yamlRenderer5"
+  "api/yamlRendererStream1"
+  "api/yamlRendererStream2"
   "basic/amendsChains"
   "basic/baseModule"
   "basic/comments"
@@ -166,13 +175,27 @@ GOLD_FIXTURES=(
   "parser/constraintsTrailingComma"
   "parser/lineCommentBetween"
   "parser/trailingCommas"
+  "packages/packages1"
+  "packages/packages2"
+  "packages/redirects"
   "projects/badLocalProject/dog"
+  "projects/evaluatorSettings/basic"
   "projects/notAProject/@child/theChild"
   "projects/notAProject/goodImport"
   "projects/packageWithSpaces/module with spaces"
+  "projects/project1/basic"
+  "projects/project1/globbing"
+  "projects/project1/localProject"
+  "projects/project1/localProjectRead"
+  "projects/project2/penguin"
+  "projects/project3/basic"
+  "projects/project4/main"
+  "projects/project5/main"
+  "projects/project6/children"
   "projects/project6/children/a"
   "projects/project6/children/b"
   "projects/project6/children/c"
+  "projects/project7/globWildcards"
   "types/ThisInTypeConstraint"
   "types/helpers/someModule"
   "types/moduleType2"
@@ -278,6 +301,29 @@ GOLD_FIXTURES=(
 # the existing JSON renderer go on the list.
 JSON_GOLD_FIXTURES=(
   "api/jsonRenderer1.json"
+  "api/jsonRenderer2.json"
+  "api/jsonRenderer3.json"
+  "api/jsonRenderer6.json"
+  "api/jsonRenderer9.json5"
+)
+
+# PKL-153b: YAML renderer-output fixtures whose `output { renderer =
+# new YamlRenderer {} }` path matches the upstream `.yml` gold.
+YAML_GOLD_FIXTURES=(
+  "api/yamlRenderer1.yml"
+  "api/yamlRenderer2.yml"
+  "api/yamlRenderer3.yml"
+  "api/yamlRenderer6.yml"
+  "api/yamlRenderer8.yml"
+  "api/yamlRenderer9.yml"
+  "api/yamlRenderer10.yml"
+  "api/yamlRendererBug66849708.yml"
+  "api/yamlRendererEmpty.yml"
+  "api/yamlRendererIndentationWidth2.yml"
+  "api/yamlRendererIndentationWidth4.yml"
+  "api/yamlRendererIndentationWidth5.yml"
+  "api/yamlRendererKeys.yml"
+  "api/yamlRendererStrings.yml"
 )
 
 # PKL-126a: list of upstream fixtures whose `eval` output (the input
@@ -354,7 +400,7 @@ eval_matches_gold() {
   # emitted the correct payload.
   local tmp
   tmp="$(mktemp)"
-  moon run cmd/mpkl --target native -- eval "$input" > "$tmp"
+  moon run cmd/mpkl --target native -- eval --package-cache "$PKG_CACHE" "$input" > "$tmp"
   if ! diff -u "$gold" "$tmp" >/tmp/upstream-smoke-diff.$$; then
     printf 'upstream eval mismatch: %s\n' "$label" >&2
     cat /tmp/upstream-smoke-diff.$$ >&2
@@ -424,6 +470,12 @@ for label in "${JSON_GOLD_FIXTURES[@]}"; do
   json_ok_count=$((json_ok_count + 1))
 done
 
+yaml_ok_count=0
+for label in "${YAML_GOLD_FIXTURES[@]}"; do
+  eval_matches_gold "$label" "$UPSTREAM/$label.pkl" "$GOLD/$label"
+  yaml_ok_count=$((yaml_ok_count + 1))
+done
+
 # PKL-126a: gold-match each fixture whose `output { renderer = new
 # PListRenderer {} }` block routes through the plist renderer. The
 # rendered envelope is exactly the upstream `.plist` gold file, so
@@ -449,6 +501,7 @@ done
 
 printf 'upstream-smoke: %d gold-match fixtures passed\n' "$ok_count"
 printf 'upstream-smoke: %d json gold-match fixtures passed\n' "$json_ok_count"
+printf 'upstream-smoke: %d yaml gold-match fixtures passed\n' "$yaml_ok_count"
 printf 'upstream-smoke: %d plist gold-match fixtures passed\n' "$plist_ok_count"
 printf 'upstream-smoke: %d xml gold-match fixtures passed\n' "$xml_ok_count"
 printf 'upstream-smoke: %d textproto gold-match fixtures passed\n' "$textproto_ok_count"

@@ -148,6 +148,11 @@ fn module_metadata_super_name() -> String {
 }
 
 ///|
+fn module_metadata_path_name() -> String {
+  "__module_path"
+}
+
+///|
 fn module_members_name(members : Array[ValueMember]) -> String? {
   match lookup_member(members, module_metadata_name()) {
     Some(StringValue(name)) => Some(name)
@@ -470,7 +475,7 @@ fn value_entry_string_key(entry : ValueEntry) -> String {
 ///|
 fn env_read_glob_entries(rest_pattern : String) -> Array[ValueEntry] {
   let entries : Array[ValueEntry] = []
-  for pair in @env.get_env_vars().to_array() {
+  for pair in sandbox_env_entries() {
     let (name, value) = pair
     let visible_name = sandbox_percent_encode_resource_key(name)
     if sandbox_glob_matches(rest_pattern, visible_name) {
@@ -540,14 +545,9 @@ fn eval_import_glob_value(
               sandbox_lookup_import_glob_error(path, pattern, visible_uri) {
               Some(message) => deferred_error_value(message)
               None =>
-                if visible_uri.has_prefix("package://") ||
-                  visible_uri.has_prefix("projectpackage://") {
-                  match resolve_import(visible_uri) {
-                    Some(EvalOk(value)) => value
-                    _ => DeferredImportValue(visible_uri)
-                  }
-                } else {
-                  DeferredImportValue(visible_uri)
+                match resolve_import(visible_uri) {
+                  Some(EvalOk(value)) => value
+                  _ => DeferredImportValue(visible_uri)
                 }
             }
             entries.push({ key: StringValue(visible_uri), value })
@@ -649,7 +649,7 @@ fn eval_read_uri(
       let scheme = String::unsafe_substring(uri, start=0, end=idx)
       let rest = String::unsafe_substring(uri, start=idx + 1, end=uri.length())
       if scheme == "env" {
-        match @env.get_env_var(rest) {
+        match sandbox_lookup_env(rest) {
           Some(value) => Some(StringValue(value))
           None => {
             diagnostics.push(diag(read_resource_not_found_message(uri)))
@@ -665,8 +665,20 @@ fn eval_read_uri(
           }
         }
       } else {
-        diagnostics.push(diag(read_resource_refused_message(uri)))
-        None
+        match current_module_path {
+          Some(path) =>
+            match sandbox_lookup_read_resource(path, uri) {
+              Some(resource) => Some(sandbox_resource_value(resource))
+              None => {
+                diagnostics.push(diag(read_resource_refused_message(uri)))
+                None
+              }
+            }
+          None => {
+            diagnostics.push(diag(read_resource_refused_message(uri)))
+            None
+          }
+        }
       }
     }
   }
@@ -1299,6 +1311,16 @@ fn eval_program(
       members.push({
         name: hidden_member_name(module_metadata_name()),
         value: StringValue(name),
+        source: None,
+        annotations: [],
+      })
+    None => ()
+  }
+  match current_module_path {
+    Some(path) =>
+      members.push({
+        name: hidden_member_name(module_metadata_path_name()),
+        value: StringValue(path),
         source: None,
         annotations: [],
       })
@@ -2135,13 +2157,8 @@ fn apply_single_convert_property_annotation(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> (String, Value)? {
-  if annotation.class_name == "protobuf.Property" {
-    match protobuf_annotation_string_field(annotation.body_text, "name") {
-      Some(next_name) => return Some((next_name, property_value))
-      None => ()
-    }
-  }
-  if annotation.class_name == "xml.Property" {
+  if annotation.class_name == "Property" ||
+    annotation.class_name.has_suffix(".Property") {
     match protobuf_annotation_string_field(annotation.body_text, "name") {
       Some(next_name) => return Some((next_name, property_value))
       None => ()
@@ -2407,6 +2424,7 @@ fn apply_value_renderer_converters(
 fn apply_parser_converters(
   value : Value,
   parser_members : Array[ValueMember],
+  convert_keys : Bool,
   bindings : Array[Binding],
   env : Array[ValueBinding],
   class_env : Array[ClassBinding],
@@ -2424,14 +2442,14 @@ fn apply_parser_converters(
   let mut current = value
   if path_converters.length() > 0 {
     current = apply_parser_path_converters(
-      current, path_converters, bindings, env, class_env, cache, declarations, diagnostics,
-      resolve_import,
+      current, path_converters, convert_keys, bindings, env, class_env, cache, declarations,
+      diagnostics, resolve_import,
     )
   }
   if class_converters.length() > 0 {
     current = walk_parser_class_converter(
-      current, class_converters, bindings, env, class_env, cache, declarations, diagnostics,
-      resolve_import,
+      current, class_converters, convert_keys, bindings, env, class_env, cache, declarations,
+      diagnostics, resolve_import,
     )
   }
   current
@@ -2441,6 +2459,7 @@ fn apply_parser_converters(
 fn apply_parser_path_converters(
   value : Value,
   converters : Array[(String, Value)],
+  propagate_aliases : Bool,
   bindings : Array[Binding],
   env : Array[ValueBinding],
   class_env : Array[ClassBinding],
@@ -2452,7 +2471,8 @@ fn apply_parser_path_converters(
   let mut current = value
   for entry in converters {
     let (path, callback) = entry
-    current = if path.has_prefix("^") {
+    let before = current
+    let converted = if path.has_prefix("^") {
       rewrite_at_path(
         current, path, callback, bindings, env, class_env, cache, declarations, diagnostics,
         resolve_import,
@@ -2463,8 +2483,155 @@ fn apply_parser_path_converters(
         resolve_import,
       )
     }
+    current = if propagate_aliases {
+      propagate_parser_alias_rewrites(before, converted)
+    } else {
+      converted
+    }
   }
   current
+}
+
+///|
+fn propagate_parser_alias_rewrites(before : Value, after : Value) -> Value {
+  match (before, after) {
+    (ObjectValue(before_members), ObjectValue(after_members)) =>
+      if before_members.length() == after_members.length() {
+        let replacements : Array[(Int64, Value)] = []
+        for i = 0; i < before_members.length(); i = i + 1 {
+          if before_members[i].value != after_members[i].value {
+            match parser_alias_id(before_members[i].value) {
+              Some(id) => replacements.push((id, after_members[i].value))
+              None => ()
+            }
+          }
+        }
+        let next : Array[ValueMember] = []
+        for i = 0; i < after_members.length(); i = i + 1 {
+          let value = if before_members[i].value == after_members[i].value {
+            match
+              parser_alias_replacement_for(
+                before_members[i].value,
+                replacements,
+              ) {
+              Some(replacement) => replacement
+              None => after_members[i].value
+            }
+          } else {
+            propagate_parser_alias_rewrites(
+              before_members[i].value,
+              after_members[i].value,
+            )
+          }
+          next.push({
+            name: after_members[i].name,
+            value,
+            source: after_members[i].source,
+            annotations: after_members[i].annotations,
+          })
+        }
+        ObjectValue(next)
+      } else {
+        after
+      }
+    (ListingValue(before_values), ListingValue(after_values)) =>
+      if before_values.length() == after_values.length() {
+        ListingValue(
+          propagate_parser_alias_rewrites_in_values(before_values, after_values),
+        )
+      } else {
+        after
+      }
+    (ListValue(before_values), ListValue(after_values)) =>
+      if before_values.length() == after_values.length() {
+        ListValue(
+          propagate_parser_alias_rewrites_in_values(before_values, after_values),
+        )
+      } else {
+        after
+      }
+    (SetValue(before_values), SetValue(after_values)) =>
+      if before_values.length() == after_values.length() {
+        SetValue(
+          propagate_parser_alias_rewrites_in_values(before_values, after_values),
+        )
+      } else {
+        after
+      }
+    (
+      DefaultedListingValue(raw, before_values, default_value),
+      DefaultedListingValue(_, after_values, _),
+    ) =>
+      if before_values.length() == after_values.length() {
+        DefaultedListingValue(
+          raw,
+          propagate_parser_alias_rewrites_in_values(before_values, after_values),
+          default_value,
+        )
+      } else {
+        after
+      }
+    _ => after
+  }
+}
+
+///|
+fn propagate_parser_alias_rewrites_in_values(
+  before_values : Array[Value],
+  after_values : Array[Value],
+) -> Array[Value] {
+  let replacements : Array[(Int64, Value)] = []
+  for i = 0; i < before_values.length(); i = i + 1 {
+    if before_values[i] != after_values[i] {
+      match parser_alias_id(before_values[i]) {
+        Some(id) => replacements.push((id, after_values[i]))
+        None => ()
+      }
+    }
+  }
+  let next : Array[Value] = []
+  for i = 0; i < after_values.length(); i = i + 1 {
+    if before_values[i] == after_values[i] {
+      match parser_alias_replacement_for(before_values[i], replacements) {
+        Some(replacement) => next.push(replacement)
+        None => next.push(after_values[i])
+      }
+    } else {
+      next.push(
+        propagate_parser_alias_rewrites(before_values[i], after_values[i]),
+      )
+    }
+  }
+  next
+}
+
+///|
+fn parser_alias_replacement_for(
+  value : Value,
+  replacements : Array[(Int64, Value)],
+) -> Value? {
+  match parser_alias_id(value) {
+    Some(id) =>
+      for entry in replacements {
+        if id == entry.0 {
+          return Some(entry.1)
+        }
+      }
+    None => ()
+  }
+  None
+}
+
+///|
+fn parser_alias_id(value : Value) -> Int64? {
+  match value {
+    ObjectValue(members) =>
+      match lookup_member(members, "__yamlAnchorId") {
+        Some(IntValue(id)) => Some(id)
+        _ => None
+      }
+    _ => None
+  }
 }
 
 ///|
@@ -2684,6 +2851,7 @@ fn rewrite_walk_anywhere_children(
 fn walk_parser_class_converter(
   value : Value,
   converters : Array[(String, Value)],
+  convert_keys : Bool,
   bindings : Array[Binding],
   env : Array[ValueBinding],
   class_env : Array[ClassBinding],
@@ -2693,8 +2861,8 @@ fn walk_parser_class_converter(
   resolve_import : (String) -> EvalResult?,
 ) -> Value {
   let children_converted = walk_parser_class_converter_children(
-    value, converters, bindings, env, class_env, cache, declarations, diagnostics,
-    resolve_import,
+    value, converters, convert_keys, bindings, env, class_env, cache, declarations,
+    diagnostics, resolve_import,
   )
   match pick_class_converter(children_converted, converters, class_env) {
     Some(callback) =>
@@ -2720,9 +2888,41 @@ fn walk_parser_class_converter(
 }
 
 ///|
+fn walk_parser_member_name_converter(
+  name : String,
+  converters : Array[(String, Value)],
+  convert_keys : Bool,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> String {
+  match
+    walk_parser_class_converter(
+      StringValue(name),
+      converters,
+      convert_keys,
+      bindings,
+      env,
+      class_env,
+      cache,
+      declarations,
+      diagnostics,
+      resolve_import,
+    ) {
+    StringValue(converted) => converted
+    _ => name
+  }
+}
+
+///|
 fn walk_parser_class_converter_children(
   value : Value,
   converters : Array[(String, Value)],
+  convert_keys : Bool,
   bindings : Array[Binding],
   env : Array[ValueBinding],
   class_env : Array[ClassBinding],
@@ -2738,11 +2938,28 @@ fn walk_parser_class_converter_children(
         if is_invisible_member_name(field.name) {
           next.push(field)
         } else {
+          let name = if convert_keys {
+            walk_parser_member_name_converter(
+              field.name,
+              converters,
+              convert_keys,
+              bindings,
+              env,
+              class_env,
+              cache,
+              declarations,
+              diagnostics,
+              resolve_import,
+            )
+          } else {
+            field.name
+          }
           next.push({
-            name: field.name,
+            name,
             value: walk_parser_class_converter(
               field.value,
               converters,
+              convert_keys,
               bindings,
               env,
               class_env,
@@ -2763,8 +2980,8 @@ fn walk_parser_class_converter_children(
       for x in xs {
         next.push(
           walk_parser_class_converter(
-            x, converters, bindings, env, class_env, cache, declarations, diagnostics,
-            resolve_import,
+            x, converters, convert_keys, bindings, env, class_env, cache, declarations,
+            diagnostics, resolve_import,
           ),
         )
       }
@@ -2775,8 +2992,8 @@ fn walk_parser_class_converter_children(
       for x in xs {
         next.push(
           walk_parser_class_converter(
-            x, converters, bindings, env, class_env, cache, declarations, diagnostics,
-            resolve_import,
+            x, converters, convert_keys, bindings, env, class_env, cache, declarations,
+            diagnostics, resolve_import,
           ),
         )
       }
@@ -2787,8 +3004,8 @@ fn walk_parser_class_converter_children(
       for x in xs {
         next.push(
           walk_parser_class_converter(
-            x, converters, bindings, env, class_env, cache, declarations, diagnostics,
-            resolve_import,
+            x, converters, convert_keys, bindings, env, class_env, cache, declarations,
+            diagnostics, resolve_import,
           ),
         )
       }
@@ -2799,8 +3016,8 @@ fn walk_parser_class_converter_children(
       for x in xs {
         next.push(
           walk_parser_class_converter(
-            x, converters, bindings, env, class_env, cache, declarations, diagnostics,
-            resolve_import,
+            x, converters, convert_keys, bindings, env, class_env, cache, declarations,
+            diagnostics, resolve_import,
           ),
         )
       }
@@ -2810,10 +3027,26 @@ fn walk_parser_class_converter_children(
       let next : Array[ValueEntry] = []
       for e in entries {
         next.push({
-          key: e.key,
+          key: if convert_keys {
+            walk_parser_class_converter(
+              e.key,
+              converters,
+              convert_keys,
+              bindings,
+              env,
+              class_env,
+              cache,
+              declarations,
+              diagnostics,
+              resolve_import,
+            )
+          } else {
+            e.key
+          },
           value: walk_parser_class_converter(
             e.value,
             converters,
+            convert_keys,
             bindings,
             env,
             class_env,
@@ -2830,10 +3063,26 @@ fn walk_parser_class_converter_children(
       let next : Array[ValueEntry] = []
       for e in entries {
         next.push({
-          key: e.key,
+          key: if convert_keys {
+            walk_parser_class_converter(
+              e.key,
+              converters,
+              convert_keys,
+              bindings,
+              env,
+              class_env,
+              cache,
+              declarations,
+              diagnostics,
+              resolve_import,
+            )
+          } else {
+            e.key
+          },
           value: walk_parser_class_converter(
             e.value,
             converters,
+            convert_keys,
             bindings,
             env,
             class_env,
@@ -2850,10 +3099,26 @@ fn walk_parser_class_converter_children(
       let next : Array[ValueEntry] = []
       for e in entries {
         next.push({
-          key: e.key,
+          key: if convert_keys {
+            walk_parser_class_converter(
+              e.key,
+              converters,
+              convert_keys,
+              bindings,
+              env,
+              class_env,
+              cache,
+              declarations,
+              diagnostics,
+              resolve_import,
+            )
+          } else {
+            e.key
+          },
           value: walk_parser_class_converter(
             e.value,
             converters,
+            convert_keys,
             bindings,
             env,
             class_env,
@@ -2869,12 +3134,12 @@ fn walk_parser_class_converter_children(
     PairValue(first, second) =>
       PairValue(
         walk_parser_class_converter(
-          first, converters, bindings, env, class_env, cache, declarations, diagnostics,
-          resolve_import,
+          first, converters, convert_keys, bindings, env, class_env, cache, declarations,
+          diagnostics, resolve_import,
         ),
         walk_parser_class_converter(
-          second, converters, bindings, env, class_env, cache, declarations, diagnostics,
-          resolve_import,
+          second, converters, convert_keys, bindings, env, class_env, cache, declarations,
+          diagnostics, resolve_import,
         ),
       )
     _ => value
@@ -3433,6 +3698,28 @@ fn rewrite_walk(
               source: None,
               annotations: field.annotations,
             })
+          } else if path_segment_subscript_base_key(segment)
+            is Some((base, key)) &&
+            field.name == base {
+            next.push({
+              name: field.name,
+              value: rewrite_collection_key(
+                field.value,
+                key,
+                segments,
+                idx + 1,
+                callback,
+                bindings,
+                env,
+                class_env,
+                cache,
+                declarations,
+                diagnostics,
+                resolve_import,
+              ),
+              source: None,
+              annotations: field.annotations,
+            })
           } else if path_segment_wildcard_base(segment) is Some(base) &&
             field.name == base {
             next.push({
@@ -3793,6 +4080,98 @@ fn rewrite_collection_items(
 }
 
 ///|
+fn rewrite_collection_key(
+  value : Value,
+  key : String,
+  segments : Array[String],
+  idx : Int,
+  callback : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  match value {
+    MappingValue(entries) => {
+      let next : Array[ValueEntry] = []
+      for entry in entries {
+        let value = if entry.key == StringValue(key) {
+          rewrite_walk(
+            entry.value,
+            segments,
+            idx,
+            callback,
+            bindings,
+            env,
+            class_env,
+            cache,
+            declarations,
+            diagnostics,
+            resolve_import,
+          )
+        } else {
+          entry.value
+        }
+        next.push({ key: entry.key, value })
+      }
+      MappingValue(next)
+    }
+    DefaultedMappingValue(raw, entries, default_value) => {
+      let next : Array[ValueEntry] = []
+      for entry in entries {
+        let value = if entry.key == StringValue(key) {
+          rewrite_walk(
+            entry.value,
+            segments,
+            idx,
+            callback,
+            bindings,
+            env,
+            class_env,
+            cache,
+            declarations,
+            diagnostics,
+            resolve_import,
+          )
+        } else {
+          entry.value
+        }
+        next.push({ key: entry.key, value })
+      }
+      DefaultedMappingValue(raw, next, default_value)
+    }
+    MapValue(entries) => {
+      let next : Array[ValueEntry] = []
+      for entry in entries {
+        let value = if entry.key == StringValue(key) {
+          rewrite_walk(
+            entry.value,
+            segments,
+            idx,
+            callback,
+            bindings,
+            env,
+            class_env,
+            cache,
+            declarations,
+            diagnostics,
+            resolve_import,
+          )
+        } else {
+          entry.value
+        }
+        next.push({ key: entry.key, value })
+      }
+      MapValue(next)
+    }
+    _ => value
+  }
+}
+
+///|
 fn rewrite_dynamic_subscript_any_value(
   value : Value,
   segments : Array[String],
@@ -3907,6 +4286,28 @@ fn path_segment_wildcard_base(segment : String) -> String? {
     Some(String::unsafe_substring(segment, start=0, end=segment.length() - 3))
   } else {
     None
+  }
+}
+
+///|
+fn path_segment_subscript_base_key(segment : String) -> (String, String)? {
+  match segment.find("[") {
+    Some(idx) =>
+      if idx > 0 && segment.has_suffix("]") && !segment.has_suffix("[*]") {
+        Some(
+          (
+            String::unsafe_substring(segment, start=0, end=idx),
+            String::unsafe_substring(
+              segment,
+              start=idx + 1,
+              end=segment.length() - 1,
+            ),
+          ),
+        )
+      } else {
+        None
+      }
+    None => None
   }
 }
 

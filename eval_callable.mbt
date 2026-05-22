@@ -464,6 +464,25 @@ fn push_module_metadata_from_cache(
 }
 
 ///|
+fn push_class_default_scope_from_cache(
+  call_cache : Array[ValueBinding],
+  caller_cache : Array[ValueBinding],
+) -> Unit {
+  if lookup_value(call_cache, "@__class_default_call_scope") is Some(_) {
+    return
+  }
+  let marker = match lookup_value(caller_cache, "@__class_default_scope") {
+    Some(value) => Some(value)
+    None => lookup_value(caller_cache, "@__class_default_call_scope")
+  }
+  match marker {
+    Some(value) =>
+      call_cache.push({ name: "@__class_default_call_scope", value })
+    None => ()
+  }
+}
+
+///|
 fn qualified_rejection_type_label(
   type_name : String,
   class_env : Array[ClassBinding],
@@ -1007,6 +1026,7 @@ fn eval_lambda_application(
   }
   let call_cache = copy_value_bindings(captured_env)
   push_module_metadata_from_cache(call_cache, cache)
+  push_class_default_scope_from_cache(call_cache, cache)
   for i = 0; i < parameters.length(); i = i + 1 {
     let parameter_type_name = strip_lazy_collection_annotation_marker_opt(
       parameters[i].type_name,
@@ -1188,6 +1208,7 @@ fn apply_function_value(
       // pass filters these plumbing markers out of ordinary function
       // values, but read/reflect paths inside the body still need them.
       push_module_metadata_from_cache(call_cache, caller_cache)
+      push_class_default_scope_from_cache(call_cache, caller_cache)
       for i = 0; i < parameters.length(); i = i + 1 {
         let parameter_type_name = strip_lazy_collection_annotation_marker_opt(
           parameters[i].type_name,

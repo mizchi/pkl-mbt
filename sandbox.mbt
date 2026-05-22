@@ -29,6 +29,8 @@ priv struct SandboxConfig {
   // `<dir>/<path>/<name>@<version>/package/<files>`, with metadata in
   // the package root sibling (`<name>@<version>.json`).
   mut package_caches : Array[String]
+  mut env_override_enabled : Bool
+  mut env_vars : Map[String, String]
   // PKL-148r: triple-dot import resolutions cached by the CLI's load
   // step (FS-based) so the IO-free analysis layer can map the same
   // `(from, ".../X")` pair back to the absolute path the CLI already
@@ -54,6 +56,8 @@ let sandbox_config : SandboxConfig = {
   allowed_modules: [],
   module_paths: [],
   package_caches: [],
+  env_override_enabled: false,
+  env_vars: Map([], capacity=8),
   triple_dot_resolutions: Map([], capacity=8),
   read_resources: Map([], capacity=8),
   read_globs: Map([], capacity=8),
@@ -65,6 +69,36 @@ let sandbox_config : SandboxConfig = {
 /// Replace the configured props map. Pass an empty map to clear.
 pub fn configure_sandbox_props(props : Map[String, String]) -> Unit {
   sandbox_config.props = props
+}
+
+///|
+pub fn configure_sandbox_env_vars(vars : Map[String, String]) -> Unit {
+  sandbox_config.env_override_enabled = true
+  sandbox_config.env_vars = vars
+}
+
+///|
+pub fn clear_sandbox_env_vars() -> Unit {
+  sandbox_config.env_override_enabled = false
+  sandbox_config.env_vars = Map([], capacity=8)
+}
+
+///|
+fn sandbox_lookup_env(name : String) -> String? {
+  if sandbox_config.env_override_enabled {
+    sandbox_config.env_vars.get(name)
+  } else {
+    @env.get_env_var(name)
+  }
+}
+
+///|
+fn sandbox_env_entries() -> Array[(String, String)] {
+  if sandbox_config.env_override_enabled {
+    sandbox_config.env_vars.to_array()
+  } else {
+    @env.get_env_vars().to_array()
+  }
 }
 
 ///|

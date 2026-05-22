@@ -3445,7 +3445,7 @@ local pklYamlParserScenario = new Scenario {
   id = "PKL-146"
   name = "pkl:yaml.Parser.parse implementation"
   description =
-    "`pkl:yaml.Parser.parse(source)` decodes a YAML document into a Pkl `Value`. The evaluator's CallExpr dispatcher mirrors the PKL-144 / PKL-145 pkl:json path: the Parser stamps `hidden __kind = \"YamlParser\"` on its synthetic class, the dispatch checks `reflect_kind(receiver) is Some(\"YamlParser\")`, and the source string flows through `moonbit-community/yaml`'s `Yaml::load_from_string`. `yaml_to_value` projects each Yaml variant onto a Pkl Value: `Null` → `NullValue`; `Boolean` → `BoolValue`; `Integer(i)` → `IntValue` when `i` fits Int32 else `FloatValue` (no silent truncation); `Real(d)` → `IntValue` when integral + Int32-bounded else `FloatValue` (same disambiguation rule as the JSON path); `String` → `StringValue`; `Array` → `ListingValue` (recursive); `Map` → `ObjectValue` (default Dynamic mode) or `MappingValue` (`useMapping = true`); `BadValue` → `NullValue`. Multi-document YAML returns only the first document for now; the loader-side `Array[Yaml]` shape is preserved so multi-doc surface lands when a fixture demands it. Parser errors surface as `yaml.Parser.parse: <err>` diagnostics."
+    "`pkl:yaml.Parser.parse(source)` / `parseAll(source)` decode YAML into Pkl values. The evaluator mirrors the JSON parser path: the Parser stamps `hidden __kind = \"YamlParser\"`, CallExpr dispatch checks that marker, and the source flows through `moonbit-community/yaml`'s `Yaml::load_from_string` after a small folded-block normalization (`>` without an explicit chomping indicator is rewritten to `>-`) so the loader's style-erased String output matches Apple Pkl's folded scalar value before String converters run. `yaml_to_value` projects `Null` → `NullValue`, `Boolean` → `BoolValue`, `Integer(i)` → `IntValue(i)`, `Real(d)` → `FloatValue(d)` even when the value is integral (`450.00`), `String` → `StringValue`, `Array` → `ListingValue`, and `Map` → `ObjectValue` (default Dynamic mode) or `MappingValue` (`useMapping = true`). `parse` rejects multi-document streams with Apple Pkl's generic wording, while `parseAll` returns a `ListValue` of every document. Parser converters run after parse projection: path converters match the object tree, class converters walk bottom-up, YAML class converters rewrite mapping/object keys, and repeated YAML map references from anchors carry an internal hidden alias id so path converter rewrites propagate across aliases without touching independent equal mappings. The parser also enforces `maxCollectionAliases` by counting repeated collection references and emits Apple Pkl's limit diagnostic when exceeded; `api/yamlParser5` gold-matches."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-145"; "PKL-144" }
   tags { "evaluator"; "stdlib"; "yaml" }
@@ -3460,15 +3460,15 @@ local pklYamlParserScenario = new Scenario {
     }
     new Decision {
       date = "2026-05-17"
-      summary = "Multi-document YAML returns the first document only"
+      summary = "parseAll owns multi-document streams"
       rationale =
-        "Apple Pkl's `yaml.Parser.parse` returns a single value for single-document input; for multi-document `---`-separated streams it surfaces a `Listing<Value>` via a separate `parseAll` method. The loader-side `Array[Yaml]` shape is preserved (we just take `docs[0]`) so adding `parseAll` later is a method-name + arm addition, not a re-architecture. Single-doc covers every config / fixture pattern observed in pkspec / pkf today."
+        "Apple Pkl's `yaml.Parser.parse` returns a single value for single-document input and rejects multi-document streams; `parseAll` is the API that returns every `---`-separated document. Keeping the loader-side `Array[Yaml]` all the way to dispatch makes the split explicit: `parse` validates `docs.length() <= 1`, while `parseAll` maps every document through the same converter pipeline."
     }
     new Decision {
-      date = "2026-05-17"
-      summary = "Int64 → Int32 numeric clamping uses FloatValue fallback"
+      date = "2026-05-22"
+      summary = "YAML Real stays Float even when integral"
       rationale =
-        "`moonbit-community/yaml` exposes integers as `Int64`; pkl-mbt's `IntValue` carries Int32. Out-of-range Int64s could panic on `to_int` or silently wrap. The fallback to `FloatValue(i.to_double())` preserves the magnitude (Doubles cover the full Int64 range exactly for values up to 2^53) and lifts automatically when the value model promotes to Int64 (already a known follow-up for upstream `maxInt`)."
+        "`moonbit-community/yaml` exposes decimal-looking values such as `450.00` as `Real(450.0, repr=\"450.00\")`. Apple Pkl applies `[Float]` parser converters to those values rather than `[Int]`, so `yaml_to_value` must keep all `Real` nodes as `FloatValue` instead of sharing JSON's integral-number collapse."
     }
   }
 }
@@ -4046,7 +4046,7 @@ local yamlBlockScalars = new Scenario {
   id = "PKL-125"
   name = "YAML literal block scalars"
   description =
-    "Multiline String values render as YAML literal block scalars (`|`, `|-`, `|+`) in block contexts (mapping value position after `key:` and sequence item position after `- `). The chomping indicator follows the trailing-newline count: exactly one trailing `\\n` clips with `|`, zero strips with `|-`, two or more keep with `|+` (the natural newline after the last content line covers one of the kept newlines and `(trailing - 1)` bare newlines preserve the rest). Eligibility requires at least one internal newline (single-line strings stay inline), no control characters other than `\\n` / `\\t`, and no content line starting with whitespace (which would otherwise force an explicit `|N` indentation indicator). Ineligible strings fall back to the existing double-quoted form. Top-level scalar strings (no parent key / sequence) keep the double-quoted form for byte-identity with the pre-PKL-125 fixture baseline."
+    "Multiline String values render as YAML literal block scalars (`|`, `|-`, `|+`) in block contexts (mapping value position after `key:` and sequence item position after `- `). The chomping indicator follows the trailing-newline count: exactly one trailing `\\n` clips with `|`, zero strips with `|-`, two or more keep with `|+` (the natural newline after the last content line covers one of the kept newlines and `(trailing - 1)` bare newlines preserve the rest). Strings that are only trailing newlines also use keep-style literal blocks. Eligibility requires an internal or trailing newline and no control characters other than `\\n`; strings with tabs or other controls fall back to double quotes so YAML escape names can be emitted. A first content line that starts with whitespace uses an explicit `|N` indentation indicator, while later indented lines do not force one. Top-level scalar strings (no parent key / sequence) keep the inline form for byte-identity with the pre-PKL-125 fixture baseline."
   contributes { "GOAL-PKL-PURE" }
   dependsOn { "PKL-073" }
   tags { "renderer"; "yaml"; "block-scalar" }

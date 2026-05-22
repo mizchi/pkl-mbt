@@ -163,6 +163,76 @@ fn extract_package_zip_url(body : String) -> String? {
 }
 
 ///|
+fn package_uri_with_dep_rest(uri : String, rest : String) -> String {
+  if rest == "" {
+    if uri.has_suffix("#/") {
+      uri
+    } else if uri.has_suffix("#") {
+      uri + "/"
+    } else {
+      uri + "#/"
+    }
+  } else {
+    package_uri_with_rest(uri, rest)
+  }
+}
+
+///|
+let project_dependency_overrides : Map[String, String] = Map([], capacity=32)
+
+///|
+fn package_major_lock_key(uri : String) -> String? {
+  let without_fragment = match uri.find("#") {
+    Some(idx) => String::unsafe_substring(uri, start=0, end=idx)
+    None => uri
+  }
+  let clean = strip_package_checksum_from_path(without_fragment)
+  let at_idx = match clean.rev_find("@") {
+    Some(idx) => idx
+    None => return None
+  }
+  let version = String::unsafe_substring(
+    clean,
+    start=at_idx + 1,
+    end=clean.length(),
+  )
+  if version == "" {
+    return None
+  }
+  let major_end = match version.find(".") {
+    Some(idx) => at_idx + 1 + idx
+    None => clean.length()
+  }
+  Some(String::unsafe_substring(clean, start=0, end=major_end))
+}
+
+///|
+fn register_project_dependency_overrides(deps : Map[String, Json]) -> Unit {
+  for key, value in deps {
+    match value {
+      Object(entry) =>
+        match entry.get("uri") {
+          Some(String(uri)) => project_dependency_overrides[key] = uri
+          _ => ()
+        }
+      _ => ()
+    }
+  }
+}
+
+///|
+fn rewrite_project_dependency_uri(uri : String) -> String {
+  match package_major_lock_key(uri) {
+    Some(key) =>
+      match project_dependency_overrides.get(key) {
+        Some(project_uri) => project_uri
+        None => uri
+      }
+    None => uri
+  }
+}
+
+///|
 /// PKL-148ad: resolve an `@<dep>/<rest>` project-dependency import URI
 /// to an absolute file path by walking up `from`'s ancestor
 /// directories for a `PklProject.deps.json`, JSON-parsing the
@@ -178,23 +248,28 @@ fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
     return None
   }
   let after_at = String::unsafe_substring(uri, start=1, end=uri.length())
-  let slash_idx = match after_at.find("/") {
-    Some(idx) => idx
-    None => return None
+  if after_at == "" {
+    return None
   }
-  let dep_name = String::unsafe_substring(after_at, start=0, end=slash_idx)
-  let rest = String::unsafe_substring(
-    after_at,
-    start=slash_idx + 1,
-    end=after_at.length(),
-  )
+  let (dep_name, rest) = match after_at.find("/") {
+    Some(slash_idx) =>
+      (
+        String::unsafe_substring(after_at, start=0, end=slash_idx),
+        String::unsafe_substring(
+          after_at,
+          start=slash_idx + 1,
+          end=after_at.length(),
+        ),
+      )
+    None => (after_at, "")
+  }
   // Package-URI keyed sources are kept under their canonical
   // `package://...#/file.pkl` name in AnalysisSession. Resolve their
   // `@dep/...` imports through the package metadata JSON in the
   // configured cache, but return another package URI so eval-side
   // resolution and deferred import* values stay in the same URI space.
   match package_uri_metadata_alias_to_uri(from, dep_name) {
-    Some(remote_uri) => return Some(package_uri_with_rest(remote_uri, rest))
+    Some(remote_uri) => return Some(package_uri_with_dep_rest(remote_uri, rest))
     None => ()
   }
   let mut current = match from.rev_find("/") {
@@ -203,33 +278,6 @@ fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
   }
   let mut keep_walking = true
   while keep_walking {
-    // PKL-150 (#258): consult PklProject directly for the alias's URI
-    // first — it carries the alias→URI mapping verbatim, and the
-    // configured `--package-cache` can resolve the URI to a local
-    // file without needing the deps.json lockfile. The deps.json path
-    // below still wins for `type: "local"` (file-path) entries; the
-    // PklProject scan only runs for the remote-URI variant the cache
-    // can serve.
-    let pklproject_path = if current == "" {
-      "PklProject"
-    } else {
-      current + "/PklProject"
-    }
-    if @fs.path_exists(pklproject_path) {
-      let project_text = @fs.read_file_to_string(pklproject_path) catch {
-        _ => ""
-      }
-      if project_text != "" {
-        match pklproject_alias_to_uri(project_text, dep_name) {
-          Some(remote_uri) =>
-            match resolve_package_uri_to_cache(remote_uri, rest) {
-              Some(cached_path) => return Some(cached_path)
-              None => return Some(package_uri_with_rest(remote_uri, rest))
-            }
-          None => ()
-        }
-      }
-    }
     // PKL-150 (#258): when the importer is itself inside a package
     // cache directory, the alias map lives in the `<name>@<version>.json`
     // metadata sibling rather than a PklProject. The layout is
@@ -239,10 +287,7 @@ fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
     // `*@*.json` whose `dependencies[<dep>]` matches the alias.
     match package_metadata_alias_to_uri(current, dep_name) {
       Some(remote_uri) =>
-        match resolve_package_uri_to_cache(remote_uri, rest) {
-          Some(cached_path) => return Some(cached_path)
-          None => return Some(package_uri_with_rest(remote_uri, rest))
-        }
+        return Some(package_uri_with_dep_rest(remote_uri, rest))
       None => ()
     }
     let deps_path = if current == "" {
@@ -257,7 +302,8 @@ fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
         match parsed {
           Some(Object(top)) =>
             match top.get("resolvedDependencies") {
-              Some(Object(deps)) =>
+              Some(Object(deps)) => {
+                register_project_dependency_overrides(deps)
                 for key, value in deps {
                   let key_tail = match key.rev_find("/") {
                     Some(idx) =>
@@ -310,19 +356,15 @@ fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
                         } else if entry_type == "remote" {
                           // PKL-150 (#258): `type: "remote"` carries a
                           // `projectpackage://host/name@version` URI.
-                          // Resolve through the package cache when
-                          // possible; otherwise return the package URI
-                          // shape so the async loader can download it.
+                          // Preserve that URI shape so projectpackage
+                          // identity and package-local relative imports
+                          // survive into the evaluator; the loader will
+                          // still read the body from the configured cache.
                           match uri_str {
                             Some(remote_uri) =>
-                              match
-                                resolve_package_uri_to_cache(remote_uri, rest) {
-                                Some(cached_path) => return Some(cached_path)
-                                None =>
-                                  return Some(
-                                    package_uri_with_rest(remote_uri, rest),
-                                  )
-                              }
+                              return Some(
+                                package_uri_with_dep_rest(remote_uri, rest),
+                              )
                             None => ()
                           }
                         }
@@ -331,10 +373,28 @@ fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
                     }
                   }
                 }
+              }
               _ => ()
             }
           _ => ()
         }
+      }
+    }
+    let pklproject_path = if current == "" {
+      "PklProject"
+    } else {
+      current + "/PklProject"
+    }
+    if @fs.path_exists(pklproject_path) {
+      match pklproject_alias_to_uri_from_file(pklproject_path, dep_name, []) {
+        Some(remote_uri) =>
+          return Some(
+            package_uri_with_dep_rest(
+              rewrite_project_dependency_uri(remote_uri),
+              rest,
+            ),
+          )
+        None => ()
       }
     }
     if current == "" || current == "/" {
@@ -384,7 +444,12 @@ fn package_uri_metadata_alias_to_uri(
             match deps.get(dep_name) {
               Some(Object(entry)) =>
                 match entry.get("uri") {
-                  Some(String(uri)) => return Some(uri)
+                  Some(String(uri)) =>
+                    if from.has_prefix("projectpackage://") {
+                      return Some(rewrite_project_dependency_uri(uri))
+                    } else {
+                      return Some(uri)
+                    }
                   _ => ()
                 }
               _ => ()
@@ -570,6 +635,83 @@ fn pklproject_alias_to_uri(text : String, dep_alias : String) -> String? {
     )
   }
   None
+}
+
+///|
+fn pklproject_amends_uri(text : String) -> String? {
+  let marker = "amends"
+  match text.find(marker) {
+    Some(idx) => {
+      let mut i = idx + marker.length()
+      while i < text.length() {
+        let c = text[i].to_int().unsafe_to_char()
+        if c == ' ' || c == '\t' || c == '\r' || c == '\n' {
+          i = i + 1
+        } else {
+          break
+        }
+      }
+      if i >= text.length() || text[i].to_int().unsafe_to_char() != '"' {
+        return None
+      }
+      let value_start = i + 1
+      let mut value_end = value_start
+      while value_end < text.length() &&
+            text[value_end].to_int().unsafe_to_char() != '"' {
+        value_end = value_end + 1
+      }
+      if value_end >= text.length() {
+        None
+      } else {
+        Some(String::unsafe_substring(text, start=value_start, end=value_end))
+      }
+    }
+    None => None
+  }
+}
+
+///|
+fn resolve_project_file_relative(from : String, uri : String) -> String {
+  if uri.has_prefix("/") || uri.find(":") is Some(_) {
+    normalize_path_segments(uri)
+  } else {
+    let base = match from.rev_find("/") {
+      Some(idx) => String::unsafe_substring(from, start=0, end=idx + 1)
+      None => ""
+    }
+    normalize_path_segments(base + uri)
+  }
+}
+
+///|
+fn pklproject_alias_to_uri_from_file(
+  path : String,
+  dep_alias : String,
+  seen : Array[String],
+) -> String? {
+  if seen.contains(path) {
+    return None
+  }
+  let text = @fs.read_file_to_string(path) catch { _ => "" }
+  if text == "" {
+    return None
+  }
+  match pklproject_alias_to_uri(text, dep_alias) {
+    Some(uri) => Some(uri)
+    None =>
+      match pklproject_amends_uri(text) {
+        Some(parent_uri) => {
+          let next_seen = seen[:].to_owned()
+          next_seen.push(path)
+          pklproject_alias_to_uri_from_file(
+            resolve_project_file_relative(path, parent_uri),
+            dep_alias,
+            next_seen,
+          )
+        }
+        None => None
+      }
+  }
 }
 
 ///|
@@ -1018,7 +1160,7 @@ fn push_resource_if_file(
   if body != "" || @fs.path_exists(resolved) {
     resources.push({
       uri: visible_uri,
-      resource_uri: snippet_fixture_file_uri_for_diagnostic(resolved),
+      resource_uri: resource_uri_for_visible_path(resolved, visible_uri),
       text: body,
     })
   }
@@ -1155,11 +1297,31 @@ fn package_glob_resource_uri(
 }
 
 ///|
+fn encode_package_visible_uri(uri : String) -> String {
+  if !is_package_uri_like(uri) {
+    return uri
+  }
+  match uri.find("#/") {
+    Some(idx) => {
+      let base = String::unsafe_substring(uri, start=0, end=idx)
+      let fragment = String::unsafe_substring(
+        uri,
+        start=idx + 2,
+        end=uri.length(),
+      )
+      base + "#/" + percent_encode_file_path(fragment)
+    }
+    None => uri
+  }
+}
+
+///|
 fn push_package_resource_if_file(
   resources : Array[@pkl.SandboxResource],
   resolved : String,
   package_base : String,
   visible_relative : String,
+  resource_relative : String,
 ) -> Unit {
   let is_dir = @fs.is_dir(resolved) catch { _ => false }
   if is_dir {
@@ -1167,8 +1329,11 @@ fn push_package_resource_if_file(
   }
   let body = @fs.read_file_to_string(resolved) catch { _ => "" }
   if body != "" || @fs.path_exists(resolved) {
-    let uri = package_glob_resource_uri(package_base, visible_relative)
-    resources.push({ uri, resource_uri: uri, text: body })
+    resources.push({
+      uri: encode_package_visible_uri(visible_relative),
+      resource_uri: package_glob_resource_uri(package_base, resource_relative),
+      text: body,
+    })
   }
 }
 
@@ -1178,6 +1343,7 @@ fn collect_package_globstar_suffix_resources(
   base_dir : String,
   package_base : String,
   visible_prefix : String,
+  resource_prefix : String,
   suffix : String,
 ) -> Unit {
   if !@fs.path_exists(base_dir) {
@@ -1194,6 +1360,7 @@ fn collect_package_globstar_suffix_resources(
         resolved,
         package_base,
         visible_prefix + name,
+        resource_prefix + name,
       )
     }
   }
@@ -1206,6 +1373,7 @@ fn collect_package_globstar_suffix_resources(
         resolved,
         package_base,
         visible_prefix + name + "/",
+        resource_prefix + name + "/",
         suffix,
       )
     }
@@ -1213,15 +1381,49 @@ fn collect_package_globstar_suffix_resources(
 }
 
 ///|
-fn package_glob_resources_from(
-  pattern : String,
-) -> Array[@pkl.SandboxResource]? {
+fn collect_package_glob_resources(
+  resources : Array[@pkl.SandboxResource],
+  package_dir : String,
+  package_base : String,
+  visible_prefix : String,
+  resource_prefix : String,
+  name_pattern : String,
+) -> Unit {
+  let base_dir = normalize_path_segments(package_dir + "/" + resource_prefix)
+  match globstar_suffix(name_pattern) {
+    Some(suffix) =>
+      collect_package_globstar_suffix_resources(
+        resources, base_dir, package_base, visible_prefix, resource_prefix, suffix,
+      )
+    None => {
+      if !@fs.path_exists(base_dir) {
+        return
+      }
+      let names = @fs.read_dir(base_dir) catch { _ => [] }
+      for name in sort_strings(names) {
+        if glob_name_matches(name_pattern, name) {
+          let resolved = normalize_path_segments(base_dir + "/" + name)
+          push_package_resource_if_file(
+            resources,
+            resolved,
+            package_base,
+            visible_prefix + name,
+            resource_prefix + name,
+          )
+        }
+      }
+    }
+  }
+}
+
+///|
+fn package_glob_parts(pattern : String) -> (String, String, String)? {
   if !is_package_uri_like(pattern) {
     return None
   }
   let hash = match pattern.find("#") {
     Some(idx) => idx
-    None => return Some([])
+    None => return None
   }
   let package_base = String::unsafe_substring(pattern, start=0, end=hash)
   let fragment = String::unsafe_substring(
@@ -1230,11 +1432,23 @@ fn package_glob_resources_from(
     end=pattern.length(),
   )
   let decoded_pattern = percent_decode_uri_path(trim_fragment_slash(fragment))
+  let (dir_prefix, name_pattern) = split_glob_pattern(decoded_pattern)
+  Some((package_base, dir_prefix, name_pattern))
+}
+
+///|
+fn package_glob_resources_from(
+  pattern : String,
+) -> Array[@pkl.SandboxResource]? {
+  let (package_base, dir_prefix, name_pattern) = match
+    package_glob_parts(pattern) {
+    Some(parts) => parts
+    None => return None
+  }
   let parts = match package_cache_parts(package_base, "") {
     Some(parts) => parts
     None => return Some([])
   }
-  let (dir_prefix, name_pattern) = split_glob_pattern(decoded_pattern)
   let resources : Array[@pkl.SandboxResource] = []
   for cache_dir in package_cache_roots() {
     let cache_prefix = if cache_dir.has_suffix("/") {
@@ -1248,30 +1462,14 @@ fn package_glob_resources_from(
     if !@fs.path_exists(package_dir) {
       continue
     }
-    let base_dir = normalize_path_segments(package_dir + "/" + dir_prefix)
-    match globstar_suffix(name_pattern) {
-      Some(suffix) =>
-        collect_package_globstar_suffix_resources(
-          resources, base_dir, package_base, dir_prefix, suffix,
-        )
-      None => {
-        if !@fs.path_exists(base_dir) {
-          return Some(resources)
-        }
-        let names = @fs.read_dir(base_dir) catch { _ => [] }
-        for name in sort_strings(names) {
-          if glob_name_matches(name_pattern, name) {
-            let resolved = normalize_path_segments(base_dir + "/" + name)
-            push_package_resource_if_file(
-              resources,
-              resolved,
-              package_base,
-              dir_prefix + name,
-            )
-          }
-        }
-      }
-    }
+    collect_package_glob_resources(
+      resources,
+      package_dir,
+      package_base,
+      package_base + "#/" + dir_prefix,
+      dir_prefix,
+      name_pattern,
+    )
     return Some(resources)
   }
   Some(resources)
@@ -1315,17 +1513,52 @@ fn collect_globstar_suffix_resources(
 }
 
 ///|
+fn directory_listing_text(path : String) -> String {
+  let names = @fs.read_dir(path) catch { _ => [] }
+  let buf = StringBuilder::new()
+  for name in sort_strings(names) {
+    buf.write_string(name)
+    buf.write_char('\n')
+  }
+  buf.to_string()
+}
+
+///|
 fn read_resource_from(from : String, uri : String) -> @pkl.SandboxResource? {
   let resolved = resolve_import_path(from, uri)
+  if is_package_uri_like(resolved) {
+    match resolve_package_uri_to_cache(resolved, "") {
+      Some(cached_path) => {
+        let is_dir = @fs.is_dir(cached_path) catch { _ => false }
+        if is_dir {
+          return Some({
+            uri,
+            resource_uri: resolved,
+            text: directory_listing_text(cached_path),
+          })
+        }
+        let body = @fs.read_file_to_string(cached_path) catch { _ => "" }
+        if body != "" || @fs.path_exists(cached_path) {
+          return Some({ uri, resource_uri: resolved, text: body })
+        }
+      }
+      None => ()
+    }
+    return None
+  }
   let is_dir = @fs.is_dir(resolved) catch { _ => false }
   if is_dir {
-    return None
+    return Some({
+      uri,
+      resource_uri: resource_uri_for_visible_path(resolved, uri),
+      text: directory_listing_text(resolved),
+    })
   }
   let body = @fs.read_file_to_string(resolved) catch { _ => "" }
   if body != "" || @fs.path_exists(resolved) {
     Some({
       uri,
-      resource_uri: snippet_fixture_file_uri_for_diagnostic(resolved),
+      resource_uri: resource_uri_for_visible_path(resolved, uri),
       text: body,
     })
   } else {
@@ -1343,9 +1576,6 @@ fn glob_resources_from(
     None => ()
   }
   let (dir_prefix, name_pattern) = split_glob_pattern(pattern)
-  let base_dir = normalize_path_segments(
-    module_parent_dir(from) + "/" + dir_prefix,
-  )
   match globstar_parent_root(dir_prefix) {
     Some(root_prefix) => {
       let resources : Array[@pkl.SandboxResource] = []
@@ -1359,6 +1589,43 @@ fn glob_resources_from(
     }
     None => ()
   }
+  let resolved_base_raw = resolve_import_path(from, dir_prefix)
+  let resolved_base = if dir_prefix != "" && !resolved_base_raw.has_suffix("/") {
+    resolved_base_raw + "/"
+  } else {
+    resolved_base_raw
+  }
+  if is_package_uri_like(resolved_base) {
+    let resources : Array[@pkl.SandboxResource] = []
+    match package_glob_parts(resolved_base + name_pattern) {
+      Some((package_base, resource_prefix, package_name_pattern)) => {
+        let parts = match package_cache_parts(package_base, "") {
+          Some(parts) => parts
+          None => return resources
+        }
+        for cache_dir in package_cache_roots() {
+          let cache_prefix = if cache_dir.has_suffix("/") {
+            cache_dir
+          } else {
+            cache_dir + "/"
+          }
+          let package_dir = normalize_path_segments(
+            cache_prefix + parts.package_dir_relative,
+          )
+          if !@fs.path_exists(package_dir) {
+            continue
+          }
+          collect_package_glob_resources(
+            resources, package_dir, package_base, dir_prefix, resource_prefix, package_name_pattern,
+          )
+          return resources
+        }
+      }
+      None => ()
+    }
+    return resources
+  }
+  let base_dir = normalize_path_segments(resolved_base)
   match globstar_suffix(name_pattern) {
     Some(suffix) => {
       let resources : Array[@pkl.SandboxResource] = []
@@ -1403,6 +1670,25 @@ fn snippet_fixture_file_uri_for_diagnostic(resolved : String) -> String {
       String::unsafe_substring(uri, start=tail_start, end=uri.length())
     }
     None => uri
+  }
+}
+
+///|
+fn resource_uri_for_visible_path(
+  resolved : String,
+  visible_uri : String,
+) -> String {
+  let resource_uri = snippet_fixture_file_uri_for_diagnostic(resolved)
+  if visible_uri.has_prefix("@") &&
+    resource_uri.has_prefix("file:///$snippetsDir") {
+    "file:/$snippetsDir" +
+    String::unsafe_substring(
+      resource_uri,
+      start="file:///$snippetsDir".length(),
+      end=resource_uri.length(),
+    )
+  } else {
+    resource_uri
   }
 }
 
@@ -1655,8 +1941,7 @@ async fn load_expr_imports(
         load_expr_imports(session, from, argument, stack, loaded)
       }
     }
-    LambdaExpr(_, body, _) =>
-      load_expr_imports(session, from, body, stack, loaded)
+    LambdaExpr(_, _, _) => ()
     NonNullExpr(inner) => load_expr_imports(session, from, inner, stack, loaded)
     UnaryExpr(_, inner) =>
       load_expr_imports(session, from, inner, stack, loaded)
@@ -1708,6 +1993,185 @@ fn read_with_module_paths(path : String) -> String {
 }
 
 ///|
+fn find_matching_brace(text : String, open_idx : Int) -> Int? {
+  let mut depth = 0
+  let mut i = open_idx
+  while i < text.length() {
+    let c = text[i].to_int().unsafe_to_char()
+    if c == '{' {
+      depth = depth + 1
+    } else if c == '}' {
+      depth = depth - 1
+      if depth == 0 {
+        return Some(i)
+      }
+    }
+    i = i + 1
+  }
+  None
+}
+
+///|
+fn extract_named_block(text : String, name : String) -> String? {
+  let idx = match text.find(name) {
+    Some(idx) => idx
+    None => return None
+  }
+  let after = idx + name.length()
+  let tail = String::unsafe_substring(text, start=after, end=text.length())
+  let open_rel = match tail.find("{") {
+    Some(idx) => idx
+    None => return None
+  }
+  let open_idx = after + open_rel
+  match find_matching_brace(text, open_idx) {
+    Some(close_idx) =>
+      Some(String::unsafe_substring(text, start=open_idx + 1, end=close_idx))
+    None => None
+  }
+}
+
+///|
+fn extract_string_literals(text : String) -> Array[String] {
+  let out : Array[String] = []
+  let mut i = 0
+  while i < text.length() {
+    if text[i].to_int().unsafe_to_char() == '"' {
+      let start = i + 1
+      let mut j = start
+      while j < text.length() && text[j].to_int().unsafe_to_char() != '"' {
+        j = j + 1
+      }
+      if j < text.length() {
+        out.push(String::unsafe_substring(text, start~, end=j))
+        i = j + 1
+      } else {
+        i = text.length()
+      }
+    } else {
+      i = i + 1
+    }
+  }
+  out
+}
+
+///|
+fn extract_bracket_string_map(text : String) -> Map[String, String] {
+  let entries : Map[String, String] = Map([], capacity=4)
+  let mut search_from = 0
+  while search_from < text.length() {
+    let tail = String::unsafe_substring(
+      text,
+      start=search_from,
+      end=text.length(),
+    )
+    let rel = match tail.find("[\"") {
+      Some(idx) => idx
+      None => break
+    }
+    let key_start = search_from + rel + 2
+    let mut key_end = key_start
+    while key_end < text.length() &&
+          text[key_end].to_int().unsafe_to_char() != '"' {
+      key_end = key_end + 1
+    }
+    if key_end >= text.length() {
+      break
+    }
+    let after_key = String::unsafe_substring(
+      text,
+      start=key_end + 1,
+      end=text.length(),
+    )
+    let value_quote_rel = match after_key.find("\"") {
+      Some(idx) => idx
+      None => break
+    }
+    let value_start = key_end + 1 + value_quote_rel + 1
+    let mut value_end = value_start
+    while value_end < text.length() &&
+          text[value_end].to_int().unsafe_to_char() != '"' {
+      value_end = value_end + 1
+    }
+    if value_end >= text.length() {
+      break
+    }
+    entries[String::unsafe_substring(text, start=key_start, end=key_end)] = String::unsafe_substring(
+      text,
+      start=value_start,
+      end=value_end,
+    )
+    search_from = value_end + 1
+  }
+  entries
+}
+
+///|
+fn nearest_pklproject_path(path : String) -> String? {
+  if path.find(":") is Some(_) {
+    return None
+  }
+  let mut current = match path.rev_find("/") {
+    Some(idx) => String::unsafe_substring(path, start=0, end=idx)
+    None => "."
+  }
+  let mut keep_walking = true
+  while keep_walking {
+    let candidate = if current == "" {
+      "PklProject"
+    } else {
+      current + "/PklProject"
+    }
+    if @fs.path_exists(candidate) {
+      return Some(candidate)
+    }
+    if current == "" || current == "/" {
+      keep_walking = false
+    } else {
+      match current.rev_find("/") {
+        Some(idx) =>
+          current = String::unsafe_substring(current, start=0, end=idx)
+        None => current = ""
+      }
+    }
+  }
+  None
+}
+
+///|
+fn configure_project_evaluator_settings(path : String) -> Unit {
+  let project_path = match nearest_pklproject_path(path) {
+    Some(path) => path
+    None => return
+  }
+  let project = @fs.read_file_to_string(project_path) catch { _ => "" }
+  if project == "" {
+    return
+  }
+  let settings = match extract_named_block(project, "evaluatorSettings") {
+    Some(body) => body
+    None => return
+  }
+  match extract_named_block(settings, "env") {
+    Some(env_block) =>
+      @pkl.configure_sandbox_env_vars(extract_bracket_string_map(env_block))
+    None => ()
+  }
+  match extract_named_block(settings, "externalProperties") {
+    Some(prop_block) =>
+      @pkl.configure_sandbox_props(extract_bracket_string_map(prop_block))
+    None => ()
+  }
+  match extract_named_block(settings, "allowedModules") {
+    Some(modules_block) =>
+      @pkl.configure_sandbox_allowed_modules(
+        extract_string_literals(modules_block),
+      )
+    None => ()
+  }
+}
+
+///|
 async fn load_path(
   session : @pkl.AnalysisSession,
   path : String,
@@ -1717,6 +2181,7 @@ async fn load_path(
   if path.has_prefix("pkl:") {
     return
   }
+  configure_project_evaluator_settings(path)
   // PKL-106: enforce `--allowed-modules` at the loader boundary.
   // The check applies to every URI we'd actually fetch / read, so a
   // disallowed transitive import surfaces at load time rather than
@@ -2085,6 +2550,7 @@ async fn main {
   @pkl.configure_sandbox_module_paths(module_paths)
   @pkl.configure_sandbox_package_caches(package_caches)
   @pkl.configure_sandbox_allowed_modules(allowed_modules)
+  @pkl.clear_sandbox_env_vars()
   @pkl.reset_sandbox_io_cache()
   if format != "pcf" &&
     format != "json" &&
@@ -2191,6 +2657,7 @@ async fn main {
           // their data through it render only that subtree instead
           // of the whole module envelope.
           let xml_options = extract_xml_renderer_options(raw)
+          let yaml_options = extract_yaml_renderer_options(raw)
           let value = extract_output_value(raw)
           // PKL-104: when the user didn't pass `-f / --format`, honor
           // the renderer class declared in `output { renderer = new
@@ -2209,12 +2676,23 @@ async fn main {
           // documentation: a future renderer added here surfaces as a
           // missing-arm warning rather than a silent fallback.
           match format {
-            "json" => println(@pkl.render_value_as_json(value))
+            "json" => {
+              let (_, indent_text, _, _) = xml_options
+              println(@pkl.render_value_as_json_with_indent(value, indent_text))
+            }
             "yaml" => {
               // render_value_as_yaml already terminates each line with
               // `\n`, including the final entry. Drop the trailing
               // newline so `println` does not double-up at end-of-stream.
-              let yaml = @pkl.render_value_as_yaml(value)
+              let (indent_width, is_stream, omit_null_entries) = yaml_options
+              let yaml_value = if omit_null_entries {
+                strip_null_mapping_entries(value)
+              } else {
+                value
+              }
+              let yaml = @pkl.render_value_as_yaml_with_options(
+                yaml_value, indent_width, is_stream,
+              )
               let trimmed = if yaml.has_suffix("\n") {
                 String::unsafe_substring(yaml, start=0, end=yaml.length() - 1)
               } else {
@@ -2653,6 +3131,44 @@ fn extract_xml_renderer_options(
 }
 
 ///|
+fn extract_yaml_renderer_options(value : @pkl.Value) -> (Int, Bool, Bool) {
+  let mut indent_width = 2
+  let mut is_stream = false
+  let mut omit_null_properties = false
+  match value {
+    @pkl.ObjectValue(members) =>
+      for entry in members {
+        if entry.name == "output" {
+          match entry.value {
+            @pkl.ObjectValue(output_members) =>
+              for output_member in output_members {
+                if output_member.name == "renderer" {
+                  match output_member.value {
+                    @pkl.ObjectValue(renderer_members) =>
+                      for renderer_member in renderer_members {
+                        match (renderer_member.name, renderer_member.value) {
+                          ("indentWidth", @pkl.IntValue(n)) =>
+                            indent_width = n.to_int()
+                          ("isStream", @pkl.BoolValue(b)) => is_stream = b
+                          ("omitNullProperties", @pkl.BoolValue(b)) =>
+                            omit_null_properties = b
+                          _ => ()
+                        }
+                      }
+                    _ => ()
+                  }
+                }
+              }
+            _ => ()
+          }
+        }
+      }
+    _ => ()
+  }
+  (indent_width, is_stream, omit_null_properties)
+}
+
+///|
 fn extract_output_value(value : @pkl.Value) -> @pkl.Value {
   match value {
     @pkl.ObjectValue(members) => {
@@ -2803,6 +3319,86 @@ fn strip_null_object_properties(value : @pkl.Value) -> @pkl.Value {
         mapped,
         strip_null_object_properties(default_value),
       )
+    }
+    other => other
+  }
+}
+
+///|
+fn strip_null_mapping_entries(value : @pkl.Value) -> @pkl.Value {
+  match value {
+    @pkl.ObjectValue(members) => {
+      let mapped : Array[@pkl.ValueMember] = []
+      for entry in members {
+        mapped.push({
+          name: entry.name,
+          value: strip_null_mapping_entries(entry.value),
+          source: None,
+          annotations: entry.annotations,
+        })
+      }
+      @pkl.ObjectValue(mapped)
+    }
+    @pkl.ListingValue(elements) => {
+      let mapped : Array[@pkl.Value] = []
+      for element in elements {
+        mapped.push(strip_null_mapping_entries(element))
+      }
+      @pkl.ListingValue(mapped)
+    }
+    @pkl.DefaultedListingValue(raw, elements, default_value) => {
+      let mapped : Array[@pkl.Value] = []
+      for element in elements {
+        mapped.push(strip_null_mapping_entries(element))
+      }
+      @pkl.DefaultedListingValue(
+        raw,
+        mapped,
+        strip_null_mapping_entries(default_value),
+      )
+    }
+    @pkl.MappingValue(entries) => {
+      let mapped : Array[@pkl.ValueEntry] = []
+      for entry in entries {
+        if entry.value is @pkl.NullValue {
+          continue
+        }
+        mapped.push({
+          key: entry.key,
+          value: strip_null_mapping_entries(entry.value),
+        })
+      }
+      @pkl.MappingValue(mapped)
+    }
+    @pkl.DefaultedMappingValue(raw, entries, default_value) => {
+      let mapped : Array[@pkl.ValueEntry] = []
+      for entry in entries {
+        if entry.value is @pkl.NullValue {
+          continue
+        }
+        mapped.push({
+          key: entry.key,
+          value: strip_null_mapping_entries(entry.value),
+        })
+      }
+      @pkl.DefaultedMappingValue(
+        raw,
+        mapped,
+        strip_null_mapping_entries(default_value),
+      )
+    }
+    @pkl.MapValue(entries) => {
+      let mapped : Array[@pkl.ValueEntry] = []
+      for entry in entries {
+        if entry.value is @pkl.NullValue {
+          continue
+        }
+        mapped.push({
+          key: entry.key,
+          value: strip_null_mapping_entries(entry.value),
+        })
+      }
+      @pkl.MapValue(mapped)
     }
     other => other
   }

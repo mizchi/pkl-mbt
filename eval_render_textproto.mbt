@@ -27,6 +27,23 @@ pub fn render_value_as_textproto_fragment(
 }
 
 ///|
+pub fn render_value_as_protobuf_fragment(
+  value : Value,
+  indent_text : String,
+) -> String {
+  match value {
+    DurationValue(_, _) => {
+      let buf = StringBuilder::new()
+      buf.write_string("{\n")
+      render_textproto_duration_body(value, 1, indent_text, buf)
+      buf.write_char('}')
+      buf.to_string()
+    }
+    _ => render_value_as_textproto_fragment(value, indent_text)
+  }
+}
+
+///|
 fn render_textproto_value(
   value : Value,
   level : Int,
