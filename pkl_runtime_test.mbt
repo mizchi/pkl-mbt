@@ -330,6 +330,64 @@ test "PKL-123: pkl:platform exposes stub OS / architecture" {
 }
 
 ///|
+test "PKL-152: pkl:release exposes current release metadata shape" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:release"
+      #|major = release.current.version.major
+      #|versionInfoOk = release.current.versionInfo.contains("Linux")
+      #|commitOk = release.current.commitId.matches(Regex(#"[0-9a-f]{7,40}"#))
+      #|sourceOk = release.current.sourceCode.homepage.startsWith("https://")
+      #|docsOk = release.current.documentation.homepage.endsWith("/")
+      #|hasBase = release.current.standardLibrary.modules.contains("pkl:base")
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("major = 0"), content="true")
+  inspect(rendered.contains("versionInfoOk = true"), content="true")
+  inspect(rendered.contains("commitOk = true"), content="true")
+  inspect(rendered.contains("sourceOk = true"), content="true")
+  inspect(rendered.contains("docsOk = true"), content="true")
+  inspect(rendered.contains("hasBase = true"), content="true")
+}
+
+///|
+test "PKL-152: pkl:Benchmark stubs produce benchmark result shape" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:Benchmark"
+      #|micro = (new Benchmark.Microbenchmark {
+      #|  expression = 1 + 2
+      #|  iterations = 3
+      #|  iterationTime = 1.ms
+      #|}).run()
+      #|output = (new Benchmark.OutputBenchmark {
+      #|  sourceModule = module
+      #|  iterations = 3
+      #|  iterationTime = 1.ms
+      #|  isVerbose = true
+      #|}).run()
+      #|whole = new Benchmark {
+      #|  microbenchmarks { ["micro"] { expression = 1 + 2 } }
+      #|}
+      #|microOk = micro.iterations == 3 && micro.samples == null && micro.min > 0.s
+      #|outputOk = output.samples.length == 3 && output.min == output.samples.min
+      #|textOk = whole.output.text.contains("[\"micro\"]")
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("microOk = true"), content="true")
+  inspect(rendered.contains("outputOk = true"), content="true")
+  inspect(rendered.contains("textOk = true"), content="true")
+}
+
+///|
 test "PKL-123: pkl:semver parse decomposes major.minor.patch" {
   let session = AnalysisSession::new()
   session.set_source(
@@ -433,6 +491,19 @@ test "PKL-123: pkl:semver pre-release ranks below release" {
     }
   }
   inspect(lt, content="true")
+}
+
+///|
+test "PKL-152: semver toString wins over universal Any toString" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl", "import \"pkl:semver\" as semver\ntext = semver.Version(\"1.2.3-rc-1+abc\").toString()",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is StringValue(text) else { panic() }
+  inspect(text, content="1.2.3-rc-1+abc")
 }
 
 ///|
@@ -782,11 +853,128 @@ test "PKL-119d: Map.fold reduces over the entries" {
 }
 
 ///|
+test "PKL-152: Map mutators and toTyped follow pkl:base API shape" {
+  let source =
+    #|class Person {
+    #|  name: String = "Default"
+    #|  age: UInt
+    #|}
+    #|local abstract class Abstract
+    #|removed = Map("one", 1, "two", 2, "three", 3).remove("two")
+    #|put = Map("one", 1).put("one", 4)
+    #|flat = Map("one", 1, "two", 2).flatMap((k, v) -> Map(v, v * 3))
+    #|dynClass = Map("one", 1).toDynamic().getClass().simpleName
+    #|typedName = Map("age", 42).toTyped(Person).name
+    #|typedHasAge = Map("name", "Pigeon").toTyped(Person).hasProperty("age")
+    #|missingErr = module.catch(() -> Map("name", "Pigeon").toTyped(Person).age)
+    #|abstractErr = module.catch(() -> Map().toTyped(Abstract))
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered.contains("removed = Map(\"one\", 1, \"three\", 3)"),
+    content="true",
+  )
+  inspect(rendered.contains("put = Map(\"one\", 4)"), content="true")
+  inspect(rendered.contains("flat = Map(1, 3, 2, 6)"), content="true")
+  inspect(rendered.contains("dynClass = \"Dynamic\""), content="true")
+  inspect(rendered.contains("typedName = \"Default\""), content="true")
+  inspect(rendered.contains("typedHasAge = true"), content="true")
+  inspect(
+    rendered.contains(
+      "missingErr = \"Tried to read property `age` but its value is undefined.\"",
+    ),
+    content="true",
+  )
+  inspect(
+    rendered.contains("abstractErr = \"Cannot instantiate abstract class `"),
+    content="true",
+  )
+}
+
+///|
 test "PKL-119d: PCF renders Map through the constructor form" {
   guard eval_source("m = Map(\"a\", 1, \"b\", 2)") is EvalOk(value) else {
     panic()
   }
   inspect(@pkl.render_value(value), content="m = Map(\"a\", 1, \"b\", 2)")
+}
+
+///|
+test "PKL-152: Regex constructor renders raw patterns and rejects broken groups" {
+  let source =
+    #|raw = Regex(#"[ab]\s+"#)
+    #|err = module.catch(() -> Regex("("))
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("raw = Regex(#\"[ab]\\s+\"#)"), content="true")
+  inspect(
+    rendered.contains(
+      "err = \"Syntax error in regex `(`: Unclosed group near index 1 (\"",
+    ),
+    content="true",
+  )
+}
+
+///|
+test "PKL-152: builtin type aliases use pkl:base targets" {
+  let source =
+    #|okUInt: UInt = 9223372036854775807
+    #|okUri: Uri = "https://apple.com"
+    #|okNonNull: NonNull = 42
+    #|class Bad {
+    #|  u: UInt = -1
+    #|  uri: Uri = 42
+    #|  nn: NonNull = null
+    #|}
+    #|local bad = new Bad {}
+    #|badUInt = module.catch(() -> bad.u)
+    #|badUri = module.catch(() -> bad.uri)
+    #|badNonNull = module.catch(() -> bad.nn)
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("okUInt = 9223372036854775807"), content="true")
+  inspect(rendered.contains("okUri = \"https://apple.com\""), content="true")
+  inspect(rendered.contains("okNonNull = 42"), content="true")
+  inspect(
+    rendered.contains(
+      "badUInt = \"Type constraint `isPositive` violated. Value: -1\"",
+    ),
+    content="true",
+  )
+  inspect(
+    rendered.contains(
+      "badUri = \"Expected value of type `String`, but got type `Int`. Value: 42\"",
+    ),
+    content="true",
+  )
+  inspect(
+    rendered.contains(
+      "badNonNull = \"Type constraint `!(this is Null)` violated. Value: null\"",
+    ),
+    content="true",
+  )
+}
+
+///|
+test "PKL-152: Any ifNonNull toString and module getClass" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|moduleClass = import("pkl:base").getClass().simpleName
+      #|nonnull = 10.ifNonNull((x) -> x + 1)
+      #|nullish = null.ifNonNull((x) -> x)
+      #|pairText = Pair(1, 2).toString()
+      #|listText = List(1, 2, 3).toString()
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("moduleClass = \"ModuleClass\""), content="true")
+  inspect(rendered.contains("nonnull = 11"), content="true")
+  inspect(rendered.contains("nullish = null"), content="true")
+  inspect(rendered.contains("pairText = \"Pair(1, 2)\""), content="true")
+  inspect(rendered.contains("listText = \"List(1, 2, 3)\""), content="true")
 }
 
 ///|
@@ -966,12 +1154,12 @@ test "PKL-148h: Set.toList materialises to ListValue, .toListing to ListingValue
 }
 
 ///|
-test "PKL-119c: Set.map returns a Listing of mapped values" {
+test "PKL-119c: Set.map keeps the Set type" {
   guard eval_source("xs = Set(1, 2, 3).map((n) -> n * 10)")
     is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  guard members[0].value is ListingValue(items) else { panic() }
+  guard members[0].value is SetValue(items) else { panic() }
   guard items[0] is IntValue(a) else { panic() }
   guard items[2] is IntValue(c) else { panic() }
   inspect(a, content="10")
@@ -1431,6 +1619,62 @@ test "PKL-148c: module relativePathTo returns descendant path segments" {
 }
 
 ///|
+test "PKL-152: read Resource exposes bytes and digest properties" {
+  reset_sandbox_io_cache()
+  register_read_resource(
+    "main.pkl", "fox.txt", "fox.txt", "file:///fox.txt", "The quick brown fox jumps over the lazy dog.",
+  )
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|local fox = read("fox.txt")
+      #|uri = fox.uri
+      #|text = fox.text
+      #|bytesText = fox.bytes.decodeToString("UTF-8")
+      #|base64 = fox.base64
+      #|md5 = fox.md5
+      #|sha1 = fox.bytes.sha1
+      #|sha256 = fox.sha256
+      #|sha256Int = fox.bytes.sha256Int
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let expected =
+    #|uri = "file:///fox.txt"
+    #|text = "The quick brown fox jumps over the lazy dog."
+    #|bytesText = "The quick brown fox jumps over the lazy dog."
+    #|base64 = "VGhlIHF1aWNrIGJyb3duIGZveCBqdW1wcyBvdmVyIHRoZSBsYXp5IGRvZy4="
+    #|md5 = "e4d909c290d0fb1ca068ffaddf22cbd0"
+    #|sha1 = "408d94384216f890ff7a0c3528e8bed1e0b01621"
+    #|sha256 = "ef537f25c895bfa782526529a9b63d97aa631564d5d789c2b765448c8635fb6c"
+    #|sha256Int = -6359199461968751633
+  inspect(@pkl.render_value(value), content=expected)
+  reset_sandbox_io_cache()
+}
+
+///|
+test "PKL-152: in-language Resource computes bytes and base64 fields" {
+  guard eval_source(
+      (
+        #|fromBase64 = new Resource { base64 = "AQIDBA==" }.bytes
+        #|toBase64 = new Resource { bytes = Bytes(1, 2, 3, 4) }.base64
+        #|fromText = new Resource { text = "foo bar" }.base64
+        #|hash = new Resource { bytes = Bytes(1, 2, 3, 4) }.sha256
+      ),
+    )
+    is EvalOk(value) else {
+    panic()
+  }
+  let expected =
+    #|fromBase64 = Bytes(1, 2, 3, 4)
+    #|toBase64 = "AQIDBA=="
+    #|fromText = "Zm9vIGJhcg=="
+    #|hash = "9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a"
+  inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
 test "PKL-148c: pkl math exposes uint constants and integer helpers" {
   let session = AnalysisSession::new()
   session.set_source(
@@ -1524,6 +1768,27 @@ test "PKL-148c: reflect class allProperties merges inherited metadata" {
     #|}
   guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
   inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
+test "PKL-152: reflected annotation toString preserves body text" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:reflect"
+      #|class C {
+      #|  @AlsoKnownAs { names { "mergedAnnotations" } }
+      #|  p: String
+      #|}
+      #|text = reflect.Class(C).allProperties["p"].annotations.first.toString()
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(
+    @pkl.render_value(value),
+    content="text = \"new AlsoKnownAs { names { \\\"mergedAnnotations\\\" } }\"",
+  )
 }
 
 ///|
@@ -2855,6 +3120,52 @@ test "PKL-148ar: Dynamic.toMap projects bracket entries" {
 }
 
 ///|
+test "PKL-152: Dynamic toMap toList toTyped project class-aware values" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|class Person {
+      #|  name: String = "Default"
+      #|  age: UInt
+      #|}
+      #|local base = new Dynamic {
+      #|  prop = "prop"
+      #|  ["name"] = "Pigeon"
+      #|  "one"
+      #|  "two"
+      #|}
+      #|local amended = (base) {
+      #|  [0] = "one one"
+      #|  [1] = "two two"
+      #|}
+      #|map = amended.toMap()
+      #|list = amended.toList()
+      #|typed = new Dynamic { age = 42 }.toTyped(Person)
+      #|missing = module.catch(() -> new Dynamic { name = "Pigeon" }.toTyped(Person).age)
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered.contains("map = Map(\"prop\", \"prop\", \"name\", \"Pigeon\")"),
+    content="true",
+  )
+  inspect(
+    rendered.contains("list = List(\"one one\", \"two two\")"),
+    content="true",
+  )
+  inspect(rendered.contains("name = \"Default\""), content="true")
+  inspect(rendered.contains("age = 42"), content="true")
+  inspect(
+    rendered.contains(
+      "missing = \"Tried to read property `age` but its value is undefined.\"",
+    ),
+    content="true",
+  )
+}
+
+///|
 test "PKL-148ax: Dynamic annotation preserves mixed inferred new body" {
   let session = AnalysisSession::new()
   session.set_source(
@@ -2930,6 +3241,42 @@ test "PKL-148ax: Bytes invalid operations use Apple diagnostics" {
     #|badAdd = "Operator `+` is not defined for operand types `Bytes` and `List`. Left operand : Bytes(1, 2, 3) Right operand: List(1, 2, 4)"
     #|badIndex = "Element index `3` is out of range `0`..`2`. Value: Bytes(1, 2, 3)"
     #|badByte = "Type constraint `isBetween(0, 255)` violated. Value: 65535"
+  inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
+test "PKL-152: Bytes exposes hash encoding size and UTF-8 APIs" {
+  guard eval_source(
+      (
+        #|local bytes = Bytes(1, 2, 3, 4)
+        #|md5 = bytes.md5
+        #|sha1 = bytes.sha1
+        #|sha256 = bytes.sha256
+        #|base64 = bytes.base64
+        #|hex = bytes.hex
+        #|len = bytes.length
+        #|size = bytes.size
+        #|kilo = IntSeq(0, 999).map((_) -> 0).toBytes().size
+        #|decoded = Bytes(0x66, 0x6f, 0x6f, 0x20, 0x62, 0x61, 0x72).decodeToString("UTF-8")
+        #|roundTrip = "foo bar".encodeToBytes("UTF-8").decodeToString("UTF-8")
+        #|missing = bytes.getOrNull(4)
+      ),
+    )
+    is EvalOk(value) else {
+    panic()
+  }
+  let expected =
+    #|md5 = "08d6c05a21512a79a1dfeb9d2a8f262f"
+    #|sha1 = "12dada1fff4d4787ade3333147202c3b443e376f"
+    #|sha256 = "9f64a747e1b97f131fabb6b447296c9b6f0201e79fb3c5356e6c77e89b6a806a"
+    #|base64 = "AQIDBA=="
+    #|hex = "01020304"
+    #|len = 4
+    #|size = 4.b
+    #|kilo = 1.kb
+    #|decoded = "foo bar"
+    #|roundTrip = "foo bar"
+    #|missing = null
   inspect(@pkl.render_value(value), content=expected)
 }
 

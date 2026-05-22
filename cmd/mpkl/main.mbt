@@ -1906,13 +1906,17 @@ async fn load_expr_imports(
   loaded : Map[String, Unit],
 ) -> Unit {
   match expr {
-    ImportExpr(uri) =>
-      load_path(
-        session,
-        resolve_import_path(from, uri),
-        push_stack(stack, from),
-        loaded,
-      )
+    ImportExpr(uri) => {
+      let resolved = resolve_import_path(from, uri)
+      if @fs.path_exists(resolved) ||
+        resolved.has_prefix("pkl:") ||
+        resolved.has_prefix("package://") ||
+        resolved.has_prefix("projectpackage://") ||
+        resolved.has_prefix("http://") ||
+        resolved.has_prefix("https://") {
+        load_path(session, resolved, push_stack(stack, from), loaded)
+      }
+    }
     ImportGlobExpr(pattern) => {
       let scan = register_import_glob_scan(from, pattern)
       for visible_uri in scan.uris {
@@ -1967,7 +1971,8 @@ async fn load_expr_imports(
         load_expr_imports(session, from, argument, stack, loaded)
       }
     }
-    LambdaExpr(_, _, _) => ()
+    LambdaExpr(_, body, _) =>
+      load_expr_imports(session, from, body, stack, loaded)
     NonNullExpr(inner) => load_expr_imports(session, from, inner, stack, loaded)
     UnaryExpr(_, inner) =>
       load_expr_imports(session, from, inner, stack, loaded)

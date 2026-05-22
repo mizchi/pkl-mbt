@@ -634,6 +634,7 @@ fn semver_to_string(members : Array[ValueMember]) -> String? {
 
 ///|
 fn is_semver_version_method_name(name : String) -> Bool {
+  name == "toString" ||
   name == "equals" ||
   name == "isLessThan" ||
   name == "isLessThanOrEquals" ||
@@ -659,6 +660,16 @@ fn eval_semver_version_method(
 ) -> Value? {
   if !is_semver_value_members(receiver_members) {
     return None
+  }
+  if method_name == "toString" {
+    if arguments.length() != 0 {
+      diagnostics.push(diag("Version.toString takes no arguments"))
+      return None
+    }
+    match semver_to_string(receiver_members) {
+      Some(text) => return Some(StringValue(text))
+      None => return None
+    }
   }
   if method_name == "isNormal" || method_name == "isStable" {
     if arguments.length() != 0 {

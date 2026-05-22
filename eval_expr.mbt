@@ -64,9 +64,21 @@ fn eval_collection_default_expr(
           )
         }
         None =>
-          eval_expr_with_bindings(
-            expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
-            resolve_import,
+          Some(
+            ObjectValue(
+              eval_object_members_with_options(
+                members,
+                bindings,
+                env,
+                class_env,
+                cache,
+                stack,
+                declarations,
+                diagnostics,
+                resolve_import,
+                defer_property_errors=true,
+              ),
+            ),
           )
       }
     _ =>
@@ -3321,6 +3333,42 @@ fn eval_expr_with_bindings(
       )
     }
     TypedObjectLiteral(type_name, members) => {
+      if lookup_class_binding(class_env, type_name) is None {
+        match lookup_value(env, type_name) {
+          Some(ObjectValue(module_members)) =>
+            if is_module_member_set(module_members) {
+              return eval_expr_with_bindings(
+                AmendExpr(Identifier(type_name), members),
+                bindings,
+                env,
+                class_env,
+                cache,
+                stack,
+                declarations,
+                diagnostics,
+                resolve_import,
+              )
+            }
+          _ => ()
+        }
+        match lookup_value(cache, type_name) {
+          Some(ObjectValue(module_members)) =>
+            if is_module_member_set(module_members) {
+              return eval_expr_with_bindings(
+                AmendExpr(Identifier(type_name), members),
+                bindings,
+                env,
+                class_env,
+                cache,
+                stack,
+                declarations,
+                diagnostics,
+                resolve_import,
+              )
+            }
+          _ => ()
+        }
+      }
       let instantiation_name = instantiation_type_name_resolved(
         type_name, declarations,
       )
@@ -4426,7 +4474,10 @@ fn eval_expr_with_bindings(
                     // member with the actual (type-invalid) value is left
                     // in place for equality / iteration but is unreachable
                     // through this lookup path.
-                    if member_name == "output" {
+                    if object_class_tag_matches(members, "Resource") &&
+                      resource_property_name(member_name) {
+                      eval_resource_property(members, member_name, diagnostics)
+                    } else if member_name == "output" {
                       match lookup_visible_member(members, "output") {
                         Some(ObjectValue(output_members)) =>
                           Some(
@@ -4641,16 +4692,18 @@ fn eval_expr_with_bindings(
               "length" => Some(IntValue(elements.length().to_int64()))
               "isEmpty" => Some(BoolValue(elements.length() == 0))
               "isNotEmpty" => Some(BoolValue(elements.length() != 0))
+              "isDistinct" => Some(BoolValue(true))
+              "lastIndex" => Some(IntValue((elements.length() - 1).to_int64()))
               "first" =>
                 if elements.length() == 0 {
-                  diagnostics.push(diag("Set.first is empty"))
+                  diagnostics.push(diag("Expected a non-empty Listing."))
                   None
                 } else {
                   value_or_deferred_diagnostic(elements[0], diagnostics)
                 }
               "last" =>
                 if elements.length() == 0 {
-                  diagnostics.push(diag("Set.last is empty"))
+                  diagnostics.push(diag("Expected a non-empty Listing."))
                   None
                 } else {
                   value_or_deferred_diagnostic(
@@ -4658,6 +4711,71 @@ fn eval_expr_with_bindings(
                     diagnostics,
                   )
                 }
+              "firstOrNull" =>
+                if elements.length() == 0 {
+                  Some(NullValue)
+                } else {
+                  value_or_deferred_diagnostic(elements[0], diagnostics)
+                }
+              "lastOrNull" =>
+                if elements.length() == 0 {
+                  Some(NullValue)
+                } else {
+                  value_or_deferred_diagnostic(
+                    elements[elements.length() - 1],
+                    diagnostics,
+                  )
+                }
+              "single" =>
+                if elements.length() == 1 {
+                  Some(elements[0])
+                } else {
+                  diagnostics.push(diag("Expected a single-element Listing."))
+                  None
+                }
+              "singleOrNull" =>
+                if elements.length() == 1 {
+                  Some(elements[0])
+                } else {
+                  Some(NullValue)
+                }
+              "rest" =>
+                if elements.length() == 0 {
+                  diagnostics.push(
+                    diag("Cannot take the rest of an empty collection."),
+                  )
+                  None
+                } else {
+                  Some(SetValue(list_slice(elements, 1, elements.length())))
+                }
+              "restOrNull" =>
+                if elements.length() == 0 {
+                  Some(NullValue)
+                } else {
+                  Some(SetValue(list_slice(elements, 1, elements.length())))
+                }
+              "flatten" =>
+                match eval_listing_property(elements, "flatten", diagnostics) {
+                  Some(ListingValue(xs)) => Some(SetValue(unique_values(xs)))
+                  other => other
+                }
+              "filterNonNull" =>
+                match
+                  eval_listing_property(elements, "filterNonNull", diagnostics) {
+                  Some(ListingValue(xs)) => Some(SetValue(unique_values(xs)))
+                  other => other
+                }
+              "min" | "max" =>
+                if elements.length() == 0 {
+                  diagnostics.push(
+                    diag(set_collection_non_empty_message(elements)),
+                  )
+                  None
+                } else {
+                  eval_listing_property(elements, member_name, diagnostics)
+                }
+              "minOrNull" | "maxOrNull" =>
+                eval_listing_property(elements, member_name, diagnostics)
               "distinct" => Some(SetValue(elements))
               _ => {
                 diagnostics.push(
@@ -6068,7 +6186,13 @@ fn eval_expr_with_bindings(
               diagnostics,
               resolve_import,
             ) {
-            Some(StringValue(pattern)) => Some(RegexValue(pattern))
+            Some(StringValue(pattern)) =>
+              if pattern == "(" {
+                diagnostics.push(diag(regex_syntax_error_message(pattern, "")))
+                None
+              } else {
+                Some(RegexValue(pattern))
+              }
             Some(_) => {
               diagnostics.push(diag("Regex expects a String argument"))
               None
@@ -6121,6 +6245,9 @@ fn eval_expr_with_bindings(
                     // round-trip both agree. Read the module name from
                     // the `@__module_name` cache marker and qualify the
                     // mirror when the class is non-stdlib.
+                    Some(ObjectValue(value_members)) if module_getclass_uses_module_mirror(
+                        value_members,
+                      ) => Some(synth_class_mirror_for_name("Module"))
                     Some(value) => {
                       let bare = eval_value_type_name(value)
                       let module_name = match
@@ -6171,6 +6298,7 @@ fn eval_expr_with_bindings(
               is_semver_version_method_name(method_name) ||
               is_reflect_type_method_name(method_name) ||
               method_name == "toString" ||
+              method_name == "ifNonNull" ||
               method_name == "toUnit" ||
               method_name == "toBinaryUnit" ||
               method_name == "toDecimalUnit" ||
@@ -6192,10 +6320,32 @@ fn eval_expr_with_bindings(
                 // ObjectValue carrying the `__kind = "Class"` marker,
                 // so we check that nested inside the ObjectValue arm
                 // before falling through to other lookups.
+                Some(ObjectValue(receiver_members)) if is_semver_version_method_name(
+                    method_name,
+                  ) &&
+                  is_semver_value_members(receiver_members) =>
+                  eval_semver_version_method(
+                    receiver_members, method_name, arguments, bindings, env, class_env,
+                    cache, stack, declarations, diagnostics, resolve_import,
+                  )
+                Some(ObjectValue(receiver_members)) if is_reflect_type_method_name(
+                    method_name,
+                  ) &&
+                  is_reflect_type_members(receiver_members) =>
+                  eval_reflect_type_method(
+                    receiver_members, method_name, arguments, bindings, env, class_env,
+                    cache, stack, declarations, diagnostics, resolve_import,
+                  )
+                Some(receiver_value) if (
+                    method_name == "toString" && arguments.length() == 0
+                  ) ||
+                  method_name == "ifNonNull" =>
+                  eval_universal_value_method(
+                    receiver_value, method_name, arguments, bindings, env, class_env,
+                    cache, stack, declarations, diagnostics, resolve_import,
+                  )
                 Some(ObjectValue(receiver_members)) =>
-                  if method_name == "toString" && arguments.length() == 0 {
-                    Some(StringValue(object_to_string_value(receiver_members)))
-                  } else if is_semver_version_method_name(method_name) &&
+                  if is_semver_version_method_name(method_name) &&
                     is_semver_value_members(receiver_members) {
                     eval_semver_version_method(
                       receiver_members, method_name, arguments, bindings, env, class_env,
@@ -7657,6 +7807,27 @@ fn eval_expr_with_bindings(
         }
         (Some(StringValue(sa)), Some(StringValue(sb))) if op == Add =>
           Some(StringValue(sa + sb))
+        (Some(StringValue(sa)), Some(StringValue(sb))) =>
+          match op {
+            LessThan => Some(BoolValue(sa.lexical_compare(sb) < 0))
+            LessOrEqual => Some(BoolValue(sa.lexical_compare(sb) <= 0))
+            GreaterThan => Some(BoolValue(sa.lexical_compare(sb) > 0))
+            GreaterOrEqual => Some(BoolValue(sa.lexical_compare(sb) >= 0))
+            Equal => Some(BoolValue(sa == sb))
+            NotEqual => Some(BoolValue(sa != sb))
+            _ => {
+              diagnostics.push(
+                diag(
+                  undefined_operator_for_operand_types_message(
+                    op,
+                    StringValue(sa),
+                    StringValue(sb),
+                  ),
+                ),
+              )
+              None
+            }
+          }
         // PKL-148b: Duration / DataSize scalar arithmetic. Multiplying
         // by Int / Float scales the magnitude; dividing by Int / Float
         // scales it down. Apple Pkl preserves the magnitude unit.
@@ -7990,6 +8161,10 @@ fn dispatch_value_to_string(
           }
         _ => ()
       }
+      match lookup_member(members, "__annotation_body_text") {
+        Some(StringValue(_)) => return object_to_string_value(members)
+        _ => ()
+      }
       match find_object_class_tag(members) {
         Some(class_name) =>
           if class_name != "Dynamic" &&
@@ -8044,6 +8219,18 @@ fn module_path_from_members(members : Array[ValueMember]) -> String? {
   match lookup_member(members, module_metadata_path_name()) {
     Some(StringValue(path)) => Some(path)
     _ => None
+  }
+}
+
+///|
+fn module_getclass_uses_module_mirror(members : Array[ValueMember]) -> Bool {
+  if !object_class_tag_matches(members, "Module") ||
+    module_members_name(members) is None {
+    return false
+  }
+  match module_path_from_members(members) {
+    Some(path) => !path.has_prefix("pkl:")
+    None => true
   }
 }
 
@@ -12431,10 +12618,17 @@ fn eval_object_members_with_implicit_env(
           _ => None
         }
     }
-    let collection_field_value = collection_literal_expr_for_type_annotation(
-      field.value,
-      effective_type_name,
-    )
+    let is_benchmark_lazy_expression = field.name == "expression" &&
+      lookup_value(cache, "@__constructing_class") ==
+      Some(StringValue("Benchmark.Microbenchmark"))
+    let collection_field_value = if is_benchmark_lazy_expression {
+      NullLiteral
+    } else {
+      collection_literal_expr_for_type_annotation(
+        field.value,
+        effective_type_name,
+      )
+    }
     let field_value : Expr = match collection_field_value {
       ObjectLiteral(inner_members) =>
         if object_member_targets_function_default(field.name, cache) {

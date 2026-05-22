@@ -799,16 +799,23 @@ fn eval_value_type_name(value : Value) -> String {
     StringValue(_) => "String"
     NullValue => "Null"
     ObjectValue(members) =>
-      // PKL-148bh: universal tagging emits the class name verbatim
-      // (`Dynamic` stays `Dynamic`; user classes surface as
-      // `Person` etc.). The module-qualified form
-      // `<module>#<simple>` lives on the cached
-      // `@__module_name` marker — the diagnostic path that wants
-      // the qualified shape stitches it in via
-      // `eval_value_type_name_qualified` below.
-      match find_object_class_tag(members) {
-        Some(class_name) => class_name
-        None => "Object"
+      match reflect_kind(members) {
+        Some("Class") => "Class"
+        Some("TypeAlias") => "TypeAlias"
+        Some("Module") => "ModuleClass"
+        _ =>
+          // PKL-148bh: universal tagging emits the class name verbatim
+          // (`Dynamic` stays `Dynamic`; user classes surface as
+          // `Person` etc.). The module-qualified form
+          // `<module>#<simple>` lives on the cached
+          // `@__module_name` marker — the diagnostic path that wants
+          // the qualified shape stitches it in via
+          // `eval_value_type_name_qualified` below.
+          match find_object_class_tag(members) {
+            Some("Module") => "ModuleClass"
+            Some(class_name) => class_name
+            None => "Object"
+          }
       }
     ListingValue(_) | DefaultedListingValue(_, _, _) => "Listing"
     ListValue(_) => "List"
@@ -822,7 +829,7 @@ fn eval_value_type_name(value : Value) -> String {
     IntSeqValue(_, _, _) => "IntSeq"
     SetValue(_) => "Set"
     MapValue(_) => "Map"
-    DeferredImportValue(_) => "Module"
+    DeferredImportValue(_) => "ModuleClass"
   }
 }
 
@@ -1021,7 +1028,7 @@ fn is_stdlib_class_name(name : String) -> Bool {
 /// or in-place amending. List / Set / Map / Pair / IntSeq are built
 /// via constructor functions; the scalar / primitive classes (Int /
 /// Float / Bool / String / Bytes / Duration / DataSize / Regex /
-/// Function / Class / TypeAlias / Module / Annotation / Resource)
+/// Function / Class / TypeAlias / Module / Annotation)
 /// have literal or reflection-only construction surfaces. The
 /// `new`-instantiable bases (Listing / Mapping / Dynamic / Object /
 /// Typed) and the typing aliases (Number / Any / Null / module /
@@ -1048,7 +1055,6 @@ fn is_external_only_class_name(name : String) -> Bool {
     | "TypeAlias"
     | "Module"
     | "Annotation"
-    | "Resource"
     | "Function"
     | "Function0"
     | "Function1"

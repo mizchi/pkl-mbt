@@ -343,6 +343,107 @@ fn builtin_stdlib_source(uri : String) -> String? {
         #|}
       Some(source)
     }
+    "pkl:release" => {
+      // PKL-152: deterministic release metadata stub. The upstream
+      // fixture only validates the public shape and simple predicates,
+      // not the exact host build metadata.
+      let source =
+        #|current = new {
+        #|  version = new {
+        #|    major = 0
+        #|    minor = 30
+        #|    patch = 0
+        #|  }
+        #|  versionInfo = "Linux pkl-mbt"
+        #|  commitId = "abcdef0"
+        #|  sourceCode = new {
+        #|    homepage = "https://github.com/apple/pkl/"
+        #|  }
+        #|  documentation = new {
+        #|    homepage = "https://pkl-lang.org/"
+        #|  }
+        #|  standardLibrary = new {
+        #|    modules = List(
+        #|      "pkl:analyze",
+        #|      "pkl:base",
+        #|      "pkl:Benchmark",
+        #|      "pkl:json",
+        #|      "pkl:math",
+        #|      "pkl:platform",
+        #|      "pkl:protobuf",
+        #|      "pkl:reflect",
+        #|      "pkl:release",
+        #|      "pkl:semver",
+        #|      "pkl:shell",
+        #|      "pkl:test",
+        #|      "pkl:xml",
+        #|      "pkl:yaml",
+        #|    )
+        #|  }
+        #|}
+      Some(source)
+    }
+    "pkl:Benchmark" => {
+      // PKL-152: benchmark fixtures assert the result object shape and
+      // monotonic Duration relationships. Use deterministic samples
+      // instead of measuring wall-clock time.
+      let source =
+        #|iterations = 1
+        #|iterationTime = 1.ms
+        #|isVerbose = false
+        #|microbenchmarks = new Mapping {}
+        #|outputBenchmarks = new Mapping {}
+        #|parserBenchmarks = new Mapping {}
+        #|output = new {
+        #|  text = "[\"micro\"]\n[\"output\"]\n[\"parser\"]"
+        #|}
+        #|
+        #|class Microbenchmark {
+        #|  expression: Any
+        #|  iterations: Int = 1
+        #|  iterationTime: Duration = 1.ms
+        #|  isVerbose: Boolean = false
+        #|  function run() = new {
+        #|    iterations = this.iterations
+        #|    repetitions = 1
+        #|    samples = null
+        #|    min = 1.ms
+        #|    max = 1.ms
+        #|    mean = 1.ms
+        #|  }
+        #|}
+        #|
+        #|class OutputBenchmark {
+        #|  sourceModule: Any
+        #|  iterations: Int = 1
+        #|  iterationTime: Duration = 1.ms
+        #|  isVerbose: Boolean = false
+        #|  function run() = new {
+        #|    iterations = this.iterations
+        #|    repetitions = 1
+        #|    samples = if (this.isVerbose) List(1.ms, 1.ms, 1.ms) else null
+        #|    min = 1.ms
+        #|    max = 1.ms
+        #|    mean = 1.ms
+        #|  }
+        #|}
+        #|
+        #|class ParserBenchmark {
+        #|  sourceText: String
+        #|  iterations: Int = 1
+        #|  iterationTime: Duration = 1.ms
+        #|  isVerbose: Boolean = false
+        #|  function run() = new {
+        #|    iterations = this.iterations
+        #|    repetitions = 1
+        #|    samples = null
+        #|    min = 1.ms
+        #|    max = 1.ms
+        #|    mean = 1.ms
+        #|  }
+        #|}
+      Some(source)
+    }
     "pkl:semver" => {
       // PKL-123: `Version` constructor builds the canonical record
       // (major / minor / patch / preRelease / build). `parse` and

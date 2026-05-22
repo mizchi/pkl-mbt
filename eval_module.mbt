@@ -409,26 +409,31 @@ fn late_bind_module_parent_members(
 
 ///|
 fn sandbox_resource_value(resource : SandboxResource) -> Value {
-  ObjectValue([
-    {
-      name: "uri",
-      value: StringValue(resource.resource_uri),
-      source: None,
-      annotations: [],
-    },
-    {
-      name: "text",
-      value: StringValue(resource.text),
-      source: None,
-      annotations: [],
-    },
-    {
-      name: "base64",
-      value: StringValue(@base64.encode(@utf8.encode(resource.text))),
-      source: None,
-      annotations: [],
-    },
-  ])
+  ObjectValue(
+    tag_object_with_class(
+      [
+        {
+          name: "uri",
+          value: StringValue(resource.resource_uri),
+          source: None,
+          annotations: [],
+        },
+        {
+          name: "text",
+          value: StringValue(resource.text),
+          source: None,
+          annotations: [],
+        },
+        {
+          name: "base64",
+          value: StringValue(@base64.encode(@utf8.encode(resource.text))),
+          source: None,
+          annotations: [],
+        },
+      ],
+      "Resource",
+    ),
+  )
 }
 
 ///|
