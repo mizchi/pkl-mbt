@@ -1,14 +1,18 @@
-// PKL-122: surrogate-pair aware String access. `length` still returns
-// the UTF-16 code-unit count (for byte-identity with the existing
-// fixture baseline), while `codePointCount`, `codePoints`, `chars`,
-// and `codePointAt(i)` expose the Unicode code-point view.
+// PKL-122: surrogate-pair aware String access. Apple Pkl's
+// `String.length` returns the code-point count — the upstream
+// `api/stringUnicode` fixture asserts
+// `"😀😈😍😎😡🤢🤣".length == 7`, not the 14 UTF-16 units a Java
+// `String.length` would report. `codePointCount` is a synonym;
+// `codePoints`, `chars`, and `codePointAt(i)` walk the same
+// Unicode view.
 //
-// `🍣` is U+1F363, a supplementary plane code point that occupies one
-// surrogate pair (two UTF-16 code units), so `length == 5` but
-// `codePointCount == 4` for the four-glyph string "abc🍣".
+// `🍣` is U+1F363, a supplementary plane code point, so `length`
+// and `codePointCount` both report `4` for the four-glyph string
+// "abc🍣". A renderer that wants the UTF-16 view should walk
+// `s.chars` and count surrogate pairs explicitly.
 s = "abc🍣"
 
-u16_length = s.length
+cp_length = s.length
 
 cp_count = s.codePointCount
 

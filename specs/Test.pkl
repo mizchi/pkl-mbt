@@ -803,13 +803,13 @@ local cliYamlBlockScalars = new Test {
 local cliStringUnicode = new Test {
   name = "cli string unicode"
   description =
-    "The native CLI evaluates a fixture that observes a String whose last glyph is a supplementary-plane code point (`🍣`, U+1F363). `length` keeps the existing UTF-16 code-unit count (5) for byte-identity with prior fixtures, while `codePointCount` reports the Unicode code-point count (4), `codePoints` and `chars` walk the code-point stream, and `codePointAt(3)` returns the supplementary code point as an Int."
+    "The native CLI evaluates a fixture that observes a String whose last glyph is a supplementary-plane code point (`🍣`, U+1F363). Apple Pkl's `String.length` is the code-point count (the upstream `api/stringUnicode` fixture asserts `\"😀😈😍😎😡🤢🤣\".length == 7`), so `length` and `codePointCount` both report `4` for `\"abc🍣\"`. `codePoints` and `chars` walk the code-point stream, and `codePointAt(3)` returns the supplementary code point as an Int."
   tags { "moonbit"; "cli"; "stdlib"; "string"; "unicode"; "contract" }
   specRef { "PKL-122" }
   cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_string_unicode.pkl"
   workdir = ".."
   expectStdoutContains {
-    "u16_length = 5"
+    "cp_length = 4"
     "cp_count = 4"
     "127843"
     "\"🍣\""
