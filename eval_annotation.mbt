@@ -255,7 +255,8 @@ fn synthesize_default_for_type_seen(
       // (`*("a"|*"b")|"c"`). Without unwrap the inner union split sees
       // the whole `("a"|*"b")` as one choice and treats it as an
       // unknown class name.
-      while name.has_prefix("(") && name.has_suffix(")") {
+      while string_starts_with_char(name, '(') &&
+            string_ends_with_char(name, ')') {
         let mut depth = 0
         let mut wraps_whole = true
         for i = 0; i < name.length(); i = i + 1 {
@@ -283,7 +284,9 @@ fn synthesize_default_for_type_seen(
         None => ()
       }
       // Nullable types (`T?`) default to null.
-      if name.has_suffix("?") || name == "Null" || name == "Nothing" {
+      if string_ends_with_char(name, '?') ||
+        name == "Null" ||
+        name == "Nothing" {
         return Some(NullValue)
       }
       // `A|B|*C|D` — any union choice carrying a leading `*` is the
@@ -295,7 +298,7 @@ fn synthesize_default_for_type_seen(
       if choices.length() > 1 {
         for choice in choices {
           let trimmed = trim_spaces(choice)
-          if trimmed.has_prefix("*") {
+          if string_starts_with_char(trimmed, '*') {
             let starred = trim_spaces(
               String::unsafe_substring(trimmed, start=1, end=trimmed.length()),
             )
@@ -322,7 +325,7 @@ fn synthesize_default_for_type_seen(
         )
         return Some(StringValue(inner))
       }
-      if name.has_prefix("*") {
+      if string_starts_with_char(name, '*') {
         let rest = String::unsafe_substring(name, start=1, end=name.length())
         return synthesize_default_for_type_seen(
           Some(trim_spaces(rest)),

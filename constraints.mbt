@@ -207,6 +207,19 @@ fn string_contains_char(s : String, c : Char) -> Bool {
 }
 
 ///|
+/// Cheap "starts with this one character" check that avoids
+/// `String.has_prefix("(")`'s boyer-moore dispatch on the hot reflect
+/// / type-name paths.
+fn string_starts_with_char(s : String, c : Char) -> Bool {
+  s.length() > 0 && s[0].to_int() == c.to_int()
+}
+
+///|
+fn string_ends_with_char(s : String, c : Char) -> Bool {
+  s.length() > 0 && s[s.length() - 1].to_int() == c.to_int()
+}
+
+///|
 fn trim_spaces(text : String) -> String {
   let mut start = 0
   while start < text.length() {
@@ -306,7 +319,7 @@ fn pkl_constrained_type_suffix_is_balanced(name : String, start : Int) -> Bool {
 fn pkl_constrained_type_base_name(name : String) -> String? {
   match pkl_constrained_type_paren_index(name) {
     Some(index) =>
-      if name.has_suffix(")") &&
+      if string_ends_with_char(name, ')') &&
         pkl_constrained_type_suffix_is_balanced(name, index) {
         Some(String::unsafe_substring(name, start=0, end=index))
       } else {
