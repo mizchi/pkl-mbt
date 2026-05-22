@@ -71,7 +71,13 @@ fn typed_object_class_name_for_expr(
 
 ///|
 fn copy_value_bindings(bindings : Array[ValueBinding]) -> Array[ValueBinding] {
+  // Pre-size to skip the doubling-realloc dance on the hot
+  // class-default path. `copy_value_bindings(cache)` runs once per
+  // class-layer materialisation; on `apple-pkl/stdlib/base.pkl` that
+  // landed in the top sample bucket as `moonbit_unsafe_ref_array_blit`
+  // / `moonbit_make_ref_array` traffic.
   let copied : Array[ValueBinding] = []
+  copied.reserve_capacity(bindings.length())
   for binding in bindings {
     copied.push(binding)
   }

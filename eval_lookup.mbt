@@ -3020,6 +3020,10 @@ fn merge_value_members(
   overrides : Array[ValueMember],
 ) -> Array[ValueMember] {
   let merged : Array[ValueMember] = []
+  // Upper bound on the merged result is `base.length() + overrides.length()`.
+  // Pre-reserving skips the doubling-grow allocations that dominated
+  // the class-default tail.
+  merged.reserve_capacity(base.length() + overrides.length())
   for value_member in base {
     // PKL-148j: match base / override slots by exact storage name, not
     // by bare name. `local l` and a separately-declared visible `l`

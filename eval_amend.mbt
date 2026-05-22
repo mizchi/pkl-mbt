@@ -2053,9 +2053,27 @@ fn eval_class_default_members_seen(
     return []
   }
   seen.push(type_name)
+  // Pre-size the per-class-layer scratch arrays: each call to
+  // `eval_class_default_members_seen` allocated three empty arrays
+  // and then grew them by `push` — on the recursive class-default
+  // descent that landed in the sample profile as
+  // `moonbit_make_ref_array` / `moonbit_unsafe_ref_array_blit`. We
+  // know the upper bound from the class binding's property / method
+  // lists before we walk them.
+  let property_capacity = match lookup_class_binding(class_env, type_name) {
+    Some(cb) => cb.properties.length()
+    None => 0
+  }
+  let method_capacity = match lookup_class_binding(class_env, type_name) {
+    Some(cb) => cb.methods.length()
+    None => 0
+  }
   let defaults : Array[ObjectMember] = []
+  defaults.reserve_capacity(property_capacity)
   let base_values : Array[ValueMember] = []
+  base_values.reserve_capacity(property_capacity)
   let own_methods : Array[FunctionDecl] = []
+  own_methods.reserve_capacity(method_capacity)
   match lookup_class_binding(class_env, type_name) {
     Some(class_binding) => {
       match class_binding.parent_name {
@@ -2226,6 +2244,7 @@ fn eval_class_default_members_seen(
   // and outer scope first — so the late-binding pass must treat these
   // slots as "not body-declared" and skip them from in-base shadowing.
   let stripped : Array[ValueMember] = []
+  stripped.reserve_capacity(combined.length())
   for value_member in combined {
     stripped.push({
       name: value_member.name,

@@ -302,6 +302,11 @@ fn module_object_value_from_scope(
   const_context~ : Bool,
 ) -> Value {
   let module_members : Array[ValueMember] = []
+  // Upper bound: every cache+env binding may flow into the snapshot
+  // plus the two metadata members (`imports`, `@__module_path`).
+  // Reserve to avoid the growth churn observed in the GC profile —
+  // this function ran once per class-default layer.
+  module_members.reserve_capacity(cache.length() + env.length() + 2)
   match lookup_value(cache, "@__module_imports") {
     Some(map_value) =>
       module_members.push({
