@@ -202,15 +202,25 @@ fn trim_spaces(text : String) -> String {
 
 ///|
 fn pkl_constrained_type_paren_index(name : String) -> Int? {
+  // Fast path: a constrained-type name (`Int(isBetween(...))`) must
+  // contain at least one `(`. Type names without a paren — `Int`,
+  // `Listing<Foo>`, `String` — are by far the common case on the
+  // reflect / synthesize-default hot paths, and they all bail here
+  // without entering the per-char balanced-bracket walk. Profiled
+  // accordingly: this short-circuit removes a measurable slice of
+  // `brute_force_find` / `boyer_moore_horspool_find` traffic.
+  let first_paren = name.find("(")
+  match first_paren {
+    None => return None
+    Some(0) => return None
+    _ => ()
+  }
   let mut parens = 0
   let mut brackets = 0
   let mut angles = 0
   for i = 0; i < name.length(); i = i + 1 {
     let char = name[i].to_int().unsafe_to_char()
     if char == '(' && parens == 0 && brackets == 0 && angles == 0 {
-      if i == 0 {
-        return None
-      }
       return Some(i)
     }
     if char == '(' {

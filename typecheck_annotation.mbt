@@ -159,6 +159,13 @@ fn split_top_level_generic_arguments(text : String) -> Array[String] {
 
 ///|
 fn split_top_level_union_choices(text : String) -> Array[String] {
+  // Fast path: union types always carry a `|`. Avoid the per-char
+  // StringBuilder build for the common case of a plain name like
+  // `Int` / `Listing<Foo>` (the reflect / synthesize-default hot
+  // paths hit this thousands of times per module evaluation).
+  if text.find("|") is None {
+    return [text]
+  }
   let parts : Array[String] = []
   let buf = StringBuilder::new()
   let mut parens = 0
@@ -182,7 +189,7 @@ fn split_top_level_union_choices(text : String) -> Array[String] {
       } else if char == '>' && angles > 0 {
         angles -= 1
       }
-      buf.write_string(char.to_string())
+      buf.write_char(char)
     }
   }
   let last = buf.to_string()
