@@ -2037,6 +2037,139 @@ fn eval_class_default_members(
 }
 
 ///|
+/// Per-`(declarations, type_name)` cache of materialised class
+/// defaults. Within a single `eval_source` call, the recursive
+/// synthesize / apply / eval cycle hits the same `type_name` many
+/// times — once per typed property of every class that references
+/// it — and the cycle was the dominant sample bucket on
+/// apple-pkl/stdlib/base.pkl.
+///
+/// Only classes whose own + ancestor bodies are free of
+/// `outer` / `module` / `super` references qualify (see
+/// `class_default_is_memoizable_with_seen`). Those references would
+/// embed caller-cache state into the captured Value tree, which
+/// would be wrong if a later caller has different state. Stdlib
+/// types and most user-defined types-without-cross-class lookups
+/// fit the safe envelope.
+priv struct ClassDefaultMemoEntry {
+  declarations : Array[Declaration]
+  memo : Map[String, Array[ValueMember]]
+  // `unsafe_classes` recorded by name to avoid the static walk a
+  // second time when the same class fails the purity check.
+  unsafe_classes : Map[String, Bool]
+}
+
+///|
+let class_default_memo_cache : Ref[Array[ClassDefaultMemoEntry]] = { val: [] }
+
+///|
+fn class_default_memo_for(declarations : Array[Declaration]) -> ClassDefaultMemoEntry {
+  let cache = class_default_memo_cache.val
+  for entry in cache {
+    if physical_equal(entry.declarations, declarations) {
+      return entry
+    }
+  }
+  let entry : ClassDefaultMemoEntry = {
+    declarations,
+    memo: Map([], capacity=16),
+    unsafe_classes: Map([], capacity=16),
+  }
+  while class_default_memo_cache.val.length() >= 4 {
+    let _ = class_default_memo_cache.val.remove(0)
+  }
+  class_default_memo_cache.val.push(entry)
+  entry
+}
+
+///|
+/// Returns true when `type_name`'s defaults can be safely cached
+/// across `eval_class_default_members_seen` calls. The check walks
+/// each property / method body looking for `outer` / `module` /
+/// `super` identifiers that would resolve against caller-specific
+/// state, plus recurses into the parent class chain. Cached per-class
+/// to avoid re-walking each time.
+fn class_default_is_memoizable(
+  type_name : String,
+  class_env : Array[ClassBinding],
+  declarations : Array[Declaration],
+) -> Bool {
+  class_default_is_memoizable_with_seen(type_name, class_env, declarations, [])
+}
+
+///|
+fn class_default_is_memoizable_with_seen(
+  type_name : String,
+  class_env : Array[ClassBinding],
+  declarations : Array[Declaration],
+  seen : Array[String],
+) -> Bool {
+  if contains_string(seen, type_name) {
+    return true
+  }
+  let entry = class_default_memo_for(declarations)
+  if entry.unsafe_classes.get(type_name) is Some(true) {
+    return false
+  }
+  let binding = match lookup_class_binding(class_env, type_name) {
+    Some(b) => b
+    None => return false
+  }
+  for p in binding.properties {
+    match p.value {
+      Some(expr) =>
+        if class_default_expr_uses_caller_context(expr) {
+          entry.unsafe_classes[type_name] = true
+          return false
+        }
+      None => ()
+    }
+  }
+  for m in binding.methods {
+    match m.body {
+      Some(expr) =>
+        if class_default_expr_uses_caller_context(expr) {
+          entry.unsafe_classes[type_name] = true
+          return false
+        }
+      None => ()
+    }
+  }
+  let next_seen : Array[String] = []
+  next_seen.reserve_capacity(seen.length() + 1)
+  for s in seen {
+    next_seen.push(s)
+  }
+  next_seen.push(type_name)
+  match binding.parent_name {
+    Some(parent_name) => {
+      let aliases = eval_type_alias_bindings(declarations)
+      let resolved = eval_resolved_type_alias(parent_name, aliases)
+      if !class_default_is_memoizable_with_seen(
+          resolved, class_env, declarations, next_seen,
+        ) {
+        entry.unsafe_classes[type_name] = true
+        return false
+      }
+    }
+    None => ()
+  }
+  true
+}
+
+///|
+/// Walk an expression looking for the caller-context identifiers that
+/// would invalidate memoization (`outer` / `module` / `super`). Uses
+/// the same `expr_references` predicate the linter relies on so we
+/// stay consistent with how the rest of the eval pass reasons about
+/// scope.
+fn class_default_expr_uses_caller_context(expr : Expr) -> Bool {
+  expr_references(expr, "outer") ||
+  expr_references(expr, "module") ||
+  expr_references(expr, "super")
+}
+
+///|
 fn eval_class_default_members_seen(
   type_name : String,
   bindings : Array[Binding],
@@ -2051,6 +2184,22 @@ fn eval_class_default_members_seen(
 ) -> Array[ValueMember] {
   if contains_string(seen, type_name) {
     return []
+  }
+  // PKL-148bd: when `type_name`'s default body doesn't depend on
+  // caller-specific scope (`outer` / `module` / `super`), the
+  // materialised members are stable per-module and can be reused
+  // across every call within a single `eval_source`. Hits skip the
+  // entire parent-walk / property-default-eval / merge / strip
+  // pipeline that the rest of this function performs.
+  let memo_entry = class_default_memo_for(declarations)
+  let is_memoizable = class_default_is_memoizable(
+    type_name, class_env, declarations,
+  )
+  if is_memoizable {
+    match memo_entry.memo.get(type_name) {
+      Some(cached) => return cached
+      None => ()
+    }
   }
   seen.push(type_name)
   // Pre-size the per-class-layer scratch arrays: each call to
@@ -2252,6 +2401,9 @@ fn eval_class_default_members_seen(
       source: None,
       annotations: value_member.annotations,
     })
+  }
+  if is_memoizable {
+    memo_entry.memo[type_name] = stripped
   }
   stripped
 }
