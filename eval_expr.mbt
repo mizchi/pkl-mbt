@@ -11819,13 +11819,19 @@ fn find_value_member_exact(
   members : Array[ValueMember],
   name : String,
 ) -> ValueMember? {
-  let mut found : ValueMember? = None
-  for field in members {
+  // Reverse-walk + early break: "last definition wins" matches the
+  // prior forward-walk-with-overwrite semantics while short-circuiting
+  // on the common case where the looked-up member sits near the tail
+  // (it's a freshly-pushed override on the merge hot path).
+  let mut i = members.length() - 1
+  while i >= 0 {
+    let field = members[i]
     if field.name == name {
-      found = Some(field)
+      return Some(field)
     }
+    i = i - 1
   }
-  found
+  None
 }
 
 ///|

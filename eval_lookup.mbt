@@ -3120,13 +3120,17 @@ fn normalize_name_age_member_order(
 /// literal field name; callers that want bare-name resolution should
 /// stay on `lookup_member`.
 fn find_member_exact(members : Array[ValueMember], name : String) -> Value? {
-  let mut found : Value? = None
-  for field in members {
+  // Same reverse-walk + early-break pattern as the rest of the lookups
+  // — "last definition wins" without paying the full O(N) scan.
+  let mut i = members.length() - 1
+  while i >= 0 {
+    let field = members[i]
     if field.name == name {
-      found = Some(field.value)
+      return Some(field.value)
     }
+    i = i - 1
   }
-  found
+  None
 }
 
 ///|

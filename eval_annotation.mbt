@@ -101,11 +101,55 @@ fn eval_resolved_type_alias_with_depth(
 }
 
 ///|
+/// Cache of resolved type-alias chains keyed by physical identity of
+/// the `aliases` array (stable per-eval thanks to
+/// `type_alias_bindings_cache`) plus the input `name`. The walk
+/// itself bounces through `lookup_eval_type_alias.get` which is now
+/// Map-backed but still costs a hash per step; on
+/// `apple-pkl/stdlib/base.pkl` this function is called thousands of
+/// times for the same names during the constraint-validation pass.
+priv struct ResolvedAliasEntry {
+  aliases : Array[EvalTypeAliasBinding]
+  memo : Map[String, String]
+}
+
+///|
+let resolved_alias_cache : Ref[Array[ResolvedAliasEntry]] = { val: [] }
+
+///|
 fn eval_resolved_type_alias(
   name : String,
   aliases : Array[EvalTypeAliasBinding],
 ) -> String {
-  eval_resolved_type_alias_with_depth(name, aliases, 0)
+  let cache = resolved_alias_cache.val
+  let mut entry_opt : ResolvedAliasEntry? = None
+  for entry in cache {
+    if physical_equal(entry.aliases, aliases) {
+      entry_opt = Some(entry)
+      break
+    }
+  }
+  let entry = match entry_opt {
+    Some(e) => e
+    None => {
+      let fresh : ResolvedAliasEntry = {
+        aliases,
+        memo: Map([], capacity=32),
+      }
+      while resolved_alias_cache.val.length() >= 4 {
+        let _ = resolved_alias_cache.val.remove(0)
+      }
+      resolved_alias_cache.val.push(fresh)
+      fresh
+    }
+  }
+  match entry.memo.get(name) {
+    Some(cached) => return cached
+    None => ()
+  }
+  let result = eval_resolved_type_alias_with_depth(name, aliases, 0)
+  entry.memo[name] = result
+  result
 }
 
 ///|
