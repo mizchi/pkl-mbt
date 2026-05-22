@@ -197,7 +197,16 @@ fn eval_pkl_math_intrinsic(
     "_pkl_math_cbrt" => Some(FloatValue(@math.cbrt(arg_values[0])))
     "_pkl_math_pow" => Some(FloatValue(@math.pow(arg_values[0], arg_values[1])))
     "_pkl_math_log" => Some(FloatValue(@math.ln(arg_values[0])))
-    "_pkl_math_log2" => Some(FloatValue(@math.log2(arg_values[0])))
+    // PKL-148bo: `@math.log2(x)` computes `ln(f)/LN2 + e` after
+    // `frexp(x) = (f, e)`. The intermediate `1/LN2` multiplication
+    // loses a couple of ulps on inputs whose `f` is not a clean
+    // power of two — `log2(2.34)` for example comes out
+    // `1.2265085298086795` versus Apple Pkl / fdlibm's correctly-
+    // rounded `1.2265085298086797`. `ln(x) / ln(2.0)` keeps the
+    // computation in a single division and round-trips through the
+    // same `ln`, matching the upstream gold for `api/mathModule`.
+    "_pkl_math_log2" =>
+      Some(FloatValue(@math.ln(arg_values[0]) / @math.ln(2.0)))
     "_pkl_math_log10" => Some(FloatValue(@math.log10(arg_values[0])))
     "_pkl_math_exp" => Some(FloatValue(@math.exp(arg_values[0])))
     "_pkl_math_floor" => Some(FloatValue(arg_values[0].floor()))
