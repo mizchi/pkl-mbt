@@ -1088,13 +1088,40 @@ fn local_member_name(name : String) -> String {
 }
 
 ///|
+/// Hand-rolled byte-by-byte prefix check that avoids
+/// `String.has_prefix`'s boyer-moore dispatch. Member-name prefix
+/// checks run once per inspected member on the merge / lookup hot
+/// paths; on a 10k-listing fixture the boyer-moore traffic from
+/// these two predicates was the top mpkl-leaf at 332/5000 samples
+/// before this change. Inlining the comparison drops it further.
+fn string_starts_with_marker(name : String, marker : String) -> Bool {
+  let n = name.length()
+  let m = marker.length()
+  if n < m {
+    return false
+  }
+  for i = 0; i < m; i = i + 1 {
+    if name[i].to_int() != marker[i].to_int() {
+      return false
+    }
+  }
+  true
+}
+
+///|
 fn is_hidden_member_name(name : String) -> Bool {
-  name.has_prefix(hidden_member_prefix)
+  if name.length() == 0 || name[0].to_int() != '@'.to_int() {
+    return false
+  }
+  string_starts_with_marker(name, hidden_member_prefix)
 }
 
 ///|
 fn is_local_member_name(name : String) -> Bool {
-  name.has_prefix(local_member_prefix)
+  if name.length() == 0 || name[0].to_int() != '@'.to_int() {
+    return false
+  }
+  string_starts_with_marker(name, local_member_prefix)
 }
 
 ///|
