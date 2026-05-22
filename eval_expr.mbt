@@ -12088,6 +12088,10 @@ fn eval_object_members_with_implicit_env(
   // bindings-driven lazy lookup path. Cycle detection still kicks in
   // via the `stack` argument inside `resolve_binding_value`.
   let local_bindings : Array[Binding] = []
+  // Upper bound: original bindings plus one per member (some are
+  // filtered out below, but the over-reserve is cheap compared to the
+  // doubling-realloc traffic this used to trigger).
+  local_bindings.reserve_capacity(bindings.length() + members.length())
   for binding in bindings {
     local_bindings.push(binding)
   }
@@ -12121,6 +12125,7 @@ fn eval_object_members_with_implicit_env(
     })
   }
   let values : Array[ValueMember] = []
+  values.reserve_capacity(members.length())
   for field in members {
     if is_function_amend_marker_member_name(field.name) {
       continue

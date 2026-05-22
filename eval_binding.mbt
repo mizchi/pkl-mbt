@@ -90,6 +90,10 @@ fn capture_value_bindings(
   cache : Array[ValueBinding],
 ) -> Array[ValueBinding] {
   let captured = copy_value_bindings(env)
+  // Upper bound: every cache entry might be retained (excluding the
+  // handful of `@__module_*` / `@__class_default_*` markers filtered
+  // below).
+  captured.reserve_capacity(env.length() + cache.length())
   for binding in cache {
     // PKL-148bh / PKL-148bl: module metadata markers are plumbing for
     // reflect/read dispatch and get reintroduced from the caller cache
