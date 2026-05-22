@@ -375,108 +375,61 @@ fn module_property_doc_comment_from_source(
   source : String,
   property_name : String,
 ) -> String? {
-  let lines = source.split("\n").collect()
-  for i = 0; i < lines.length(); i = i + 1 {
-    if line_declares_reflect_name(
-        lines[i].to_owned(),
-        property_name,
-        "property",
-      ) {
-      let docs : Array[String] = []
-      let mut in_block_comment = false
-      for j = i - 1; j >= 0; j = j - 1 {
-        let line = trim_spaces(lines[j].to_owned())
-        if in_block_comment {
-          if line.has_prefix("/*") {
-            in_block_comment = false
-          }
-          continue
-        }
-        if line == "" {
-          if docs.length() == 0 {
-            continue
-          }
-          break
-        }
-        if line.has_prefix("*/") {
-          in_block_comment = true
-          continue
-        }
-        if line.has_prefix("//") && !line.has_prefix("///") {
-          continue
-        }
-        if line.has_prefix("/*") {
-          continue
-        }
-        if docs.length() == 0 && line.has_prefix("@") {
-          continue
-        }
-        if line.has_prefix("///") && !line.has_prefix("////") {
-          docs.insert(0, strip_doc_comment_line(line))
-          continue
-        }
-        break
-      }
-      if docs.length() == 0 {
-        return None
-      }
-      return Some(join_doc_comment_lines(docs))
-    }
+  let idx = match reflect_source_index(Some(source)) {
+    Some(i) => i
+    None => return None
   }
-  None
+  let line_idx = match idx.module_decl_line.get(property_name + " property") {
+    Some(i) => i
+    None => return None
+  }
+  // Doc-comment walk for module-level properties differs from class
+  // members: it tolerates `/* ... */` block comments and stops at the
+  // first non-blank, non-comment line. This variant is only used by
+  // `pkl_test.mbt`'s expected output checks, so the divergence stays
+  // local instead of being folded into `collect_doc_comment_above`.
+  let lines = idx.lines
+  let docs : Array[String] = []
+  let mut in_block_comment = false
+  for j = line_idx - 1; j >= 0; j = j - 1 {
+    let line = trim_spaces(lines[j])
+    if in_block_comment {
+      if line.has_prefix("/*") {
+        in_block_comment = false
+      }
+      continue
+    }
+    if line == "" {
+      if docs.length() == 0 {
+        continue
+      }
+      break
+    }
+    if line.has_prefix("*/") {
+      in_block_comment = true
+      continue
+    }
+    if line.has_prefix("//") && !line.has_prefix("///") {
+      continue
+    }
+    if line.has_prefix("/*") {
+      continue
+    }
+    if docs.length() == 0 && line.has_prefix("@") {
+      continue
+    }
+    if line.has_prefix("///") && !line.has_prefix("////") {
+      docs.insert(0, strip_doc_comment_line(line))
+      continue
+    }
+    break
+  }
+  if docs.length() == 0 {
+    return None
+  }
+  Some(join_doc_comment_lines(docs))
 }
 
-///|
-fn line_declares_reflect_name(
-  line : String,
-  name : String,
-  kind : String,
-) -> Bool {
-  let trimmed = trim_spaces(line)
-  let prefixes = [
-    "open", "abstract", "external", "hidden", "local", "fixed", "const",
-  ]
-  let mut rest = trimmed
-  let mut changed = true
-  while changed {
-    changed = false
-    for prefix in prefixes {
-      if rest == prefix || rest.has_prefix(prefix + " ") {
-        rest = trim_spaces(
-          String::unsafe_substring(
-            rest,
-            start=prefix.length(),
-            end=rest.length(),
-          ),
-        )
-        changed = true
-      }
-    }
-  }
-  match kind {
-    "class" =>
-      rest.has_prefix("class " + name) || rest.has_prefix("class " + name + "<")
-    "function" =>
-      rest.has_prefix("function " + name) ||
-      rest.has_prefix("function " + name + "<")
-    "typealias" =>
-      rest.has_prefix("typealias " + name) ||
-      rest.has_prefix("typealias " + name + "<")
-    "module" =>
-      rest.has_prefix("module ") ||
-      rest.has_prefix("amends ") ||
-      rest.has_prefix("extends ")
-    _ =>
-      if !rest.has_prefix(name) {
-        false
-      } else if rest.length() == name.length() {
-        true
-      } else {
-        let c = rest[name.length()].to_int().unsafe_to_char()
-        c == ':' || c == '=' || c == '{' || c == ' ' || c == '\t'
-      }
-  }
-}
 
 ///|
 fn doc_comment_before_reflect_decl(
@@ -484,44 +437,15 @@ fn doc_comment_before_reflect_decl(
   name : String,
   kind : String,
 ) -> String? {
-  let text = match source {
-    Some(s) => s
+  let idx = match reflect_source_index(source) {
+    Some(i) => i
     None => return None
   }
-  let lines = text.split("\n").collect()
-  for i = 0; i < lines.length(); i = i + 1 {
-    if !line_declares_reflect_name(lines[i].to_owned(), name, kind) {
-      continue
-    }
-    let docs : Array[String] = []
-    let mut j = i - 1
-    while j >= 0 {
-      let line = trim_spaces(lines[j].to_owned())
-      if line == "" {
-        j = j - 1
-        continue
-      }
-      if line.has_prefix("@") {
-        j = j - 1
-        continue
-      }
-      if line.has_prefix("///") && !line.has_prefix("////") {
-        docs.push(strip_doc_comment_line(line))
-        j = j - 1
-        continue
-      }
-      break
-    }
-    if docs.length() == 0 {
-      return None
-    }
-    let ordered : Array[String] = []
-    for k = docs.length() - 1; k >= 0; k = k - 1 {
-      ordered.push(docs[k])
-    }
-    return Some(join_doc_comment_lines(ordered))
+  let key = if kind == "module" { " " + kind } else { name + " " + kind }
+  match idx.module_decl_line.get(key) {
+    Some(line_idx) => collect_doc_comment_above(idx.lines, line_idx)
+    None => None
   }
-  None
 }
 
 ///|
@@ -531,59 +455,56 @@ fn doc_comment_before_class_member(
   member_name : String,
   kind : String,
 ) -> String? {
-  let text = match source {
-    Some(s) => s
+  let idx = match reflect_source_index(source) {
+    Some(i) => i
     None => return None
   }
-  let lines = text.split("\n").collect()
-  let mut start = 0
-  let mut found_class = false
-  for i = 0; i < lines.length(); i = i + 1 {
-    if line_declares_reflect_name(lines[i].to_owned(), class_name, "class") {
-      start = i + 1
-      found_class = true
-      break
-    }
+  let key = class_name + " " + member_name + " " + kind
+  let member_idx = match idx.class_member_line.get(key) {
+    Some(line_idx) => line_idx
+    None =>
+      // Class header wasn't found in source (e.g. inherited from a
+      // parent module amend): fall back to the module-scope walker so
+      // an `import-class.member` reflect still surfaces its docs.
+      return doc_comment_before_reflect_decl(source, member_name, kind)
   }
-  if !found_class {
-    return doc_comment_before_reflect_decl(source, member_name, kind)
-  }
-  for i = start; i < lines.length(); i = i + 1 {
-    let line = lines[i].to_owned()
-    if i > start && line_declares_reflect_name(line, "", "module") {
-      return None
-    }
-    if i > start && line_declares_reflect_name(line, class_name, "class") {
-      return None
-    }
-    if !line_declares_reflect_name(line, member_name, kind) {
+  collect_doc_comment_above(idx.lines, member_idx)
+}
+
+///|
+/// Walk backwards from `line_idx - 1` collecting `///` doc-comment
+/// lines, skipping blank lines and `@`-prefixed annotations. Mirrors
+/// what `doc_comment_before_class_member` /
+/// `doc_comment_before_reflect_decl` / `module_property_doc_comment_from_source`
+/// used to do inline before they were routed through
+/// `reflect_source_index`.
+fn collect_doc_comment_above(
+  lines : Array[String],
+  line_idx : Int,
+) -> String? {
+  let docs : Array[String] = []
+  let mut j = line_idx - 1
+  while j >= 0 {
+    let prev = trim_spaces(lines[j])
+    if prev == "" || prev.has_prefix("@") {
+      j = j - 1
       continue
     }
-    let docs : Array[String] = []
-    let mut j = i - 1
-    while j >= 0 {
-      let prev = trim_spaces(lines[j].to_owned())
-      if prev == "" || prev.has_prefix("@") {
-        j = j - 1
-        continue
-      }
-      if prev.has_prefix("///") && !prev.has_prefix("////") {
-        docs.push(strip_doc_comment_line(prev))
-        j = j - 1
-        continue
-      }
-      break
+    if prev.has_prefix("///") && !prev.has_prefix("////") {
+      docs.push(strip_doc_comment_line(prev))
+      j = j - 1
+      continue
     }
-    if docs.length() == 0 {
-      return None
-    }
-    let ordered : Array[String] = []
-    for k = docs.length() - 1; k >= 0; k = k - 1 {
-      ordered.push(docs[k])
-    }
-    return Some(join_doc_comment_lines(ordered))
+    break
   }
-  None
+  if docs.length() == 0 {
+    return None
+  }
+  let ordered : Array[String] = []
+  for k = docs.length() - 1; k >= 0; k = k - 1 {
+    ordered.push(docs[k])
+  }
+  Some(join_doc_comment_lines(ordered))
 }
 
 ///|
@@ -593,36 +514,26 @@ fn reflect_class_member_decl_line_from_source(
   member_name : String,
   kind : String,
 ) -> String? {
-  let text = match source {
-    Some(s) => s
+  let idx = match reflect_source_index(source) {
+    Some(i) => i
     None => return None
   }
-  let lines = text.split("\n").collect()
-  let mut start = 0
-  let mut found_class = false
-  for i = 0; i < lines.length(); i = i + 1 {
-    if line_declares_reflect_name(lines[i].to_owned(), class_name, "class") {
-      start = i + 1
-      found_class = true
-      break
-    }
+  let key = class_name + " " + member_name + " " + kind
+  match idx.class_member_line.get(key) {
+    Some(line_idx) =>
+      if line_idx < idx.lines.length() {
+        Some(trim_spaces(idx.lines[line_idx]))
+      } else {
+        None
+      }
+    None =>
+      // Fall back to module-scope lookup when the class itself is
+      // missing from the source (e.g. the class came in via a parent
+      // module amend) — mirrors the old walker which delegated to
+      // `reflect_decl_line_from_source` after failing to find the
+      // class header.
+      reflect_decl_line_from_source(source, member_name, kind)
   }
-  if !found_class {
-    return reflect_decl_line_from_source(source, member_name, kind)
-  }
-  for i = start; i < lines.length(); i = i + 1 {
-    let line = lines[i].to_owned()
-    if i > start && line_declares_reflect_name(line, "", "module") {
-      return None
-    }
-    if i > start && line_declares_reflect_name(line, "", "class") {
-      return None
-    }
-    if line_declares_reflect_name(line, member_name, kind) {
-      return Some(trim_spaces(line))
-    }
-  }
-  None
 }
 
 ///|
@@ -717,23 +628,277 @@ fn module_doc_comment_from_source(source : String?) -> String? {
 }
 
 ///|
+/// Cache of `(class_name, member_name, kind) → trimmed_line` indexes
+/// built lazily from a module source. The reflect pass calls into
+/// `reflect_class_member_decl_line_from_source` and
+/// `reflect_decl_line_from_source` once per (class, member) and once
+/// per top-level decl; before this cache, each call re-split the
+/// module source into lines and re-walked them looking for a single
+/// match. For pkspec/Test.pkl (1643 lines, 49 classes, ~500 reflect
+/// queries) that walk dominated the eval profile by ~70% of total
+/// time. With the cache we pay O(L) once to build the index, then
+/// every subsequent lookup is `Map.get`.
+///
+/// The cache is keyed by the source `String` itself; in practice the
+/// reflect path passes the same `current_module_source` reference
+/// repeatedly within a single `eval_source` call. The cap below keeps
+/// memory bounded across long-running CLI sessions and benchmarks.
+priv struct ReflectSourceIndex {
+  // Pre-split, owned lines. Doc-comment scanners walk backwards from a
+  // known declaration index to grab the `///` block above it; they
+  // index into this array instead of re-splitting on every call.
+  lines : Array[String]
+  // `class member kind → line index` for every member declaration we
+  // observed inside a class body. Combined with `lines` this gives
+  // both the trimmed declaration text and the position needed to walk
+  // backwards looking for doc comments.
+  class_member_line : Map[String, Int]
+  // `name kind → line index` for top-level declarations (class,
+  // function, typealias, module).
+  module_decl_line : Map[String, Int]
+}
+
+///|
+let reflect_source_index_cache : Ref[Array[(String, ReflectSourceIndex)]] = {
+  val: [],
+}
+
+///|
+/// Look up or compute the line index for `source`. Returns `None`
+/// when `source` is `None` so reflect on a module without a source
+/// (e.g. synthetic test-only modules) keeps the old behaviour of
+/// returning no metadata.
+fn reflect_source_index(source : String?) -> ReflectSourceIndex? {
+  let text = match source {
+    Some(s) => s
+    None => return None
+  }
+  let cache = reflect_source_index_cache.val
+  for entry in cache {
+    let (key, idx) = entry
+    if key.length() == text.length() && key == text {
+      return Some(idx)
+    }
+  }
+  let idx = build_reflect_source_index(text)
+  // LRU-ish cap: drop the oldest entry once we hold four sources.
+  // Bench cycles repeatedly evaluate the same source; CLI evals one
+  // source per process; both stay comfortably inside the cap.
+  while reflect_source_index_cache.val.length() >= 4 {
+    let _ = reflect_source_index_cache.val.remove(0)
+  }
+  reflect_source_index_cache.val.push((text, idx))
+  Some(idx)
+}
+
+///|
+/// Walk `text` line-by-line and bin every declaration into
+/// `class_member_line` or `module_decl_line` according to
+/// the current class scope. The scope-end heuristics match the
+/// pre-existing `reflect_class_member_decl_line_from_source` walk:
+/// a class scope runs from `class X` until the next class declaration
+/// or another `module` / `amends` / `extends` header.
+fn build_reflect_source_index(text : String) -> ReflectSourceIndex {
+  let split = text.split("\n").collect()
+  let lines : Array[String] = []
+  for view in split {
+    lines.push(view.to_owned())
+  }
+  let class_member_line : Map[String, Int] = Map([], capacity=64)
+  let module_decl_line : Map[String, Int] = Map([], capacity=64)
+  let mut current_class : String? = None
+  for i = 0; i < lines.length(); i = i + 1 {
+    let line = lines[i]
+    match line_decl_info(line) {
+      Some((kind, name)) => {
+        if kind == "module" {
+          // `module foo` / `amends ...` / `extends ...` resets scope.
+          current_class = None
+          let key = " " + kind
+          if !module_decl_line.contains(key) {
+            module_decl_line[key] = i
+          }
+          continue
+        }
+        if kind == "class" {
+          current_class = Some(name)
+          let key = name + " " + kind
+          if !module_decl_line.contains(key) {
+            module_decl_line[key] = i
+          }
+          continue
+        }
+        if kind == "function" || kind == "typealias" {
+          // Top-level function/typealias only counts when not nested in
+          // a class. Class methods are recorded under the class scope.
+          match current_class {
+            None => {
+              let key = name + " " + kind
+              if !module_decl_line.contains(key) {
+                module_decl_line[key] = i
+              }
+            }
+            Some(class_name) => {
+              let key = class_name + " " + name + " " + kind
+              if !class_member_line.contains(key) {
+                class_member_line[key] = i
+              }
+            }
+          }
+          continue
+        }
+        // kind == "property"
+        match current_class {
+          None => {
+            let key = name + " " + kind
+            if !module_decl_line.contains(key) {
+              module_decl_line[key] = i
+            }
+          }
+          Some(class_name) => {
+            let key = class_name + " " + name + " " + kind
+            if !class_member_line.contains(key) {
+              class_member_line[key] = i
+            }
+          }
+        }
+      }
+      None => ()
+    }
+  }
+  { lines, class_member_line, module_decl_line }
+}
+
+///|
+/// Identify what (kind, name) a single trimmed source line declares.
+/// Returns `None` for blank lines, comments, body expressions, etc.
+/// The classification mirrors what `line_declares_reflect_name`
+/// accepts.
+fn line_decl_info(line : String) -> (String, String)? {
+  let trimmed = trim_spaces(line)
+  let prefixes = [
+    "open", "abstract", "external", "hidden", "local", "fixed", "const",
+  ]
+  let mut rest = trimmed
+  let mut changed = true
+  while changed {
+    changed = false
+    for prefix in prefixes {
+      if rest == prefix || rest.has_prefix(prefix + " ") {
+        rest = trim_spaces(
+          String::unsafe_substring(
+            rest,
+            start=prefix.length(),
+            end=rest.length(),
+          ),
+        )
+        changed = true
+      }
+    }
+  }
+  if rest == "" {
+    return None
+  }
+  if rest.has_prefix("module ") ||
+    rest.has_prefix("amends ") ||
+    rest.has_prefix("extends ") ||
+    rest == "module" {
+    return Some(("module", ""))
+  }
+  match extract_decl_name(rest, "class ") {
+    Some(name) => return Some(("class", name))
+    None => ()
+  }
+  match extract_decl_name(rest, "function ") {
+    Some(name) => return Some(("function", name))
+    None => ()
+  }
+  match extract_decl_name(rest, "typealias ") {
+    Some(name) => return Some(("typealias", name))
+    None => ()
+  }
+  // Property: bare `name` followed by `:`, `=`, `{`, space, or eol.
+  let mut end = 0
+  for i = 0; i < rest.length(); i = i + 1 {
+    let c = rest[i].to_int().unsafe_to_char()
+    let is_ident = (c >= 'a' && c <= 'z') ||
+      (c >= 'A' && c <= 'Z') ||
+      (c >= '0' && c <= '9') ||
+      c == '_' ||
+      c == '$'
+    if !is_ident {
+      break
+    }
+    end = i + 1
+  }
+  if end == 0 {
+    return None
+  }
+  let name = String::unsafe_substring(rest, start=0, end=end)
+  if end == rest.length() {
+    return Some(("property", name))
+  }
+  let c = rest[end].to_int().unsafe_to_char()
+  if c == ':' || c == '=' || c == '{' || c == ' ' || c == '\t' {
+    return Some(("property", name))
+  }
+  None
+}
+
+///|
+/// `extract_decl_name(rest, "class ")` returns the identifier that
+/// follows `class ` (or the corresponding keyword), stripping a
+/// trailing `<` generic clause. Returns `None` when `rest` does not
+/// begin with `keyword`.
+fn extract_decl_name(rest : String, keyword : String) -> String? {
+  if !rest.has_prefix(keyword) {
+    return None
+  }
+  let tail = String::unsafe_substring(
+    rest,
+    start=keyword.length(),
+    end=rest.length(),
+  )
+  let mut end = 0
+  for i = 0; i < tail.length(); i = i + 1 {
+    let c = tail[i].to_int().unsafe_to_char()
+    let is_ident = (c >= 'a' && c <= 'z') ||
+      (c >= 'A' && c <= 'Z') ||
+      (c >= '0' && c <= '9') ||
+      c == '_' ||
+      c == '$'
+    if !is_ident {
+      break
+    }
+    end = i + 1
+  }
+  if end == 0 {
+    return None
+  }
+  Some(String::unsafe_substring(tail, start=0, end=end))
+}
+
+///|
 fn reflect_decl_line_from_source(
   source : String?,
   name : String,
   kind : String,
 ) -> String? {
-  let text = match source {
-    Some(s) => s
-    None => return None
-  }
-  let lines = text.split("\n").collect()
-  for line in lines {
-    let owned = line.to_owned()
-    if line_declares_reflect_name(owned, name, kind) {
-      return Some(trim_spaces(owned))
+  match reflect_source_index(source) {
+    Some(idx) => {
+      let key = if kind == "module" { " " + kind } else { name + " " + kind }
+      match idx.module_decl_line.get(key) {
+        Some(line_idx) =>
+          if line_idx < idx.lines.length() {
+            Some(trim_spaces(idx.lines[line_idx]))
+          } else {
+            None
+          }
+        None => None
+      }
     }
+    None => None
   }
-  None
 }
 
 ///|

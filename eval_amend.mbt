@@ -2100,7 +2100,7 @@ fn eval_class_default_members_seen(
             // Constrained / user-class types fall through to the
             // existing abstract-slot behaviour.
             match
-              synthesize_default_for_type(
+              synthesize_default_for_type_seen(
                 property.type_name,
                 bindings,
                 env,
@@ -2109,6 +2109,7 @@ fn eval_class_default_members_seen(
                 declarations,
                 diagnostics,
                 resolve_import,
+                seen,
               ) {
               Some(value) =>
                 base_values.push({

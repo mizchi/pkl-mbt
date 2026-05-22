@@ -8,7 +8,8 @@ fn eval_type_alias_bindings(
   // so user code can annotate `x: UInt8 = 255` without explicitly
   // importing — the constraint cascade then enforces the range.
   // `api/typeAliases` and `basic/int` both rely on these.
-  aliases.push({ name: "UInt", target: "Int(isBetween(0, 4294967295))" })
+  aliases.push({ name: "NonNull", target: "Any(!(this is Null))" })
+  aliases.push({ name: "UInt", target: "Int(isPositive)" })
   aliases.push({ name: "UInt8", target: "Int(isBetween(0, 255))" })
   aliases.push({ name: "UInt16", target: "Int(isBetween(0, 65535))" })
   aliases.push({ name: "UInt32", target: "Int(isBetween(0, 4294967295))" })
@@ -18,6 +19,7 @@ fn eval_type_alias_bindings(
     name: "Int32",
     target: "Int(isBetween(-2147483648, 2147483647))",
   })
+  aliases.push({ name: "Uri", target: "String" })
   for declaration in declarations {
     match declaration {
       TypeAliasDeclaration(type_alias) =>
@@ -110,24 +112,52 @@ fn apply_class_defaults_for_type(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value {
+  apply_class_defaults_for_type_seen(
+    value, type_name, bindings, env, class_env, cache, declarations, diagnostics,
+    resolve_import, [],
+  )
+}
+
+///|
+/// `_seen` variant carrying the in-progress class-name chain so a
+/// property typed as a class higher in the chain (`class A { b: B }`,
+/// `class B { a: A }`) returns the empty-default shape instead of
+/// recursing into `synthesize_default_for_type` again and overflowing
+/// the call stack. `seen` is copied into a private array at the
+/// boundary so sibling property synthesis remains independent — two
+/// `bar: Bar` properties at the same class layer must both expand
+/// `Bar` once each, not skip the second.
+fn apply_class_defaults_for_type_seen(
+  value : Value,
+  type_name : String?,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+  seen : Array[String],
+) -> Value {
   match (value, type_name) {
     (ObjectValue(members), Some(name)) =>
       if visible_members(members).length() != 0 {
         value
       } else {
         let base = name
+        // Cycle guard is owned by `synthesize_default_for_type_seen`
+        // (which is the only caller threading `seen` through). When the
+        // wrapper is called from outside the class-default cycle path,
+        // `seen` is empty.
         match lookup_class_binding(class_env, base) {
           Some(_) => {
-            let defaults = eval_class_default_members(
-              base,
-              bindings,
-              env,
-              class_env,
-              cache,
-              [],
-              declarations,
-              diagnostics,
-              resolve_import,
+            let seen_copy : Array[String] = []
+            for s in seen {
+              seen_copy.push(s)
+            }
+            let defaults = eval_class_default_members_seen(
+              base, bindings, env, class_env, cache, [], declarations, diagnostics,
+              resolve_import, seen_copy,
             )
             if defaults.length() == 0 {
               value
@@ -157,6 +187,30 @@ fn synthesize_default_for_type(
   declarations : Array[Declaration],
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  synthesize_default_for_type_seen(
+    type_name, bindings, env, class_env, cache, declarations, diagnostics,
+    resolve_import, [],
+  )
+}
+
+///|
+/// `_seen` variant of `synthesize_default_for_type`. Threads the chain
+/// of class names currently being synthesised so the
+/// `synthesize → apply_class_defaults_for_type → eval_class_default_members`
+/// path cannot reset the cycle guard and overflow the call stack on
+/// mutually-recursive class types (the original failure observed on
+/// `apple-pkl/stdlib/base.pkl`).
+fn synthesize_default_for_type_seen(
+  type_name : String?,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+  seen : Array[String],
 ) -> Value? {
   match type_name {
     None => None
@@ -210,7 +264,7 @@ fn synthesize_default_for_type(
             let starred = trim_spaces(
               String::unsafe_substring(trimmed, start=1, end=trimmed.length()),
             )
-            return synthesize_default_for_type(
+            return synthesize_default_for_type_seen(
               Some(starred),
               bindings,
               env,
@@ -219,6 +273,7 @@ fn synthesize_default_for_type(
               declarations,
               diagnostics,
               resolve_import,
+              seen,
             )
           }
         }
@@ -234,7 +289,7 @@ fn synthesize_default_for_type(
       }
       if name.has_prefix("*") {
         let rest = String::unsafe_substring(name, start=1, end=name.length())
-        return synthesize_default_for_type(
+        return synthesize_default_for_type_seen(
           Some(trim_spaces(rest)),
           bindings,
           env,
@@ -243,6 +298,7 @@ fn synthesize_default_for_type(
           declarations,
           diagnostics,
           resolve_import,
+          seen,
         )
       }
       // Typealias dereference — `bar: Bar` where
@@ -251,7 +307,7 @@ fn synthesize_default_for_type(
       let aliases = eval_type_alias_bindings(declarations)
       let resolved = eval_resolved_type_alias(name, aliases)
       if resolved != name {
-        return synthesize_default_for_type(
+        return synthesize_default_for_type_seen(
           Some(resolved),
           bindings,
           env,
@@ -260,6 +316,7 @@ fn synthesize_default_for_type(
           declarations,
           diagnostics,
           resolve_import,
+          seen,
         )
       }
       // Structural collections fall back to their empty form. Set/Map
@@ -291,10 +348,21 @@ fn synthesize_default_for_type(
         Some(idx) => String::unsafe_substring(name, start=0, end=idx)
         None => name
       }
+      // PKL-148bc: skip re-entering a class we're already materialising.
+      // The cycle path is property `bar: Bar` whose synthesis lands back
+      // on `Bar` (mutually-recursive class types). Without this guard,
+      // mutually-recursive types like `apple-pkl/stdlib/base.pkl` blow
+      // the call stack instead of returning the empty-default shape.
+      // The push into `seen` happens once inside
+      // `eval_class_default_members_seen` so synthesize and apply just
+      // forward the chain unchanged.
+      if contains_string(seen, base) {
+        return Some(ObjectValue([]))
+      }
       match lookup_class_binding(class_env, base) {
         Some(_) =>
           Some(
-            apply_class_defaults_for_type(
+            apply_class_defaults_for_type_seen(
               ObjectValue([]),
               Some(base),
               bindings,
@@ -304,6 +372,7 @@ fn synthesize_default_for_type(
               declarations,
               diagnostics,
               resolve_import,
+              seen,
             ),
           )
         None => None
@@ -1449,14 +1518,23 @@ fn eval_class_property_constraint_value_rejection_message(
     eval_class_property_annotation(declarations, class_name, property_name) {
     Some(source_name) => {
       let display_name = "\{class_name} member \{property_name}"
+      let aliases = eval_type_alias_bindings(declarations)
+      let constraint_source_name = match
+        eval_constrained_type_source_name(source_name, aliases) {
+        Some(resolved) => resolved
+        None => source_name
+      }
       // PKL-148b: a class property typed `Listing<...>(...)` whose
       // amend body is empty (`l {}`) initially evaluates to an empty
       // ObjectValue. Coerce to ListingValue before the constraint
       // dispatch so the Listing-host predicate (e.g. `!isEmpty`) fires.
-      let coerced = coerce_value_to_annotated_type(value, Some(source_name))
+      let coerced = coerce_value_to_annotated_type(
+        value,
+        Some(constraint_source_name),
+      )
       match
         pkl_constrained_type_annotation_value_rejection_message_from_source(
-          display_name, source_name, coerced,
+          display_name, constraint_source_name, coerced,
         ) {
         Some(message) => Some(message)
         None =>
