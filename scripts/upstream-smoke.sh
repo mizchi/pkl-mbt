@@ -7,6 +7,12 @@ cd "$ROOT"
 UPSTREAM="third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input"
 GOLD="third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/output"
 PKG_CACHE="third_party/apple-pkl/pkl-commons-test/src/main/files/packages"
+# IO-aware fixtures invoke the release binary directly so the
+# controlled env / `-p` set isn't shadowed by `moon run`'s own
+# environment plumbing. Build once up front; the other fixture lanes
+# still go through `moon run` for the source-change detection.
+MPKL="_build/native/release/build/cmd/mpkl/mpkl.exe"
+moon build --release --target native >/dev/null 2>&1
 
 # PKL-096: list of upstream fixtures whose `pkl eval` output already
 # matches the gold `.pcf` byte-for-byte. Promote here only after a
@@ -441,6 +447,49 @@ eval_matches_gold() {
   printf 'upstream eval ok: %s (gold match)\n' "$label"
 }
 
+eval_matches_gold_with_io() {
+  # Same as `eval_matches_gold` but seeds the controlled env + `-p`
+  # properties Apple Pkl's LanguageSnippetTests runner uses for
+  # fixtures that exercise `read*("env:...")` / `read*("prop:...")` /
+  # property paths containing spaces. Matches the values
+  # `coverage-by-category.sh` already passes.
+  local label="$1"
+  local input="$2"
+  local gold="$3"
+  local tmp
+  tmp="$(mktemp)"
+  # The fixture's `read*("env:**")` glob walks the full environment,
+  # so we wipe it with `env -i` and rebuild from scratch. `$MPKL` is
+  # an absolute path so PATH lookup isn't needed for the binary call;
+  # only the values below are visible to the snippet.
+  env -i \
+    NAME1=value1 \
+    NAME2=value2 \
+    'foo bar=foo bar' \
+    '/foo/bar=foobar' \
+    'file:///foo/bar=file:///foo/bar' \
+    "$ROOT/$MPKL" eval \
+      -p name1=value1 \
+      -p name2=value2 \
+      -p /foo/bar=foobar \
+      --package-cache "$ROOT/$PKG_CACHE" \
+      "$input" > "$tmp"
+  if ! diff -u "$gold" "$tmp" >/tmp/upstream-smoke-io-diff.$$; then
+    printf 'upstream eval mismatch: %s\n' "$label" >&2
+    cat /tmp/upstream-smoke-io-diff.$$ >&2
+    rm -f /tmp/upstream-smoke-io-diff.$$ "$tmp"
+    exit 1
+  fi
+  rm -f /tmp/upstream-smoke-io-diff.$$ "$tmp"
+  printf 'upstream eval ok: %s (gold match, env+props)\n' "$label"
+}
+
+# Fixtures whose `read*` / `env:` / `prop:` calls require the
+# controlled environment Apple Pkl's snippet runner sets up.
+IO_GOLD_FIXTURES=(
+  "basic/readGlob"
+)
+
 eval_contains() {
   local label="$1"
   local file="$2"
@@ -535,6 +584,12 @@ for label in "${JSONNET_GOLD_FIXTURES[@]}"; do
   jsonnet_ok_count=$((jsonnet_ok_count + 1))
 done
 
+io_ok_count=0
+for label in "${IO_GOLD_FIXTURES[@]}"; do
+  eval_matches_gold_with_io "$label" "$UPSTREAM/$label.pkl" "$GOLD/$label.pcf"
+  io_ok_count=$((io_ok_count + 1))
+done
+
 printf 'upstream-smoke: %d gold-match fixtures passed\n' "$ok_count"
 printf 'upstream-smoke: %d json gold-match fixtures passed\n' "$json_ok_count"
 printf 'upstream-smoke: %d yaml gold-match fixtures passed\n' "$yaml_ok_count"
@@ -542,3 +597,4 @@ printf 'upstream-smoke: %d plist gold-match fixtures passed\n' "$plist_ok_count"
 printf 'upstream-smoke: %d xml gold-match fixtures passed\n' "$xml_ok_count"
 printf 'upstream-smoke: %d textproto gold-match fixtures passed\n' "$textproto_ok_count"
 printf 'upstream-smoke: %d jsonnet gold-match fixtures passed\n' "$jsonnet_ok_count"
+printf 'upstream-smoke: %d io gold-match fixtures passed (env + props)\n' "$io_ok_count"

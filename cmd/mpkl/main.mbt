@@ -1788,11 +1788,48 @@ fn register_read_resource_if_file(from : String, uri : String) -> Unit {
 
 ///|
 fn register_read_glob_if_file_pattern(from : String, pattern : String) -> Unit {
+  // `read*("foo.txt")` (no glob meta-character) is valid Apple Pkl —
+  // it returns a single-entry `Mapping<String, Resource>` keyed by the
+  // literal pattern. `should_register_read_glob` declines those
+  // because the wildcard-glob walker would scan the parent directory
+  // unnecessarily; handle the literal case separately by reusing the
+  // single-file resource registration.
   if should_register_read_glob(pattern) {
     let resources = glob_resources_from(from, pattern)
     if resources.length() > 0 {
       @pkl.register_read_glob(from, pattern, resources)
     }
+    return
+  }
+  if pattern == "" {
+    return
+  }
+  // env: / prop: globs are handled elsewhere (the scheme set bails
+  // earlier in `should_register_read_glob` for them); a literal env:
+  // / prop: URI on the read* path is similarly out of scope here.
+  match pattern.find(":") {
+    Some(idx) => {
+      let scheme = String::unsafe_substring(pattern, start=0, end=idx)
+      if scheme == "env" || scheme == "prop" {
+        return
+      }
+    }
+    None => ()
+  }
+  match read_resource_from(from, pattern) {
+    Some(resource) =>
+      @pkl.register_read_glob(
+        from,
+        pattern,
+        [
+          {
+            uri: pattern,
+            resource_uri: resource.resource_uri,
+            text: resource.text,
+          },
+        ],
+      )
+    None => ()
   }
 }
 
