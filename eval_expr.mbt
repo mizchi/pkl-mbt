@@ -12134,11 +12134,18 @@ fn eval_object_members_with_implicit_env(
     // implicit receiver. Computed entry keys and `for` sources resolve
     // lexical names (plus prior `local` members), while ordinary member
     // values see the implicit receiver with prior properties/elements.
+    //
+    // These two env copies happen per member, so they dominate the
+    // per-eval allocation curve on object-body heavy fixtures. Pre-
+    // reserving the upper bound (original env plus one slot per prior
+    // member) skips the doubling-realloc tail.
     let lexical_env : Array[ValueBinding] = []
+    lexical_env.reserve_capacity(env.length() + values.length() + 1)
     for binding in env {
       lexical_env.push(binding)
     }
     let local_env : Array[ValueBinding] = []
+    local_env.reserve_capacity(implicit_env.length() + values.length() + 1)
     for binding in implicit_env {
       local_env.push(binding)
     }
@@ -12170,6 +12177,7 @@ fn eval_object_members_with_implicit_env(
       let inflight_name = stack[stack.length() - 1]
       if lookup_value(local_env, inflight_name) is None {
         let snapshot : Array[ValueMember] = []
+        snapshot.reserve_capacity(values.length())
         for prior in values {
           snapshot.push(prior)
         }
