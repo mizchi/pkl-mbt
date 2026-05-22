@@ -144,6 +144,14 @@ fn pkl_split_constraint_arguments(text : String) -> Array[String] {
   // trimmed so the predicate dispatcher doesn't have to defend
   // against leading / trailing whitespace introduced by the
   // operator spacing in `Int(isPositive, isLessThan(10))`.
+  //
+  // Fast path: a flat argument-free call like `isPositive` has no
+  // commas; return the trimmed text without entering the per-char
+  // StringBuilder loop. Also use `write_char` instead of allocating a
+  // transient one-char String per iteration.
+  if !string_contains_char(text, ',') {
+    return [trim_spaces(text)]
+  }
   let parts : Array[String] = []
   let buf = StringBuilder::new()
   let mut parens = 0
@@ -178,6 +186,27 @@ fn pkl_split_constraint_arguments(text : String) -> Array[String] {
 }
 
 ///|
+/// Tight byte-loop single-char index search. Returns `-1` when not
+/// found. MoonBit's `String.find(pattern)` routes through
+/// `brute_force_find` / `boyer_moore_horspool_find` which dominate
+/// the reflect / type-name profile when used with single-char
+/// patterns; this avoids that dispatch.
+fn string_index_of_char(s : String, c : Char) -> Int {
+  let target = c.to_int()
+  for i = 0; i < s.length(); i = i + 1 {
+    if s[i].to_int() == target {
+      return i
+    }
+  }
+  -1
+}
+
+///|
+fn string_contains_char(s : String, c : Char) -> Bool {
+  string_index_of_char(s, c) >= 0
+}
+
+///|
 fn trim_spaces(text : String) -> String {
   let mut start = 0
   while start < text.length() {
@@ -206,13 +235,13 @@ fn pkl_constrained_type_paren_index(name : String) -> Int? {
   // contain at least one `(`. Type names without a paren — `Int`,
   // `Listing<Foo>`, `String` — are by far the common case on the
   // reflect / synthesize-default hot paths, and they all bail here
-  // without entering the per-char balanced-bracket walk. Profiled
-  // accordingly: this short-circuit removes a measurable slice of
-  // `brute_force_find` / `boyer_moore_horspool_find` traffic.
-  let first_paren = name.find("(")
+  // without entering the per-char balanced-bracket walk. Use a tight
+  // byte-loop instead of `String.find("(")` so the common-case bail
+  // doesn't itself go through MoonBit's general pattern matcher.
+  let first_paren = string_index_of_char(name, '(')
   match first_paren {
-    None => return None
-    Some(0) => return None
+    -1 => return None
+    0 => return None
     _ => ()
   }
   let mut parens = 0

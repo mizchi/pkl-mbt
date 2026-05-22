@@ -390,9 +390,9 @@ fn synthesize_default_for_type_seen(
         }
       }
       // User-defined class → `new T {}` with class defaults applied.
-      let base = match name.find("<") {
-        Some(idx) => String::unsafe_substring(name, start=0, end=idx)
-        None => name
+      let base = match string_index_of_char(name, '<') {
+        idx if idx >= 0 => String::unsafe_substring(name, start=0, end=idx)
+        _ => name
       }
       // PKL-148bc: skip re-entering a class we're already materialising.
       // The cycle path is property `bar: Bar` whose synthesis lands back
@@ -437,9 +437,9 @@ fn coerce_value_to_annotated_type(value : Value, type_name : String?) -> Value {
         Some(base) => base
         None => trimmed
       }
-      let head = match base.find("<") {
-        Some(idx) => String::unsafe_substring(base, start=0, end=idx)
-        None => base
+      let head = match string_index_of_char(base, '<') {
+        idx if idx >= 0 => String::unsafe_substring(base, start=0, end=idx)
+        _ => base
       }
       if head == "Listing" || head == "List" {
         ListingValue([])

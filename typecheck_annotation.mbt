@@ -163,7 +163,7 @@ fn split_top_level_union_choices(text : String) -> Array[String] {
   // StringBuilder build for the common case of a plain name like
   // `Int` / `Listing<Foo>` (the reflect / synthesize-default hot
   // paths hit this thousands of times per module evaluation).
-  if text.find("|") is None {
+  if !string_contains_char(text, '|') {
     return [text]
   }
   let parts : Array[String] = []
