@@ -1736,6 +1736,21 @@ fn glob_visible_uris_from_files(
 
 ///|
 fn should_register_read_glob(pattern : String) -> Bool {
+  // Bail before the directory-enumeration spiral when `pattern`
+  // clearly isn't a glob: callers reach this through the bare
+  // `StringLiteral(uri) => register_read_literal_io` arm of
+  // `register_expr_io`, which means every string literal in the
+  // module — `res1 = "\r\n\t\\"`, `name = "hawk"`, etc. — would
+  // otherwise scan the source's parent directory looking for matches.
+  // For `apple-pkl/.../basic/rawString.pkl` (50x dup) this ate
+  // ~6 s in `__getdirentries64` / `sort_strings` before the actual
+  // eval even started. Glob patterns must contain at least one of
+  // `*` / `?` / `[`; non-glob URIs fall through to the literal
+  // resource registration path that already short-circuits on
+  // missing files.
+  if !pattern_looks_like_glob(pattern) {
+    return false
+  }
   match pattern.find(":") {
     Some(idx) => {
       let scheme = String::unsafe_substring(pattern, start=0, end=idx)
@@ -1743,6 +1758,17 @@ fn should_register_read_glob(pattern : String) -> Bool {
     }
     None => true
   }
+}
+
+///|
+fn pattern_looks_like_glob(pattern : String) -> Bool {
+  for i = 0; i < pattern.length(); i = i + 1 {
+    let c = pattern[i].to_int().unsafe_to_char()
+    if c == '*' || c == '?' || c == '[' {
+      return true
+    }
+  }
+  false
 }
 
 ///|
