@@ -1896,13 +1896,9 @@ test "support additional Pkl numeric constraint predicates" {
     typecheck_source("value: Int(isPositive) = 3") ==
     TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
   )
-  guard typecheck_source("value: Int(isPositive) = 0")
-    is TypeError(positive_diagnostics) else {
-    panic()
-  }
-  inspect(
-    positive_diagnostics[0].message,
-    content="Type constraint `isPositive` violated. Value: 0",
+  assert_true(
+    typecheck_source("value: Int(isPositive) = 0") ==
+    TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
   )
   guard eval_source("value: Int(this.isGreaterThan(5)) = 5")
     is EvalError(greater_diagnostics) else {

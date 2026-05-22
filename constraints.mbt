@@ -333,7 +333,7 @@ fn pkl_constrained_type_base_name(name : String) -> String? {
 fn pkl_constrained_type_constraint_text(name : String) -> String? {
   match pkl_constrained_type_paren_index(name) {
     Some(index) =>
-      if name.has_suffix(")") &&
+      if string_ends_with_char(name, ')') &&
         pkl_constrained_type_suffix_is_balanced(name, index) {
         Some(
           String::unsafe_substring(name, start=index + 1, end=name.length() - 1),
@@ -342,6 +342,42 @@ fn pkl_constrained_type_constraint_text(name : String) -> String? {
         None
       }
     None => None
+  }
+}
+
+///|
+fn pkl_builtin_type_alias_target(name : String) -> String? {
+  match name {
+    "NonNull" => Some("Any(!(this is Null))")
+    "UInt" => Some("Int(isPositive)")
+    "UInt8" => Some("Int(isBetween(0, 255))")
+    "UInt16" => Some("Int(isBetween(0, 65535))")
+    "UInt32" => Some("Int(isBetween(0, 4294967295))")
+    "Int8" => Some("Int(isBetween(-128, 127))")
+    "Int16" => Some("Int(isBetween(-32768, 32767))")
+    "Int32" => Some("Int(isBetween(-2147483648, 2147483647))")
+    "Uri" => Some("String")
+    _ => None
+  }
+}
+
+///|
+fn pkl_constrained_any_not_null_constraint_name(type_name : String) -> String? {
+  match pkl_constrained_type_base_name(type_name) {
+    Some("Any") =>
+      match pkl_constrained_type_constraint_text(type_name) {
+        Some(text) => {
+          let parts = pkl_split_constraint_arguments(text)
+          for part in parts {
+            if pkl_constraint_trim(part) == "!(this is Null)" {
+              return Some("!(this is Null)")
+            }
+          }
+          None
+        }
+        None => None
+      }
+    _ => None
   }
 }
 
@@ -739,8 +775,19 @@ fn pkl_constrained_type_annotation_has_supported_constraint_with_depth(
   if depth > 8 {
     return false
   }
+  match pkl_builtin_type_alias_target(type_name) {
+    Some(target) =>
+      if pkl_constrained_type_annotation_has_supported_constraint_with_depth(
+          target,
+          depth + 1,
+        ) {
+        return true
+      }
+    None => ()
+  }
   if pkl_constrained_int_predicates(type_name).length() > 0 ||
-    pkl_constrained_string_predicates(type_name).length() > 0 {
+    pkl_constrained_string_predicates(type_name).length() > 0 ||
+    pkl_constrained_any_not_null_constraint_name(type_name) is Some(_) {
     return true
   }
   match generic_argument_text(type_name, "Listing") {
@@ -937,7 +984,7 @@ fn format_constraint_arg(value : Double) -> String {
   if value.is_nan() || value.is_inf() {
     "\{value}"
   } else if value == value.floor() && value.abs() < 9.0e15 {
-    "\{value.to_int()}"
+    "\{value.to_int64()}"
   } else {
     "\{value}"
   }
@@ -1011,6 +1058,22 @@ fn pkl_constrained_type_annotation_expr_rejection_message_from_source(
   source_name : String,
   expr : Expr,
 ) -> String? {
+  match pkl_builtin_type_alias_target(source_name) {
+    Some(target) =>
+      return pkl_constrained_type_annotation_expr_rejection_message_from_source(
+        display_name, target, expr,
+      )
+    None => ()
+  }
+  match expr {
+    NullLiteral =>
+      match pkl_constrained_any_not_null_constraint_name(source_name) {
+        Some(name) =>
+          return Some("Type constraint `\{name}` violated. Value: null")
+        None => ()
+      }
+    _ => ()
+  }
   match pkl_int_literal_value(expr) {
     Some(value) =>
       return pkl_constrained_int_rejection_message_from_source(

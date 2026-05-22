@@ -15,11 +15,11 @@ fn pkl_constraint_predicate_accepts_float(
   // can compare against them uniformly without precision loss.
   match predicate {
     IsBetween(lower, upper) => value >= lower && value <= upper
-    IsPositive => value > 0.0
+    IsPositive => value >= 0.0
     IsGreaterThan(threshold) => value > threshold
     IsLessThan(threshold) => value < threshold
     NotIsBetween(lower, upper) => !(value >= lower && value <= upper)
-    NotIsPositive => !(value > 0.0)
+    NotIsPositive => !(value >= 0.0)
     NotIsGreaterThan(threshold) => !(value > threshold)
     NotIsLessThan(threshold) => !(value < threshold)
     CustomGreaterThan(_, threshold) => value > threshold
@@ -193,6 +193,20 @@ fn pkl_constrained_type_annotation_value_rejection_message_from_source(
           inner_display, inner, value,
         )
       }
+    }
+  }
+  match pkl_builtin_type_alias_target(source_name) {
+    Some(target) =>
+      return pkl_constrained_type_annotation_value_rejection_message_from_source(
+        display_name, target, value,
+      )
+    None => ()
+  }
+  if value is NullValue {
+    match pkl_constrained_any_not_null_constraint_name(source_name) {
+      Some(name) =>
+        return Some("Type constraint `\{name}` violated. Value: null")
+      None => ()
     }
   }
   match pkl_value_int(value) {

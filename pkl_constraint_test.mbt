@@ -20,14 +20,14 @@ test "support multiple Pkl type constraint predicates" {
   }
   inspect(
     eval_diagnostics[0].message,
-    content="Type constraint `isPositive` violated. Value: 0",
+    content="Type constraint `isBetween(1, 10)` violated. Value: 0",
   )
 }
 
 ///|
 test "support negated Pkl type constraint predicates" {
   assert_true(
-    typecheck_source("value: Int(!isPositive) = 0") ==
+    typecheck_source("value: Int(!isPositive) = -1") ==
     TypeOk(ObjectType([TypeMember::{ name: "value", typ: IntType }])),
   )
   guard typecheck_source("value: Int(!isPositive) = 1")
