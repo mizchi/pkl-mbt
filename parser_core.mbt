@@ -829,10 +829,28 @@ fn Parser::parse(self : Parser) -> ParseResult {
         ignore(self.bump())
         self.skip_whitespace()
         while self.at(identifier()) && is_modifier_text(self.peek().text()) {
+          self.pending_modifiers.push(self.peek().text())
           ignore(self.bump())
           self.skip_whitespace()
         }
-        continue
+        if self.at_text("class") {
+          match self.parse_class_decl() {
+            Some(decl) => declarations.push(ClassDeclaration(decl))
+            None => ()
+          }
+        } else if self.at_text("function") {
+          match self.parse_function_decl() {
+            Some(decl) => declarations.push(FunctionDeclaration(decl))
+            None => ()
+          }
+        } else if self.at_text("typealias") {
+          match self.parse_typealias_decl() {
+            Some(decl) => declarations.push(TypeAliasDeclaration(decl))
+            None => ()
+          }
+        } else {
+          self.skip_unknown_member()
+        }
       } else if is_decl_text(next_text) {
         self.skip_unknown_member()
       } else {

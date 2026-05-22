@@ -384,6 +384,7 @@ fn Parser::parse_postfix_expr(self : Parser) -> Expr {
       let safe = self.at(qdot())
       self.builder.start_node_at(checkpoint, member_access())
       ignore(self.bump())
+      self.skip_whitespace()
       let field_name = if self.at(identifier()) {
         self.bump().text()
       } else {
