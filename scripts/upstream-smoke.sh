@@ -60,6 +60,7 @@ GOLD_FIXTURES=(
   "basic/amendsChains"
   "basic/baseModule"
   "basic/comments"
+  "basic/constModifier"
   "basic/constModifier3"
   "basic/fixedProperty1"
   "basic/fixedProperty2"
@@ -288,6 +289,7 @@ GOLD_FIXTURES=(
   "mappings/mapping2"
   "mappings2/mapping2"
   "mappings2/wrongParent"
+  "basic/as"
   "basic/as2"
   "basic/as3"
 )

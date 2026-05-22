@@ -1279,6 +1279,90 @@ test "PKL-148d: class body in amending module cannot capture non-const local" {
 }
 
 ///|
+test "PKL-148d: class defaults see module const through outer" {
+  let session = AnalysisSession::new()
+  let source =
+    #|const moduleName = "Winner"
+    #|class ValidConstOuter {
+    #|  name: String
+    #|  fromModule = outer.moduleName
+    #|  fancyName = new { title = "The \(outer.name)" }
+    #|}
+    #|res = new ValidConstOuter { name = "Bird" }
+  let expected =
+    #|moduleName = "Winner"
+    #|res {
+    #|  name = "Bird"
+    #|  fromModule = "Winner"
+    #|  fancyName {
+    #|    title = "The Bird"
+    #|  }
+    #|}
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
+test "PKL-148d: class defaults reject non-const module property and function" {
+  let session = AnalysisSession::new()
+  let source =
+    #|import "pkl:test"
+    #|nonConst = "not const"
+    #|function nonConstFunction() = nonConst
+    #|class BrokenSimple {
+    #|  improperDefault = nonConst
+    #|}
+    #|class BrokenFunction {
+    #|  improperDefaultFromNonConstFunction = nonConstFunction()
+    #|}
+    #|res1 = test.catch(() -> "\(new BrokenSimple {})")
+    #|res2 = test.catch(() -> "\(new BrokenFunction {})")
+  let expected =
+    #|nonConst = "not const"
+    #|res1 = "Cannot reference property `nonConst` from here because it is not `const`."
+    #|res2 = "Cannot call method `nonConstFunction` from here because it is not `const`."
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
+test "PKL-148d: class default local method parameter shadows module local" {
+  let session = AnalysisSession::new()
+  let source =
+    #|amends "base.pkl"
+    #|import "pkl:test"
+    #|local x = f1(42)
+    #|local function f1(x: Int): Int = x + 1
+    #|foo { c = new C {} }
+    #|local class C {
+    #|  foo {
+    #|    bar {
+    #|      local function f1(x: Int): Int = x + 2
+    #|      res7 = f1(42)
+    #|      res8 = test.catch(() -> f1("wrong type"))
+    #|    }
+    #|  }
+    #|}
+  let expected =
+    #|foo {
+    #|  c {
+    #|    foo {
+    #|      bar {
+    #|        res7 = 44
+    #|        res8 = "Expected value of type `Int`, but got type `String`. Value: \"wrong type\""
+    #|      }
+    #|    }
+    #|  }
+    #|}
+  session.set_source("base.pkl", "foo {}")
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
 test "PKL-148d: class name as value projects to a Class mirror" {
   let session = AnalysisSession::new()
   session.set_source(
@@ -1662,6 +1746,65 @@ test "PKL-148b: as does a runtime type assertion" {
     rendered.contains(
       "Expected value of type `String`, but got type `Int`. Value: 1",
     ),
+    content="true",
+  )
+}
+
+///|
+test "PKL-148b: as diagnostics render class and collection values compactly" {
+  let session = AnalysisSession::new()
+  let source =
+    #|import "pkl:test"
+    #|class Base
+    #|class Other
+    #|local mapping = new Mapping { ["name"] = "Pigeon"; ["age"] = 40 }
+    #|local listing = new Listing {
+    #|  test.catch(() -> 1 as Other)
+    #|}
+    #|classErr = test.catch(() -> Base as Other)
+    #|mappingErr = test.catch(() -> mapping as Other)
+    #|listingErr = test.catch(() -> listing as Other)
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered.contains(
+      "Expected value of type `main#Other`, but got type `Class`. Value: main#Base",
+    ),
+    content="true",
+  )
+  inspect(
+    rendered.contains(
+      "Expected value of type `main#Other`, but got type `Mapping`. Value: new Mapping { [\\\"name\\\"] = \\\"Pigeon\\\"; [\\\"age\\\"] = 40 }",
+    ),
+    content="true",
+  )
+  inspect(
+    rendered.contains(
+      "Expected value of type `main#Other`, but got type `Listing`. Value: new Listing { \\\"Expected value of type `main#Other`",
+    ),
+    content="true",
+  )
+}
+
+///|
+test "PKL-148b: module self reference sees in-progress binding for as Module" {
+  let session = AnalysisSession::new()
+  let source =
+    #|examples {
+    #|  ["String"] {
+    #|    "abc"
+    #|  }
+    #|  ["Module"] {
+    #|    (module as Module).examples["String"][0]
+    #|    (module as Any).examples["String"][0]
+    #|  }
+    #|}
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered.contains("[\"Module\"] {\n    \"abc\"\n    \"abc\""),
     content="true",
   )
 }

@@ -483,6 +483,31 @@ fn push_class_default_scope_from_cache(
 }
 
 ///|
+fn push_class_default_call_name(
+  call_cache : Array[ValueBinding],
+  label : String,
+) -> Unit {
+  if lookup_value(call_cache, "@__class_default_call_scope") is None {
+    return
+  }
+  if lookup_value(call_cache, "@__class_default_call_name") is Some(_) {
+    return
+  }
+  if label.has_prefix("function ") {
+    call_cache.push({
+      name: "@__class_default_call_name",
+      value: StringValue(
+        String::unsafe_substring(
+          label,
+          start="function ".length(),
+          end=label.length(),
+        ),
+      ),
+    })
+  }
+}
+
+///|
 fn qualified_rejection_type_label(
   type_name : String,
   class_env : Array[ClassBinding],
@@ -788,6 +813,9 @@ fn value_satisfies_user_class_annotation(
 ) -> Bool {
   match value {
     ObjectValue(members) => {
+      if reflect_kind(members) is Some(_) {
+        return false
+      }
       if type_name == "Dynamic" || type_name == "Typed" {
         return true
       }
@@ -1027,6 +1055,7 @@ fn eval_lambda_application(
   let call_cache = copy_value_bindings(captured_env)
   push_module_metadata_from_cache(call_cache, cache)
   push_class_default_scope_from_cache(call_cache, cache)
+  push_class_default_call_name(call_cache, label)
   for i = 0; i < parameters.length(); i = i + 1 {
     let parameter_type_name = strip_lazy_collection_annotation_marker_opt(
       parameters[i].type_name,
@@ -1209,6 +1238,7 @@ fn apply_function_value(
       // values, but read/reflect paths inside the body still need them.
       push_module_metadata_from_cache(call_cache, caller_cache)
       push_class_default_scope_from_cache(call_cache, caller_cache)
+      push_class_default_call_name(call_cache, label)
       for i = 0; i < parameters.length(); i = i + 1 {
         let parameter_type_name = strip_lazy_collection_annotation_marker_opt(
           parameters[i].type_name,

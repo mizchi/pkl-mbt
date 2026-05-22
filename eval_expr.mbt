@@ -231,6 +231,121 @@ fn push_collection_binding(
 }
 
 ///|
+fn push_collection_context_bindings(
+  env : Array[ValueBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  current : Value,
+) -> Unit {
+  push_collection_binding(env, cache, "this", current)
+  if stack.length() > 0 {
+    let inflight_name = stack[stack.length() - 1]
+    if lookup_value(env, inflight_name) is None &&
+      lookup_value(cache, inflight_name) is None {
+      push_collection_binding(env, cache, inflight_name, current)
+    }
+  }
+}
+
+///|
+fn module_snapshot_member_error(
+  name : String,
+  bindings : Array[Binding],
+  const_context : Bool,
+) -> String? {
+  if !const_context {
+    return None
+  }
+  match find_binding(bindings, name) {
+    Some(binding) =>
+      if !binding.is_const && !(binding.value is LambdaExpr(_, _, _)) {
+        Some(
+          "Cannot reference property `\{name}` from here because it is not `const`.",
+        )
+      } else {
+        None
+      }
+    None => None
+  }
+}
+
+///|
+fn push_module_snapshot_member(
+  members : Array[ValueMember],
+  name : String,
+  value : Value,
+  bindings : Array[Binding],
+  const_context : Bool,
+) -> Unit {
+  if name == "super" || name == "this" || name.has_prefix("@") {
+    return
+  }
+  members.push({ name, value, source: None, annotations: [] })
+  match module_snapshot_member_error(name, bindings, const_context) {
+    Some(message) =>
+      members.push({
+        name: error_member_name(name),
+        value: StringValue(message),
+        source: None,
+        annotations: [],
+      })
+    None => ()
+  }
+}
+
+///|
+fn module_object_value_from_scope(
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  const_context~ : Bool,
+) -> Value {
+  let module_members : Array[ValueMember] = []
+  match lookup_value(cache, "@__module_imports") {
+    Some(map_value) =>
+      module_members.push({
+        name: "imports",
+        value: map_value,
+        source: None,
+        annotations: [],
+      })
+    None => ()
+  }
+  for value_binding in cache {
+    push_module_snapshot_member(
+      module_members,
+      value_binding.name,
+      value_binding.value,
+      bindings,
+      const_context,
+    )
+  }
+  for value_binding in env {
+    if find_binding(bindings, value_binding.name) is Some(_) {
+      push_module_snapshot_member(
+        module_members,
+        value_binding.name,
+        value_binding.value,
+        bindings,
+        const_context,
+      )
+    }
+  }
+  if stack.length() > 0 {
+    let inflight_name = stack[stack.length() - 1]
+    match lookup_value(env, inflight_name) {
+      Some(value) =>
+        push_module_snapshot_member(
+          module_members, inflight_name, value, bindings, const_context,
+        )
+      None => ()
+    }
+  }
+  ObjectValue(module_members)
+}
+
+///|
 fn adjust_deferred_listing_error_message(
   message : String,
   upper : Int,
@@ -969,6 +1084,17 @@ fn first_deferred_error_message(value : Value) -> String? {
       match first_deferred_error_message(first) {
         Some(message) => Some(message)
         None => first_deferred_error_message(second)
+      }
+    ObjectValue(members) =>
+      for field in members {
+        if is_error_member_name(field.name) {
+          match field.value {
+            StringValue(message) => return Some(message)
+            _ => ()
+          }
+        }
+      } nobreak {
+        None
       }
     _ => None
   }
@@ -1919,12 +2045,45 @@ fn as_cast_type_label(type_name : String) -> String {
 }
 
 ///|
+fn as_cast_type_label_for_context(
+  type_name : String,
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+) -> String {
+  let label = as_cast_type_label(type_name)
+  if label.find("#") is Some(_) ||
+    label.find("|") is Some(_) ||
+    label.find("<") is Some(_) ||
+    is_stdlib_class_name(label) ||
+    lookup_class_binding(class_env, label) is None {
+    label
+  } else {
+    match module_name_from_cache(cache) {
+      Some(module_name) => "\{module_name}#\{label}"
+      None => label
+    }
+  }
+}
+
+///|
 fn as_cast_actual_type_label(
   value : Value,
   class_env : Array[ClassBinding],
   cache : Array[ValueBinding],
 ) -> String {
   match value {
+    ObjectValue(members) =>
+      match reflect_kind(members) {
+        Some("Class") => "Class"
+        Some("TypeAlias") => "TypeAlias"
+        Some("Module") => "Module"
+        _ =>
+          qualify_value_type_name(
+            value,
+            class_env,
+            module_name_from_cache(cache),
+          )
+      }
     FunctionValue(parameters, _, _, _, _) => "Function\{parameters.length()}"
     _ =>
       qualify_value_type_name(value, class_env, module_name_from_cache(cache))
@@ -1932,8 +2091,67 @@ fn as_cast_actual_type_label(
 }
 
 ///|
+fn as_cast_compact_mapping_text(entries : Array[ValueEntry]) -> String {
+  if entries.length() == 0 {
+    return "new Mapping {}"
+  }
+  let buf = StringBuilder::new()
+  buf.write_string("new Mapping { ")
+  for i = 0; i < entries.length(); i = i + 1 {
+    if i > 0 {
+      buf.write_string("; ")
+    }
+    buf.write_char('[')
+    buf.write_string(render_pcf_value_inline(entries[i].key))
+    buf.write_string("] = ")
+    buf.write_string(render_pcf_value_inline(entries[i].value))
+  }
+  buf.write_string(" }")
+  buf.to_string()
+}
+
+///|
+fn as_cast_compact_listing_text(elements : Array[Value]) -> String {
+  if elements.length() == 0 {
+    return "new Listing {}"
+  }
+  let buf = StringBuilder::new()
+  buf.write_string("new Listing { ")
+  for i = 0; i < elements.length(); i = i + 1 {
+    if i > 0 {
+      buf.write_string("; ")
+    }
+    buf.write_string(render_pcf_value_inline(elements[i]))
+  }
+  buf.write_string(" }")
+  let rendered = buf.to_string()
+  if rendered.length() > 80 {
+    String::unsafe_substring(rendered, start=0, end=77) + "..."
+  } else {
+    rendered
+  }
+}
+
+///|
 fn as_cast_rejected_value_inline(value : Value) -> String {
   match value {
+    ObjectValue(members) =>
+      match reflect_kind(members) {
+        Some("Class") | Some("TypeAlias") =>
+          match lookup_member(members, hidden_member_name("__qualified_name")) {
+            Some(StringValue(name)) => name
+            _ =>
+              match lookup_member(members, "name") {
+                Some(StringValue(name)) => name
+                _ => render_pcf_value_inline(value)
+              }
+          }
+        _ => render_pcf_value_inline(value)
+      }
+    ListingValue(elements) | DefaultedListingValue(_, elements, _) =>
+      as_cast_compact_listing_text(elements)
+    MappingValue(entries) | DefaultedMappingValue(_, entries, _) =>
+      as_cast_compact_mapping_text(entries)
     FunctionValue(parameters, _, _, _, _) =>
       "new Function\{parameters.length()} {}"
     _ => render_pcf_value_inline(value)
@@ -1978,7 +2196,7 @@ fn as_cast_type_mismatch_message(
   class_env : Array[ClassBinding],
   cache : Array[ValueBinding],
 ) -> String {
-  let diag_name = as_cast_type_label(display_type)
+  let diag_name = as_cast_type_label_for_context(display_type, class_env, cache)
   if value is NullValue {
     "Expected value of type `\{diag_name}`, but got `null`."
   } else {
@@ -2044,6 +2262,100 @@ fn as_cast_collection_union_mismatch_message(
   value : Value,
 ) -> String {
   "Expected value of type `\{pretty_listing_union_type_name(display_type)}`, but got a different `\{eval_value_type_name(value)}`. Value: \{render_collection_union_rejection_value(value)}"
+}
+
+///|
+fn dynamic_object_subscript_value(
+  members : Array[ValueMember],
+  key : Value,
+  diagnostics : Array[Diagnostic],
+) -> Value? {
+  match key {
+    IntValue(index64) => {
+      let elements : Array[Value] = []
+      for field in visible_members(members) {
+        if field.name.has_prefix("@element$") {
+          elements.push(field.value)
+        }
+      }
+      if elements.length() == 0 {
+        return dynamic_object_mapping_subscript_value(members, key)
+      }
+      if index64 >= 0L && index64 < elements.length().to_int64() {
+        let index = index64.to_int()
+        match deferred_error_message(elements[index]) {
+          Some(message) => {
+            diagnostics.push(
+              diag(
+                adjust_deferred_listing_error_message(
+                  message,
+                  elements.length() - 1,
+                ),
+              ),
+            )
+            None
+          }
+          None => Some(elements[index])
+        }
+      } else {
+        diagnostics.push(
+          diag(
+            "Element index `\{format_int_with_commas(index64)}` is out of range `0`..`\{elements.length() - 1}`.",
+          ),
+        )
+        None
+      }
+    }
+    StringValue(name) =>
+      match lookup_member(members, name) {
+        Some(value) => Some(value)
+        None => dynamic_object_mapping_subscript_value(members, key)
+      }
+    _ => dynamic_object_mapping_subscript_value(members, key)
+  }
+}
+
+///|
+fn dynamic_object_mapping_subscript_value(
+  members : Array[ValueMember],
+  key : Value,
+) -> Value? {
+  let mut found : Value? = None
+  for field in visible_members(members) {
+    if !field.name.has_prefix("@subscript$") {
+      continue
+    }
+    match field.value {
+      ObjectValue(pair_members) =>
+        match
+          (
+            lookup_member(pair_members, "@key"),
+            lookup_member(pair_members, "@value"),
+          ) {
+          (Some(k), Some(v)) => if k == key { found = Some(v) }
+          _ => ()
+        }
+      _ => ()
+    }
+  }
+  found
+}
+
+///|
+fn dynamic_members_from_env(env : Array[ValueBinding]) -> Array[ValueMember] {
+  let members : Array[ValueMember] = []
+  for binding in env {
+    if binding.name.has_prefix("@subscript$") ||
+      binding.name.has_prefix("@element$") {
+      members.push({
+        name: binding.name,
+        value: binding.value,
+        source: None,
+        annotations: [],
+      })
+    }
+  }
+  members
 }
 
 ///|
@@ -3278,10 +3590,10 @@ fn eval_expr_with_bindings(
           WhenSpread(inner) => {
             let body_env = copy_value_bindings(env)
             let body_cache = copy_value_bindings(cache)
-            push_collection_binding(
+            push_collection_context_bindings(
               body_env,
               body_cache,
-              "this",
+              stack,
               collection_this_listing_value(raw_values, values, default_value),
             )
             let spread_value = match inner {
@@ -3330,10 +3642,10 @@ fn eval_expr_with_bindings(
           _ => {
             let body_env = copy_value_bindings(env)
             let body_cache = copy_value_bindings(cache)
-            push_collection_binding(
+            push_collection_context_bindings(
               body_env,
               body_cache,
-              "this",
+              stack,
               collection_this_listing_value(raw_values, values, default_value),
             )
             let diag_start = diagnostics.length()
@@ -3437,10 +3749,10 @@ fn eval_expr_with_bindings(
           WhenSpread(inner) => {
             let body_env = copy_value_bindings(env)
             let body_cache = copy_value_bindings(cache)
-            push_collection_binding(
+            push_collection_context_bindings(
               body_env,
               body_cache,
-              "this",
+              stack,
               collection_this_mapping_value(raw_values, values, default_value),
             )
             let spread_value = match inner {
@@ -3489,10 +3801,10 @@ fn eval_expr_with_bindings(
           _ => {
             let body_env = copy_value_bindings(env)
             let body_cache = copy_value_bindings(cache)
-            push_collection_binding(
+            push_collection_context_bindings(
               body_env,
               body_cache,
-              "this",
+              stack,
               collection_this_mapping_value(raw_values, values, default_value),
             )
             let key = eval_expr_with_bindings(
@@ -3706,6 +4018,29 @@ fn eval_expr_with_bindings(
           }
         }
       } else if target_expr is Identifier("module") {
+        if lookup_value(cache, member_name) is None &&
+          find_binding(bindings, member_name) is Some(_) {
+          match lookup_value(cache, "outer") {
+            Some(ObjectValue(snapshot)) =>
+              if visible_members(snapshot).length() > 0 {
+                return Some(ObjectValue(snapshot))
+              }
+            _ => ()
+          }
+        }
+        if stack.length() > 0 && member_name == stack[stack.length() - 1] {
+          match lookup_value(cache, "outer") {
+            Some(ObjectValue(snapshot)) =>
+              if visible_members(snapshot).length() > 0 {
+                return Some(ObjectValue(snapshot))
+              }
+            _ => ()
+          }
+          let snapshot = dynamic_members_from_env(env)
+          if snapshot.length() > 0 {
+            return Some(ObjectValue(snapshot))
+          }
+        }
         match
           resolve_binding_value(
             member_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
@@ -4274,6 +4609,24 @@ fn eval_expr_with_bindings(
           )
           None
         }
+        (Some(ObjectValue(members)), Some(key_value)) =>
+          match
+            dynamic_object_subscript_value(members, key_value, diagnostics) {
+            Some(value) =>
+              match deferred_error_message(value) {
+                Some(message) => {
+                  diagnostics.push(diag(message))
+                  None
+                }
+                None => Some(value)
+              }
+            None => {
+              diagnostics.push(
+                diag("Cannot find key `\{render_pcf_value_inline(key_value)}`."),
+              )
+              None
+            }
+          }
         (Some(MappingValue(entries)), Some(key_value))
         | (Some(MapValue(entries)), Some(key_value))
         | (Some(DefaultedMappingValue(_, entries, _)), Some(key_value)) =>
@@ -4669,38 +5022,15 @@ fn eval_expr_with_bindings(
         // enclosing class / object body has pushed a `this` binding)
         // resolves to the same module ObjectValue — `types/objects/this2`
         // exercises `res1 = (this) { x = 42 }`.
-        let module_members : Array[ValueMember] = []
-        // PKL-148bb: expose the import (alias, URI) Map under the bare
-        // name `imports` so `reflect.Module(module).imports`
-        // (`api/reflect5`) recovers Apple Pkl's
-        // `Map("reflect", "pkl:reflect", ...)` shape. The Map was
-        // stashed at `eval_program` time under the hidden
-        // `@__module_imports` cache key; promote it to a visible
-        // member of the synthesised module ObjectValue.
-        match lookup_value(cache, "@__module_imports") {
-          Some(map_value) =>
-            module_members.push({
-              name: "imports",
-              value: map_value,
-              source: None,
-              annotations: [],
-            })
-          None => ()
-        }
-        for value_binding in cache {
-          if value_binding.name == "super" ||
-            value_binding.name == "this" ||
-            value_binding.name.has_prefix("@") {
-            continue
-          }
-          module_members.push({
-            name: value_binding.name,
-            value: value_binding.value,
-            source: None,
-            annotations: [],
-          })
-        }
-        Some(ObjectValue(module_members))
+        Some(
+          module_object_value_from_scope(
+            bindings,
+            env,
+            cache,
+            stack,
+            const_context=false,
+          ),
+        )
       } else {
         match
           resolve_binding_value(
@@ -6584,6 +6914,8 @@ fn eval_expr_with_bindings(
             resolve_import,
           )
           match (value_opt, right_expr) {
+            (Some(value), Identifier("Module")) if left_expr
+              is Identifier("module") => return Some(value)
             (Some(value), Identifier(type_name)) =>
               match
                 cast_value_to_type_annotation(
@@ -7322,6 +7654,13 @@ fn dispatch_value_to_string(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> String {
+  match first_deferred_error_message(value) {
+    Some(message) => {
+      diagnostics.push(diag(message))
+      return ""
+    }
+    None => ()
+  }
   match value {
     ObjectValue(members) => {
       // PKL-152: reflect Class / TypeAlias mirrors are projected
@@ -7981,6 +8320,16 @@ fn reeval_class_defaults_after_constructor_overrides(
     let reeval_cache = copy_value_bindings(cache)
     reeval_cache.push({ name: "this", value: ObjectValue(current) })
     reeval_cache.push({
+      name: "outer",
+      value: module_object_value_from_scope(
+        bindings,
+        env,
+        cache,
+        stack,
+        const_context=true,
+      ),
+    })
+    reeval_cache.push({
       name: "@__constructing_class",
       value: StringValue(type_name),
     })
@@ -7991,8 +8340,15 @@ fn reeval_class_defaults_after_constructor_overrides(
     )
     match
       eval_expr_with_bindings(
-        source, bindings, local_env, class_env, reeval_cache, stack, declarations,
-        diagnostics, resolve_import,
+        source,
+        bindings,
+        local_env,
+        class_env,
+        cache_for_nested_object_value(source, reeval_cache, current),
+        stack,
+        declarations,
+        diagnostics,
+        resolve_import,
       ) {
       Some(raw_value) => {
         let value = coerce_value_to_annotated_type(
@@ -11321,12 +11677,14 @@ fn eval_object_members_with_implicit_env(
     // of anything the outer scope might have shadowed.
     if stack.length() > 0 {
       let inflight_name = stack[stack.length() - 1]
-      let snapshot : Array[ValueMember] = []
-      for prior in values {
-        snapshot.push(prior)
+      if lookup_value(local_env, inflight_name) is None {
+        let snapshot : Array[ValueMember] = []
+        for prior in values {
+          snapshot.push(prior)
+        }
+        lexical_env.push({ name: inflight_name, value: ObjectValue(snapshot) })
+        local_env.push({ name: inflight_name, value: ObjectValue(snapshot) })
       }
-      lexical_env.push({ name: inflight_name, value: ObjectValue(snapshot) })
-      local_env.push({ name: inflight_name, value: ObjectValue(snapshot) })
     }
     // PKL-148x: Dynamic-shape sentinels. `@subscript$<offset>`
     // (`[key] = value` mapping entry) decodes the synthetic
@@ -11356,12 +11714,26 @@ fn eval_object_members_with_implicit_env(
             } else {
               diagnostics
             }
+            let subscript_value_env = copy_value_bindings(local_env)
+            subscript_value_env.push({
+              name: "outer",
+              value: ObjectValue(copy_value_members(values)),
+            })
+            if stack.length() > 0 {
+              let inflight_name = stack[stack.length() - 1]
+              if lookup_value(subscript_value_env, inflight_name) is None {
+                subscript_value_env.push({
+                  name: inflight_name,
+                  value: ObjectValue(copy_value_members(values)),
+                })
+              }
+            }
             let val = eval_expr_with_bindings(
               args[1],
               local_bindings,
-              local_env,
+              subscript_value_env,
               class_env,
-              cache_for_nested_object_value(field.value, cache, values),
+              cache_with_outer_object(cache, values),
               stack,
               declarations,
               value_diagnostics,

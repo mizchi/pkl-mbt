@@ -931,7 +931,7 @@ fn all_eval_bindings(program : Program) -> Array[Binding] {
                 function_decl.return_type_name,
               ),
               exported: false,
-              is_const: true,
+              is_const: function_decl.is_const,
               annotations: function_decl.annotations,
               abstract_slot: false,
             })

@@ -1,11 +1,11 @@
 # Release TODO
 
-Current coverage: 348 / 391 PCF gold-match (89.0%).
+Current coverage: 350 / 391 PCF gold-match (89.5%).
 Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-05-22.
 
 Release focus:
 
-- `basic`: 84 PASS / 2 DIFF
+- `basic`: 86 PASS / 0 DIFF
 - `generators`: 21 PASS / 0 DIFF
 - `projects`: 19 PASS / 0 DIFF
 - `packages`: 3 PASS / 0 DIFF
@@ -17,9 +17,10 @@ Planned order:
 3. Done: Priority 2: Resource And Glob Host Surface for with-gold `basic/read`, `basic/readGlob`, and `basic/importGlob`
 4. Done: Priority 1: Numeric And Bytes Parity
 5. Done: Renderer API surface: keep the advertised output formats honest
-6. Current: Priority 5: remaining Generic `as` / `is` / Typed Collection Retention
+6. Done: Priority 5: remaining Generic `as` / `is` / Typed Collection Retention
+7. Done: Priority 6: `outer` And Const Provenance
 
-Priority 6 is deferred unless it becomes a direct blocker for one of the above slices.
+Priority 6 now covers the with-gold `basic` fixture surface. Keep the remaining const-error-only fixtures out of the release gate unless they become user-facing regressions.
 
 ## Release Blocker Triage
 
@@ -28,7 +29,7 @@ End-user blocker priority is based on "will a normal Pkl config author hit this?
 1. Resource / read / glob: file/resource access, `read*()`, and `import*` glob behavior are release blockers for multi-file configs and CLI usage.
 2. `for` / generators: completed for with-gold upstream fixtures. Keep this as a regression-sensitive area because real configs use list/map comprehensions and generated object bodies heavily.
 3. Renderer API surface: `api` has many DIFFs, but not all are equal. Treat public output formats as blockers only if we advertise them for this release. Keep `pcf` / `json` / `yaml` stable; renderer converter coverage now includes direct `renderDocument` / `renderValue` calls across PCF / JSON / YAML / plist / XML, PCF/JSON indent options, YAML stream mode, YAML `indentWidth`, YAML `Bytes`/mapping-key output, YAML key quoting / explicit-key / string-escape parity, custom string delimiter options, validation diagnostics for non-renderable values, XML class-keyed converters, path-keyed wildcard converters, direct CDATA/comment helpers, and `xml.Element` rename fixtures. JSON parser converters and YAML `parseAll` / class-converter parsing now gold-match their targeted fixtures. Protobuf text now covers every upstream Protobuf fixture (`api/protobuf`, `api/protobuf2`, and `api/protobuf3.txtpb`).
-4. Basic scalar / collection parity: `Bytes`, `DataSize`, `Duration`, `Int`, `Float`, `Map`, nullable, and `new` semantics are gold-matching for `basic`; remaining first-release scalar / collection gaps are long-tail `as` / const provenance cases.
+4. Basic scalar / collection parity: `Bytes`, `DataSize`, `Duration`, `Int`, `Float`, `Map`, nullable, `new`, `as`, `outer`, and const provenance are gold-matching for all with-gold `basic` fixtures.
 5. Deep stdlib / reflect parity: important for long-term compatibility, but not a first release blocker unless a public API or real package depends on it.
 
 For this release pass, Resource / Glob, Numeric / Bytes, nullable basics, and the advertised renderer validation surface are gold-matching for their targeted fixtures.
@@ -37,10 +38,7 @@ For this release pass, Resource / Glob, Numeric / Bytes, nullable basics, and th
 
 Measured from the release binary against Apple Pkl LanguageSnippetTests gold files.
 
-`basic` remaining DIFFs:
-
-- `basic/as`
-- `basic/constModifier`
+`basic` remaining DIFFs: none.
 
 `generators` remaining DIFFs: none.
 
@@ -210,6 +208,7 @@ Completed in this slice:
 
 - `basic/is`
 - `basic/is2`
+- `basic/as`
 - `basic/as2`
 - `basic/as3`
 - `basic/new`
@@ -225,14 +224,10 @@ Implemented work:
 - Fixed lazy typed generated Listing / Mapping values for `listings2/typeCheck` and `mappings2/typeCheck`.
 - Fixed union-aware typed collection retention for `listings/typeCheck` and `mappings/typeCheck`, including lazy single-collection union branches, eager Set hash validation, `Pair<T, U>` nested collection annotations, and `new Mapping<K, V>` type-argument retention.
 - Finished `Mixin` / `Mixin<T>` pipe and `.apply()` dispatch, Mixin property override merge semantics, typealias `Mapping<K, V>` constructors, and `new` rejection diagnostics for external / unstarred union / string-literal types.
+- Aligned `basic/as` runtime cast diagnostics and module self-reference from in-progress Mapping bodies, including `(module as Module).examples["String"][0]`.
 
-Target fixtures:
+Remaining follow-ups:
 
-- `basic/as`
-
-Required work:
-
-- Close the remaining `basic/as` edge cases that are not covered by `basic/as2` / `basic/as3`.
 - Improve `is` for generic collection types and constrained types.
 - Stabilize object class identity for user classes, reflect `Class`, and diagnostics.
 - Represent function type arity in diagnostics (`Function1`, `Function2`) where Apple Pkl expects it.
@@ -246,7 +241,7 @@ Main dependencies:
 
 ## Priority 6: `outer` And Const Provenance
 
-Needed for correctness, but less likely to unlock many fixtures quickly unless implemented cleanly.
+Status: completed for the with-gold `basic` surface. `basic/constModifier`, `basic/localMethodInAmendingModule`, and the previous `outer` regressions now gold-match.
 
 Target fixtures:
 
@@ -255,10 +250,11 @@ Target fixtures:
 
 Required work:
 
-- Add lexical parent receiver stack for `outer`.
-- Ensure nested object literal evaluation can resolve `outer.<name>` independently of `this`.
-- Track const provenance for properties, local consts, and functions.
-- Reject non-const references in const contexts with Apple-compatible diagnostics.
+- [x] Add lexical parent receiver stack for `outer`.
+- [x] Ensure nested object literal evaluation can resolve `outer.<name>` independently of `this`.
+- [x] Track const provenance for properties, local consts, and functions.
+- [x] Reject non-const references in const contexts with Apple-compatible diagnostics.
+- [x] Preserve function-parameter shadowing over module locals inside class-default call scopes.
 
 Main dependencies:
 
@@ -276,4 +272,4 @@ Main dependencies:
 ## Suggested Release Path
 
 1. Decide and document the release-supported renderer set. Fix only those API renderer fixtures as blockers; leave the rest marked experimental.
-2. Return to remaining Priority 5 and Priority 6 edge cases only when they block a supported fixture or real package.
+2. Treat the remaining release risk as `api` / `internal` surface work; `basic`, `generators`, `projects`, and `packages` are green for all with-gold fixtures.

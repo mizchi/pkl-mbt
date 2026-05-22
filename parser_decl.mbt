@@ -473,6 +473,11 @@ fn Parser::parse_class_decl(self : Parser) -> ClassDecl? {
       let local_modifier = if self.at(local_kw()) {
         ignore(self.bump())
         self.skip_whitespace()
+        while self.at(identifier()) && is_modifier_text(self.peek().text()) {
+          self.pending_modifiers.push(self.peek().text())
+          ignore(self.bump())
+          self.skip_whitespace()
+        }
         true
       } else {
         false
@@ -654,6 +659,9 @@ fn Parser::parse_function_parameter(self : Parser) -> FunctionParameter? {
 fn Parser::parse_function_decl(self : Parser) -> FunctionDecl? {
   // PKL-128d: capture annotations preceding the `function` keyword.
   let annotations = self.take_pending_annotations()
+  // PKL-148d: const provenance matters when class defaults reference
+  // module-level functions.
+  let is_const = self.take_pending_const()
   // PKL-117: drain the `abstract` modifier collected by
   // `skip_member_header`. Abstract functions intentionally have no
   // body — the modifier is the explicit marker the typechecker uses
@@ -789,6 +797,7 @@ fn Parser::parse_function_decl(self : Parser) -> FunctionDecl? {
       return_type_name,
       body,
       annotations,
+      is_const,
       is_abstract,
     })
   }

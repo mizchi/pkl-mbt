@@ -240,6 +240,9 @@ pub(all) struct FunctionDecl {
   // PKL-128d: annotations attached to this `function` declaration in
   // source order. Empty when no annotation precedes the keyword.
   annotations : Array[Annotation]
+  // PKL-148d: true when the function declaration carries the `const`
+  // modifier. Class-default evaluation may call only const functions.
+  is_const : Bool
   // PKL-117: true when `abstract` preceded the `function` keyword. An
   // abstract method has no body (`body = None`); the modifier is the
   // explicit marker, since a body-less function inside an abstract

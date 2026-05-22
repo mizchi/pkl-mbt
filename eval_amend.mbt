@@ -2155,6 +2155,16 @@ fn eval_class_default_members_seen(
   let defaults_cache = copy_value_bindings(cache)
   defaults_cache.push({ name: "@__class_default_scope", value: BoolValue(true) })
   defaults_cache.push({
+    name: "outer",
+    value: module_object_value_from_scope(
+      bindings,
+      env,
+      cache,
+      stack,
+      const_context=true,
+    ),
+  })
+  defaults_cache.push({
     name: "@__constructing_class",
     value: StringValue(type_name),
   })

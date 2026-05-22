@@ -102,6 +102,54 @@ fn capture_value_bindings(
 }
 
 ///|
+fn lookup_value_after_marker(
+  cache : Array[ValueBinding],
+  marker : String,
+  name : String,
+) -> Value? {
+  let mut active = false
+  let mut found : Value? = None
+  for binding in cache {
+    if binding.name == marker {
+      active = true
+      continue
+    }
+    if active && binding.name == name {
+      found = Some(binding.value)
+    }
+  }
+  found
+}
+
+///|
+fn lookup_class_default_call_local(
+  cache : Array[ValueBinding],
+  name : String,
+) -> Value? {
+  // Parameters are appended after the class-default call marker. They
+  // must shadow module bindings with the same name before const
+  // provenance rejects the module binding.
+  match lookup_value_after_marker(cache, "@__class_default_call_scope", name) {
+    Some(value) => Some(value)
+    None =>
+      match
+        lookup_value_after_marker(
+          cache,
+          "@__class_default_call_scope",
+          hidden_member_name(name),
+        ) {
+        Some(value) => Some(value)
+        None =>
+          lookup_value_after_marker(
+            cache,
+            "@__class_default_call_scope",
+            local_member_name(name),
+          )
+      }
+  }
+}
+
+///|
 fn int_pow(base : Int64, exponent : Int64) -> Int64? {
   if exponent == 0L {
     return Some(1L)
@@ -200,6 +248,30 @@ fn resolve_binding_value(
     None => ()
   }
   let shadow_binding = find_binding(bindings, name)
+  if lookup_value(cache, "@__class_default_call_scope") is Some(_) {
+    match lookup_class_default_call_local(cache, name) {
+      Some(value) => return Some(value)
+      None => ()
+    }
+  }
+  if lookup_value(cache, "@__class_default_scope") is Some(_) ||
+    lookup_value(cache, "@__class_default_call_scope") is Some(_) {
+    match shadow_binding {
+      Some(binding) =>
+        if !binding.is_const && !(binding.value is LambdaExpr(_, _, _)) {
+          let message = match
+            lookup_value(cache, "@__class_default_call_name") {
+            Some(StringValue(method_name)) =>
+              "Cannot call method `\{method_name}` from here because it is not `const`."
+            _ =>
+              "Cannot reference property `\{name}` from here because it is not `const`."
+          }
+          diagnostics.push(diag(message))
+          return None
+        }
+      None => ()
+    }
+  }
   let binding_shadows_cache = match shadow_binding {
     Some(binding) => binding.abstract_slot
     None => false

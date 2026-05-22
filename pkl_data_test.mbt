@@ -1340,7 +1340,7 @@ test "PKL-126c: protobuf renderValue applies protobuf diagnostics" {
   inspect(pcf.contains("nanos: 0"), content="true")
   inspect(
     pcf.contains(
-      "Cannot call method `renderValue` from here because it is not `const`.",
+      "Cannot call method `renderAny` from here because it is not `const`.",
     ),
     content="true",
   )
