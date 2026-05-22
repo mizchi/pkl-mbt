@@ -2644,21 +2644,26 @@ fn lookup_class_binding(
   env : Array[ClassBinding],
   name : String,
 ) -> ClassBinding? {
-  let mut found : ClassBinding? = None
-  for binding in env {
+  // Walk in reverse so the latest shadowing binding short-circuits
+  // the scan. The previous forward walk kept overwriting `found` to
+  // achieve the same "last wins" semantics, paying O(N) on every
+  // lookup; reverse-with-break is the same semantics at O(distance
+  // to last match), which on the reflect / class-default hot path is
+  // typically ~O(1).
+  let mut i = env.length() - 1
+  while i >= 0 {
+    let binding = env[i]
     if binding.name == name {
-      found = Some(binding)
+      return Some(binding)
     }
+    i = i - 1
   }
-  if found is None &&
-    (
-      name == "reflect.Type" ||
-      name == "reflect.Property" ||
-      name == "reflect.Method"
-    ) {
+  if name == "reflect.Type" ||
+    name == "reflect.Property" ||
+    name == "reflect.Method" {
     return Some({ name, parent_name: None, properties: [], methods: [] })
   }
-  found
+  None
 }
 
 ///|
@@ -2805,13 +2810,18 @@ fn lookup_eval_type_alias(
   env : Array[EvalTypeAliasBinding],
   name : String,
 ) -> String? {
-  let mut found : String? = None
-  for binding in env {
+  // Same reverse-walk + early-break pattern as `lookup_class_binding`
+  // — preserves "last wins" semantics while short-circuiting on the
+  // most-recently-pushed binding.
+  let mut i = env.length() - 1
+  while i >= 0 {
+    let binding = env[i]
     if binding.name == name {
-      found = Some(binding.target)
+      return Some(binding.target)
     }
+    i = i - 1
   }
-  found
+  None
 }
 
 ///|

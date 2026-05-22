@@ -1,5 +1,40 @@
 ///|
+/// Cache of `(declarations -> aliases)` keyed by physical identity of
+/// the declarations array. `eval_type_alias_bindings` is on the
+/// reflect / type-cast / constraint hot path — `pkspec/Test.pkl`'s
+/// sample profile attributed 182 of 5000 samples to this single
+/// function and another 119 to the `Array.push` inside it. Within a
+/// single `eval_source` call every caller passes the same
+/// `program.declarations` reference, so a small physical-equality
+/// cache hits ~100%.
+let type_alias_bindings_cache : Ref[
+  Array[(Array[Declaration], Array[EvalTypeAliasBinding])],
+] = { val: [] }
+
+///|
 fn eval_type_alias_bindings(
+  declarations : Array[Declaration],
+) -> Array[EvalTypeAliasBinding] {
+  let cache = type_alias_bindings_cache.val
+  for entry in cache {
+    let (cached_decls, cached_aliases) = entry
+    if physical_equal(cached_decls, declarations) {
+      return cached_aliases
+    }
+  }
+  let aliases = build_type_alias_bindings(declarations)
+  // Keep the cache small: distinct declaration arrays are
+  // proportional to the number of imported modules in a session, and
+  // a 4-entry LRU comfortably covers single-CLI eval + bench loops.
+  while type_alias_bindings_cache.val.length() >= 4 {
+    let _ = type_alias_bindings_cache.val.remove(0)
+  }
+  type_alias_bindings_cache.val.push((declarations, aliases))
+  aliases
+}
+
+///|
+fn build_type_alias_bindings(
   declarations : Array[Declaration],
 ) -> Array[EvalTypeAliasBinding] {
   let aliases : Array[EvalTypeAliasBinding] = []
