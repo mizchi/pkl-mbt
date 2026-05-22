@@ -2589,7 +2589,8 @@ async fn main {
     format != "properties" &&
     format != "plist" &&
     format != "textproto" &&
-    format != "xml" {
+    format != "xml" &&
+    format != "jsonnet" {
     fail("unsupported format: \{format}")
   }
   if positional.length() != 1 {
@@ -2785,6 +2786,26 @@ async fn main {
                 String::unsafe_substring(xml, start=0, end=xml.length() - 1)
               } else {
                 xml
+              }
+              println(trimmed)
+            }
+            "jsonnet" => {
+              // Apple Pkl's `jsonnetfmt`-shaped output always ends with
+              // a newline. `render_value_as_jsonnet_document` ensures
+              // the trailing newline so `println` keeps the single
+              // final newline expected by the gold files.
+              let (_, indent_text, _, _) = xml_options
+              let jsonnet = @pkl.render_value_as_jsonnet_document_with_indent(
+                value, indent_text,
+              )
+              let trimmed = if jsonnet.has_suffix("\n") {
+                String::unsafe_substring(
+                  jsonnet,
+                  start=0,
+                  end=jsonnet.length() - 1,
+                )
+              } else {
+                jsonnet
               }
               println(trimmed)
             }
@@ -3112,6 +3133,8 @@ fn renderer_format_from_class(class_name : String) -> String? {
         Some("xml")
       } else if raw == "protobuf.Renderer" {
         Some("textproto")
+      } else if raw == "jsonnet.Renderer" {
+        Some("jsonnet")
       } else {
         None
       }

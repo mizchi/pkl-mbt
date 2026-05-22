@@ -719,6 +719,8 @@ fn renderer_format_for_class_name(class_name : String) -> String? {
   } else if class_name == "protobuf.Renderer" ||
     class_name.has_suffix("ProtobufRenderer") {
     Some("textproto")
+  } else if class_name == "jsonnet.Renderer" {
+    Some("jsonnet")
   } else {
     None
   }

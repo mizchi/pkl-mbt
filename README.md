@@ -44,7 +44,7 @@ These don't exist in Apple Pkl:
 
 ## Status
 
-The parser, evaluator, typechecker, package/project loading, and advertised renderers are passing the current release test gate. Jsonnet renderer parity is intentionally left for the next pass; see [TODO.md](TODO.md) for the remaining upstream fixture inventory and release notes.
+The parser, evaluator, typechecker, package/project loading, and advertised renderers (PCF, JSON, YAML, properties, plist, textproto, XML, and Jsonnet) are passing the current release test gate. The remaining Jsonnet fixtures (`jsonnetRenderer7` — Mixin / Function rendering diagnostic, `jsonnetRenderer8` — `convertPropertyTransformers`) are tracked as follow-ups; see [TODO.md](TODO.md) for the full upstream fixture inventory and release notes.
 
 ## Benchmarks vs Apple Pkl
 

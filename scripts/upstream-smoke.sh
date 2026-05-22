@@ -26,6 +26,8 @@ GOLD_FIXTURES=(
   "api/jsonRenderer2b"
   "api/jsonRendererEmptyComposites"
   "api/jsonRenderer7"
+  "api/jsonnetRenderer4"
+  "api/jsonnetRenderer5"
   "api/module"
   "api/moduleOutput2"
   "api/pair"
@@ -375,6 +377,19 @@ TEXTPROTO_GOLD_FIXTURES=(
   "api/protobuf3.txtpb"
 )
 
+# PKL-148bm: jsonnet renderer fixtures whose `output { renderer = new
+# jsonnet.Renderer {} }` path matches the upstream `.jsonnet` gold.
+# jsonnetRenderer7 (Mixin / Function1 rendering error message) and
+# jsonnetRenderer8 (convertPropertyTransformers + LineComment
+# annotation) are intentionally postponed; they live outside this
+# slice's renderer surface.
+JSONNET_GOLD_FIXTURES=(
+  "api/jsonnetRenderer1.jsonnet"
+  "api/jsonnetRenderer2.jsonnet"
+  "api/jsonnetRenderer3.jsonnet"
+  "api/jsonnetRenderer6.jsonnet"
+)
+
 # Files whose `pkl parse` should succeed even when we cannot evaluate
 # them (e.g. they exercise stdlib gaps or runtime semantics outside
 # the implemented slice). Keeping a parse-only check pins the parser
@@ -514,9 +529,16 @@ for label in "${TEXTPROTO_GOLD_FIXTURES[@]}"; do
   textproto_ok_count=$((textproto_ok_count + 1))
 done
 
+jsonnet_ok_count=0
+for label in "${JSONNET_GOLD_FIXTURES[@]}"; do
+  eval_matches_gold "$label" "$UPSTREAM/$label.pkl" "$GOLD/$label"
+  jsonnet_ok_count=$((jsonnet_ok_count + 1))
+done
+
 printf 'upstream-smoke: %d gold-match fixtures passed\n' "$ok_count"
 printf 'upstream-smoke: %d json gold-match fixtures passed\n' "$json_ok_count"
 printf 'upstream-smoke: %d yaml gold-match fixtures passed\n' "$yaml_ok_count"
 printf 'upstream-smoke: %d plist gold-match fixtures passed\n' "$plist_ok_count"
 printf 'upstream-smoke: %d xml gold-match fixtures passed\n' "$xml_ok_count"
 printf 'upstream-smoke: %d textproto gold-match fixtures passed\n' "$textproto_ok_count"
+printf 'upstream-smoke: %d jsonnet gold-match fixtures passed\n' "$jsonnet_ok_count"

@@ -48,7 +48,7 @@ Measured from the release binary against Apple Pkl LanguageSnippetTests gold fil
 
 - Core collection / scalar API: none.
 - Resource / path API: none.
-- Renderer / parser API: `api/jsonnetRenderer4`, `api/jsonnetRenderer5`, `api/renderDirective`, `api/renderDirective2`, `api/yamlParser1Compat`, `api/yamlParser1Yaml11`, `api/yamlParser1Yaml12`, `api/yamlParser6`, `api/yamlRendererStringsCompat`, `api/yamlRendererStringsYaml11`, `api/yamlRendererStringsYaml12`.
+- Renderer / parser API: `api/jsonnetRenderer7` (Mixin / Function1 rendering diagnostic), `api/jsonnetRenderer8` (`convertPropertyTransformers` + `LineComment` annotation surface), `api/renderDirective`, `api/renderDirective2`, `api/yamlParser1Compat`, `api/yamlParser1Yaml11`, `api/yamlParser1Yaml12`, `api/yamlParser6`, `api/yamlRendererStringsCompat`, `api/yamlRendererStringsYaml11`, `api/yamlRendererStringsYaml12`. `jsonnetRenderer1/2/3/4/5/6` now gold-match through the in-tree Jsonnet renderer.
 - Stdlib module / metadata API: `api/analyze1`, `api/mathModule`, `api/reflectedDeclaration`.
 
 `internal` remaining DIFFs: `internal/polymorphicCallSite`.

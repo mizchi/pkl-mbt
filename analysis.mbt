@@ -466,6 +466,40 @@ fn builtin_stdlib_source(uri : String) -> String? {
       Some(source)
     }
     "pkl:test" => Some("catch = null")
+    "pkl:jsonnet" => {
+      // PKL-148bm: `pkl:jsonnet` is a Pkl-side stub used by the
+      // jsonnet renderer. The actual Jsonnet emission lives in
+      // `eval_render_jsonnet.mbt` — this stub exposes the public
+      // `Renderer` class for `new jsonnet.Renderer {}` instantiation
+      // and the `ExtVar` / `ImportStr` constructors that produce
+      // tagged ObjectValues the renderer recognises and projects as
+      // `std.extVar(...)` / `importstr ...`. `renderValue` /
+      // `renderDocument` are intercepted by `eval_value_renderer_method`
+      // in eval_expr.mbt so the function bodies here are never run.
+      // PKL-148bm: pkl:jsonnet is a Pkl-side stub. The renderer body
+      // lives in eval_render_jsonnet.mbt; the stub only needs to
+      // expose the `Renderer` class plus tagged `ExtVar` / `ImportStr`
+      // record shapes. Apple Pkl uses dedicated classes for the
+      // latter, but because user-typed `new T { ... }` results don't
+      // currently carry the class tag through lambda return paths,
+      // the constructors stamp a hidden `@__jsonnet_kind` marker that
+      // the renderer recognises in `jsonnet_special_object_text`.
+      let source =
+        #|class Renderer {
+        #|  indent: String = "  "
+        #|  omitNullProperties: Boolean = true
+        #|  converters: Mapping = new {}
+        #|}
+        #|ExtVar = (_name) -> new {
+        #|  __jsonnet_kind__ = "ExtVar"
+        #|  name = _name
+        #|}
+        #|ImportStr = (_path) -> new {
+        #|  __jsonnet_kind__ = "ImportStr"
+        #|  path = _path
+        #|}
+      Some(source)
+    }
     // PKL-148bh: `pkl:shell.escapeWithSingleQuotes(str)` — wraps the
     // string in single quotes and escapes internal `'` via the
     // `'\''` shell-quote idiom (api/shellModule).

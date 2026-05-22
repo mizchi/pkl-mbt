@@ -9295,6 +9295,37 @@ fn eval_value_renderer_method_error(
       }
     "textproto" =>
       protobuf_renderer_value_error(value, cache, class_env, declarations)
+    "jsonnet" => jsonnet_renderer_value_error(value, cache)
+    _ => None
+  }
+}
+
+///|
+/// Apple Pkl's jsonnet renderer rejects values whose Pkl type has no
+/// Jsonnet equivalent (Duration / DataSize / Pair / IntSeq / Function /
+/// Regex / Bytes, plus Class / TypeAlias reflect mirrors). The user can
+/// always intercept these via `converters { [Type] = (it) -> ... }`
+/// before they reach the renderer; the gate fires only when the value
+/// arrives without a converter.
+fn jsonnet_renderer_value_error(
+  value : Value,
+  cache : Array[ValueBinding],
+) -> String? {
+  match value {
+    DurationValue(_, _)
+    | DataSizeValue(_, _)
+    | PairValue(_, _)
+    | IntSeqValue(_, _, _)
+    | FunctionValue(_, _, _, _, _)
+    | RegexValue(_)
+    | BytesValue(_) =>
+      Some(renderer_cannot_render_message("Jsonnet", value, cache, false))
+    ObjectValue(members) =>
+      match reflect_kind(members) {
+        Some("Class") | Some("TypeAlias") =>
+          Some(renderer_cannot_render_message("Jsonnet", value, cache, false))
+        _ => None
+      }
     _ => None
   }
 }
@@ -10743,6 +10774,31 @@ fn eval_value_renderer_method(
             Some(
               StringValue(
                 render_value_as_xml_fragment(rendered_value, indent_text),
+              ),
+            )
+          }
+        }
+        "jsonnet" => {
+          let indent_text = xml_renderer_option(
+            renderer_members, "indent", "  ",
+          )
+          let omit_null = renderer_bool_option(
+            renderer_members, "omitNullProperties", true,
+          )
+          if method_name == "renderDocument" {
+            Some(
+              StringValue(
+                render_value_as_jsonnet_document_with_options(
+                  rendered_value, indent_text, omit_null,
+                ),
+              ),
+            )
+          } else {
+            Some(
+              StringValue(
+                render_value_as_jsonnet_with_options(
+                  rendered_value, indent_text, omit_null,
+                ),
               ),
             )
           }
