@@ -2082,7 +2082,7 @@ test "String.take and drop substring methods" {
 }
 
 ///|
-test "String.split projects to a Listing" {
+test "String.split projects to a List" {
   assert_true(
     eval_source("s = \"a,b,c\"\nparts = s.split(\",\")") ==
     EvalOk(
@@ -2095,7 +2095,7 @@ test "String.split projects to a Listing" {
         },
         ValueMember::{
           name: "parts",
-          value: ListingValue([
+          value: ListValue([
             StringValue("a"),
             StringValue("b"),
             StringValue("c"),
@@ -2106,7 +2106,7 @@ test "String.split projects to a Listing" {
       ]),
     ),
   )
-  // Split on an absent separator yields a single-element listing.
+  // Split on an absent separator yields a single-element List.
   assert_true(
     eval_source("s = \"abc\"\nparts = s.split(\",\")") ==
     EvalOk(
@@ -2119,7 +2119,7 @@ test "String.split projects to a Listing" {
         },
         ValueMember::{
           name: "parts",
-          value: ListingValue([StringValue("abc")]),
+          value: ListValue([StringValue("abc")]),
           source: None,
           annotations: [],
         },

@@ -19,6 +19,7 @@ fn is_mapping_property_name(name : String) -> Bool {
 fn is_mapping_method_name(name : String) -> Bool {
   match name {
     "containsKey"
+    | "containsValue"
     | "getOrNull"
     | "getOrDefault"
     | "fold"
@@ -56,6 +57,39 @@ fn contains_value(xs : Array[Value], v : Value) -> Bool {
 }
 
 ///|
+fn set_collection_non_empty_message(elements : Array[Value]) -> String {
+  "Expected a non-empty collection. Collection: \{render_pcf_value_inline(SetValue(elements))}"
+}
+
+///|
+fn set_collection_index_range_message(
+  index : Int64,
+  lower : Int,
+  upper : Int,
+  elements : Array[Value],
+) -> String {
+  "Element index `\{index}` is out of range `\{lower}`..`\{upper}`. Collection: \{render_pcf_value_inline(SetValue(elements))}"
+}
+
+///|
+fn first_top_level_pure_deferred_entry_message(
+  entries : Array[ValueEntry],
+) -> String? {
+  for entry in entries {
+    match entry.value {
+      ObjectValue(members) if visible_members(members).length() == 0 =>
+        match deferred_error_message(entry.value) {
+          Some(message) => return Some(message)
+          None => ()
+        }
+      _ => ()
+    }
+  } nobreak {
+    None
+  }
+}
+
+///|
 fn value_to_string_for_join(v : Value) -> String {
   match v {
     IntValue(n) => "\{n}"
@@ -71,34 +105,39 @@ fn value_to_string_for_join(v : Value) -> String {
     // bare `new { ... }` for now (universal user-class tagging is
     // deferred — `basic/string` accepts the bare form for both
     // `Dynamic` and a user class in current gold).
-    ObjectValue(members) => {
-      let buf = StringBuilder::new()
-      let class_name = match find_object_class_tag(members) {
-        Some(name) => name
-        None => ""
-      }
-      buf.write_string("new ")
-      if class_name != "" {
-        buf.write_string(class_name)
-        buf.write_char(' ')
-      }
-      let visible = visible_members(members)
-      if visible.length() == 0 {
-        buf.write_string("{}")
-      } else {
-        buf.write_string("{ ")
-        for i = 0; i < visible.length(); i = i + 1 {
-          if i > 0 {
-            buf.write_string("; ")
+    ObjectValue(members) =>
+      match
+        (lookup_member(members, "value"), lookup_member(members, "groups")) {
+        (Some(StringValue(s)), Some(_)) => s
+        _ => {
+          let buf = StringBuilder::new()
+          let class_name = match find_object_class_tag(members) {
+            Some(name) => name
+            None => ""
           }
-          buf.write_string(visible[i].name)
-          buf.write_string(" = ")
-          render_pcf_scalar(visible[i].value, buf)
+          buf.write_string("new ")
+          if class_name != "" {
+            buf.write_string(class_name)
+            buf.write_char(' ')
+          }
+          let visible = visible_members(members)
+          if visible.length() == 0 {
+            buf.write_string("{}")
+          } else {
+            buf.write_string("{ ")
+            for i = 0; i < visible.length(); i = i + 1 {
+              if i > 0 {
+                buf.write_string("; ")
+              }
+              buf.write_string(visible[i].name)
+              buf.write_string(" = ")
+              render_pcf_scalar(visible[i].value, buf)
+            }
+            buf.write_string(" }")
+          }
+          buf.to_string()
         }
-        buf.write_string(" }")
       }
-      buf.to_string()
-    }
     ListingValue(elements) | DefaultedListingValue(_, elements, _) => {
       let buf = StringBuilder::new()
       buf.write_string("new Listing")
@@ -183,13 +222,6 @@ fn eval_mapping_property(
     }
     "toMap" => {
       // PKL-148: lift the Mapping into a Map value preserving order.
-      match first_deferred_error_message(MappingValue(entries)) {
-        Some(message) => {
-          diagnostics.push(diag(message))
-          return None
-        }
-        None => ()
-      }
       let kvs : Array[ValueEntry] = []
       for entry in entries {
         kvs.push({ key: entry.key, value: entry.value })
@@ -394,6 +426,42 @@ fn eval_set_method(
   if !ok {
     return None
   }
+  if method_name == "reduce" && elements.length() == 0 {
+    diagnostics.push(diag(set_collection_non_empty_message(elements)))
+    return None
+  }
+  if (method_name == "minBy" || method_name == "maxBy") &&
+    elements.length() == 0 {
+    diagnostics.push(diag(set_collection_non_empty_message(elements)))
+    return None
+  }
+  if method_name == "split" {
+    if arg_values.length() != 1 {
+      diagnostics.push(
+        diag("Set.split expects 1 argument, got \{arg_values.length()}"),
+      )
+      return None
+    }
+    match arg_values[0] {
+      IntValue(index64) => {
+        let index = index64.to_int()
+        if index64 < 0L || index > elements.length() {
+          diagnostics.push(
+            diag(
+              set_collection_index_range_message(
+                index64,
+                0,
+                elements.length(),
+                elements,
+              ),
+            ),
+          )
+          return None
+        }
+      }
+      _ => ()
+    }
+  }
   match method_name {
     "contains" => {
       if arg_values.length() != 1 {
@@ -473,10 +541,8 @@ fn eval_set_method(
             if method_name == "every" {
               return Some(BoolValue(false))
             }
-          Some(_) => {
-            diagnostics.push(
-              diag("Set.\{method_name} predicate must return Boolean"),
-            )
+          Some(value) => {
+            diagnostics.push(diag(pkl_bool_return_type_message(value)))
             return None
           }
           None => return None
@@ -514,8 +580,8 @@ fn eval_set_method(
           ) {
           Some(BoolValue(true)) => n = n + 1
           Some(BoolValue(false)) => ()
-          Some(_) => {
-            diagnostics.push(diag("Set.count predicate must return Boolean"))
+          Some(value) => {
+            diagnostics.push(diag(pkl_bool_return_type_message(value)))
             return None
           }
           None => return None
@@ -577,7 +643,7 @@ fn eval_set_method(
           None => return None
         }
       }
-      Some(ListingValue(result))
+      Some(SetValue(unique_values(result)))
     }
     "filter" => {
       if arg_values.length() != 1 {
@@ -604,8 +670,8 @@ fn eval_set_method(
           ) {
           Some(BoolValue(true)) => result.push(element)
           Some(BoolValue(false)) => ()
-          Some(_) => {
-            diagnostics.push(diag("Set.filter predicate must return Boolean"))
+          Some(value) => {
+            diagnostics.push(diag(pkl_bool_return_type_message(value)))
             return None
           }
           None => return None
@@ -694,12 +760,158 @@ fn eval_set_method(
         None => None
       }
     }
-    _ => {
-      diagnostics.push(
-        diag("Cannot find property `\{method_name}` in object of type `Set`."),
+    "maxWith" | "maxWithOrNull" => {
+      let delegated_name = if method_name == "maxWithOrNull" {
+        "maxWithOrNull"
+      } else {
+        "minWith"
+      }
+      eval_list_or_listing_method(
+        false, elements, delegated_name, arguments, bindings, env, class_env, cache,
+        stack, declarations, diagnostics, resolve_import,
       )
-      None
     }
+    "intersect" | "difference" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Set.\{method_name} expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      let other = match arg_values[0] {
+        SetValue(xs) | ListValue(xs) | ListingValue(xs) => xs
+        _ => {
+          diagnostics.push(
+            diag("Set.\{method_name} expects a Collection argument"),
+          )
+          return None
+        }
+      }
+      let out : Array[Value] = []
+      if method_name == "intersect" {
+        for element in elements {
+          if contains_value(other, element) {
+            out.push(element)
+          }
+        }
+      } else {
+        for element in elements {
+          if !contains_value(other, element) {
+            out.push(element)
+          }
+        }
+      }
+      Some(SetValue(out))
+    }
+    "toMap" => {
+      if arg_values.length() != 2 {
+        diagnostics.push(
+          diag("Set.toMap expects 2 arguments, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let entries : Array[ValueEntry] = []
+      for element in elements {
+        let key = match
+          apply_function_value(
+            "Set.toMap keyFn",
+            arg_values[0],
+            [element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(v) => v
+          None => return None
+        }
+        let value = match
+          apply_function_value(
+            "Set.toMap valueFn",
+            arg_values[1],
+            [element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(v) => v
+          None => return None
+        }
+        entries.push({ key, value })
+      }
+      Some(MapValue(entries))
+    }
+    _ =>
+      if is_listing_method_name(method_name) {
+        match
+          eval_list_or_listing_method(
+            false, elements, method_name, arguments, bindings, env, class_env, cache,
+            stack, declarations, diagnostics, resolve_import,
+          ) {
+          Some(ListingValue(xs)) =>
+            match method_name {
+              "sort" | "sortBy" | "sortWith" | "repeat" | "reverse" =>
+                Some(ListValue(xs))
+              "toListing" => Some(ListingValue(xs))
+              _ => Some(SetValue(unique_values(xs)))
+            }
+          Some(ListValue(xs)) =>
+            match method_name {
+              "foldBack" => Some(ListValue(xs))
+              "toList"
+              | "sort"
+              | "sortBy"
+              | "sortWith"
+              | "repeat"
+              | "reverse" => Some(ListValue(xs))
+              _ => Some(SetValue(unique_values(xs)))
+            }
+          Some(PairValue(ListValue(a), ListValue(b))) =>
+            if method_name == "split" ||
+              method_name == "splitOrNull" ||
+              method_name == "partition" {
+              Some(
+                PairValue(
+                  SetValue(unique_values(a)),
+                  SetValue(unique_values(b)),
+                ),
+              )
+            } else {
+              Some(PairValue(ListValue(a), ListValue(b)))
+            }
+          Some(MapValue(entries)) if method_name == "groupBy" => {
+            let converted : Array[ValueEntry] = []
+            for entry in entries {
+              match entry.value {
+                ListValue(xs) =>
+                  converted.push({
+                    key: entry.key,
+                    value: SetValue(unique_values(xs)),
+                  })
+                _ => converted.push(entry)
+              }
+            }
+            Some(MapValue(converted))
+          }
+          other => other
+        }
+      } else {
+        diagnostics.push(
+          diag("Cannot find property `\{method_name}` in object of type `Set`."),
+        )
+        None
+      }
   }
 }
 
@@ -824,6 +1036,28 @@ fn eval_map_method(
       }
       Some(MappingValue(entries))
     }
+    "toDynamic" => {
+      if arg_values.length() != 0 {
+        diagnostics.push(
+          diag("Map.toDynamic expects 0 arguments, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let members : Array[ValueMember] = []
+      for entry in entries {
+        match entry.key {
+          StringValue(name) =>
+            members.push({
+              name,
+              value: entry.value,
+              source: None,
+              annotations: [],
+            })
+          _ => ()
+        }
+      }
+      Some(ObjectValue(tag_object_with_class(members, "Dynamic")))
+    }
     "toList" => {
       if arg_values.length() != 0 {
         diagnostics.push(
@@ -862,9 +1096,11 @@ fn eval_map_method(
           ) {
           Some(PairValue(new_key, new_value)) =>
             result.push({ key: new_key, value: new_value })
-          Some(_) => {
+          Some(value) => {
             diagnostics.push(
-              diag("Map.map callback must return Pair<NewKey, NewValue>"),
+              diag(
+                "Expected value of type `Pair`, but got type `\{eval_value_type_name(value)}`. Value: \{render_pcf_value_inline(value)}",
+              ),
             )
             return None
           }
@@ -931,6 +1167,46 @@ fn eval_map_method(
       }
       Some(MapValue(result))
     }
+    "flatMap" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("Map.flatMap expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let result : Array[ValueEntry] = []
+      for entry in entries {
+        match
+          apply_function_value(
+            "Map.flatMap callback",
+            arg_values[0],
+            [entry.key, entry.value],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(MapValue(next_entries)) =>
+            for next in next_entries {
+              result.push(next)
+            }
+          Some(value) => {
+            diagnostics.push(
+              diag(
+                "Expected value of type `Map`, but got type `\{eval_value_type_name(value)}`. Value: \{render_pcf_value_inline(value)}",
+              ),
+            )
+            return None
+          }
+          None => return None
+        }
+      }
+      Some(MapValue(result))
+    }
     "filter" => {
       if arg_values.length() != 1 {
         diagnostics.push(
@@ -964,6 +1240,92 @@ fn eval_map_method(
         }
       }
       Some(MapValue(result))
+    }
+    "remove" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("Map.remove expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let result : Array[ValueEntry] = []
+      for entry in entries {
+        if !values_equal(entry.key, arg_values[0]) {
+          result.push(entry)
+        }
+      }
+      Some(MapValue(result))
+    }
+    "put" => {
+      if arg_values.length() != 2 {
+        diagnostics.push(
+          diag("Map.put expects 2 arguments, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let result : Array[ValueEntry] = []
+      let mut replaced = false
+      for entry in entries {
+        if values_equal(entry.key, arg_values[0]) {
+          result.push({ key: arg_values[0], value: arg_values[1] })
+          replaced = true
+        } else {
+          result.push(entry)
+        }
+      }
+      if !replaced {
+        result.push({ key: arg_values[0], value: arg_values[1] })
+      }
+      Some(MapValue(result))
+    }
+    "toTyped" => {
+      if arguments.length() != 1 {
+        diagnostics.push(
+          diag("Map.toTyped expects 1 argument, got \{arguments.length()}"),
+        )
+        return None
+      }
+      match
+        eval_expr_with_bindings(
+          arguments[0],
+          bindings,
+          env,
+          class_env,
+          cache,
+          stack,
+          declarations,
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(class_value) =>
+          match
+            (
+              class_mirror_simple_name(class_value),
+              class_mirror_display_name(class_value),
+            ) {
+            (Some(class_name), Some(display_name)) =>
+              dynamic_members_to_typed_value(
+                map_entries_to_dynamic_members(entries),
+                class_name,
+                display_name,
+                bindings,
+                env,
+                class_env,
+                cache,
+                stack,
+                declarations,
+                diagnostics,
+                resolve_import,
+              )
+            _ => {
+              diagnostics.push(
+                diag("Map.toTyped expects a Class mirror argument"),
+              )
+              None
+            }
+          }
+        None => None
+      }
     }
     "fold" => {
       if arg_values.length() != 2 {
@@ -1112,6 +1474,21 @@ fn eval_mapping_method(
       }
       Some(BoolValue(contains_entry_key(entries, arg_values[0])))
     }
+    "containsValue" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Mapping.containsValue expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      let values : Array[Value] = []
+      for entry in entries {
+        values.push(entry.value)
+      }
+      Some(BoolValue(contains_value(values, arg_values[0])))
+    }
     "getOrNull" => {
       if arg_values.length() != 1 {
         diagnostics.push(
@@ -1166,14 +1543,18 @@ fn eval_mapping_method(
         )
         return None
       }
-      match first_deferred_error_message(MappingValue(entries)) {
+      match first_top_level_pure_deferred_entry_message(entries) {
         Some(message) => {
           diagnostics.push(diag(message))
           return None
         }
         None => ()
       }
-      Some(MappingValue(entries))
+      let kvs : Array[ValueEntry] = []
+      for entry in entries {
+        kvs.push({ key: entry.key, value: entry.value })
+      }
+      Some(MapValue(kvs))
     }
     "toList" => {
       if arg_values.length() != 0 {

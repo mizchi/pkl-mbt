@@ -2069,9 +2069,7 @@ test "package import glob module values resolve lazily on member access" {
   let source = "names = import*(\"\{pattern}\").toMap().values.map((it) -> it.name)"
 
   let expected =
-    #|names {
-    #|  "Bird"
-    #|}
+    #|names = List("Bird")
 
   let session = AnalysisSession::new()
   session.set_source("fixtures/main.pkl", source)
@@ -2141,9 +2139,7 @@ test "import glob module values resolve lazily on member access" {
     #|keys {
     #|  "./moduleA.pkl"
     #|}
-    #|names {
-    #|  "moduleA"
-    #|}
+    #|names = List("moduleA")
 
   let session = AnalysisSession::new()
   session.set_source("fixtures/main.pkl", source)
@@ -2165,9 +2161,7 @@ test "import glob module values materialize for mapping predicate amends" {
     #|}.toMap().values.map((it) -> it.extra)
 
   let expected =
-    #|values {
-    #|  "moduleA"
-    #|}
+    #|values = List("moduleA")
 
   let session = AnalysisSession::new()
   session.set_source("fixtures/main.pkl", source)
@@ -2196,7 +2190,7 @@ test "import glob amended modules synthesize output text" {
   guard session.eval_path("fixtures/main.pkl") is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  guard members[0].value is ListingValue([StringValue(text)]) else { panic() }
+  guard members[0].value is ListValue([StringValue(text)]) else { panic() }
   inspect(text, content="name: moduleA\n")
   reset_sandbox_io_cache()
 }

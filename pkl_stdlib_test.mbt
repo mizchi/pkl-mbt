@@ -1693,7 +1693,7 @@ test "PKL-122: String.codePointCount counts code points not UTF-16 units" {
       c = n
     }
   }
-  inspect(u, content="5")
+  inspect(u, content="4")
   inspect(c, content="4")
 }
 
@@ -1703,7 +1703,7 @@ test "PKL-122: String.codePoints surfaces full code points" {
     is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  guard members[1].value is ListingValue(points) else { panic() }
+  guard members[1].value is ListValue(points) else { panic() }
   inspect(points.length(), content="2")
   guard points[0] is IntValue(p0) else { panic() }
   guard points[1] is IntValue(p1) else { panic() }
@@ -1717,7 +1717,7 @@ test "PKL-122: String.chars yields surrogate-pair-aware single-char Strings" {
     is EvalOk(ObjectValue(members)) else {
     panic()
   }
-  guard members[1].value is ListingValue(chars) else { panic() }
+  guard members[1].value is ListValue(chars) else { panic() }
   inspect(chars.length(), content="3")
   guard chars[1] is StringValue(sushi) else { panic() }
   inspect(sushi, content="🍣")

@@ -202,8 +202,14 @@ fn render_float_text(d : Double) -> String {
   if is_negative_zero(d) {
     return "-0.0"
   }
-  if d.is_nan() || d.is_inf() {
-    return d.to_string()
+  if d.is_nan() {
+    return "NaN"
+  }
+  if d.is_inf() {
+    if d < 0.0 {
+      return "-Infinity"
+    }
+    return "Infinity"
   }
   if d > 0.0 && d < 1.0e-323 {
     return "4.9E-324"
@@ -424,11 +430,16 @@ fn render_pcf_scalar_with_indent(
     FunctionValue(_, _, _, _, _) => buf.write_string("<function>")
     DurationValue(n, unit) => buf.write_string("\{n}.\{unit}")
     DataSizeValue(n, unit) => buf.write_string("\{n}.\{unit}")
-    RegexValue(pattern) => {
-      buf.write_string("Regex(\"")
-      buf.write_string(escape_string(pattern))
-      buf.write_string("\")")
-    }
+    RegexValue(pattern) =>
+      if pattern.contains("\\") && !pattern.contains("#\"") {
+        buf.write_string("Regex(#\"")
+        buf.write_string(pattern)
+        buf.write_string("\"#)")
+      } else {
+        buf.write_string("Regex(\"")
+        buf.write_string(escape_string(pattern))
+        buf.write_string("\")")
+      }
     BytesValue(bytes) =>
       // Apple Pkl renders Bytes through the varargs constructor.
       buf.write_string(render_bytes_value_inline(bytes))

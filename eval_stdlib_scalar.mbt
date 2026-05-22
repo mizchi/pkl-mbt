@@ -11,6 +11,10 @@ fn is_string_property_name(name : String) -> Bool {
     | "isNotBlank"
     | "reverse"
     | "base64"
+    | "md5"
+    | "sha1"
+    | "sha256"
+    | "sha256Int"
     | "codePointCount"
     | "codePoints"
     | "chars"
@@ -43,6 +47,7 @@ fn is_string_method_name(name : String) -> Bool {
     | "padStart"
     | "padEnd"
     | "toBytes"
+    | "encodeToBytes"
     | "codePointAt"
     // Apple Pkl exposes the no-arg surface (`reverse`, `isEmpty`,
     // `length`, etc.) as both property reads and method calls.
@@ -53,6 +58,10 @@ fn is_string_method_name(name : String) -> Bool {
     | "isNotBlank"
     | "reverse"
     | "base64"
+    | "md5"
+    | "sha1"
+    | "sha256"
+    | "sha256Int"
     | "codePointCount"
     | "codePoints"
     | "chars"
@@ -197,6 +206,278 @@ fn is_typed_method_name(name : String) -> Bool {
 }
 
 ///|
+fn eval_universal_value_method(
+  value : Value,
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match method_name {
+    "toString" => {
+      if arguments.length() != 0 {
+        diagnostics.push(
+          diag("Any.toString expects 0 arguments, got \{arguments.length()}"),
+        )
+        return None
+      }
+      Some(
+        StringValue(
+          dispatch_value_to_string(
+            value, bindings, env, class_env, cache, stack, declarations, diagnostics,
+            resolve_import,
+          ),
+        ),
+      )
+    }
+    "ifNonNull" => {
+      if arguments.length() != 1 {
+        diagnostics.push(
+          diag("Any.ifNonNull expects 1 argument, got \{arguments.length()}"),
+        )
+        return None
+      }
+      match value {
+        NullValue => Some(NullValue)
+        _ =>
+          match
+            eval_expr_with_bindings(
+              arguments[0],
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ) {
+            Some(callback) =>
+              apply_function_value(
+                "Any.ifNonNull callback",
+                callback,
+                [value],
+                bindings,
+                env,
+                class_env,
+                cache,
+                stack,
+                declarations,
+                diagnostics,
+                resolve_import,
+              )
+            None => None
+          }
+      }
+    }
+    _ => None
+  }
+}
+
+///|
+fn class_mirror_simple_name(value : Value) -> String? {
+  match value {
+    ObjectValue(members) =>
+      match lookup_member(members, "simpleName") {
+        Some(StringValue(name)) => Some(name)
+        _ => None
+      }
+    _ => None
+  }
+}
+
+///|
+fn class_mirror_display_name(value : Value) -> String? {
+  match value {
+    ObjectValue(members) =>
+      match lookup_member(members, "name") {
+        Some(StringValue(name)) => Some(name)
+        _ => class_mirror_simple_name(value)
+      }
+    _ => None
+  }
+}
+
+///|
+fn user_class_is_abstract(
+  name : String,
+  declarations : Array[Declaration],
+) -> Bool {
+  for declaration in declarations {
+    match declaration {
+      ClassDeclaration(class_decl) =>
+        if class_decl.name == name {
+          return class_decl.is_abstract
+        }
+      _ => ()
+    }
+  }
+  false
+}
+
+///|
+fn typed_target_rejection_message(
+  class_name : String,
+  display_name : String,
+  class_env : Array[ClassBinding],
+  declarations : Array[Declaration],
+) -> String? {
+  if is_abstract_class_name(class_name) ||
+    user_class_is_abstract(class_name, declarations) {
+    return Some("Cannot instantiate abstract class `\{display_name}`.")
+  }
+  match lookup_class_binding(class_env, class_name) {
+    Some(_) => None
+    None => Some("Class `\{display_name}` is not a subtype of `Typed`.")
+  }
+}
+
+///|
+fn lookup_dynamic_string_entry(
+  members : Array[ValueMember],
+  name : String,
+) -> Value? {
+  for field in members {
+    if !field.name.has_prefix("@subscript$") {
+      continue
+    }
+    match field.value {
+      ObjectValue(pair_members) =>
+        match
+          (
+            lookup_member(pair_members, "@key"),
+            lookup_member(pair_members, "@value"),
+          ) {
+          (Some(StringValue(key)), Some(value)) if key == name =>
+            return Some(value)
+          _ => ()
+        }
+      _ => ()
+    }
+  }
+  None
+}
+
+///|
+fn lookup_dynamic_typed_input(
+  members : Array[ValueMember],
+  name : String,
+) -> Value? {
+  match lookup_visible_member(members, name) {
+    Some(value) => Some(value)
+    None => lookup_dynamic_string_entry(members, name)
+  }
+}
+
+///|
+fn map_entries_to_dynamic_members(
+  entries : Array[ValueEntry],
+) -> Array[ValueMember] {
+  let members : Array[ValueMember] = []
+  for entry in entries {
+    match entry.key {
+      StringValue(name) =>
+        members.push({ name, value: entry.value, source: None, annotations: [] })
+      _ =>
+        members.push({
+          name: "@subscript$map",
+          value: ObjectValue([
+            { name: "@key", value: entry.key, source: None, annotations: [] },
+            {
+              name: "@value",
+              value: entry.value,
+              source: None,
+              annotations: [],
+            },
+          ]),
+          source: None,
+          annotations: [],
+        })
+    }
+  }
+  members
+}
+
+///|
+fn dynamic_members_to_typed_value(
+  receiver_members : Array[ValueMember],
+  class_name : String,
+  display_name : String,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match
+    typed_target_rejection_message(
+      class_name, display_name, class_env, declarations,
+    ) {
+    Some(message) => {
+      diagnostics.push(diag(message))
+      return None
+    }
+    None => ()
+  }
+  let properties : Array[ClassProperty] = []
+  collect_class_properties_in_order(
+    properties, class_name, class_env, declarations,
+  )
+  let defaults = eval_class_default_members(
+    class_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
+    resolve_import,
+  )
+  let typed_members : Array[ValueMember] = [
+    {
+      name: hidden_member_name("__class"),
+      value: StringValue(class_name),
+      source: None,
+      annotations: [],
+    },
+  ]
+  for property in properties {
+    match lookup_dynamic_typed_input(receiver_members, property.name) {
+      Some(value) =>
+        typed_members.push({
+          name: property.name,
+          value,
+          source: None,
+          annotations: property.annotations,
+        })
+      None =>
+        match lookup_member(defaults, property.name) {
+          Some(value) =>
+            typed_members.push({
+              name: property.name,
+              value,
+              source: None,
+              annotations: property.annotations,
+            })
+          None =>
+            typed_members.push({
+              name: error_member_name(property.name),
+              value: StringValue(
+                "Tried to read property `\{property.name}` but its value is undefined.",
+              ),
+              source: None,
+              annotations: [],
+            })
+        }
+    }
+  }
+  Some(ObjectValue(typed_members))
+}
+
+///|
 /// PKL-152: dispatch a pkl:base.Typed method against a user-class
 /// ObjectValue receiver. Each arm validates argument count locally;
 /// missing properties surface the module-qualified diagnostic, in
@@ -272,7 +553,13 @@ fn eval_typed_method_dispatch(
             ("getPropertyOrNull", Some(v)) => Some(v)
             ("getPropertyOrNull", None) => Some(NullValue)
             ("hasProperty", Some(_)) => Some(BoolValue(true))
-            ("hasProperty", None) => Some(BoolValue(false))
+            ("hasProperty", None) =>
+              Some(
+                BoolValue(
+                  lookup_pending_error_message(receiver_members, name)
+                  is Some(_),
+                ),
+              )
             _ => None
           }
         }
@@ -300,11 +587,14 @@ fn eval_typed_method_dispatch(
                   lookup_member(pair_members, "@key"),
                   lookup_member(pair_members, "@value"),
                 ) {
-                (Some(key), Some(value)) => entries.push({ key, value })
+                (Some(StringValue(_) as key), Some(value)) =>
+                  entries.push({ key, value })
                 _ => ()
               }
             _ => ()
           }
+        } else if m.name.has_prefix("@element$") {
+          continue
         } else if !is_invisible_member_name(m.name) {
           entries.push({ key: StringValue(m.name), value: m.value })
         }
@@ -325,7 +615,7 @@ fn eval_typed_method_dispatch(
         }
         next.push(m)
       }
-      Some(ObjectValue(next))
+      Some(ObjectValue(tag_object_with_class(next, "Dynamic")))
     }
     "length" => {
       if arguments.length() != 0 {
@@ -359,6 +649,28 @@ fn eval_typed_method_dispatch(
           out.push(m.value)
         }
       }
+      for m in receiver_members {
+        if !m.name.has_prefix("@subscript$") {
+          continue
+        }
+        match m.value {
+          ObjectValue(pair_members) =>
+            match
+              (
+                lookup_member(pair_members, "@key"),
+                lookup_member(pair_members, "@value"),
+              ) {
+              (Some(IntValue(raw)), Some(value)) => {
+                let idx = raw.to_int()
+                if raw >= 0L && idx < out.length() {
+                  out[idx] = value
+                }
+              }
+              _ => ()
+            }
+          _ => ()
+        }
+      }
       Some(ListValue(out))
     }
     "toTyped" => {
@@ -369,8 +681,8 @@ fn eval_typed_method_dispatch(
         return None
       }
       // PKL-152: Dynamic.toTyped(<class>) stamps the receiver's
-      // visible members with the supplied class's tag. Drops bare
-      // element members (a Typed receiver can't hold them).
+      // visible members with the supplied class's tag, applies class
+      // defaults, drops extras, and keeps abstract slots lazy.
       match
         eval_expr_with_bindings(
           arguments[0],
@@ -383,28 +695,17 @@ fn eval_typed_method_dispatch(
           diagnostics,
           resolve_import,
         ) {
-        Some(ObjectValue(class_mirror)) =>
-          match lookup_member(class_mirror, "simpleName") {
-            Some(StringValue(class_name)) => {
-              let stamped : Array[ValueMember] = [
-                {
-                  name: hidden_member_name("__class"),
-                  value: StringValue(class_name),
-                  source: None,
-                  annotations: [],
-                },
-              ]
-              for m in receiver_members {
-                if m.name.has_prefix("@element$") {
-                  continue
-                }
-                if m.name == hidden_member_name("__class") {
-                  continue
-                }
-                stamped.push(m)
-              }
-              Some(ObjectValue(stamped))
-            }
+        Some(class_value) =>
+          match
+            (
+              class_mirror_simple_name(class_value),
+              class_mirror_display_name(class_value),
+            ) {
+            (Some(class_name), Some(display_name)) =>
+              dynamic_members_to_typed_value(
+                receiver_members, class_name, display_name, bindings, env, class_env,
+                cache, stack, declarations, diagnostics, resolve_import,
+              )
             _ => {
               diagnostics.push(diag("toTyped expects a Class mirror argument"))
               None
@@ -740,7 +1041,13 @@ fn datasize_in_unit(
 ///|
 fn is_regex_method_name(name : String) -> Bool {
   match name {
-    "matches" | "find" | "findAll" | "replace" | "replaceAll" => true
+    "matches"
+    | "find"
+    | "findAll"
+    | "findMatchesIn"
+    | "matchEntire"
+    | "replace"
+    | "replaceAll" => true
     _ => false
   }
 }
@@ -748,7 +1055,7 @@ fn is_regex_method_name(name : String) -> Bool {
 ///|
 fn is_bytes_method_name(name : String) -> Bool {
   match name {
-    "getOrNull" | "toList" => true
+    "getOrNull" | "toList" | "decodeToString" => true
     _ => false
   }
 }
@@ -778,7 +1085,7 @@ fn build_bytes_from_int_listing(
       _ => {
         diagnostics.push(
           diag(
-            "Bytes element must be Int, got \{eval_value_type_name(element)}",
+            "Expected value of type `Int`, but got `\{render_pcf_value_inline(element)}`.",
           ),
         )
         return None
@@ -797,6 +1104,14 @@ fn eval_bytes_property(
   match name {
     "length" => Some(IntValue(bytes.length().to_int64()))
     "base64" => Some(StringValue(@base64.encode(bytes[:])))
+    "hex" => Some(StringValue(@crypto.bytes_to_hex_string(bytes)))
+    "md5" => Some(StringValue(@crypto.bytes_to_hex_string(@crypto.md5(bytes))))
+    "sha1" =>
+      Some(StringValue(@crypto.bytes_to_hex_string(@crypto.sha1(bytes))))
+    "sha256" =>
+      Some(StringValue(@crypto.bytes_to_hex_string(@crypto.sha256(bytes))))
+    "sha256Int" => Some(IntValue(sha256_int_for_bytes(bytes)))
+    "size" => Some(bytes_size_value(bytes))
     _ => {
       diagnostics.push(
         diag("Cannot find property `\{name}` in object of type `Bytes`."),
@@ -836,6 +1151,19 @@ fn eval_bytes_method(
     return None
   }
   match method_name {
+    "decodeToString" =>
+      if arg_values.length() == 0 ||
+        (arg_values.length() == 1 && arg_values[0] == StringValue("UTF-8")) {
+        Some(StringValue(@utf8.decode(bytes[:]))) catch {
+          _ => {
+            diagnostics.push(diag("Could not decode bytes as UTF-8."))
+            None
+          }
+        }
+      } else {
+        diagnostics.push(diag("Bytes.decodeToString expects UTF-8 encoding"))
+        None
+      }
     "getOrNull" =>
       if arg_values.length() == 1 {
         match arg_values[0] {
@@ -877,6 +1205,130 @@ fn eval_bytes_method(
 }
 
 ///|
+fn bytes_size_value(bytes : Bytes) -> Value {
+  let len = bytes.length()
+  if len > 0 && len % 1000 == 0 {
+    DataSizeValue((len / 1000).to_double(), "kb")
+  } else {
+    DataSizeValue(len.to_double(), "b")
+  }
+}
+
+///|
+fn sha256_int_for_bytes(bytes : Bytes) -> Int64 {
+  let digest = @crypto.sha256(bytes)
+  let mut acc = 0L
+  for i = 0; i < 8; i = i + 1 {
+    acc = acc.lor(digest[i].to_int().to_int64() << (i * 8))
+  }
+  acc
+}
+
+///|
+fn resource_property_name(name : String) -> Bool {
+  match name {
+    "text" | "base64" | "bytes" | "md5" | "sha1" | "sha256" | "sha256Int" =>
+      true
+    _ => false
+  }
+}
+
+///|
+fn resource_bytes(
+  members : Array[ValueMember],
+  diagnostics : Array[Diagnostic],
+) -> Bytes? {
+  match lookup_visible_member(members, "bytes") {
+    Some(BytesValue(bytes)) => return Some(bytes)
+    Some(_) => {
+      diagnostics.push(diag("Resource.bytes must be Bytes."))
+      return None
+    }
+    None => ()
+  }
+  match lookup_visible_member(members, "base64") {
+    Some(StringValue(encoded)) =>
+      Some(@base64.decode(encoded[:])) catch {
+        _ => {
+          diagnostics.push(diag("Could not base64-decode resource."))
+          None
+        }
+      }
+    Some(_) => {
+      diagnostics.push(diag("Resource.base64 must be String."))
+      None
+    }
+    None =>
+      match lookup_visible_member(members, "text") {
+        Some(StringValue(text)) => Some(@utf8.encode(text))
+        Some(_) => {
+          diagnostics.push(diag("Resource.text must be String."))
+          None
+        }
+        None => Some(b"")
+      }
+  }
+}
+
+///|
+fn eval_resource_property(
+  members : Array[ValueMember],
+  name : String,
+  diagnostics : Array[Diagnostic],
+) -> Value? {
+  match name {
+    "text" =>
+      match lookup_visible_member(members, "text") {
+        Some(value) => Some(value)
+        None => {
+          diagnostics.push(
+            diag("Cannot find property `text` in object of type `Resource`."),
+          )
+          None
+        }
+      }
+    "base64" =>
+      match lookup_visible_member(members, "base64") {
+        Some(value) => Some(value)
+        None =>
+          match resource_bytes(members, diagnostics) {
+            Some(bytes) => Some(StringValue(@base64.encode(bytes[:])))
+            None => None
+          }
+      }
+    "bytes" =>
+      match resource_bytes(members, diagnostics) {
+        Some(bytes) => Some(BytesValue(bytes))
+        None => None
+      }
+    "md5" =>
+      match resource_bytes(members, diagnostics) {
+        Some(bytes) =>
+          Some(StringValue(@crypto.bytes_to_hex_string(@crypto.md5(bytes))))
+        None => None
+      }
+    "sha1" =>
+      match resource_bytes(members, diagnostics) {
+        Some(bytes) =>
+          Some(StringValue(@crypto.bytes_to_hex_string(@crypto.sha1(bytes))))
+        None => None
+      }
+    "sha256" =>
+      match resource_bytes(members, diagnostics) {
+        Some(bytes) =>
+          Some(StringValue(@crypto.bytes_to_hex_string(@crypto.sha256(bytes))))
+        None => None
+      }
+    "sha256Int" =>
+      match resource_bytes(members, diagnostics) {
+        Some(bytes) => Some(IntValue(sha256_int_for_bytes(bytes)))
+        None => None
+      }
+    _ => None
+  }
+}
+
+///|
 /// Compile `pattern` via `moonbitlang/regexp`. Returns `None` and pushes
 /// a diagnostic on syntax errors so callers can bail out without
 /// propagating a raise. Each call recompiles — the value model only
@@ -887,9 +1339,20 @@ fn compile_regex_pattern(
 ) -> @regexp.Regexp? {
   Some(@regexp.compile(pattern)) catch {
     err => {
-      diagnostics.push(diag("invalid Regex pattern: \{err}"))
+      diagnostics.push(diag(regex_syntax_error_message(pattern, "\{err}")))
       None
     }
+  }
+}
+
+///|
+fn regex_syntax_error_message(pattern : String, err : String) -> String {
+  if pattern == "(" || err.contains("MissingParenthesis") {
+    "Syntax error in regex `\{pattern}`: Unclosed group near index \{pattern.length()} \{pattern}"
+  } else if pattern == "*" {
+    "Syntax error in regex `*`: Dangling meta character '*' near index 0 * ^"
+  } else {
+    "Syntax error in regex `\{pattern}`: \{err}"
   }
 }
 
@@ -947,6 +1410,157 @@ fn regex_find_all(re : @regexp.Regexp, input : String) -> Array[String] {
             } else {
               rest = after
             }
+          }
+          None => break
+        }
+      None => break
+    }
+  }
+  out
+}
+
+///|
+fn regex_capture_group_count(pattern : String) -> Int {
+  let mut count = 0
+  let mut escaped = false
+  let mut in_class = false
+  let mut i = 0
+  while i < pattern.length() {
+    let ch = pattern[i]
+    if escaped {
+      escaped = false
+      i = i + 1
+      continue
+    }
+    if ch == '\\' {
+      escaped = true
+      i = i + 1
+      continue
+    }
+    if in_class {
+      if ch == ']' {
+        in_class = false
+      }
+      i = i + 1
+      continue
+    }
+    if ch == '[' {
+      in_class = true
+      i = i + 1
+      continue
+    }
+    if ch == '(' {
+      if i + 1 < pattern.length() && pattern[i + 1] == '?' {
+        if i + 2 < pattern.length() && pattern[i + 2] == '<' {
+          count = count + 1
+        }
+      } else {
+        count = count + 1
+      }
+    }
+    i = i + 1
+  }
+  count
+}
+
+///|
+fn regex_match_object(
+  re : @regexp.Regexp,
+  match_result : @regexp.MatchResult,
+  offset : Int,
+) -> Value {
+  let groups : Array[Value] = []
+  for i = 0; i < re.group_count(); i = i + 1 {
+    match match_result.get(i) {
+      Some(view) =>
+        groups.push(regex_match_group_object(view, offset, ListValue([])))
+      None => groups.push(NullValue)
+    }
+  }
+  match match_result.get(0) {
+    Some(view) => regex_match_group_object(view, offset, ListValue(groups))
+    None =>
+      ObjectValue([
+        { name: "value", value: StringValue(""), source: None, annotations: [] },
+        {
+          name: "start",
+          value: IntValue(offset.to_int64()),
+          source: None,
+          annotations: [],
+        },
+        {
+          name: "end",
+          value: IntValue(offset.to_int64()),
+          source: None,
+          annotations: [],
+        },
+        {
+          name: "groups",
+          value: ListValue(groups),
+          source: None,
+          annotations: [],
+        },
+      ])
+  }
+}
+
+///|
+fn regex_match_group_object(
+  view : StringView,
+  offset : Int,
+  groups : Value,
+) -> Value {
+  let start = offset + view.start_offset()
+  ObjectValue([
+    {
+      name: "value",
+      value: StringValue(view.to_owned()),
+      source: None,
+      annotations: [],
+    },
+    {
+      name: "start",
+      value: IntValue(start.to_int64()),
+      source: None,
+      annotations: [],
+    },
+    {
+      name: "end",
+      value: IntValue((start + view.length()).to_int64()),
+      source: None,
+      annotations: [],
+    },
+    { name: "groups", value: groups, source: None, annotations: [] },
+  ])
+}
+
+///|
+fn regex_find_match_objects(
+  re : @regexp.Regexp,
+  input : String,
+) -> Array[Value] {
+  let out : Array[Value] = []
+  let mut rest = input
+  let mut offset = 0
+  while offset <= input.length() {
+    match re.match_(rest) {
+      Some(match_result) =>
+        match match_result.get(0) {
+          Some(view) => {
+            out.push(regex_match_object(re, match_result, offset))
+            let before_len = match_result.before().length()
+            let matched_len = view.length()
+            let advance_tail = if matched_len == 0 { 1 } else { matched_len }
+            let advance = before_len + advance_tail
+            if advance == 0 || offset + advance > input.length() {
+              break
+            }
+            offset = offset + advance
+            rest = String::unsafe_substring(
+              input,
+              start=offset,
+              end=input.length(),
+            )
           }
           None => break
         }
@@ -2300,6 +2914,8 @@ fn eval_regex_property(
 ) -> Value? {
   match name {
     "pattern" => Some(StringValue(pattern))
+    "groupCount" =>
+      Some(IntValue(regex_capture_group_count(pattern).to_int64()))
     _ => {
       diagnostics.push(
         diag("Cannot find property `\{name}` in object of type `Regex`."),
@@ -2391,6 +3007,49 @@ fn eval_regex_method(
         }
       } else {
         diagnostics.push(diag("Regex.findAll expects exactly one argument"))
+        None
+      }
+    "findMatchesIn" =>
+      if arg_values.length() == 1 {
+        match arg_values[0] {
+          StringValue(input) =>
+            Some(ListValue(regex_find_match_objects(re, input)))
+          _ => {
+            diagnostics.push(
+              diag("Regex.findMatchesIn expects a String argument"),
+            )
+            None
+          }
+        }
+      } else {
+        diagnostics.push(
+          diag("Regex.findMatchesIn expects exactly one argument"),
+        )
+        None
+      }
+    "matchEntire" =>
+      if arg_values.length() == 1 {
+        match arg_values[0] {
+          StringValue(input) =>
+            match re.match_(input) {
+              Some(match_result) =>
+                if match_result.before().length() == 0 &&
+                  match_result.after().length() == 0 {
+                  Some(regex_match_object(re, match_result, 0))
+                } else {
+                  Some(NullValue)
+                }
+              None => Some(NullValue)
+            }
+          _ => {
+            diagnostics.push(
+              diag("Regex.matchEntire expects a String argument"),
+            )
+            None
+          }
+        }
+      } else {
+        diagnostics.push(diag("Regex.matchEntire expects exactly one argument"))
         None
       }
     "replace" =>

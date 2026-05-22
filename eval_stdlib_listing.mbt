@@ -11,6 +11,8 @@ fn is_listing_property_name(name : String) -> Bool {
     | "isDistinct"
     | "firstOrNull"
     | "lastOrNull"
+    | "restOrNull"
+    | "singleOrNull"
     | "toList"
     | "toSet"
     | "toListing"
@@ -26,6 +28,8 @@ fn is_listing_property_name(name : String) -> Bool {
     | "lastIndex"
     | "min"
     | "max"
+    | "minOrNull"
+    | "maxOrNull"
     // PKL-151: read-only conversions Apple Pkl exposes as properties.
     | "flatten"
     | "filterNonNull" => true
@@ -68,6 +72,10 @@ fn is_listing_method_name(name : String) -> Bool {
     | "findOrNull"
     | "findLast"
     | "findLastOrNull"
+    | "indexOfOrNull"
+    | "lastIndexOfOrNull"
+    | "findIndexOrNull"
+    | "findLastIndexOrNull"
     // Apple Pkl exposes the no-arg surface (`toSet`, `toListing`,
     // `first`, `last`, `firstOrNull`, `lastOrNull`, `distinct`,
     // `isEmpty`, `isNotEmpty`, `isDistinct`) as both property reads
@@ -79,6 +87,8 @@ fn is_listing_method_name(name : String) -> Bool {
     | "last"
     | "firstOrNull"
     | "lastOrNull"
+    | "restOrNull"
+    | "singleOrNull"
     | "distinct"
     | "isEmpty"
     | "isNotEmpty"
@@ -89,6 +99,8 @@ fn is_listing_method_name(name : String) -> Bool {
     | "lastIndex"
     | "min"
     | "max"
+    | "minOrNull"
+    | "maxOrNull"
     | "flatten"
     | "filterNonNull"
     | "sort"
@@ -96,8 +108,12 @@ fn is_listing_method_name(name : String) -> Bool {
     | "sortWith"
     | "minBy"
     | "maxBy"
+    | "minByOrNull"
+    | "maxByOrNull"
     | "minWith"
     | "maxWith"
+    | "minWithOrNull"
+    | "maxWithOrNull"
     | "distinctBy"
     | "indexOf"
     | "lastIndexOf"
@@ -111,12 +127,17 @@ fn is_listing_method_name(name : String) -> Bool {
     | "dropLastWhile"
     | "repeat"
     | "reduce"
+    | "reduceOrNull"
     | "foldBack"
     | "groupBy"
     | "partition"
     | "split"
+    | "splitOrNull"
+    | "sublistOrNull"
     | "replace"
+    | "replaceOrNull"
     | "replaceRange"
+    | "replaceRangeOrNull"
     | "add"
     | "zip"
     | "filterIndexed"
@@ -169,6 +190,18 @@ fn eval_listing_property(
           diagnostics,
         )
       }
+    "restOrNull" =>
+      if elements.length() == 0 {
+        Some(NullValue)
+      } else {
+        Some(ListingValue(list_slice(elements, 1, elements.length())))
+      }
+    "singleOrNull" =>
+      if elements.length() == 1 {
+        Some(elements[0])
+      } else {
+        Some(NullValue)
+      }
     // PKL-148h: `.toList()` tags as `ListValue` (round-trips through
     // the `List(...)` constructor form); `.toListing()` keeps the
     // Listing block tag. `.toSet` deduplicates and tags as Set.
@@ -194,14 +227,14 @@ fn eval_listing_property(
     }
     "first" =>
       if elements.length() == 0 {
-        diagnostics.push(diag("Listing.first on empty Listing"))
+        diagnostics.push(diag("Expected a non-empty Listing."))
         None
       } else {
         value_or_top_level_deferred_diagnostic(elements[0], diagnostics)
       }
     "last" =>
       if elements.length() == 0 {
-        diagnostics.push(diag("Listing.last on empty Listing"))
+        diagnostics.push(diag("Expected a non-empty Listing."))
         None
       } else {
         value_or_top_level_deferred_diagnostic(
@@ -223,11 +256,7 @@ fn eval_listing_property(
       if elements.length() == 1 {
         Some(elements[0])
       } else {
-        diagnostics.push(
-          diag(
-            "Expected a single-element collection, but got \{elements.length()} elements.",
-          ),
-        )
+        diagnostics.push(diag("Expected a single-element Listing."))
         None
       }
     // PKL-151: `rest` drops the head element. Empty input raises.
@@ -250,14 +279,25 @@ fn eval_listing_property(
     // input raises.
     "min" =>
       if elements.length() == 0 {
-        diagnostics.push(
-          diag("Cannot find the minimum of an empty collection."),
-        )
+        diagnostics.push(diag(collection_non_empty_message(elements)))
         None
       } else {
         let mut acc = elements[0]
         for i = 1; i < elements.length(); i = i + 1 {
-          if compare_values(elements[i], acc) < 0 {
+          let cmp = compare_values(elements[i], acc)
+          if cmp == incomparable_value_ordering_sentinel() {
+            diagnostics.push(
+              diag(
+                undefined_operator_for_operand_types_message(
+                  LessThan,
+                  elements[i],
+                  acc,
+                ),
+              ),
+            )
+            return None
+          }
+          if cmp < 0 {
             acc = elements[i]
           }
         }
@@ -265,18 +305,41 @@ fn eval_listing_property(
       }
     "max" =>
       if elements.length() == 0 {
-        diagnostics.push(
-          diag("Cannot find the maximum of an empty collection."),
-        )
+        diagnostics.push(diag(collection_non_empty_message(elements)))
         None
       } else {
         let mut acc = elements[0]
         for i = 1; i < elements.length(); i = i + 1 {
-          if compare_values(elements[i], acc) > 0 {
+          let cmp = compare_values(elements[i], acc)
+          if cmp == incomparable_value_ordering_sentinel() {
+            diagnostics.push(
+              diag(
+                undefined_operator_for_operand_types_message(
+                  GreaterThan,
+                  elements[i],
+                  acc,
+                ),
+              ),
+            )
+            return None
+          }
+          if cmp > 0 {
             acc = elements[i]
           }
         }
         Some(acc)
+      }
+    "minOrNull" =>
+      if elements.length() == 0 {
+        Some(NullValue)
+      } else {
+        eval_listing_property(elements, "min", diagnostics)
+      }
+    "maxOrNull" =>
+      if elements.length() == 0 {
+        Some(NullValue)
+      } else {
+        eval_listing_property(elements, "max", diagnostics)
       }
     // PKL-151: `flatten` concatenates the inner Listing/List elements
     // into a single Listing. Non-collection elements are an error.
@@ -312,6 +375,11 @@ fn eval_listing_property(
     }
     _ => None
   }
+}
+
+///|
+fn incomparable_value_ordering_sentinel() -> Int {
+  -2
 }
 
 ///|
@@ -351,14 +419,7 @@ fn compare_values(a : Value, b : Value) -> Int {
         0
       }
     }
-    (StringValue(x), StringValue(y)) =>
-      if x < y {
-        -1
-      } else if x > y {
-        1
-      } else {
-        0
-      }
+    (StringValue(x), StringValue(y)) => x.lexical_compare(y)
     (DurationValue(xv, xu), DurationValue(yv, yu)) => {
       // Normalize to nanoseconds via the existing helper for ordering.
       let xn = duration_to_ns(xv, xu)
@@ -382,8 +443,67 @@ fn compare_values(a : Value, b : Value) -> Int {
         0
       }
     }
-    _ => 0
+    _ => incomparable_value_ordering_sentinel()
   }
+}
+
+///|
+fn pkl_bool_return_type_message(value : Value) -> String {
+  "Expected value of type `Boolean`, but got type `\{eval_value_type_name(value)}`. Value: \{render_pcf_value_inline(value)}"
+}
+
+///|
+fn pkl_collection_return_type_message(value : Value) -> String {
+  "Expected value of type `Collection`, but got type `\{eval_value_type_name(value)}`. Value: \{render_pcf_value_inline(value)}"
+}
+
+///|
+fn list_slice(elements : Array[Value], start : Int, end : Int) -> Array[Value] {
+  let out : Array[Value] = []
+  for i = start; i < end; i = i + 1 {
+    out.push(elements[i])
+  }
+  out
+}
+
+///|
+fn collection_index_range_message(
+  index : Int64,
+  lower : Int,
+  upper : Int,
+  elements : Array[Value],
+) -> String {
+  "Element index `\{index}` is out of range `\{lower}`..`\{upper}`. Collection: \{render_pcf_value_inline(ListValue(elements))}"
+}
+
+///|
+fn collection_non_empty_message(elements : Array[Value]) -> String {
+  "Expected a non-empty collection. Collection: \{render_pcf_value_inline(ListValue(elements))}"
+}
+
+///|
+fn unique_values(values : Array[Value]) -> Array[Value] {
+  let out : Array[Value] = []
+  for value in values {
+    if !contains_value(out, value) {
+      out.push(value)
+    }
+  }
+  out
+}
+
+///|
+fn dynamic_from_elements(elements : Array[Value]) -> Value {
+  let members : Array[ValueMember] = []
+  for i = 0; i < elements.length(); i = i + 1 {
+    members.push({
+      name: "@element$\{i}",
+      value: elements[i],
+      source: None,
+      annotations: [],
+    })
+  }
+  ObjectValue(tag_object_with_class(members, "Dynamic"))
 }
 
 ///|
@@ -825,10 +945,8 @@ fn eval_listing_method(
           ) {
           Some(BoolValue(true)) => result.push(element)
           Some(BoolValue(false)) => ()
-          Some(_) => {
-            diagnostics.push(
-              diag("Listing.filter predicate must return Boolean"),
-            )
+          Some(value) => {
+            diagnostics.push(diag(pkl_bool_return_type_message(value)))
             return None
           }
           None => return None
@@ -977,14 +1095,13 @@ fn eval_listing_method(
           ) {
           Some(ListingValue(inner))
           | Some(DefaultedListingValue(_, inner, _))
-          | Some(ListValue(inner)) =>
+          | Some(ListValue(inner))
+          | Some(SetValue(inner)) =>
             for v in inner {
               result.push(v)
             }
-          Some(_) => {
-            diagnostics.push(
-              diag("Listing.flatMap callback must return Listing"),
-            )
+          Some(value) => {
+            diagnostics.push(diag(pkl_collection_return_type_message(value)))
             return None
           }
           None => return None
@@ -1017,10 +1134,8 @@ fn eval_listing_method(
           ) {
           Some(BoolValue(true)) => n = n + 1
           Some(BoolValue(false)) => ()
-          Some(_) => {
-            diagnostics.push(
-              diag("Listing.count predicate must return Boolean"),
-            )
+          Some(value) => {
+            diagnostics.push(diag(pkl_bool_return_type_message(value)))
             return None
           }
           None => return None
@@ -1052,10 +1167,8 @@ fn eval_listing_method(
           ) {
           Some(BoolValue(true)) => ()
           Some(BoolValue(false)) => return Some(BoolValue(false))
-          Some(_) => {
-            diagnostics.push(
-              diag("Listing.every predicate must return Boolean"),
-            )
+          Some(value) => {
+            diagnostics.push(diag(pkl_bool_return_type_message(value)))
             return None
           }
           None => return None
@@ -1087,8 +1200,8 @@ fn eval_listing_method(
           ) {
           Some(BoolValue(true)) => return Some(BoolValue(true))
           Some(BoolValue(false)) => ()
-          Some(_) => {
-            diagnostics.push(diag("Listing.any predicate must return Boolean"))
+          Some(value) => {
+            diagnostics.push(diag(pkl_bool_return_type_message(value)))
             return None
           }
           None => return None
@@ -1120,8 +1233,8 @@ fn eval_listing_method(
           ) {
           Some(BoolValue(true)) => return Some(BoolValue(false))
           Some(BoolValue(false)) => ()
-          Some(_) => {
-            diagnostics.push(diag("Listing.none predicate must return Boolean"))
+          Some(value) => {
+            diagnostics.push(diag(pkl_bool_return_type_message(value)))
             return None
           }
           None => return None
@@ -1155,10 +1268,8 @@ fn eval_listing_method(
           ) {
           Some(BoolValue(true)) => return Some(element)
           Some(BoolValue(false)) => ()
-          Some(_) => {
-            diagnostics.push(
-              diag("Listing.\{method_name} predicate must return Boolean"),
-            )
+          Some(value) => {
+            diagnostics.push(diag(pkl_bool_return_type_message(value)))
             return None
           }
           None => return None
@@ -1200,10 +1311,8 @@ fn eval_listing_method(
           ) {
           Some(BoolValue(true)) => return Some(element)
           Some(BoolValue(false)) => ()
-          Some(_) => {
-            diagnostics.push(
-              diag("Listing.\{method_name} predicate must return Boolean"),
-            )
+          Some(value) => {
+            diagnostics.push(diag(pkl_bool_return_type_message(value)))
             return None
           }
           None => return None
@@ -1219,7 +1328,7 @@ fn eval_listing_method(
     }
     // PKL-151: indexOf(elem) / lastIndexOf(elem) — return position of
     // a structurally-equal element; raise on miss.
-    "indexOf" | "lastIndexOf" => {
+    "indexOf" | "lastIndexOf" | "indexOfOrNull" | "lastIndexOfOrNull" => {
       if arg_values.length() != 1 {
         diagnostics.push(
           diag(
@@ -1230,7 +1339,7 @@ fn eval_listing_method(
       }
       let needle = arg_values[0]
       let mut found = -1
-      if method_name == "indexOf" {
+      if method_name == "indexOf" || method_name == "indexOfOrNull" {
         for i = 0; i < elements.length(); i = i + 1 {
           if elements[i] == needle {
             found = i
@@ -1248,6 +1357,9 @@ fn eval_listing_method(
         }
       }
       if found < 0 {
+        if method_name == "indexOfOrNull" || method_name == "lastIndexOfOrNull" {
+          return Some(NullValue)
+        }
         diagnostics.push(diag("Element not found in Listing."))
         None
       } else {
@@ -1256,7 +1368,7 @@ fn eval_listing_method(
     }
     // PKL-151: findIndex(pred) / findLastIndex(pred) — predicate
     // sibling of indexOf; raises on no match.
-    "findIndex" | "findLastIndex" => {
+    "findIndex" | "findLastIndex" | "findIndexOrNull" | "findLastIndexOrNull" => {
       if arg_values.length() != 1 {
         diagnostics.push(
           diag(
@@ -1266,7 +1378,8 @@ fn eval_listing_method(
         return None
       }
       let pred = arg_values[0]
-      let walk_forward = method_name == "findIndex"
+      let walk_forward = method_name == "findIndex" ||
+        method_name == "findIndexOrNull"
       let mut found = -1
       let range = if walk_forward {
         let r : Array[Int] = []
@@ -1303,16 +1416,18 @@ fn eval_listing_method(
             break
           }
           Some(BoolValue(false)) => continue
-          Some(_) => {
-            diagnostics.push(
-              diag("Listing.\{method_name} predicate must return Boolean"),
-            )
+          Some(value) => {
+            diagnostics.push(diag(pkl_bool_return_type_message(value)))
             return None
           }
           None => return None
         }
       }
       if found < 0 {
+        if method_name == "findIndexOrNull" ||
+          method_name == "findLastIndexOrNull" {
+          return Some(NullValue)
+        }
         diagnostics.push(
           diag("Listing.\{method_name} did not match any element"),
         )
@@ -1360,7 +1475,23 @@ fn eval_listing_method(
       for i = 1; i < indexed.length(); i = i + 1 {
         let cur = indexed[i]
         let mut j = i - 1
-        while j >= 0 && compare_values(indexed[j].1, cur.1) > 0 {
+        while j >= 0 {
+          let cmp = compare_values(indexed[j].1, cur.1)
+          if cmp == incomparable_value_ordering_sentinel() {
+            diagnostics.push(
+              diag(
+                undefined_operator_for_operand_types_message(
+                  GreaterThan,
+                  indexed[j].1,
+                  cur.1,
+                ),
+              ),
+            )
+            return None
+          }
+          if cmp <= 0 {
+            break
+          }
           indexed[j + 1] = indexed[j]
           j = j - 1
         }
@@ -1399,7 +1530,7 @@ fn eval_listing_method(
         None => None
       }
     }
-    "minBy" | "maxBy" => {
+    "minWith" | "maxWith" | "minWithOrNull" | "maxWithOrNull" => {
       if arg_values.length() != 1 {
         diagnostics.push(
           diag(
@@ -1409,13 +1540,53 @@ fn eval_listing_method(
         return None
       }
       if elements.length() == 0 {
+        if method_name == "minWithOrNull" || method_name == "maxWithOrNull" {
+          return Some(NullValue)
+        }
+        diagnostics.push(diag(collection_non_empty_message(elements)))
+        return None
+      }
+      match
+        sort_with_comparator(
+          elements,
+          arg_values[0],
+          "Listing.\{method_name}",
+          bindings,
+          env,
+          class_env,
+          cache,
+          stack,
+          declarations,
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(out) =>
+          if method_name == "maxWith" || method_name == "maxWithOrNull" {
+            Some(out[out.length() - 1])
+          } else {
+            Some(out[0])
+          }
+        None => None
+      }
+    }
+    "minBy" | "maxBy" | "minByOrNull" | "maxByOrNull" => {
+      if arg_values.length() != 1 {
         diagnostics.push(
-          diag("Cannot find the \{method_name} of an empty collection."),
+          diag(
+            "Listing.\{method_name} expects 1 argument, got \{arg_values.length()}",
+          ),
         )
         return None
       }
+      if elements.length() == 0 {
+        if method_name == "minByOrNull" || method_name == "maxByOrNull" {
+          return Some(NullValue)
+        }
+        diagnostics.push(diag(collection_non_empty_message(elements)))
+        return None
+      }
       let key_fn = arg_values[0]
-      let pick_max = method_name == "maxBy"
+      let pick_max = method_name == "maxBy" || method_name == "maxByOrNull"
       let mut best_idx = 0
       let mut best_key = match
         apply_function_value(
@@ -1453,6 +1624,13 @@ fn eval_listing_method(
           None => return None
         }
         let cmp = compare_values(k, best_key)
+        if cmp == incomparable_value_ordering_sentinel() {
+          let op = if pick_max { GreaterThan } else { LessThan }
+          diagnostics.push(
+            diag(undefined_operator_for_operand_types_message(op, k, best_key)),
+          )
+          return None
+        }
         if pick_max {
           if cmp > 0 {
             best_idx = i
@@ -1514,7 +1692,23 @@ fn eval_listing_method(
       for i = 1; i < out.length(); i = i + 1 {
         let cur = out[i]
         let mut j = i - 1
-        while j >= 0 && compare_values(out[j], cur) > 0 {
+        while j >= 0 {
+          let cmp = compare_values(out[j], cur)
+          if cmp == incomparable_value_ordering_sentinel() {
+            diagnostics.push(
+              diag(
+                undefined_operator_for_operand_types_message(
+                  LessThan,
+                  cur,
+                  out[j],
+                ),
+              ),
+            )
+            return None
+          }
+          if cmp <= 0 {
+            break
+          }
           out[j + 1] = out[j]
           j = j - 1
         }
@@ -1552,10 +1746,8 @@ fn eval_listing_method(
           ) {
           Some(BoolValue(true)) => out.push(e)
           Some(BoolValue(false)) => break
-          Some(_) => {
-            diagnostics.push(
-              diag("Listing.takeWhile predicate must return Boolean"),
-            )
+          Some(value) => {
+            diagnostics.push(diag(pkl_bool_return_type_message(value)))
             return None
           }
           None => return None
@@ -1596,10 +1788,8 @@ fn eval_listing_method(
               dropping = false
               out.push(e)
             }
-            Some(_) => {
-              diagnostics.push(
-                diag("Listing.dropWhile predicate must return Boolean"),
-              )
+            Some(value) => {
+              diagnostics.push(diag(pkl_bool_return_type_message(value)))
               return None
             }
             None => return None
@@ -1683,7 +1873,9 @@ fn eval_listing_method(
       match arg_values[0] {
         IntValue(n) =>
           if n < 0L {
-            diagnostics.push(diag("Expected a positive number, but got \{n}."))
+            diagnostics.push(
+              diag("Expected a positive number, but got `\{n}`."),
+            )
             None
           } else {
             let out : Array[Value] = []
@@ -1726,7 +1918,14 @@ fn eval_listing_method(
           let i = i64.to_int()
           if i64 < 0L || i >= elements.length() {
             diagnostics.push(
-              diag("Index out of range: \{i64}, length \{elements.length()}"),
+              diag(
+                collection_index_range_message(
+                  i64,
+                  0,
+                  elements.length() - 1,
+                  elements,
+                ),
+              ),
             )
             None
           } else {
@@ -1774,6 +1973,533 @@ fn eval_listing_method(
         }
       }
       Some(ListingValue(out))
+    }
+    "takeLastWhile" | "dropLastWhile" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.\{method_name} expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      let pred = arg_values[0]
+      let mut cut = elements.length()
+      let mut i = elements.length() - 1
+      while i >= 0 {
+        match
+          apply_function_value(
+            "Listing.\{method_name} pred",
+            pred,
+            [elements[i]],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(BoolValue(true)) => {
+            cut = i
+            i = i - 1
+          }
+          Some(BoolValue(false)) => break
+          Some(value) => {
+            diagnostics.push(diag(pkl_bool_return_type_message(value)))
+            return None
+          }
+          None => return None
+        }
+      }
+      if method_name == "takeLastWhile" {
+        Some(ListingValue(list_slice(elements, cut, elements.length())))
+      } else {
+        Some(ListingValue(list_slice(elements, 0, cut)))
+      }
+    }
+    "foldBack" => {
+      if arg_values.length() != 2 {
+        diagnostics.push(
+          diag(
+            "Listing.foldBack expects 2 arguments, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      let callback = arg_values[1]
+      let mut acc = arg_values[0]
+      let mut i = elements.length() - 1
+      while i >= 0 {
+        match
+          apply_function_value(
+            "Listing.foldBack combine",
+            callback,
+            [elements[i], acc],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(v) => acc = v
+          None => return None
+        }
+        i = i - 1
+      }
+      Some(acc)
+    }
+    "reduce" | "reduceOrNull" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.\{method_name} expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      if elements.length() == 0 {
+        if method_name == "reduceOrNull" {
+          return Some(NullValue)
+        }
+        diagnostics.push(diag(collection_non_empty_message(elements)))
+        return None
+      }
+      let callback = arg_values[0]
+      let mut acc = elements[0]
+      for i = 1; i < elements.length(); i = i + 1 {
+        match
+          apply_function_value(
+            "Listing.\{method_name} combine",
+            callback,
+            [acc, elements[i]],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(v) => acc = v
+          None => return None
+        }
+      }
+      Some(acc)
+    }
+    "groupBy" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("Listing.groupBy expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let entries : Array[ValueEntry] = []
+      for element in elements {
+        let key = match
+          apply_function_value(
+            "Listing.groupBy keyFn",
+            arg_values[0],
+            [element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(v) => v
+          None => return None
+        }
+        let mut found = false
+        for i = 0; i < entries.length(); i = i + 1 {
+          if values_equal(entries[i].key, key) {
+            match entries[i].value {
+              ListValue(xs) => {
+                let grouped : Array[Value] = xs[:].to_owned()
+                grouped.push(element)
+                entries[i] = { key: entries[i].key, value: ListValue(grouped) }
+              }
+              _ => ()
+            }
+            found = true
+            break
+          }
+        }
+        if !found {
+          entries.push({ key, value: ListValue([element]) })
+        }
+      }
+      Some(MapValue(entries))
+    }
+    "replaceRange" | "replaceRangeOrNull" => {
+      if arg_values.length() != 3 {
+        diagnostics.push(
+          diag(
+            "Listing.\{method_name} expects 3 arguments, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match (arg_values[0], arg_values[1], arg_values[2]) {
+        (IntValue(start64), IntValue(end64), ListValue(replacement))
+        | (IntValue(start64), IntValue(end64), ListingValue(replacement))
+        | (IntValue(start64), IntValue(end64), SetValue(replacement)) => {
+          let start = start64.to_int()
+          let end = end64.to_int()
+          if start64 < 0L {
+            if method_name == "replaceRangeOrNull" {
+              return Some(NullValue)
+            }
+            diagnostics.push(
+              diag(
+                collection_index_range_message(
+                  start64,
+                  0,
+                  elements.length(),
+                  elements,
+                ),
+              ),
+            )
+            return None
+          }
+          if end64 > elements.length().to_int64() || start > end {
+            if method_name == "replaceRangeOrNull" {
+              return Some(NullValue)
+            }
+            diagnostics.push(
+              diag(
+                collection_index_range_message(
+                  end64,
+                  start,
+                  elements.length(),
+                  elements,
+                ),
+              ),
+            )
+            return None
+          }
+          let out : Array[Value] = []
+          for i = 0; i < start; i = i + 1 {
+            out.push(elements[i])
+          }
+          for v in replacement {
+            out.push(v)
+          }
+          for i = end; i < elements.length(); i = i + 1 {
+            out.push(elements[i])
+          }
+          Some(ListingValue(out))
+        }
+        _ => {
+          diagnostics.push(
+            diag(
+              "Listing.\{method_name} expects (Int, Int, Collection) arguments",
+            ),
+          )
+          None
+        }
+      }
+    }
+    "replaceOrNull" => {
+      if arg_values.length() != 2 {
+        diagnostics.push(
+          diag(
+            "Listing.replaceOrNull expects 2 arguments, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match arg_values[0] {
+        IntValue(i64) => {
+          let i = i64.to_int()
+          if i64 < 0L || i >= elements.length() {
+            Some(NullValue)
+          } else {
+            let out = elements[:].to_owned()
+            out[i] = arg_values[1]
+            Some(ListingValue(out))
+          }
+        }
+        _ => {
+          diagnostics.push(
+            diag("Listing.replaceOrNull expects (Int, T) arguments"),
+          )
+          None
+        }
+      }
+    }
+    "sublistOrNull" => {
+      if arg_values.length() != 2 {
+        diagnostics.push(
+          diag(
+            "Listing.sublistOrNull expects 2 arguments, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match (arg_values[0], arg_values[1]) {
+        (IntValue(start64), IntValue(end64)) => {
+          let start = start64.to_int()
+          let end = end64.to_int()
+          if start64 < 0L || end64 > elements.length().to_int64() || start > end {
+            Some(NullValue)
+          } else {
+            Some(ListingValue(list_slice(elements, start, end)))
+          }
+        }
+        _ => {
+          diagnostics.push(
+            diag("Listing.sublistOrNull expects (Int, Int) arguments"),
+          )
+          None
+        }
+      }
+    }
+    "split" | "splitOrNull" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.\{method_name} expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match arg_values[0] {
+        IntValue(index64) => {
+          let index = index64.to_int()
+          if index64 < 0L || index > elements.length() {
+            if method_name == "splitOrNull" {
+              return Some(NullValue)
+            }
+            diagnostics.push(
+              diag(
+                collection_index_range_message(
+                  index64,
+                  0,
+                  elements.length(),
+                  elements,
+                ),
+              ),
+            )
+            return None
+          }
+          Some(
+            PairValue(
+              ListValue(list_slice(elements, 0, index)),
+              ListValue(list_slice(elements, index, elements.length())),
+            ),
+          )
+        }
+        _ => {
+          diagnostics.push(diag("Listing.\{method_name} expects Int argument"))
+          None
+        }
+      }
+    }
+    "partition" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.partition expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      let yes : Array[Value] = []
+      let no : Array[Value] = []
+      for element in elements {
+        match
+          apply_function_value(
+            "Listing.partition predicate",
+            arg_values[0],
+            [element],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(BoolValue(true)) => yes.push(element)
+          Some(BoolValue(false)) => no.push(element)
+          Some(value) => {
+            diagnostics.push(diag(pkl_bool_return_type_message(value)))
+            return None
+          }
+          None => return None
+        }
+      }
+      Some(PairValue(ListValue(yes), ListValue(no)))
+    }
+    "zip" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("Listing.zip expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let other = match arg_values[0] {
+        ListValue(xs) | ListingValue(xs) | SetValue(xs) => xs
+        _ => {
+          diagnostics.push(diag("Listing.zip expects a Collection argument"))
+          return None
+        }
+      }
+      let out : Array[Value] = []
+      let n = if elements.length() < other.length() {
+        elements.length()
+      } else {
+        other.length()
+      }
+      for i = 0; i < n; i = i + 1 {
+        out.push(PairValue(elements[i], other[i]))
+      }
+      Some(ListingValue(out))
+    }
+    "filterIndexed" | "mapIndexed" | "flatMapIndexed" | "mapNonNullIndexed" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.\{method_name} expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      let out : Array[Value] = []
+      for i = 0; i < elements.length(); i = i + 1 {
+        match
+          apply_function_value(
+            "Listing.\{method_name} callback",
+            arg_values[0],
+            [IntValue(i.to_int64()), elements[i]],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(value) =>
+            if method_name == "filterIndexed" {
+              match value {
+                BoolValue(true) => out.push(elements[i])
+                BoolValue(false) => ()
+                _ => {
+                  diagnostics.push(diag(pkl_bool_return_type_message(value)))
+                  return None
+                }
+              }
+            } else if method_name == "flatMapIndexed" {
+              match value {
+                ListValue(xs) | ListingValue(xs) | SetValue(xs) =>
+                  for v in xs {
+                    out.push(v)
+                  }
+                _ => {
+                  diagnostics.push(
+                    diag(pkl_collection_return_type_message(value)),
+                  )
+                  return None
+                }
+              }
+            } else if method_name == "mapNonNullIndexed" {
+              if value != NullValue {
+                out.push(value)
+              }
+            } else {
+              out.push(value)
+            }
+          None => return None
+        }
+      }
+      Some(ListingValue(out))
+    }
+    "foldIndexed" => {
+      if arg_values.length() != 2 {
+        diagnostics.push(
+          diag(
+            "Listing.foldIndexed expects 2 arguments, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      let mut acc = arg_values[0]
+      let callback = arg_values[1]
+      for i = 0; i < elements.length(); i = i + 1 {
+        match
+          apply_function_value(
+            "Listing.foldIndexed combine",
+            callback,
+            [IntValue(i.to_int64()), acc, elements[i]],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(v) => acc = v
+          None => return None
+        }
+      }
+      Some(acc)
+    }
+    "filterIsInstance" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.filterIsInstance expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      let target = class_mirror_simple_name(arg_values[0])
+      let out : Array[Value] = []
+      for element in elements {
+        let keep = match target {
+          Some("Any") => true
+          Some("Number") => element is IntValue(_) || element is FloatValue(_)
+          Some("Int") => element is IntValue(_)
+          Some("Float") => element is FloatValue(_)
+          Some("String") => element is StringValue(_)
+          Some("Boolean") => element is BoolValue(_)
+          Some("List") => element is ListValue(_)
+          Some("Listing") =>
+            element is ListingValue(_) ||
+            element is DefaultedListingValue(_, _, _)
+          Some("Set") => element is SetValue(_)
+          _ => false
+        }
+        if keep {
+          out.push(element)
+        }
+      }
+      Some(ListingValue(out))
+    }
+    "toDynamic" => {
+      if arg_values.length() != 0 {
+        diagnostics.push(
+          diag(
+            "Listing.toDynamic expects 0 arguments, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      Some(dynamic_from_elements(elements))
     }
     // Apple Pkl allows zero-arg property reads (e.g. `list.toSet`) to be
     // written as method calls (`list.toSet()`). Delegate the no-arg

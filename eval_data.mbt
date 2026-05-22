@@ -19,6 +19,8 @@ fn is_intseq_method_name(name : String) -> Bool {
 fn is_set_method_name(name : String) -> Bool {
   match name {
     "contains"
+    | "startsWith"
+    | "endsWith"
     // PKL-148: pkl:base Set surface — `add` / `every` / `any` /
     // `firstOrNull` / `getOrNull` / `count`.
     | "add"
@@ -27,6 +29,8 @@ fn is_set_method_name(name : String) -> Bool {
     | "none"
     | "firstOrNull"
     | "lastOrNull"
+    | "restOrNull"
+    | "singleOrNull"
     | "count"
     | "toList"
     | "toListing"
@@ -35,7 +39,61 @@ fn is_set_method_name(name : String) -> Bool {
     | "filter"
     | "fold"
     | "join"
-    | "sortWith" => true
+    | "sortWith"
+    | "flatMap"
+    | "flatten"
+    | "rest"
+    | "last"
+    | "first"
+    | "single"
+    | "find"
+    | "findOrNull"
+    | "findLast"
+    | "findLastOrNull"
+    | "take"
+    | "takeWhile"
+    | "takeLast"
+    | "takeLastWhile"
+    | "drop"
+    | "dropWhile"
+    | "dropLast"
+    | "dropLastWhile"
+    | "foldBack"
+    | "reduce"
+    | "reduceOrNull"
+    | "groupBy"
+    | "intersect"
+    | "difference"
+    | "toMap"
+    | "minWith"
+    | "minWithOrNull"
+    | "maxWith"
+    | "maxWithOrNull"
+    | "zip"
+    | "filterIndexed"
+    | "mapIndexed"
+    | "mapNonNullIndexed"
+    | "flatMapIndexed"
+    | "foldIndexed"
+    | "toDynamic"
+    | "filterNonNull"
+    | "mapNonNull"
+    | "filterIsInstance"
+    | "split"
+    | "splitOrNull"
+    | "partition"
+    | "min"
+    | "minOrNull"
+    | "max"
+    | "maxOrNull"
+    | "minBy"
+    | "minByOrNull"
+    | "maxBy"
+    | "maxByOrNull"
+    | "sort"
+    | "sortBy"
+    | "repeat"
+    | "reverse" => true
     _ => false
   }
 }
@@ -46,11 +104,8 @@ fn is_set_method_name(name : String) -> Bool {
 /// lookup methods (`getOrNull` / `containsKey` / `getOrThrow`),
 /// projection helpers (`toMap` / `toMapping` / `toList`), and the
 /// higher-order surface (`map` / `filter` / `fold`). The mutation
-/// methods (`put` / `remove`) are intentionally elided — Apple Pkl's
-/// signatures return new Maps rather than mutating, but their
-/// implementations involve key-equality semantics we already cover
-/// via the entry-walker so the slice can pick them up later without
-/// further model changes.
+/// mutating-style helpers (`put` / `remove`) return new Maps rather
+/// than mutating the receiver.
 fn is_map_method_name(name : String) -> Bool {
   match name {
     "containsKey"
@@ -65,8 +120,13 @@ fn is_map_method_name(name : String) -> Bool {
     | "map"
     | "mapKeys"
     | "mapValues"
+    | "flatMap"
     | "filter"
     | "fold"
+    | "put"
+    | "remove"
+    | "toDynamic"
+    | "toTyped"
     // PKL-148bb: Map shares the every / any / none predicate trio with
     // Mapping (`classes/mapConstraints1` exercises every on a Map).
     | "every"
