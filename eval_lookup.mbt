@@ -1,12 +1,18 @@
 ///|
 fn lookup_value(env : Array[ValueBinding], name : String) -> Value? {
-  let mut found : Value? = None
-  for binding in env {
+  // Reverse-walk + early-break preserves "last shadowing binding
+  // wins" semantics. Most lookups land on a recently-pushed entry
+  // (`@__module_name`, `outer`, `this`, etc. are appended at the end
+  // of the cache), so the typical scan is O(1).
+  let mut i = env.length() - 1
+  while i >= 0 {
+    let binding = env[i]
     if binding.name == name {
-      found = Some(binding.value)
+      return Some(binding.value)
     }
+    i = i - 1
   }
-  found
+  None
 }
 
 ///|
@@ -2586,18 +2592,21 @@ fn lookup_member(members : Array[ValueMember], name : String) -> Value? {
   // `local_member_prefix` marker in their stored name so renderers can
   // skip them. A lookup for the bare name resolves any of the three
   // forms so internal callers (binding-cache resolvers, amend merges)
-  // see the same data the writer wrote.
+  // see the same data the writer wrote. Reverse-walk + early break:
+  // last writer wins.
   let hidden_prefixed = hidden_member_name(name)
   let local_prefixed = local_member_name(name)
-  let mut found : Value? = None
-  for field in members {
+  let mut i = members.length() - 1
+  while i >= 0 {
+    let field = members[i]
     if field.name == name ||
       field.name == hidden_prefixed ||
       field.name == local_prefixed {
-      found = Some(field.value)
+      return Some(field.value)
     }
+    i = i - 1
   }
-  found
+  None
 }
 
 ///|
@@ -2607,15 +2616,17 @@ fn lookup_value_member(
 ) -> ValueMember? {
   let hidden_prefixed = hidden_member_name(name)
   let local_prefixed = local_member_name(name)
-  let mut found : ValueMember? = None
-  for field in members {
+  let mut i = members.length() - 1
+  while i >= 0 {
+    let field = members[i]
     if field.name == name ||
       field.name == hidden_prefixed ||
       field.name == local_prefixed {
-      found = Some(field)
+      return Some(field)
     }
+    i = i - 1
   }
-  found
+  None
 }
 
 ///|
@@ -3134,14 +3145,18 @@ fn fresh_function_id() -> Int {
 
 ///|
 fn find_binding(bindings : Array[Binding], name : String) -> Binding? {
-  let mut found : Binding? = None
+  // Reverse-walk + early-break: preserves "last shadowing binding
+  // wins" semantics without the full O(N) overwrite scan.
   let hidden = hidden_member_name(name)
-  for binding in bindings {
+  let mut i = bindings.length() - 1
+  while i >= 0 {
+    let binding = bindings[i]
     if binding.name == name || binding.name == hidden {
-      found = Some(binding)
+      return Some(binding)
     }
+    i = i - 1
   }
-  found
+  None
 }
 
 ///|
