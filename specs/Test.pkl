@@ -1563,12 +1563,13 @@ local upstreamSmoke = new Test {
     "upstream eval ok: api/xmlRendererInline3.xml (gold match)"
     "upstream eval ok: api/xmlRendererHtml.xml (gold match)"
     "upstream eval ok: api/protobuf3.txtpb (gold match)"
-    "upstream-smoke: 276 gold-match fixtures passed"
+    "upstream-smoke: 294 gold-match fixtures passed"
     "upstream-smoke: 5 json gold-match fixtures passed"
     "upstream-smoke: 14 yaml gold-match fixtures passed"
     "upstream-smoke: 1 plist gold-match fixtures passed"
     "upstream-smoke: 11 xml gold-match fixtures passed"
     "upstream-smoke: 1 textproto gold-match fixtures passed"
+    "upstream-smoke: 4 jsonnet gold-match fixtures passed"
   }
   timeoutSec = 240
 }

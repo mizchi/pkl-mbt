@@ -1693,7 +1693,11 @@ test "PKL-122: String.codePointCount counts code points not UTF-16 units" {
       c = n
     }
   }
-  inspect(u, content="4")
+  // PKL-122 (corrected): Apple Pkl's `String.length` is the UTF-16
+  // code-unit count, matching Java semantics. `🍣` (U+1F363) occupies
+  // one surrogate pair so `s.length == 5`; `codePointCount` reports
+  // the 4-glyph Unicode view.
+  inspect(u, content="5")
   inspect(c, content="4")
 }
 

@@ -5,12 +5,19 @@ fn eval_string_property(
   diagnostics : Array[Diagnostic],
 ) -> Value? {
   match name {
-    "length" => Some(IntValue(s.char_length().to_int64()))
-    "isEmpty" => Some(BoolValue(s.char_length() == 0))
+    // PKL-122: Apple Pkl's `String.length` returns the UTF-16
+    // code-unit count, matching Java semantics — a supplementary-plane
+    // code point like 🍣 (U+1F363) counts as 2. `codePointCount` /
+    // `codePoints` expose the Unicode code-point view. MoonBit
+    // `String.length()` already returns UTF-16 code units;
+    // `char_length()` is the code-point view (used by `chars` /
+    // `reverse` below where surrogate pairs need to stay paired).
+    "length" => Some(IntValue(s.length().to_int64()))
+    "isEmpty" => Some(BoolValue(s.length() == 0))
     // PKL-148: pkl:base String zero-arg accessors. `isBlank` checks
     // for whitespace-only; `reverse` reverses code-points (not UTF-16
     // units) so surrogate pairs survive.
-    "isNotEmpty" => Some(BoolValue(s.char_length() != 0))
+    "isNotEmpty" => Some(BoolValue(s.length() != 0))
     "isBlank" => {
       let mut blank = true
       for c in s.iter() {
