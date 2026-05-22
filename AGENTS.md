@@ -38,7 +38,7 @@
 
 ## 現在の開発状況
 
-- 上流の Apple Pkl LanguageSnippetTests に対する gold-match: **282 / 391 (72.1%)**。確認は `pkf run coverage` で。
+- 上流の Apple Pkl LanguageSnippetTests に対する gold-match: **367 / 391 (93.9%)**。確認は `pkf run coverage` で。
 - カテゴリ別の内訳と最終更新は `README.md` の「Per-category PCF gold-match」表が source of truth。
 
 ## 次に触るべきタスク
@@ -49,12 +49,10 @@ GitHub Issues に「user impact 順」で並んでいる。次セッションは
 
 個別 issue / release backlog (impact 大きい順):
 
-- [#6 XML / Protobuf renderer bodies](https://github.com/mizchi/pkl-mbt/issues/6) — XML 3 fixtures / textproto 1 fixture は通過済み。残りの Tier 1 renderer parity。
-- [#1 Evaluate Apple Pkl stdlib modules](https://github.com/mizchi/pkl-mbt/issues/1) — `external` / `abstract` / variance / `pkl:` stdlib resolution の長期ブロッカー。
-- `TODO.md` Priority 5 — Generic `as` / `is` / typed collection retention。次に触る候補。
-- `TODO.md` Priority 1 — Numeric / Bytes parity。
-- `TODO.md` Priority 2 — Resource / glob host surface。
-- `TODO.md` Priority 3 — Shape-aware object body evaluation for remaining generator DIFFs。
+- `TODO.md` Current DIFF Snapshot — `api/list` / `api/listing` / `api/mapping` / `api/set` / `api/string` が次の低コスト候補。
+- [#1 Evaluate Apple Pkl stdlib modules](https://github.com/mizchi/pkl-mbt/issues/1) — `analyze` / `benchmark` / `release` module surface と長期 stdlib parity。
+- [#17 YAML Parser: support complex mapping keys](https://github.com/mizchi/pkl-mbt/issues/17) — `api/yamlParser6` 系。フル YAML parser parity を掲げるまでは非リリースブロッカー。
+- [#6 XML / Protobuf renderer bodies](https://github.com/mizchi/pkl-mbt/issues/6) — upstream XML / Protobuf text fixtures は通過済み。close/rescope 候補。
 
 ## 次セッションを始めるときの定型手順
 

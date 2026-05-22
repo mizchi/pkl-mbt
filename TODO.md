@@ -1,6 +1,6 @@
 # Release TODO
 
-Current coverage: 356 / 391 PCF gold-match (91.0%).
+Current coverage: 376 / 391 PCF gold-match (96.2%).
 Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-05-22.
 
 Release focus:
@@ -32,7 +32,7 @@ End-user blocker priority is based on "will a normal Pkl config author hit this?
 4. Basic scalar / collection parity: `Bytes`, `DataSize`, `Duration`, `Int`, `Float`, `Map`, nullable, `new`, `as`, `outer`, and const provenance are gold-matching for all with-gold `basic` fixtures.
 5. Deep stdlib / reflect parity: important for long-term compatibility, but not a first release blocker unless a public API or real package depends on it.
 
-Latest API-surface pass: `api/module`, `api/semverModule`, and `api/reflect1` / `api/reflect2` / `api/reflect3` / `api/reflect4` / `api/reflect5` now gold-match. `reflect.Module(...).imports` keeps existing `reflect5` parity and no longer fails on modules without an import map. Remaining reflect DIFF is the full recursive stdlib declaration shape in `api/reflectedDeclaration`, not basic Module/Class/Property construction. `api/mathModule` remains DIFF only on last-bit host floating-point output for `log2` / trig functions.
+Latest API-surface pass: `api/any`, `api/annotationConverters`, `api/benchmarkModule`, `api/bytes`, `api/dynamic`, `api/list`, `api/listing`, `api/mapping`, `api/map`, `api/regex`, `api/releaseModule`, `api/set`, `api/setNullable`, `api/string`, `api/stringUnicode`, `api/typeAliases`, `api/typed`, `api/Resource`, `api/dir1/dir2/relativePathTo`, `api/module`, `api/semverModule`, and `api/reflect1` / `api/reflect2` / `api/reflect3` / `api/reflect4` / `api/reflect5` now gold-match. `reflect.Module(...).imports` keeps existing `reflect5` parity and no longer fails on modules without an import map. Remaining reflect DIFF is the full recursive stdlib declaration shape in `api/reflectedDeclaration`, not basic Module/Class/Property construction. `api/mathModule` remains DIFF only on last-bit host floating-point output for `log2` / trig functions.
 
 For this release pass, Resource / Glob, Numeric / Bytes, nullable basics, and the advertised renderer validation surface are gold-matching for their targeted fixtures.
 
@@ -43,6 +43,15 @@ Measured from the release binary against Apple Pkl LanguageSnippetTests gold fil
 `basic` remaining DIFFs: none.
 
 `generators` remaining DIFFs: none.
+
+`api` remaining DIFFs:
+
+- Core collection / scalar API: none.
+- Resource / path API: none.
+- Renderer / parser API: `api/jsonnetRenderer4`, `api/jsonnetRenderer5`, `api/renderDirective`, `api/renderDirective2`, `api/yamlParser1Compat`, `api/yamlParser1Yaml11`, `api/yamlParser1Yaml12`, `api/yamlParser6`, `api/yamlRendererStringsCompat`, `api/yamlRendererStringsYaml11`, `api/yamlRendererStringsYaml12`.
+- Stdlib module / metadata API: `api/analyze1`, `api/mathModule`, `api/reflectedDeclaration`.
+
+`internal` remaining DIFFs: `internal/polymorphicCallSite`.
 
 Adjacent typed-collection / grammar DIFFs: `basic/new`, `basic/newType`, `listings/typeCheck`, `mappings/typeCheck`, `listings/listing5`, `parser/lineCommentBetween`, `classes/constraints7`, and `classes/constraints13` now gold-match.
 
@@ -267,11 +276,14 @@ Main dependencies:
 ## Issue Sync
 
 - #4 Lazy local evaluation: implemented through the local-scope fixture slice and closed as completed.
-- #6 XML / Protobuf renderer bodies: all upstream XML `.xml` renderer fixtures now promote (`xmlRenderer1`, `xmlRenderer2`, `xmlRenderer3`, `xmlRenderer6`, `xmlRenderer9`, `xmlRendererCData`, `xmlRendererElement`, `xmlRendererInline`, `xmlRendererInline2`, `xmlRendererInline3`, `xmlRendererHtml`); JSON output now promotes `jsonRenderer1`, `jsonRenderer2`, `jsonRenderer3`, `jsonRenderer6`, and `jsonRenderer9`; YAML output now promotes `yamlRenderer1`, `yamlRenderer2`, `yamlRenderer3`, `yamlRenderer6`, `yamlRenderer8`, `yamlRenderer9`, `yamlRenderer10`, `yamlRendererBug66849708`, `yamlRendererEmpty`, `yamlRendererIndentationWidth2/4/5`, `yamlRendererKeys`, and `yamlRendererStrings`; direct renderer-method / validation PCF fixtures now cover `pcfRenderer2`, `pcfRenderer2b`, `pcfRenderer4`, `pcfRenderer5`, `jsonRenderer2b`, `jsonRenderer4`, `jsonRenderer5`, `yamlRenderer2b`, `yamlRenderer4`, `yamlRenderer5`, `yamlRendererStream1`, `yamlRendererStream2`, `plistRenderer2b`, `pListRenderer4`, `pListRenderer5`, `propertiesRenderer2b`, `propertiesRenderer4`, `propertiesRenderer5`, `xmlRenderer2b`, `xmlRenderer4`, `xmlRenderer5`, `xmlRendererValidation10`, `xmlRendererValidation11`, `protobuf`, and `protobuf2`; Protobuf text also promotes `protobuf3.txtpb`. Remaining Protobuf work is outside the current upstream LanguageSnippetTests surface.
-- #8 Umbrella practical blockers: update after each release slice.
+- #6 XML / Protobuf renderer bodies: all upstream XML `.xml` renderer fixtures now promote (`xmlRenderer1`, `xmlRenderer2`, `xmlRenderer3`, `xmlRenderer6`, `xmlRenderer9`, `xmlRendererCData`, `xmlRendererElement`, `xmlRendererInline`, `xmlRendererInline2`, `xmlRendererInline3`, `xmlRendererHtml`); JSON output now promotes `jsonRenderer1`, `jsonRenderer2`, `jsonRenderer3`, `jsonRenderer6`, and `jsonRenderer9`; YAML output now promotes `yamlRenderer1`, `yamlRenderer2`, `yamlRenderer3`, `yamlRenderer6`, `yamlRenderer8`, `yamlRenderer9`, `yamlRenderer10`, `yamlRendererBug66849708`, `yamlRendererEmpty`, `yamlRendererIndentationWidth2/4/5`, `yamlRendererKeys`, and `yamlRendererStrings`; direct renderer-method / validation PCF fixtures now cover `pcfRenderer2`, `pcfRenderer2b`, `pcfRenderer4`, `pcfRenderer5`, `jsonRenderer2b`, `jsonRenderer4`, `jsonRenderer5`, `yamlRenderer2b`, `yamlRenderer4`, `yamlRenderer5`, `yamlRendererStream1`, `yamlRendererStream2`, `plistRenderer2b`, `pListRenderer4`, `pListRenderer5`, `propertiesRenderer2b`, `propertiesRenderer4`, `propertiesRenderer5`, `xmlRenderer2b`, `xmlRenderer4`, `xmlRenderer5`, `xmlRendererValidation10`, `xmlRendererValidation11`, `protobuf`, and `protobuf2`; Protobuf text also promotes `protobuf3.txtpb`. Remaining Protobuf work is outside the current upstream LanguageSnippetTests surface, so #6 should be closed or rescoped before release.
+- #8 Umbrella practical blockers: coverage and active focus were updated after the 367 / 391 slice. The open release path is now API surface parity first; Resource / Path API is gold-matching for the upstream with-gold fixtures.
+- #17 YAML Parser complex mapping keys: still open for `api/yamlParser6`; this is not a release blocker unless full YAML complex-key parity is advertised.
 - #1 Stdlib module evaluation gaps: relevant for long-term stdlib parity, especially external declarations, variance, and `pkl:` module loading.
 
 ## Suggested Release Path
 
-1. Decide and document the release-supported renderer set. Fix only those API renderer fixtures as blockers; leave the rest marked experimental.
-2. Treat the remaining release risk as `api` / `internal` surface work; `basic`, `generators`, `projects`, and `packages` are green for all with-gold fixtures.
+1. Keep GitHub issues and release docs aligned with the current `367 / 391` baseline; stale issue bodies should not be used as the source of truth over this file.
+2. Work down the remaining `api` fixtures, prioritizing broad user-facing stdlib API surface before deep reflect parity.
+3. Done: treat `api/list` / `api/listing` / `api/mapping` / `api/set` / `api/string` as the next low-risk user-facing API cluster.
+4. Leave `api/reflectedDeclaration`, `api/mathModule`, and `internal/polymorphicCallSite` out of the immediate release gate unless a real package depends on them.
