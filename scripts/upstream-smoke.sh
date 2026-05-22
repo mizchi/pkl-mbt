@@ -227,6 +227,7 @@ GOLD_FIXTURES=(
   "api/dynamic"
   "api/float"
   "api/map"
+  "api/mathModule"
   "api/moduleOutput"
   "api/benchmarkModule"
   "api/releaseModule"

@@ -212,9 +212,18 @@ fn eval_pkl_math_intrinsic(
     "_pkl_math_floor" => Some(FloatValue(arg_values[0].floor()))
     "_pkl_math_ceil" => Some(FloatValue(arg_values[0].ceil()))
     "_pkl_math_round" => Some(FloatValue(arg_values[0].round()))
-    "_pkl_math_sin" => Some(FloatValue(@math.sin(arg_values[0])))
-    "_pkl_math_cos" => Some(FloatValue(@math.cos(arg_values[0])))
-    "_pkl_math_tan" => Some(FloatValue(@math.tan(arg_values[0])))
+    // PKL-148bp: macOS `libm`'s `sin` / `cos` (the path
+    // `@math.sin` / `@math.cos` take on native) disagree with
+    // Apple Pkl by 1–2 ulps for inputs like 2.34 because
+    // Apple's GraalVM native-image binary routes through
+    // `StrictMath`, itself a port of Sun's fdlibm. Route through
+    // the small fdlibm kernel + Cody-Waite reduction in
+    // `eval_math_fdlibm.mbt` so the upstream `api/mathModule`
+    // gold (`sin(2.34) == 0.7184647930691261`) matches byte for
+    // byte.
+    "_pkl_math_sin" => Some(FloatValue(fdlibm_sin(arg_values[0])))
+    "_pkl_math_cos" => Some(FloatValue(fdlibm_cos(arg_values[0])))
+    "_pkl_math_tan" => Some(FloatValue(fdlibm_tan(arg_values[0])))
     "_pkl_math_asin" => Some(FloatValue(@math.asin(arg_values[0])))
     "_pkl_math_acos" => Some(FloatValue(@math.acos(arg_values[0])))
     "_pkl_math_atan" => Some(FloatValue(@math.atan(arg_values[0])))
