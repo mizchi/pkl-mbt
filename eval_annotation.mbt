@@ -360,23 +360,34 @@ fn synthesize_default_for_type_seen(
       // PKL-148j: `Collection<T>` and `List<T>` default to `ListValue`
       // (Apple Pkl renders `List()` for both, matching the
       // `basic/propertyDefaults` gold).
-      if name == "Listing" || name.has_prefix("Listing<") {
-        return Some(ListingValue([]))
-      }
-      if name == "Mapping" || name.has_prefix("Mapping<") {
-        return Some(MappingValue([]))
-      }
-      if name == "Set" || name.has_prefix("Set<") {
-        return Some(SetValue([]))
-      }
-      if name == "Map" || name.has_prefix("Map<") {
-        return Some(MapValue([]))
-      }
-      if name == "List" ||
-        name.has_prefix("List<") ||
-        name == "Collection" ||
-        name.has_prefix("Collection<") {
-        return Some(ListValue([]))
+      //
+      // Dispatch on the first character before running prefix checks —
+      // every collection class name starts with one of L / M / S / C,
+      // so non-collection names (the common case) bypass the
+      // `has_prefix` boyer-moore scan entirely. Profiled accordingly.
+      if name.length() > 0 {
+        let first = name[0].to_int().unsafe_to_char()
+        match first {
+          'L' =>
+            if name == "Listing" || name.has_prefix("Listing<") {
+              return Some(ListingValue([]))
+            } else if name == "List" || name.has_prefix("List<") {
+              return Some(ListValue([]))
+            }
+          'M' =>
+            if name == "Mapping" || name.has_prefix("Mapping<") {
+              return Some(MappingValue([]))
+            } else if name == "Map" || name.has_prefix("Map<") {
+              return Some(MapValue([]))
+            }
+          'S' => if name == "Set" || name.has_prefix("Set<") {
+              return Some(SetValue([]))
+            }
+          'C' => if name == "Collection" || name.has_prefix("Collection<") {
+              return Some(ListValue([]))
+            }
+          _ => ()
+        }
       }
       // User-defined class → `new T {}` with class defaults applied.
       let base = match name.find("<") {
