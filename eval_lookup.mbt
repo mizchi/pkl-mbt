@@ -2651,30 +2651,63 @@ fn lookup_visible_member(members : Array[ValueMember], name : String) -> Value? 
 }
 
 ///|
+priv struct ClassEnvIndex {
+  env : Array[ClassBinding]
+  length : Int
+  map : Map[String, ClassBinding]
+}
+
+///|
+/// Cache of name → ClassBinding maps keyed by physical identity of
+/// the class_env array (with a length check for staleness). Within a
+/// single eval_source call, class_env is the same reference used by
+/// every lookup; profiled on apple-pkl/stdlib/base.pkl, the previous
+/// reverse-walk still attributed ~95 of ~5000 samples to this
+/// function. The map turns each lookup into an O(1) Map.get.
+let class_env_index_cache : Ref[Array[ClassEnvIndex]] = { val: [] }
+
+///|
 fn lookup_class_binding(
   env : Array[ClassBinding],
   name : String,
 ) -> ClassBinding? {
-  // Walk in reverse so the latest shadowing binding short-circuits
-  // the scan. The previous forward walk kept overwriting `found` to
-  // achieve the same "last wins" semantics, paying O(N) on every
-  // lookup; reverse-with-break is the same semantics at O(distance
-  // to last match), which on the reflect / class-default hot path is
-  // typically ~O(1).
-  let mut i = env.length() - 1
-  while i >= 0 {
-    let binding = env[i]
-    if binding.name == name {
-      return Some(binding)
+  let env_len = env.length()
+  let cache = class_env_index_cache.val
+  let mut idx_opt : ClassEnvIndex? = None
+  for entry in cache {
+    if physical_equal(entry.env, env) && entry.length == env_len {
+      idx_opt = Some(entry)
+      break
     }
-    i = i - 1
   }
-  if name == "reflect.Type" ||
-    name == "reflect.Property" ||
-    name == "reflect.Method" {
-    return Some({ name, parent_name: None, properties: [], methods: [] })
+  let idx = match idx_opt {
+    Some(i) => i
+    None => {
+      let map : Map[String, ClassBinding] = Map([], capacity=64)
+      // Forward walk so "last binding wins" — Map insertion overwrite
+      // matches the prior Array overwrite semantics.
+      for binding in env {
+        map[binding.name] = binding
+      }
+      let entry : ClassEnvIndex = { env, length: env_len, map }
+      while class_env_index_cache.val.length() >= 4 {
+        let _ = class_env_index_cache.val.remove(0)
+      }
+      class_env_index_cache.val.push(entry)
+      entry
+    }
   }
-  None
+  match idx.map.get(name) {
+    Some(b) => Some(b)
+    None =>
+      if name == "reflect.Type" ||
+        name == "reflect.Property" ||
+        name == "reflect.Method" {
+        Some({ name, parent_name: None, properties: [], methods: [] })
+      } else {
+        None
+      }
+  }
 }
 
 ///|
@@ -2817,22 +2850,51 @@ fn collect_class_property_names_seen(
 }
 
 ///|
+priv struct TypeAliasEnvIndex {
+  env : Array[EvalTypeAliasBinding]
+  length : Int
+  map : Map[String, String]
+}
+
+///|
+/// Mirror of `class_env_index_cache` for typealias bindings.
+/// `eval_type_alias_bindings` is already cached per-declarations, but
+/// each cached result is then looked up name-by-name on the reflect /
+/// synthesize-default paths; this index makes those lookups O(1).
+let type_alias_env_index_cache : Ref[Array[TypeAliasEnvIndex]] = { val: [] }
+
+///|
 fn lookup_eval_type_alias(
   env : Array[EvalTypeAliasBinding],
   name : String,
 ) -> String? {
-  // Same reverse-walk + early-break pattern as `lookup_class_binding`
-  // — preserves "last wins" semantics while short-circuiting on the
-  // most-recently-pushed binding.
-  let mut i = env.length() - 1
-  while i >= 0 {
-    let binding = env[i]
-    if binding.name == name {
-      return Some(binding.target)
+  let env_len = env.length()
+  let cache = type_alias_env_index_cache.val
+  let mut idx_opt : TypeAliasEnvIndex? = None
+  for entry in cache {
+    if physical_equal(entry.env, env) && entry.length == env_len {
+      idx_opt = Some(entry)
+      break
     }
-    i = i - 1
   }
-  None
+  let idx = match idx_opt {
+    Some(i) => i
+    None => {
+      let map : Map[String, String] = Map([], capacity=32)
+      // Forward walk so "last binding wins" via Map overwrite —
+      // matches the previous reverse-walk-with-early-break semantics.
+      for binding in env {
+        map[binding.name] = binding.target
+      }
+      let entry : TypeAliasEnvIndex = { env, length: env_len, map }
+      while type_alias_env_index_cache.val.length() >= 4 {
+        let _ = type_alias_env_index_cache.val.remove(0)
+      }
+      type_alias_env_index_cache.val.push(entry)
+      entry
+    }
+  }
+  idx.map.get(name)
 }
 
 ///|

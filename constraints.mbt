@@ -167,7 +167,7 @@ fn pkl_split_constraint_arguments(text : String) -> Array[String] {
       } else if char == '>' && angles > 0 {
         angles -= 1
       }
-      buf.write_string(char.to_string())
+      buf.write_char(char)
     }
   }
   let last = trim_spaces(buf.to_string())

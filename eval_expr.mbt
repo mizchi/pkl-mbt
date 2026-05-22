@@ -1500,7 +1500,7 @@ fn normalize_type_name_commas(type_name : String) -> String {
       buf.write_string(", ")
       skip_spaces_after_comma = true
     } else {
-      buf.write_string(ch.to_string())
+      buf.write_char(ch)
       skip_spaces_after_comma = false
     }
   }

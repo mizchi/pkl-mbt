@@ -287,7 +287,7 @@ fn split_codegen_generic(text : String) -> (String, Array[String])? {
       } else if c == '>' && depth_angle > 0 {
         depth_angle = depth_angle - 1
       }
-      buf.write_string(c.to_string())
+      buf.write_char(c)
     }
   }
   let last = trim_codegen_spaces(buf.to_string())
