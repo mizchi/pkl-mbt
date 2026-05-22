@@ -194,6 +194,7 @@ fn is_module_runtime_metadata_name(name : String) -> Bool {
   let bare = strip_member_visibility_prefix(name)
   bare == module_metadata_name() ||
   bare == module_metadata_super_name() ||
+  bare == reflect_module_metadata_name() ||
   bare == "__class" ||
   bare == "__kind" ||
   bare == "__qualified_name"
@@ -1336,6 +1337,21 @@ fn eval_program(
       })
     None => ()
   }
+  members.push({
+    name: hidden_member_name("__class"),
+    value: StringValue("Module"),
+    source: None,
+    annotations: [],
+  })
+  members.push({
+    name: hidden_member_name(reflect_module_metadata_name()),
+    value: reflect_module_metadata_value(
+      program, members, module_parent_members, bindings, env, class_env, cache, current_module_path,
+      current_module_source, resolve_import,
+    ),
+    source: None,
+    annotations: [],
+  })
   let result = match program.body {
     Some(expr) =>
       eval_expr_with_bindings(

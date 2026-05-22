@@ -1070,7 +1070,9 @@ fn visible_members(members : Array[ValueMember]) -> Array[ValueMember] {
   // prefixed entry, so omitting members here doesn't break runtime access.
   let result : Array[ValueMember] = []
   for field in members {
-    if !is_invisible_member_name(field.name) {
+    let omitted_reflect_default = field.name == "defaultValue" &&
+      field.value is NullValue
+    if !is_invisible_member_name(field.name) && !omitted_reflect_default {
       result.push(field)
     }
   }

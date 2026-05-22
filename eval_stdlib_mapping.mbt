@@ -669,6 +669,31 @@ fn eval_set_method(
         }
       }
     }
+    "sortWith" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("Set.sortWith expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      match
+        sort_with_comparator(
+          elements,
+          arg_values[0],
+          "Set.sortWith",
+          bindings,
+          env,
+          class_env,
+          cache,
+          stack,
+          declarations,
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(out) => Some(ListValue(out))
+        None => None
+      }
+    }
     _ => {
       diagnostics.push(
         diag("Cannot find property `\{method_name}` in object of type `Set`."),

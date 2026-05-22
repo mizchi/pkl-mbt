@@ -2381,31 +2381,11 @@ test "pkl:reflect exposes builtin type mirror constants" {
   session.set_source(
     "main.pkl", "import \"pkl:reflect\" as reflect\nintMirror = reflect.intType\nstringMirror = reflect.stringType\nbooleanMirror = reflect.booleanType",
   )
-  assert_true(
-    session.eval_path("main.pkl") ==
-    EvalOk(
-      ObjectValue([
-        ValueMember::{
-          name: "intMirror",
-          value: StringValue("pkl.base#Int"),
-          source: None,
-          annotations: [],
-        },
-        ValueMember::{
-          name: "stringMirror",
-          value: StringValue("pkl.base#String"),
-          source: None,
-          annotations: [],
-        },
-        ValueMember::{
-          name: "booleanMirror",
-          value: StringValue("pkl.base#Boolean"),
-          source: None,
-          annotations: [],
-        },
-      ]),
-    ),
-  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("name = \"Int\""), content="true")
+  inspect(rendered.contains("name = \"String\""), content="true")
+  inspect(rendered.contains("name = \"Boolean\""), content="true")
 }
 
 ///|
@@ -2502,8 +2482,8 @@ test "pkl:reflect Class factory returns a reflectee container" {
   let rendered = @pkl.render_value(value)
   inspect(rendered.contains("name = \"Foo\""), content="true")
   inspect(rendered.contains("declName = \"Bar\""), content="true")
-  inspect(rendered.contains("reflectee = \"Foo\""), content="true")
-  inspect(rendered.contains("reflectee = \"Bar\""), content="true")
+  inspect(rendered.contains("simpleName = \"Foo\""), content="true")
+  inspect(rendered.contains("simpleName = \"Bar\""), content="true")
 }
 
 ///|

@@ -653,8 +653,8 @@ test "PKL-119d: Map.length / .isEmpty / .keys / .values / .entries" {
       ("l", IntValue(n)) => length = n
       ("e", BoolValue(b)) => empty = b
       ("ks", SetValue(_)) => ()
-      ("vs", ListingValue(_)) => ()
-      ("ents", ListingValue(items)) => {
+      ("vs", ListValue(_)) => ()
+      ("ents", ListValue(items)) => {
         guard items[0] is PairValue(_, _) else { panic() }
       }
       _ => ()
@@ -1223,6 +1223,29 @@ test "PKL-148d: local method body late-binds amended sibling property" {
 }
 
 ///|
+test "PKL-148d: amended imported module functions see overridden properties" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "helper.pkl",
+    (
+      #|referenceModule = "BaseModule.pkl"
+      #|function hasExpectedLocation(path) = path.contains(referenceModule)
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|local helper = (import("helper.pkl")) {
+      #|  referenceModule = "ExtendingModule.pkl"
+      #|}
+      #|ok = helper.hasExpectedLocation("file:///tmp/ExtendingModule.pkl")
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(@pkl.render_value(value), content="ok = true")
+}
+
+///|
 test "PKL-148d: inherited module members keep parent local scope" {
   let session = AnalysisSession::new()
   let base_source =
@@ -1358,6 +1381,88 @@ test "PKL-148d: class default local method parameter shadows module local" {
     #|}
   session.set_source("base.pkl", "foo {}")
   session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
+test "PKL-148c: module relativePathTo returns descendant path segments" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "api/module.pkl",
+    (
+      #|import "pkl:test"
+      #|desc = module.relativePathTo(import("dir1/dir2/relativePathTo.pkl"))
+      #|same = module.relativePathTo(module)
+      #|err = test.catch(() -> import("dir1/dir2/relativePathTo.pkl").relativePathTo(module))
+    ),
+  )
+  session.set_source(
+    "api/dir1/dir2/relativePathTo.pkl",
+    (
+      #|import "pkl:test"
+      #|ok = true
+    ),
+  )
+  guard session.eval_path("api/module.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("desc = List(\"dir1\", \"dir2\")"), content="true")
+  inspect(rendered.contains("same = List()"), content="true")
+  inspect(
+    rendered.contains("No descendent path exists between modules"),
+    content="true",
+  )
+}
+
+///|
+test "PKL-148c: pkl math exposes uint constants and integer helpers" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:math"
+      #|import "pkl:test"
+      #|maxUInt32 = math.maxUInt32
+      #|cbrt = math.cbrt(27)
+      #|log2 = math.log2(2)
+      #|gcd = math.gcd(4, 6)
+      #|lcm = math.lcm(4, 6)
+      #|pow2 = math.isPowerOfTwo(4096.0)
+      #|bad = test.catch(() -> math.gcd(4, 6.1))
+    ),
+  )
+  let expected =
+    #|maxUInt32 = 4294967295
+    #|cbrt = 3.0
+    #|log2 = 1.0
+    #|gcd = 2
+    #|lcm = 12
+    #|pow2 = true
+    #|bad = "Expected value of type `Int`, but got type `Float`. Value: 6.1"
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
+test "PKL-148c: reflect module surface handles modules without imports" {
+  let session = AnalysisSession::new()
+  session.set_source("dep.pkl", "value = 1")
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:reflect"
+      #|local dep = reflect.Module(import("dep.pkl"))
+      #|depImportsEmpty = dep.imports == Map()
+      #|docNull = dep.docComment == null
+      #|isAmend = dep.isAmend
+      #|selfImports = reflect.Module(module).imports
+    ),
+  )
+  let expected =
+    #|depImportsEmpty = true
+    #|docNull = true
+    #|isAmend = false
+    #|selfImports = Map("reflect", "pkl:reflect")
   guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
   inspect(@pkl.render_value(value), content=expected)
 }

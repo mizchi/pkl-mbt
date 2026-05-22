@@ -36,6 +36,278 @@ fn reflect_reflectee_name(members : Array[ValueMember]) -> String? {
 }
 
 ///|
+fn reflect_member(name : String, value : Value) -> ValueMember {
+  { name, value, source: None, annotations: [] }
+}
+
+///|
+fn reflect_hidden_member(name : String, value : Value) -> ValueMember {
+  { name: hidden_member_name(name), value, source: None, annotations: [] }
+}
+
+///|
+fn reflect_module_metadata_name() -> String {
+  "__reflect_module_metadata"
+}
+
+///|
+fn reflect_type_value(name : String, type_arguments : Array[Value]) -> Value {
+  ObjectValue([
+    reflect_hidden_member("__kind", StringValue("Type")),
+    reflect_member("name", StringValue(name)),
+    reflect_member("typeArguments", ListValue(type_arguments)),
+  ])
+}
+
+///|
+fn reflect_declared_type_value(
+  referent : Value,
+  type_arguments : Array[Value],
+) -> Value {
+  ObjectValue([
+    reflect_hidden_member("__kind", StringValue("DeclaredType")),
+    reflect_member("referent", referent),
+    reflect_member("typeArguments", ListValue(type_arguments)),
+  ])
+}
+
+///|
+fn reflect_nullable_type_value(base : Value) -> Value {
+  ObjectValue([
+    reflect_hidden_member("__kind", StringValue("NullableType")),
+    reflect_member("baseType", base),
+  ])
+}
+
+///|
+fn reflect_union_type_value(types : Array[Value]) -> Value {
+  ObjectValue([
+    reflect_hidden_member("__kind", StringValue("UnionType")),
+    reflect_member("members", ListValue(types)),
+  ])
+}
+
+///|
+fn reflect_string_literal_type_value(value : String) -> Value {
+  ObjectValue([
+    reflect_hidden_member("__kind", StringValue("StringLiteralType")),
+    reflect_member("literal", StringValue(value)),
+  ])
+}
+
+///|
+fn reflect_type_variable_value(name : String) -> Value {
+  ObjectValue([
+    reflect_hidden_member("__kind", StringValue("TypeVariable")),
+    reflect_member("name", StringValue(name)),
+  ])
+}
+
+///|
+fn reflect_class_factory_value(arg : Value) -> Value {
+  match arg {
+    ObjectValue(members) =>
+      match reflect_kind(members) {
+        Some("Class") => arg
+        _ => synth_class_mirror_for_value(arg)
+      }
+    StringValue(name) => synth_class_mirror_for_name(name)
+    _ => synth_class_mirror_for_value(arg)
+  }
+}
+
+///|
+fn reflect_type_alias_factory_value(arg : Value) -> Value {
+  match arg {
+    ObjectValue(members) =>
+      match reflect_kind(members) {
+        Some("TypeAlias") => arg
+        _ =>
+          synth_type_alias_mirror_for_qualified(eval_value_type_name(arg), None)
+      }
+    StringValue(name) => synth_type_alias_mirror_for_qualified(name, None)
+    _ => synth_type_alias_mirror_for_qualified(eval_value_type_name(arg), None)
+  }
+}
+
+///|
+fn reflect_module_factory_value(arg : Value) -> Value {
+  match arg {
+    ObjectValue(members) =>
+      match reflect_kind(members) {
+        Some("Module") => arg
+        _ => {
+          let mirror_members : Array[ValueMember] = [
+            reflect_hidden_member("__kind", StringValue("Module")),
+            reflect_member("reflectee", arg),
+            reflect_member("modifiers", SetValue([])),
+          ]
+          match lookup_member(members, reflect_module_metadata_name()) {
+            Some(ObjectValue(meta_members)) =>
+              for meta in meta_members {
+                mirror_members.push(meta)
+              }
+            _ => {
+              let imports = match lookup_member(members, "imports") {
+                Some(value) => value
+                None => MapValue([])
+              }
+              mirror_members.push(reflect_member("imports", imports))
+              mirror_members.push(reflect_member("annotations", ListValue([])))
+              mirror_members.push(reflect_member("docComment", NullValue))
+              mirror_members.push(reflect_member("uri", StringValue("")))
+              mirror_members.push(reflect_member("supermodule", NullValue))
+              mirror_members.push(reflect_member("isAmend", BoolValue(false)))
+              mirror_members.push(
+                reflect_member(
+                  "moduleClass",
+                  synth_class_mirror_for_name(eval_value_type_name(arg)),
+                ),
+              )
+            }
+          }
+          ObjectValue(mirror_members)
+        }
+      }
+    _ =>
+      ObjectValue([
+        reflect_hidden_member("__kind", StringValue("Module")),
+        reflect_member("reflectee", arg),
+        reflect_member("modifiers", SetValue([])),
+        reflect_member("imports", MapValue([])),
+        reflect_member("annotations", ListValue([])),
+        reflect_member("docComment", NullValue),
+        reflect_member("uri", StringValue("")),
+        reflect_member("supermodule", NullValue),
+        reflect_member("isAmend", BoolValue(false)),
+        reflect_member("moduleClass", synth_class_mirror_for_value(arg)),
+      ])
+  }
+}
+
+///|
+fn is_reflect_type_members(members : Array[ValueMember]) -> Bool {
+  match reflect_kind(members) {
+    Some("Type")
+    | Some("DeclaredType")
+    | Some("NullableType")
+    | Some("UnionType")
+    | Some("StringLiteralType")
+    | Some("TypeVariable") => true
+    _ => false
+  }
+}
+
+///|
+fn is_reflect_type_method_name(name : String) -> Bool {
+  name == "withTypeArgument" || name == "withTypeArguments"
+}
+
+///|
+fn reflect_type_with_arguments(
+  members : Array[ValueMember],
+  type_arguments : Array[Value],
+) -> Value? {
+  match reflect_kind(members) {
+    Some("Type") =>
+      match lookup_member(members, "name") {
+        Some(StringValue(name)) =>
+          Some(reflect_type_value(name, type_arguments))
+        _ => None
+      }
+    Some("DeclaredType") =>
+      match lookup_member(members, "referent") {
+        Some(referent) =>
+          Some(reflect_declared_type_value(referent, type_arguments))
+        None => None
+      }
+    _ => None
+  }
+}
+
+///|
+fn eval_reflect_type_method(
+  receiver_members : Array[ValueMember],
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match method_name {
+    "withTypeArgument" => {
+      if arguments.length() != 1 {
+        diagnostics.push(diag("withTypeArgument expects 1 argument"))
+        return None
+      }
+      let arg = match
+        eval_expr_with_bindings(
+          arguments[0],
+          bindings,
+          env,
+          class_env,
+          cache,
+          stack,
+          declarations,
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(value) => value
+        None => return None
+      }
+      reflect_type_with_arguments(receiver_members, [arg])
+    }
+    "withTypeArguments" => {
+      if arguments.length() != 1 {
+        diagnostics.push(diag("withTypeArguments expects 1 argument"))
+        return None
+      }
+      let arg = match
+        eval_expr_with_bindings(
+          arguments[0],
+          bindings,
+          env,
+          class_env,
+          cache,
+          stack,
+          declarations,
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(value) => value
+        None => return None
+      }
+      match arg {
+        ListingValue(values) | ListValue(values) =>
+          reflect_type_with_arguments(receiver_members, values)
+        _ => {
+          diagnostics.push(diag("withTypeArguments expects a List argument"))
+          None
+        }
+      }
+    }
+    _ => None
+  }
+}
+
+///|
+fn eval_reflect_type_property(
+  receiver_members : Array[ValueMember],
+  property_name : String,
+) -> Value? {
+  if property_name == "nullable" && is_reflect_type_members(receiver_members) {
+    Some(reflect_nullable_type_value(ObjectValue(receiver_members)))
+  } else {
+    None
+  }
+}
+
+///|
 fn strip_doc_comment_line(text : String) -> String {
   if !text.has_prefix("///") {
     return text
@@ -87,6 +359,1347 @@ fn module_property_doc_comment_from_source(
     lines.clear()
   }
   None
+}
+
+///|
+fn line_declares_reflect_name(
+  line : String,
+  name : String,
+  kind : String,
+) -> Bool {
+  let trimmed = trim_spaces(line)
+  let prefixes = [
+    "open", "abstract", "external", "hidden", "local", "fixed", "const",
+  ]
+  let mut rest = trimmed
+  let mut changed = true
+  while changed {
+    changed = false
+    for prefix in prefixes {
+      if rest == prefix || rest.has_prefix(prefix + " ") {
+        rest = trim_spaces(
+          String::unsafe_substring(
+            rest,
+            start=prefix.length(),
+            end=rest.length(),
+          ),
+        )
+        changed = true
+      }
+    }
+  }
+  match kind {
+    "class" =>
+      rest.has_prefix("class " + name) || rest.has_prefix("class " + name + "<")
+    "function" =>
+      rest.has_prefix("function " + name) ||
+      rest.has_prefix("function " + name + "<")
+    "typealias" =>
+      rest.has_prefix("typealias " + name) ||
+      rest.has_prefix("typealias " + name + "<")
+    "module" =>
+      rest.has_prefix("module ") ||
+      rest.has_prefix("amends ") ||
+      rest.has_prefix("extends ")
+    _ =>
+      if !rest.has_prefix(name) {
+        false
+      } else if rest.length() == name.length() {
+        true
+      } else {
+        let c = rest[name.length()].to_int().unsafe_to_char()
+        c == ':' || c == '=' || c == '{' || c == ' ' || c == '\t'
+      }
+  }
+}
+
+///|
+fn doc_comment_before_reflect_decl(
+  source : String?,
+  name : String,
+  kind : String,
+) -> String? {
+  let text = match source {
+    Some(s) => s
+    None => return None
+  }
+  let lines = text.split("\n").collect()
+  for i = 0; i < lines.length(); i = i + 1 {
+    if !line_declares_reflect_name(lines[i].to_owned(), name, kind) {
+      continue
+    }
+    let docs : Array[String] = []
+    let mut j = i - 1
+    while j >= 0 {
+      let line = trim_spaces(lines[j].to_owned())
+      if line == "" {
+        j = j - 1
+        continue
+      }
+      if line.has_prefix("@") {
+        j = j - 1
+        continue
+      }
+      if line.has_prefix("///") && !line.has_prefix("////") {
+        docs.push(strip_doc_comment_line(line))
+        j = j - 1
+        continue
+      }
+      break
+    }
+    if docs.length() == 0 {
+      return None
+    }
+    let ordered : Array[String] = []
+    for k = docs.length() - 1; k >= 0; k = k - 1 {
+      ordered.push(docs[k])
+    }
+    return Some(join_doc_comment_lines(ordered))
+  }
+  None
+}
+
+///|
+fn doc_comment_before_class_member(
+  source : String?,
+  class_name : String,
+  member_name : String,
+  kind : String,
+) -> String? {
+  let text = match source {
+    Some(s) => s
+    None => return None
+  }
+  let lines = text.split("\n").collect()
+  let mut start = 0
+  let mut found_class = false
+  for i = 0; i < lines.length(); i = i + 1 {
+    if line_declares_reflect_name(lines[i].to_owned(), class_name, "class") {
+      start = i + 1
+      found_class = true
+      break
+    }
+  }
+  if !found_class {
+    return doc_comment_before_reflect_decl(source, member_name, kind)
+  }
+  for i = start; i < lines.length(); i = i + 1 {
+    let line = lines[i].to_owned()
+    if i > start && line_declares_reflect_name(line, "", "module") {
+      return None
+    }
+    if i > start && line_declares_reflect_name(line, class_name, "class") {
+      return None
+    }
+    if !line_declares_reflect_name(line, member_name, kind) {
+      continue
+    }
+    let docs : Array[String] = []
+    let mut j = i - 1
+    while j >= 0 {
+      let prev = trim_spaces(lines[j].to_owned())
+      if prev == "" || prev.has_prefix("@") {
+        j = j - 1
+        continue
+      }
+      if prev.has_prefix("///") && !prev.has_prefix("////") {
+        docs.push(strip_doc_comment_line(prev))
+        j = j - 1
+        continue
+      }
+      break
+    }
+    if docs.length() == 0 {
+      return None
+    }
+    let ordered : Array[String] = []
+    for k = docs.length() - 1; k >= 0; k = k - 1 {
+      ordered.push(docs[k])
+    }
+    return Some(join_doc_comment_lines(ordered))
+  }
+  None
+}
+
+///|
+fn reflect_display_uri(path : String?) -> String {
+  match path {
+    Some(p) =>
+      if p.has_prefix("file://") ||
+        p.has_prefix("pkl:") ||
+        p.find("://") is Some(_) {
+        p
+      } else if p.has_prefix("/") {
+        "file://" + p
+      } else {
+        "file:///" + p
+      }
+    None => ""
+  }
+}
+
+///|
+fn reflect_location_value(path : String?) -> Value {
+  ObjectValue([
+    reflect_member("displayUri", StringValue(reflect_display_uri(path))),
+  ])
+}
+
+///|
+fn reflect_enclosing_module_value(path : String?) -> Value {
+  ObjectValue([
+    reflect_hidden_member("__kind", StringValue("Module")),
+    reflect_member("uri", StringValue(reflect_display_uri(path))),
+  ])
+}
+
+///|
+fn reflect_doc_value(doc : String?) -> Value {
+  match doc {
+    Some(text) => StringValue(text)
+    None => NullValue
+  }
+}
+
+///|
+fn reflect_type_parameter_values(parameters : Array[String]) -> Value {
+  let values : Array[Value] = []
+  for parameter in parameters {
+    values.push(
+      ObjectValue([
+        reflect_member("name", StringValue(parameter)),
+        reflect_member("variance", NullValue),
+      ]),
+    )
+  }
+  ListValue(values)
+}
+
+///|
+fn reflect_module_short_name(path : String?, module_name : String?) -> String {
+  match path {
+    Some(p) => {
+      let base = match p.rev_find("/") {
+        Some(idx) => String::unsafe_substring(p, start=idx + 1, end=p.length())
+        None => p
+      }
+      if base.has_suffix(".pkl") {
+        String::unsafe_substring(base, start=0, end=base.length() - 4)
+      } else {
+        base
+      }
+    }
+    None =>
+      match module_name {
+        Some(name) =>
+          match name.rev_find(".") {
+            Some(idx) =>
+              String::unsafe_substring(name, start=idx + 1, end=name.length())
+            None => name
+          }
+        None => "module"
+      }
+  }
+}
+
+///|
+fn reflect_module_prefix_from_uri(uri : String) -> String {
+  reflect_module_short_name(Some(uri), None)
+}
+
+///|
+fn module_doc_comment_from_source(source : String?) -> String? {
+  doc_comment_before_reflect_decl(source, "", "module")
+}
+
+///|
+fn reflect_decl_line_from_source(
+  source : String?,
+  name : String,
+  kind : String,
+) -> String? {
+  let text = match source {
+    Some(s) => s
+    None => return None
+  }
+  let lines = text.split("\n").collect()
+  for line in lines {
+    let owned = line.to_owned()
+    if line_declares_reflect_name(owned, name, kind) {
+      return Some(trim_spaces(owned))
+    }
+  }
+  None
+}
+
+///|
+fn reflect_line_has_decl_modifier(line : String, modifier : String) -> Bool {
+  let words = line.split(" ").collect()
+  for word in words {
+    let token = trim_spaces(word.to_owned())
+    if token == "" {
+      continue
+    }
+    if token == "module" ||
+      token == "amends" ||
+      token == "extends" ||
+      token == "class" ||
+      token == "function" ||
+      token == "typealias" ||
+      token.find(":") is Some(_) ||
+      token.find("=") is Some(_) ||
+      token.find("{") is Some(_) ||
+      token.find("(") is Some(_) ||
+      token.find("<") is Some(_) {
+      return false
+    }
+    if token == modifier {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn reflect_decl_modifiers_from_source(
+  source : String?,
+  name : String,
+  kind : String,
+  hidden : Bool,
+  fixed : Bool,
+  const_ : Bool,
+  abstract_ : Bool,
+  open_ : Bool,
+) -> Value {
+  match reflect_decl_line_from_source(source, name, kind) {
+    Some(line) =>
+      reflect_modifiers_value(
+        hidden || reflect_line_has_decl_modifier(line, "hidden"),
+        fixed || reflect_line_has_decl_modifier(line, "fixed"),
+        const_ || reflect_line_has_decl_modifier(line, "const"),
+        abstract_ || reflect_line_has_decl_modifier(line, "abstract"),
+        open_ || reflect_line_has_decl_modifier(line, "open"),
+      )
+    None => reflect_modifiers_value(hidden, fixed, const_, abstract_, open_)
+  }
+}
+
+///|
+fn reflect_qualified_decl_name(prefix : String, name : String) -> String {
+  if prefix == "" || prefix == "module" {
+    name
+  } else {
+    prefix + "." + name
+  }
+}
+
+///|
+fn reflect_parse_annotation_body(annotation : Annotation) -> Array[ValueMember] {
+  let members : Array[ValueMember] = []
+  if annotation.body_kind is BraceBody {
+    let body = annotation.body_text
+    let pieces = body.split(";").collect()
+    for piece in pieces {
+      let text = trim_spaces(piece.to_owned())
+      match text.find("=") {
+        Some(idx) => {
+          let key = trim_spaces(
+            String::unsafe_substring(text, start=0, end=idx),
+          )
+          let raw = trim_spaces(
+            String::unsafe_substring(text, start=idx + 1, end=text.length()),
+          )
+          let value = if raw.length() >= 2 &&
+            raw.has_prefix("\"") &&
+            raw.has_suffix("\"") {
+            StringValue(
+              String::unsafe_substring(raw, start=1, end=raw.length() - 1),
+            )
+          } else {
+            StringValue(raw)
+          }
+          if key != "" {
+            members.push(reflect_member(key, value))
+          }
+        }
+        None => ()
+      }
+    }
+  }
+  members
+}
+
+///|
+fn reflect_annotation_values(
+  annotations : Array[Annotation],
+  declarations : Array[Declaration],
+  module_prefix : String,
+  parent_module_prefix : String?,
+) -> Value {
+  let values : Array[Value] = []
+  for annotation in annotations {
+    let class_name = if annotation.class_name.find(".") is Some(_) {
+      annotation.class_name
+    } else if declarations_contain_class(declarations, annotation.class_name) {
+      reflect_qualified_decl_name(module_prefix, annotation.class_name)
+    } else {
+      match parent_module_prefix {
+        Some(prefix) =>
+          reflect_qualified_decl_name(prefix, annotation.class_name)
+        None => annotation.class_name
+      }
+    }
+    let members = reflect_parse_annotation_body(annotation)
+    values.push(ObjectValue(tag_object_with_class(members, class_name)))
+  }
+  ListValue(values)
+}
+
+///|
+fn reflect_modifiers_value(
+  hidden : Bool,
+  fixed : Bool,
+  const_ : Bool,
+  abstract_ : Bool,
+  open_ : Bool,
+) -> Value {
+  let values : Array[Value] = []
+  if hidden {
+    values.push(StringValue("hidden"))
+  }
+  if fixed {
+    values.push(StringValue("fixed"))
+  }
+  if const_ {
+    values.push(StringValue("const"))
+  }
+  if abstract_ {
+    values.push(StringValue("abstract"))
+  }
+  if open_ {
+    values.push(StringValue("open"))
+  }
+  SetValue(values)
+}
+
+///|
+fn reflect_type_from_annotation(
+  type_name : String?,
+  declarations : Array[Declaration],
+  module_prefix : String,
+  parent_module_prefix : String?,
+) -> Value {
+  match type_name {
+    Some(name) =>
+      reflect_type_from_annotation_text(
+        name,
+        declarations,
+        module_prefix,
+        parent_module_prefix,
+        [],
+      )
+    None => reflect_type_value("unknown", [])
+  }
+}
+
+///|
+fn reflect_type_from_annotation_text(
+  type_name : String,
+  declarations : Array[Declaration],
+  module_prefix : String,
+  parent_module_prefix : String?,
+  type_parameters : Array[String],
+) -> Value {
+  let trimmed = strip_balanced_outer_type_parens(
+    pkl_strip_default_type_marker(pkl_constraint_trim(type_name)),
+  )
+  let choices = split_top_level_union_choices(trimmed)
+  if choices.length() > 1 {
+    let values : Array[Value] = []
+    for choice in choices {
+      values.push(
+        reflect_type_from_annotation_text(
+          choice, declarations, module_prefix, parent_module_prefix, type_parameters,
+        ),
+      )
+    }
+    return reflect_union_type_value(values)
+  }
+  if trimmed.has_suffix("?") {
+    let base = String::unsafe_substring(
+      trimmed,
+      start=0,
+      end=trimmed.length() - 1,
+    )
+    return reflect_nullable_type_value(
+      reflect_type_from_annotation_text(
+        base, declarations, module_prefix, parent_module_prefix, type_parameters,
+      ),
+    )
+  }
+  let base = match pkl_constrained_type_base_name(trimmed) {
+    Some(b) => b
+    None => trimmed
+  }
+  if base.length() >= 2 && base.has_prefix("\"") && base.has_suffix("\"") {
+    return reflect_string_literal_type_value(
+      String::unsafe_substring(base, start=1, end=base.length() - 1),
+    )
+  }
+  for parameter in type_parameters {
+    if base == parameter {
+      return reflect_type_variable_value(parameter)
+    }
+  }
+  let generic = try_split_generic_name(base)
+  let (head, args) = match generic {
+    Some(pair) => pair
+    None => (base, [])
+  }
+  let arg_values : Array[Value] = []
+  for arg in args {
+    arg_values.push(
+      reflect_type_from_annotation_text(
+        arg, declarations, module_prefix, parent_module_prefix, type_parameters,
+      ),
+    )
+  }
+  match head {
+    "Any" => reflect_type_value("Any", arg_values)
+    "nothing" => reflect_type_value("nothing", arg_values)
+    "unknown" => reflect_type_value("unknown", arg_values)
+    "Boolean" | "Bool" => reflect_type_value("Boolean", arg_values)
+    "Int" | "UInt" | "UInt8" | "UInt16" | "UInt32" =>
+      reflect_type_value("Int", arg_values)
+    "Float" => reflect_type_value("Float", arg_values)
+    "Number" => reflect_type_value("Number", arg_values)
+    "String" => reflect_type_value("String", arg_values)
+    "Duration" => reflect_type_value("Duration", arg_values)
+    "DataSize" => reflect_type_value("DataSize", arg_values)
+    "Bytes" => reflect_type_value("Bytes", arg_values)
+    "Pair" => reflect_type_value("Pair", arg_values)
+    "List" => reflect_type_value("List", arg_values)
+    "Set" => reflect_type_value("Set", arg_values)
+    "Map" => reflect_type_value("Map", arg_values)
+    "Listing" => reflect_type_value("Listing", arg_values)
+    "Mapping" => reflect_type_value("Mapping", arg_values)
+    "Dynamic" => reflect_type_value("Dynamic", arg_values)
+    "Typed" => reflect_type_value("Typed", arg_values)
+    "Module" => reflect_type_value("Module", arg_values)
+    _ => {
+      for decl in declarations {
+        match decl {
+          TypeAliasDeclaration(alias_decl) =>
+            if alias_decl.name == head {
+              return reflect_declared_type_value(
+                synth_type_alias_mirror_for_qualified(
+                  reflect_metadata_decl_name(
+                    declarations, module_prefix, parent_module_prefix, head,
+                  ),
+                  None,
+                ),
+                arg_values,
+              )
+            }
+          ClassDeclaration(class_decl) =>
+            if class_decl.name == head {
+              return reflect_declared_type_value(
+                synth_class_mirror_for_name(
+                  reflect_metadata_decl_name(
+                    declarations, module_prefix, parent_module_prefix, head,
+                  ),
+                ),
+                arg_values,
+              )
+            }
+          FunctionDeclaration(_) => ()
+        }
+      }
+      reflect_declared_type_value(
+        synth_class_mirror_for_name(
+          reflect_metadata_decl_name(
+            declarations, module_prefix, parent_module_prefix, head,
+          ),
+        ),
+        arg_values,
+      )
+    }
+  }
+}
+
+///|
+fn reflect_property_metadata_object(
+  name : String,
+  type_name : String?,
+  default_value : Value?,
+  annotations : Array[Annotation],
+  doc_comment : String?,
+  modifiers : Value,
+  declarations : Array[Declaration],
+  module_prefix : String,
+  parent_module_prefix : String?,
+  path : String?,
+) -> Value {
+  let bare_name = strip_member_visibility_prefix(name)
+  let members : Array[ValueMember] = [
+    reflect_member("location", reflect_location_value(path)),
+    reflect_member("docComment", reflect_doc_value(doc_comment)),
+    reflect_member(
+      "annotations",
+      reflect_annotation_values(
+        annotations, declarations, module_prefix, parent_module_prefix,
+      ),
+    ),
+    reflect_member("modifiers", modifiers),
+    reflect_member("allModifiers", modifiers),
+    reflect_member(
+      "allAnnotations",
+      reflect_annotation_values(
+        annotations, declarations, module_prefix, parent_module_prefix,
+      ),
+    ),
+    reflect_member("name", StringValue(bare_name)),
+    reflect_member(
+      "type",
+      reflect_type_from_annotation(
+        type_name, declarations, module_prefix, parent_module_prefix,
+      ),
+    ),
+  ]
+  match default_value {
+    Some(value) => members.push(reflect_member("defaultValue", value))
+    None => members.push(reflect_member("defaultValue", NullValue))
+  }
+  ObjectValue(members)
+}
+
+///|
+fn reflect_method_metadata_object(
+  fn_decl : FunctionDecl,
+  doc_comment : String?,
+  declarations : Array[Declaration],
+  module_prefix : String,
+  parent_module_prefix : String?,
+  path : String?,
+) -> Value {
+  let entries : Array[ValueEntry] = []
+  for parameter in fn_decl.parameters {
+    entries.push({
+      key: StringValue(parameter.name),
+      value: ObjectValue([
+        reflect_member("name", StringValue(parameter.name)),
+        reflect_member(
+          "type",
+          reflect_type_from_annotation(
+            parameter.type_name,
+            declarations,
+            module_prefix,
+            parent_module_prefix,
+          ),
+        ),
+      ]),
+    })
+  }
+  ObjectValue([
+    reflect_member("location", reflect_location_value(path)),
+    reflect_member("docComment", reflect_doc_value(doc_comment)),
+    reflect_member(
+      "annotations",
+      reflect_annotation_values(
+        fn_decl.annotations,
+        declarations,
+        module_prefix,
+        parent_module_prefix,
+      ),
+    ),
+    reflect_member(
+      "modifiers",
+      reflect_modifiers_value(
+        false,
+        false,
+        fn_decl.is_const,
+        fn_decl.is_abstract,
+        false,
+      ),
+    ),
+    reflect_member("name", StringValue(fn_decl.name)),
+    reflect_member(
+      "typeParameters",
+      reflect_type_parameter_values(fn_decl.type_parameters),
+    ),
+    reflect_member("parameters", MapValue(entries)),
+    reflect_member(
+      "returnType",
+      reflect_type_from_annotation(
+        fn_decl.return_type_name,
+        declarations,
+        module_prefix,
+        parent_module_prefix,
+      ),
+    ),
+  ])
+}
+
+///|
+fn declarations_contain_class(
+  declarations : Array[Declaration],
+  name : String,
+) -> Bool {
+  for declaration in declarations {
+    match declaration {
+      ClassDeclaration(class_decl) => if class_decl.name == name { return true }
+      _ => ()
+    }
+  }
+  false
+}
+
+///|
+fn declarations_contain_type_declaration(
+  declarations : Array[Declaration],
+  name : String,
+) -> Bool {
+  for declaration in declarations {
+    match declaration {
+      ClassDeclaration(class_decl) => if class_decl.name == name { return true }
+      TypeAliasDeclaration(alias_decl) =>
+        if alias_decl.name == name {
+          return true
+        }
+      FunctionDeclaration(_) => ()
+    }
+  }
+  false
+}
+
+///|
+fn reflect_metadata_decl_name(
+  declarations : Array[Declaration],
+  module_prefix : String,
+  parent_module_prefix : String?,
+  name : String,
+) -> String {
+  if name.find(".") is Some(_) || is_stdlib_class_name(name) {
+    return name
+  }
+  if declarations_contain_type_declaration(declarations, name) {
+    return reflect_qualified_decl_name(module_prefix, name)
+  }
+  match parent_module_prefix {
+    Some(prefix) => reflect_qualified_decl_name(prefix, name)
+    None => reflect_qualified_decl_name(module_prefix, name)
+  }
+}
+
+///|
+fn reflect_class_parent_name(
+  class_decl : ClassDecl,
+  declarations : Array[Declaration],
+  module_prefix : String,
+  parent_module_prefix : String?,
+) -> String {
+  match class_decl.parent_name {
+    Some(parent) =>
+      if is_stdlib_class_name(parent) || parent.find(".") is Some(_) {
+        parent
+      } else if declarations_contain_class(declarations, parent) {
+        reflect_qualified_decl_name(module_prefix, parent)
+      } else {
+        match parent_module_prefix {
+          Some(prefix) => reflect_qualified_decl_name(prefix, parent)
+          None => reflect_qualified_decl_name(module_prefix, parent)
+        }
+      }
+    None => if class_decl.name == "Annotation" { "Any" } else { "Typed" }
+  }
+}
+
+///|
+fn reflect_class_mirror_from_decl(
+  class_decl : ClassDecl,
+  declarations : Array[Declaration],
+  module_prefix : String,
+  parent_module_prefix : String?,
+  path : String?,
+  source : String?,
+  default_members : Array[ValueMember],
+) -> Value {
+  let class_name = reflect_qualified_decl_name(module_prefix, class_decl.name)
+  let property_entries : Array[ValueEntry] = []
+  for property in class_decl.properties {
+    let bare_name = strip_member_visibility_prefix(property.name)
+    let default_value = match lookup_value_member(default_members, bare_name) {
+      Some(value_member) => Some(value_member.value)
+      None =>
+        match lookup_value_member(default_members, property.name) {
+          Some(value_member) => Some(value_member.value)
+          None => None
+        }
+    }
+    let modifiers = reflect_decl_modifiers_from_source(
+      source,
+      bare_name,
+      "property",
+      is_hidden_member_name(property.name),
+      false,
+      false,
+      false,
+      false,
+    )
+    property_entries.push({
+      key: StringValue(bare_name),
+      value: reflect_property_metadata_object(
+        property.name,
+        property.type_name,
+        default_value,
+        property.annotations,
+        doc_comment_before_class_member(
+          source,
+          class_decl.name,
+          bare_name,
+          "property",
+        ),
+        modifiers,
+        declarations,
+        module_prefix,
+        parent_module_prefix,
+        path,
+      ),
+    })
+  }
+  let method_entries : Array[ValueEntry] = []
+  for method_decl in class_decl.methods {
+    method_entries.push({
+      key: StringValue(method_decl.name),
+      value: reflect_method_metadata_object(
+        method_decl,
+        doc_comment_before_class_member(
+          source,
+          class_decl.name,
+          method_decl.name,
+          "function",
+        ),
+        declarations,
+        module_prefix,
+        parent_module_prefix,
+        path,
+      ),
+    })
+  }
+  let parent_name = reflect_class_parent_name(
+    class_decl, declarations, module_prefix, parent_module_prefix,
+  )
+  let superclass = synth_class_mirror_for_name(parent_name)
+  ObjectValue([
+    reflect_hidden_member("__kind", StringValue("Class")),
+    reflect_hidden_member("reflectee", StringValue(class_decl.name)),
+    reflect_member("reflectee", synth_class_mirror_for_name(class_name)),
+    reflect_member("location", reflect_location_value(path)),
+    reflect_member(
+      "docComment",
+      reflect_doc_value(
+        doc_comment_before_reflect_decl(source, class_decl.name, "class"),
+      ),
+    ),
+    reflect_member(
+      "annotations",
+      reflect_annotation_values(
+        class_decl.annotations,
+        declarations,
+        module_prefix,
+        parent_module_prefix,
+      ),
+    ),
+    reflect_member(
+      "modifiers",
+      reflect_decl_modifiers_from_source(
+        source,
+        class_decl.name,
+        "class",
+        false,
+        false,
+        false,
+        class_decl.is_abstract,
+        false,
+      ),
+    ),
+    reflect_member("simpleName", StringValue(class_decl.name)),
+    reflect_member("name", StringValue(class_name)),
+    reflect_hidden_member("__qualified_name", StringValue(class_name)),
+    reflect_member("enclosingDeclaration", reflect_enclosing_module_value(path)),
+    reflect_member(
+      "typeParameters",
+      reflect_type_parameter_values(class_decl.type_parameters),
+    ),
+    reflect_member("superclass", superclass),
+    reflect_member("supertype", reflect_declared_type_value(superclass, [])),
+    reflect_member("properties", MapValue(property_entries)),
+    reflect_member("allProperties", MapValue(property_entries)),
+    reflect_member("methods", MapValue(method_entries)),
+    reflect_member("allMethods", MapValue(method_entries)),
+  ])
+}
+
+///|
+fn reflect_type_alias_mirror_from_decl(
+  alias_decl : TypeAliasDecl,
+  declarations : Array[Declaration],
+  module_prefix : String,
+  parent_module_prefix : String?,
+  path : String?,
+  source : String?,
+) -> Value {
+  let alias_name = reflect_qualified_decl_name(module_prefix, alias_decl.name)
+  ObjectValue([
+    reflect_hidden_member("__kind", StringValue("TypeAlias")),
+    reflect_hidden_member("reflectee", StringValue(alias_decl.name)),
+    reflect_member(
+      "reflectee",
+      synth_type_alias_mirror_for_qualified(alias_name, None),
+    ),
+    reflect_member("location", reflect_location_value(path)),
+    reflect_member(
+      "docComment",
+      reflect_doc_value(
+        doc_comment_before_reflect_decl(source, alias_decl.name, "typealias"),
+      ),
+    ),
+    reflect_member(
+      "annotations",
+      reflect_annotation_values(
+        alias_decl.annotations,
+        declarations,
+        module_prefix,
+        parent_module_prefix,
+      ),
+    ),
+    reflect_member("modifiers", SetValue([])),
+    reflect_member("simpleName", StringValue(alias_decl.name)),
+    reflect_member("name", StringValue(alias_name)),
+    reflect_hidden_member("__qualified_name", StringValue(alias_name)),
+    reflect_member("enclosingDeclaration", reflect_enclosing_module_value(path)),
+    reflect_member(
+      "typeParameters",
+      reflect_type_parameter_values(alias_decl.type_parameters),
+    ),
+    reflect_member(
+      "referent",
+      reflect_type_from_annotation_text(
+        alias_decl.target,
+        declarations,
+        module_prefix,
+        parent_module_prefix,
+        alias_decl.type_parameters,
+      ),
+    ),
+  ])
+}
+
+///|
+fn reflect_module_function_declarations(
+  declarations : Array[Declaration],
+) -> Array[FunctionDecl] {
+  let out : Array[FunctionDecl] = []
+  for declaration in declarations {
+    match declaration {
+      FunctionDeclaration(function_decl) => out.push(function_decl)
+      _ => ()
+    }
+  }
+  out
+}
+
+///|
+fn reflect_module_property_entries(
+  bindings : Array[Binding],
+  module_members : Array[ValueMember],
+  declarations : Array[Declaration],
+  module_prefix : String,
+  parent_module_prefix : String?,
+  path : String?,
+  source : String?,
+) -> Array[ValueEntry] {
+  let entries : Array[ValueEntry] = []
+  for binding in bindings {
+    if !binding.exported || binding.name == "output" {
+      continue
+    }
+    let bare_name = strip_member_visibility_prefix(binding.name)
+    let default_value = match lookup_value_member(module_members, bare_name) {
+      Some(value_member) => Some(value_member.value)
+      None =>
+        match lookup_value_member(module_members, binding.name) {
+          Some(value_member) => Some(value_member.value)
+          None => None
+        }
+    }
+    entries.push({
+      key: StringValue(bare_name),
+      value: reflect_property_metadata_object(
+        binding.name,
+        binding.type_name,
+        default_value,
+        binding.annotations,
+        doc_comment_before_reflect_decl(source, bare_name, "property"),
+        reflect_decl_modifiers_from_source(
+          source,
+          bare_name,
+          "property",
+          is_hidden_member_name(binding.name),
+          false,
+          binding.is_const,
+          false,
+          false,
+        ),
+        declarations,
+        module_prefix,
+        parent_module_prefix,
+        path,
+      ),
+    })
+  }
+  entries
+}
+
+///|
+fn reflect_module_method_entries(
+  declarations : Array[Declaration],
+  module_prefix : String,
+  parent_module_prefix : String?,
+  path : String?,
+  source : String?,
+) -> Array[ValueEntry] {
+  let entries : Array[ValueEntry] = []
+  for function_decl in reflect_module_function_declarations(declarations) {
+    entries.push({
+      key: StringValue(function_decl.name),
+      value: reflect_method_metadata_object(
+        function_decl,
+        doc_comment_before_reflect_decl(source, function_decl.name, "function"),
+        declarations,
+        module_prefix,
+        parent_module_prefix,
+        path,
+      ),
+    })
+  }
+  entries
+}
+
+///|
+fn reflect_module_class_mirror(
+  program : Program,
+  module_members : Array[ValueMember],
+  module_prefix : String,
+  parent_module_prefix : String?,
+  path : String?,
+  source : String?,
+) -> Value {
+  let properties = reflect_module_property_entries(
+    program.bindings,
+    module_members,
+    program.declarations,
+    module_prefix,
+    parent_module_prefix,
+    path,
+    source,
+  )
+  let methods = reflect_module_method_entries(
+    program.declarations,
+    module_prefix,
+    parent_module_prefix,
+    path,
+    source,
+  )
+  let superclass = synth_class_mirror_for_name("Module")
+  let superclass_with_reflectee = ObjectValue([
+    reflect_hidden_member("__kind", StringValue("Class")),
+    reflect_hidden_member("reflectee", StringValue("Module")),
+    reflect_member("reflectee", superclass),
+    reflect_member("simpleName", StringValue("Module")),
+    reflect_member("name", StringValue("Module")),
+    reflect_member("modifiers", SetValue([])),
+  ])
+  ObjectValue([
+    reflect_hidden_member("__kind", StringValue("Class")),
+    reflect_hidden_member("reflectee", StringValue("Module")),
+    reflect_member("reflectee", synth_class_mirror_for_name("Module")),
+    reflect_member("location", reflect_location_value(path)),
+    reflect_member(
+      "docComment",
+      reflect_doc_value(module_doc_comment_from_source(source)),
+    ),
+    reflect_member(
+      "annotations",
+      reflect_annotation_values(
+        program.module_annotations,
+        program.declarations,
+        module_prefix,
+        parent_module_prefix,
+      ),
+    ),
+    reflect_member(
+      "modifiers",
+      reflect_decl_modifiers_from_source(
+        source, "", "module", false, false, false, false, false,
+      ),
+    ),
+    reflect_member("simpleName", StringValue("Module")),
+    reflect_member("name", StringValue("Module")),
+    reflect_hidden_member("__qualified_name", StringValue("Module")),
+    reflect_member("enclosingDeclaration", reflect_enclosing_module_value(path)),
+    reflect_member("typeParameters", ListValue([])),
+    reflect_member("superclass", superclass_with_reflectee),
+    reflect_member("supertype", reflect_declared_type_value(superclass, [])),
+    reflect_member("properties", MapValue(properties)),
+    reflect_member("allProperties", MapValue(properties)),
+    reflect_member("methods", MapValue(methods)),
+    reflect_member("allMethods", MapValue(methods)),
+  ])
+}
+
+///|
+fn reflect_class_is_subclass_value(
+  receiver_members : Array[ValueMember],
+  parent_members : Array[ValueMember],
+  declarations : Array[Declaration],
+) -> Bool {
+  let parent = match reflect_reflectee_name(parent_members) {
+    Some(name) => name
+    None => return false
+  }
+  let child = match reflect_reflectee_name(receiver_members) {
+    Some(name) => name
+    None => return false
+  }
+  if child == parent {
+    return true
+  }
+  if parent == "Any" && child != "nothing" {
+    return true
+  }
+  let mut current = receiver_members
+  for _ in 0..<64 {
+    match lookup_member(current, "superclass") {
+      Some(ObjectValue(super_members)) =>
+        match reflect_reflectee_name(super_members) {
+          Some(name) => {
+            if name == parent {
+              return true
+            }
+            if name == "Any" {
+              return parent == "Any"
+            }
+            current = super_members
+          }
+          None => return false
+        }
+      _ => return reflect_is_subclass_of(child, parent, declarations)
+    }
+  }
+  false
+}
+
+///|
+fn reflect_module_class_entries(
+  program : Program,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  current_module_path : String?,
+  current_module_source : String?,
+  resolve_import : (String) -> EvalResult?,
+  module_prefix : String,
+  parent_module_prefix : String?,
+) -> Array[ValueEntry] {
+  let entries : Array[ValueEntry] = []
+  for declaration in program.declarations {
+    match declaration {
+      ClassDeclaration(class_decl) => {
+        let local_diagnostics : Array[Diagnostic] = []
+        let default_members = eval_class_default_members(
+          class_decl.name,
+          bindings,
+          env,
+          class_env,
+          cache,
+          [],
+          program.declarations,
+          local_diagnostics,
+          resolve_import,
+        )
+        entries.push({
+          key: StringValue(class_decl.name),
+          value: reflect_class_mirror_from_decl(
+            class_decl,
+            program.declarations,
+            module_prefix,
+            parent_module_prefix,
+            current_module_path,
+            current_module_source,
+            default_members,
+          ),
+        })
+      }
+      _ => ()
+    }
+  }
+  entries
+}
+
+///|
+fn reflect_module_type_alias_entries(
+  program : Program,
+  current_module_path : String?,
+  current_module_source : String?,
+  module_prefix : String,
+  parent_module_prefix : String?,
+) -> Array[ValueEntry] {
+  let entries : Array[ValueEntry] = []
+  for declaration in program.declarations {
+    match declaration {
+      TypeAliasDeclaration(alias_decl) =>
+        entries.push({
+          key: StringValue(alias_decl.name),
+          value: reflect_type_alias_mirror_from_decl(
+            alias_decl,
+            program.declarations,
+            module_prefix,
+            parent_module_prefix,
+            current_module_path,
+            current_module_source,
+          ),
+        })
+      _ => ()
+    }
+  }
+  entries
+}
+
+///|
+fn reflect_module_metadata_value(
+  program : Program,
+  module_members : Array[ValueMember],
+  module_parent_members : Array[ValueMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  current_module_path : String?,
+  current_module_source : String?,
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  let module_prefix = reflect_module_short_name(
+    current_module_path,
+    program.module_name,
+  )
+  let parent_module_prefix = match program.module_relation {
+    Some(relation) => Some(reflect_module_prefix_from_uri(relation.uri))
+    None => None
+  }
+  let imports = match lookup_value(cache, "@__module_imports") {
+    Some(value) => value
+    None => MapValue([])
+  }
+  let supermodule = if module_parent_members.length() > 0 {
+    reflect_module_factory_value(ObjectValue(module_parent_members))
+  } else {
+    NullValue
+  }
+  let is_amend = match program.module_relation {
+    Some(relation) => relation.kind is ModuleAmends
+    None => false
+  }
+  ObjectValue([
+    reflect_member("imports", imports),
+    reflect_member(
+      "annotations",
+      reflect_annotation_values(
+        program.module_annotations,
+        program.declarations,
+        module_prefix,
+        parent_module_prefix,
+      ),
+    ),
+    reflect_member(
+      "docComment",
+      reflect_doc_value(module_doc_comment_from_source(current_module_source)),
+    ),
+    reflect_member("uri", StringValue(reflect_display_uri(current_module_path))),
+    reflect_member("supermodule", supermodule),
+    reflect_member("isAmend", BoolValue(is_amend)),
+    reflect_member(
+      "modifiers",
+      reflect_decl_modifiers_from_source(
+        current_module_source, "", "module", false, false, false, false, false,
+      ),
+    ),
+    reflect_member(
+      "classes",
+      MapValue(
+        reflect_module_class_entries(
+          program, bindings, env, class_env, cache, current_module_path, current_module_source,
+          resolve_import, module_prefix, parent_module_prefix,
+        ),
+      ),
+    ),
+    reflect_member(
+      "typeAliases",
+      MapValue(
+        reflect_module_type_alias_entries(
+          program, current_module_path, current_module_source, module_prefix, parent_module_prefix,
+        ),
+      ),
+    ),
+    reflect_member(
+      "moduleClass",
+      reflect_module_class_mirror(
+        program, module_members, module_prefix, parent_module_prefix, current_module_path,
+        current_module_source,
+      ),
+    ),
+  ])
+}
+
+///|
+fn reflect_mirror_reflectee_value(value : Value) -> Value {
+  match value {
+    ObjectValue(members) =>
+      match lookup_member(members, "reflectee") {
+        Some(reflectee) => reflectee
+        None => value
+      }
+    _ => value
+  }
+}
+
+///|
+fn reflect_module_decl_member(
+  members : Array[ValueMember],
+  name : String,
+) -> Value? {
+  match lookup_member(members, reflect_module_metadata_name()) {
+    Some(ObjectValue(meta_members)) => {
+      match lookup_member(meta_members, "classes") {
+        Some(MapValue(entries)) =>
+          match lookup_entry(entries, StringValue(name)) {
+            Some(value) => return Some(reflect_mirror_reflectee_value(value))
+            None => ()
+          }
+        _ => ()
+      }
+      match lookup_member(meta_members, "typeAliases") {
+        Some(MapValue(entries)) =>
+          match lookup_entry(entries, StringValue(name)) {
+            Some(value) => Some(reflect_mirror_reflectee_value(value))
+            None => None
+          }
+        _ => None
+      }
+    }
+    _ => None
+  }
 }
 
 ///|
@@ -418,6 +2031,14 @@ fn lookup_class_binding(
     if binding.name == name {
       found = Some(binding)
     }
+  }
+  if found is None &&
+    (
+      name == "reflect.Type" ||
+      name == "reflect.Property" ||
+      name == "reflect.Method"
+    ) {
+    return Some({ name, parent_name: None, properties: [], methods: [] })
   }
   found
 }

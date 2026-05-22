@@ -1,6 +1,6 @@
 # Release TODO
 
-Current coverage: 350 / 391 PCF gold-match (89.5%).
+Current coverage: 355 / 391 PCF gold-match (90.8%).
 Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-05-22.
 
 Release focus:
@@ -31,6 +31,8 @@ End-user blocker priority is based on "will a normal Pkl config author hit this?
 3. Renderer API surface: `api` has many DIFFs, but not all are equal. Treat public output formats as blockers only if we advertise them for this release. Keep `pcf` / `json` / `yaml` stable; renderer converter coverage now includes direct `renderDocument` / `renderValue` calls across PCF / JSON / YAML / plist / XML, PCF/JSON indent options, YAML stream mode, YAML `indentWidth`, YAML `Bytes`/mapping-key output, YAML key quoting / explicit-key / string-escape parity, custom string delimiter options, validation diagnostics for non-renderable values, XML class-keyed converters, path-keyed wildcard converters, direct CDATA/comment helpers, and `xml.Element` rename fixtures. JSON parser converters and YAML `parseAll` / class-converter parsing now gold-match their targeted fixtures. Protobuf text now covers every upstream Protobuf fixture (`api/protobuf`, `api/protobuf2`, and `api/protobuf3.txtpb`).
 4. Basic scalar / collection parity: `Bytes`, `DataSize`, `Duration`, `Int`, `Float`, `Map`, nullable, `new`, `as`, `outer`, and const provenance are gold-matching for all with-gold `basic` fixtures.
 5. Deep stdlib / reflect parity: important for long-term compatibility, but not a first release blocker unless a public API or real package depends on it.
+
+Latest API-surface pass: `api/module`, `api/semverModule`, and `api/reflect1` / `api/reflect2` / `api/reflect3` / `api/reflect5` now gold-match. `reflect.Module(...).imports` keeps existing `reflect5` parity and no longer fails on modules without an import map. Remaining reflect DIFFs are inherited `allProperties` / `allMethods` metadata depth (`api/reflect4`) and the full recursive stdlib shape in `api/reflectedDeclaration`, not basic Module construction. `api/mathModule` remains DIFF only on last-bit host floating-point output for `log2` / trig functions.
 
 For this release pass, Resource / Glob, Numeric / Bytes, nullable basics, and the advertised renderer validation surface are gold-matching for their targeted fixtures.
 

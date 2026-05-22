@@ -387,6 +387,60 @@ fn compare_values(a : Value, b : Value) -> Int {
 }
 
 ///|
+fn sort_with_comparator(
+  elements : Array[Value],
+  comparator : Value,
+  context : String,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Array[Value]? {
+  let out = elements[:].to_owned()
+  for i = 1; i < out.length(); i = i + 1 {
+    let cur = out[i]
+    let mut j = i - 1
+    while j >= 0 {
+      let before = match
+        apply_function_value(
+          "\{context} comparator",
+          comparator,
+          [cur, out[j]],
+          bindings,
+          env,
+          class_env,
+          cache,
+          stack,
+          declarations,
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(BoolValue(b)) => b
+        Some(IntValue(n)) => n < 0L
+        Some(_) => {
+          diagnostics.push(
+            diag("\{context} comparator must return Boolean or Int"),
+          )
+          return None
+        }
+        None => return None
+      }
+      if !before {
+        break
+      }
+      out[j + 1] = out[j]
+      j = j - 1
+    }
+    out[j + 1] = cur
+  }
+  Some(out)
+}
+
+///|
 /// PKL-151: nanosecond projection of a Duration magnitude+unit pair.
 /// Walks the unit ladder so intermediate products stay in Double.
 fn duration_to_ns(magnitude : Double, unit : String) -> Double {
@@ -437,6 +491,8 @@ fn eval_list_or_listing_method(
   )
   if receiver_is_list {
     match result {
+      Some(ListingValue(xs)) if method_name == "toListing" =>
+        Some(ListingValue(xs))
       Some(ListingValue(xs)) => Some(ListValue(xs))
       other => other
     }
@@ -1315,6 +1371,33 @@ fn eval_listing_method(
         out.push(elements[pair.0])
       }
       Some(ListingValue(out))
+    }
+    "sortWith" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag(
+            "Listing.sortWith expects 1 argument, got \{arg_values.length()}",
+          ),
+        )
+        return None
+      }
+      match
+        sort_with_comparator(
+          elements,
+          arg_values[0],
+          "Listing.sortWith",
+          bindings,
+          env,
+          class_env,
+          cache,
+          stack,
+          declarations,
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(out) => Some(ListingValue(out))
+        None => None
+      }
     }
     "minBy" | "maxBy" => {
       if arg_values.length() != 1 {

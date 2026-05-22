@@ -1,4 +1,11 @@
 ///|
+fn is_reflect_metadata_type_annotation(type_name : String) -> Bool {
+  type_name == "reflect.Type" ||
+  type_name == "reflect.Property" ||
+  type_name == "reflect.Method"
+}
+
+///|
 fn eval_value_accepts_type_annotation(
   type_name : String,
   value : Value,
@@ -122,6 +129,9 @@ fn eval_value_accepts_type_annotation(
         object_class_tag_matches(members, "RenderDirective")
       _ => false
     }
+  }
+  if is_reflect_metadata_type_annotation(type_name) {
+    return value is ObjectValue(_)
   }
   match (type_name, value) {
     // PKL-148e: `Any` is Apple Pkl's top type — it accepts every
@@ -248,6 +258,7 @@ fn eval_type_name_is_unresolvable(
     if head_no_optional == "" ||
       head_no_optional.has_prefix("\"") ||
       is_stdlib_class_name(head_no_optional) ||
+      is_reflect_metadata_type_annotation(head_no_optional) ||
       eval_lookup_class_decl(declarations, head_no_optional) is Some(_) ||
       eval_type_name_is_type_parameter(head_no_optional, declarations) {
       return false
@@ -1899,6 +1910,10 @@ fn eval_callable_call(
           }
         Some(ObjectValue(members)) =>
           if method_name == "toString" && arguments.length() == 0 {
+            match semver_to_string(members) {
+              Some(s) => return Some(StringValue(s))
+              None => ()
+            }
             // PKL-148bh: `Class.toString()` / `TypeAlias.toString()` on
             // a reflect mirror returns the module-qualified name
             // stashed via `@__qualified_name`. The fallback when the

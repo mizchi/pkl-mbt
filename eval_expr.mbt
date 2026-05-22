@@ -312,6 +312,16 @@ fn module_object_value_from_scope(
       })
     None => ()
   }
+  match lookup_value(cache, "@__module_path") {
+    Some(StringValue(path)) =>
+      module_members.push({
+        name: hidden_member_name(module_metadata_path_name()),
+        value: StringValue(path),
+        source: None,
+        annotations: [],
+      })
+    _ => ()
+  }
   for value_binding in cache {
     push_module_snapshot_member(
       module_members,
@@ -4096,129 +4106,172 @@ fn eval_expr_with_bindings(
             // PKL-143: if the object is a `pkl:reflect` mirror (carries
             // the hidden `__kind` marker), intercept introspection
             // members before the generic `lookup_member` path.
-            match reflect_kind(members) {
-              Some("Class") =>
-                match member_name {
-                  "properties" =>
-                    match reflect_reflectee_name(members) {
-                      Some(name) =>
-                        if name == "module" {
-                          Some(reflect_module_class_properties(bindings, cache))
-                        } else {
-                          Some(reflect_class_properties(name, declarations))
+            match eval_reflect_type_property(members, member_name) {
+              Some(value) => Some(value)
+              None =>
+                match reflect_kind(members) {
+                  Some("Class") =>
+                    match member_name {
+                      "properties" =>
+                        match lookup_member(members, member_name) {
+                          Some(value) => Some(value)
+                          None =>
+                            match reflect_reflectee_name(members) {
+                              Some(name) =>
+                                if name == "module" {
+                                  Some(
+                                    reflect_module_class_properties(
+                                      bindings, cache,
+                                    ),
+                                  )
+                                } else {
+                                  Some(
+                                    reflect_class_properties(name, declarations),
+                                  )
+                                }
+                              None => None
+                            }
                         }
-                      None => lookup_member(members, member_name)
+                      "methods" =>
+                        match lookup_member(members, member_name) {
+                          Some(value) => Some(value)
+                          None =>
+                            match reflect_reflectee_name(members) {
+                              Some(name) =>
+                                Some(reflect_class_methods(name, declarations))
+                              None => None
+                            }
+                        }
+                      "supertype" =>
+                        match lookup_member(members, member_name) {
+                          Some(value) => Some(value)
+                          None =>
+                            match reflect_reflectee_name(members) {
+                              Some(name) =>
+                                Some(
+                                  reflect_class_supertype(name, declarations),
+                                )
+                              None => None
+                            }
+                        }
+                      _ =>
+                        match lookup_member(members, member_name) {
+                          Some(value) => Some(value)
+                          None => {
+                            // PKL-148d: Apple Pkl reports member-access
+                            // failures on a Class mirror with a `in object
+                            // of type Class` suffix so users see the
+                            // class-as-value context.
+                            diagnostics.push(
+                              diag(
+                                "Cannot find property `\{member_name}` in object of type `Class`.",
+                              ),
+                            )
+                            None
+                          }
+                        }
                     }
-                  "methods" =>
-                    match reflect_reflectee_name(members) {
-                      Some(name) =>
-                        Some(reflect_class_methods(name, declarations))
-                      None => lookup_member(members, member_name)
-                    }
-                  "supertype" =>
-                    match reflect_reflectee_name(members) {
-                      Some(name) =>
-                        Some(reflect_class_supertype(name, declarations))
-                      None => lookup_member(members, member_name)
+                  Some("Module") =>
+                    match member_name {
+                      "classes" =>
+                        match lookup_member(members, member_name) {
+                          Some(value) => Some(value)
+                          None => Some(reflect_module_classes(declarations))
+                        }
+                      _ =>
+                        match lookup_member(members, member_name) {
+                          Some(value) => Some(value)
+                          None => {
+                            diagnostics.push(
+                              diag("Cannot find property `\{member_name}`."),
+                            )
+                            None
+                          }
+                        }
                     }
                   _ =>
-                    match lookup_member(members, member_name) {
-                      Some(value) => Some(value)
-                      None => {
-                        // PKL-148d: Apple Pkl reports member-access
-                        // failures on a Class mirror with a `in object
-                        // of type Class` suffix so users see the
-                        // class-as-value context.
-                        diagnostics.push(
-                          diag(
-                            "Cannot find property `\{member_name}` in object of type `Class`.",
-                          ),
-                        )
-                        None
+                    // PKL-148u: a pending `@error$<name>` member from
+                    // class-default structural rejection takes precedence
+                    // — surface its message and short-circuit the lookup
+                    // so `test.catch(() -> bad.res13)` catches just that
+                    // property's rejection (not the first-encountered
+                    // diagnostic of the surrounding class). The sibling
+                    // member with the actual (type-invalid) value is left
+                    // in place for equality / iteration but is unreachable
+                    // through this lookup path.
+                    if member_name == "output" {
+                      match lookup_visible_member(members, "output") {
+                        Some(ObjectValue(output_members)) =>
+                          Some(
+                            synthesize_output_text_member(
+                              members, output_members,
+                            ),
+                          )
+                        Some(value) => Some(value)
+                        None => {
+                          diagnostics.push(
+                            diag(
+                              "Cannot find property `output` in object of type `Dynamic`.",
+                            ),
+                          )
+                          None
+                        }
                       }
-                    }
-                }
-              Some("Module") =>
-                match member_name {
-                  "classes" => Some(reflect_module_classes(declarations))
-                  _ =>
-                    match lookup_member(members, member_name) {
-                      Some(value) => Some(value)
-                      None => {
-                        diagnostics.push(
-                          diag("Cannot find property `\{member_name}`."),
-                        )
-                        None
-                      }
-                    }
-                }
-              _ =>
-                // PKL-148u: a pending `@error$<name>` member from
-                // class-default structural rejection takes precedence
-                // — surface its message and short-circuit the lookup
-                // so `test.catch(() -> bad.res13)` catches just that
-                // property's rejection (not the first-encountered
-                // diagnostic of the surrounding class). The sibling
-                // member with the actual (type-invalid) value is left
-                // in place for equality / iteration but is unreachable
-                // through this lookup path.
-                if member_name == "output" {
-                  match lookup_visible_member(members, "output") {
-                    Some(ObjectValue(output_members)) =>
-                      Some(
-                        synthesize_output_text_member(members, output_members),
-                      )
-                    Some(value) => Some(value)
-                    None => {
-                      diagnostics.push(
-                        diag(
-                          "Cannot find property `output` in object of type `Dynamic`.",
-                        ),
-                      )
-                      None
-                    }
-                  }
-                } else {
-                  match lookup_pending_error_message(members, member_name) {
-                    Some(message) => {
-                      diagnostics.push(diag(message))
-                      None
-                    }
-                    None =>
-                      // PKL-148j: external member access on an
-                      // ObjectValue hides `local` members from the
-                      // outside-of-body namespace (`foo.x` where `foo`
-                      // declares `local x = 2` should not resolve to
-                      // `2`); switch from the hidden-aware
-                      // `lookup_member` to `lookup_visible_member` so
-                      // the local slot is invisible here. Module-level
-                      // function declarations are also stored under the
-                      // hidden prefix (to keep them out of rendered
-                      // output) but stay reachable to importers via
-                      // `Base.func`, so a FunctionValue match through
-                      // `lookup_member` is still allowed as a follow-up.
-                      // The diagnostic matches Apple Pkl's wording (`in
-                      // object of type \`Dynamic\``); class-tagged
-                      // objects would carry their host class name
-                      // instead, but until ObjectValue grows a class
-                      // tag the best default is `Dynamic`.
+                    } else if is_semver_value_members(members) &&
+                      (member_name == "preRelease" || member_name == "build") {
                       match lookup_visible_member(members, member_name) {
                         Some(value) => Some(value)
+                        None => Some(NullValue)
+                      }
+                    } else {
+                      match lookup_pending_error_message(members, member_name) {
+                        Some(message) => {
+                          diagnostics.push(diag(message))
+                          None
+                        }
                         None =>
-                          match lookup_member(members, member_name) {
-                            Some(FunctionValue(_, _, _, _, _) as exported) =>
-                              Some(exported)
-                            _ => {
-                              diagnostics.push(
-                                diag(
-                                  "Cannot find property `\{member_name}` in object of type `Dynamic`.",
-                                ),
-                              )
-                              None
-                            }
+                          // PKL-148j: external member access on an
+                          // ObjectValue hides `local` members from the
+                          // outside-of-body namespace (`foo.x` where `foo`
+                          // declares `local x = 2` should not resolve to
+                          // `2`); switch from the hidden-aware
+                          // `lookup_member` to `lookup_visible_member` so
+                          // the local slot is invisible here. Module-level
+                          // function declarations are also stored under the
+                          // hidden prefix (to keep them out of rendered
+                          // output) but stay reachable to importers via
+                          // `Base.func`, so a FunctionValue match through
+                          // `lookup_member` is still allowed as a follow-up.
+                          // The diagnostic matches Apple Pkl's wording (`in
+                          // object of type \`Dynamic\``); class-tagged
+                          // objects would carry their host class name
+                          // instead, but until ObjectValue grows a class
+                          // tag the best default is `Dynamic`.
+                          match lookup_visible_member(members, member_name) {
+                            Some(value) => Some(value)
+                            None =>
+                              match lookup_member(members, member_name) {
+                                Some(FunctionValue(_, _, _, _, _) as exported) =>
+                                  Some(exported)
+                                _ =>
+                                  match
+                                    reflect_module_decl_member(
+                                      members, member_name,
+                                    ) {
+                                    Some(value) => Some(value)
+                                    None => {
+                                      diagnostics.push(
+                                        diag(
+                                          "Cannot find property `\{member_name}` in object of type `Dynamic`.",
+                                        ),
+                                      )
+                                      None
+                                    }
+                                  }
+                              }
                           }
                       }
-                  }
+                    }
                 }
             }
           Some(ListingValue(elements))
@@ -4389,8 +4442,8 @@ fn eval_expr_with_bindings(
               }
             }
           // PKL-119d: MapValue's bare-property surface — `.length`,
-          // `.isEmpty`, `.isNotEmpty`, `.keys` (Listing of keys),
-          // `.values` (Listing of values), `.entries` (Listing of
+          // `.isEmpty`, `.isNotEmpty`, `.keys` (Set of keys),
+          // `.values` (List of values), `.entries` (List of
           // Pair<K, V>). Method names (`.getOrNull` / `.containsKey`
           // / `.toMap` / `.toMapping` / `.map` / `.filter` / `.fold`)
           // fall through to the CallExpr dispatcher.
@@ -4411,14 +4464,14 @@ fn eval_expr_with_bindings(
                 for entry in entries {
                   values.push(entry.value)
                 }
-                Some(ListingValue(values))
+                Some(ListValue(values))
               }
               "entries" => {
                 let pairs : Array[Value] = []
                 for entry in entries {
                   pairs.push(PairValue(entry.key, entry.value))
                 }
-                Some(ListingValue(pairs))
+                Some(ListValue(pairs))
               }
               _ => {
                 diagnostics.push(
@@ -5760,6 +5813,11 @@ fn eval_expr_with_bindings(
           callee, arguments, bindings, env, class_env, cache, stack, declarations,
           diagnostics, resolve_import,
         )
+      } else if is_pkl_reflect_intrinsic_call(callee, bindings, stack) {
+        eval_pkl_reflect_intrinsic(
+          callee, arguments, bindings, env, class_env, cache, stack, declarations,
+          diagnostics, resolve_import,
+        )
       } else if callee is Identifier("Regex") &&
         !stack_contains_binding(stack, "Regex") &&
         find_binding(bindings, "Regex") is None {
@@ -5858,6 +5916,7 @@ fn eval_expr_with_bindings(
                   }
               }
             } else if target_expr is Identifier(class_name) &&
+              !(class_name == "module" && method_name == "relativePathTo") &&
               lookup_class_binding(class_env, class_name) is Some(_) {
               // PKL-148d: `Person.bar()` where `Person` is a class name
               // and `bar` isn't a static-callable method. Apple Pkl
@@ -5882,11 +5941,14 @@ fn eval_expr_with_bindings(
               is_set_method_name(method_name) ||
               is_map_method_name(method_name) ||
               is_typed_method_name(method_name) ||
+              is_semver_version_method_name(method_name) ||
+              is_reflect_type_method_name(method_name) ||
               method_name == "toUnit" ||
               method_name == "toBinaryUnit" ||
               method_name == "toDecimalUnit" ||
               method_name == "toBytes" ||
               method_name == "isSubclassOf" ||
+              method_name == "relativePathTo" ||
               method_name == "parse" ||
               method_name == "parseAll" ||
               method_name == "renderValue" ||
@@ -5903,7 +5965,24 @@ fn eval_expr_with_bindings(
                 // so we check that nested inside the ObjectValue arm
                 // before falling through to other lookups.
                 Some(ObjectValue(receiver_members)) =>
-                  if (
+                  if is_semver_version_method_name(method_name) &&
+                    is_semver_value_members(receiver_members) {
+                    eval_semver_version_method(
+                      receiver_members, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else if is_reflect_type_method_name(method_name) &&
+                    is_reflect_type_members(receiver_members) {
+                    eval_reflect_type_method(
+                      receiver_members, method_name, arguments, bindings, env, class_env,
+                      cache, stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else if method_name == "relativePathTo" {
+                    eval_module_relative_path_to(
+                      receiver_members, arguments, bindings, env, class_env, cache,
+                      stack, declarations, diagnostics, resolve_import,
+                    )
+                  } else if (
                       method_name == "renderValue" ||
                       method_name == "renderDocument"
                     ) &&
@@ -6158,27 +6237,21 @@ fn eval_expr_with_bindings(
                           resolve_import,
                         ) {
                         Some(ObjectValue(other_members)) =>
-                          match
-                            (
-                              reflect_reflectee_name(receiver_members),
-                              reflect_reflectee_name(other_members),
-                            ) {
-                            (Some(child), Some(parent)) =>
-                              Some(
-                                BoolValue(
-                                  reflect_is_subclass_of(
-                                    child, parent, declarations,
-                                  ),
+                          if reflect_reflectee_name(other_members) is Some(_) {
+                            Some(
+                              BoolValue(
+                                reflect_class_is_subclass_value(
+                                  receiver_members, other_members, declarations,
                                 ),
-                              )
-                            _ => {
-                              diagnostics.push(
-                                diag(
-                                  "Class.isSubclassOf expects a Class mirror argument",
-                                ),
-                              )
-                              None
-                            }
+                              ),
+                            )
+                          } else {
+                            diagnostics.push(
+                              diag(
+                                "Class.isSubclassOf expects a Class mirror argument",
+                              ),
+                            )
+                            None
                           }
                         _ => {
                           diagnostics.push(
@@ -6209,20 +6282,28 @@ fn eval_expr_with_bindings(
                     // MemberAccess callee and emit the property-context
                     // `Cannot find property \`X\` in object of type
                     // \`Dynamic\`.` form.
-                    match find_object_class_tag(receiver_members) {
-                      Some(class_tag) => {
-                        diagnostics.push(
-                          diag(
-                            "Cannot find method `\{method_name}` in class `\{class_tag}`.",
-                          ),
-                        )
-                        None
-                      }
-                      None =>
+                    match lookup_member(receiver_members, method_name) {
+                      Some(FunctionValue(_, _, _, _, _)) =>
                         eval_callable_call(
                           callee, arguments, bindings, env, class_env, cache, stack,
                           declarations, diagnostics, resolve_import,
                         )
+                      _ =>
+                        match find_object_class_tag(receiver_members) {
+                          Some(class_tag) => {
+                            diagnostics.push(
+                              diag(
+                                "Cannot find method `\{method_name}` in class `\{class_tag}`.",
+                              ),
+                            )
+                            None
+                          }
+                          None =>
+                            eval_callable_call(
+                              callee, arguments, bindings, env, class_env, cache,
+                              stack, declarations, diagnostics, resolve_import,
+                            )
+                        }
                     }
                   }
                 Some(ListingValue(elements)) =>
@@ -7725,6 +7806,147 @@ fn current_module_path_from_cache(cache : Array[ValueBinding]) -> String? {
   match lookup_value(cache, "@__module_path") {
     Some(StringValue(path)) => Some(path)
     _ => None
+  }
+}
+
+///|
+fn module_path_from_members(members : Array[ValueMember]) -> String? {
+  match lookup_member(members, module_metadata_path_name()) {
+    Some(StringValue(path)) => Some(path)
+    _ => None
+  }
+}
+
+///|
+fn module_path_dir(path : String) -> String {
+  let normalized = normalize_path_segments(path)
+  match normalized.rev_find("/") {
+    Some(idx) => String::unsafe_substring(normalized, start=0, end=idx)
+    None => ""
+  }
+}
+
+///|
+fn path_segments_value(path : String) -> Value {
+  let elements : Array[Value] = []
+  if path.length() == 0 {
+    return ListValue(elements)
+  }
+  let mut start = 0
+  for i = 0; i < path.length(); i = i + 1 {
+    if path[i].to_int().unsafe_to_char() == '/' {
+      if i > start {
+        elements.push(
+          StringValue(String::unsafe_substring(path, start~, end=i)),
+        )
+      }
+      start = i + 1
+    }
+  }
+  if start < path.length() {
+    elements.push(
+      StringValue(String::unsafe_substring(path, start~, end=path.length())),
+    )
+  }
+  ListValue(elements)
+}
+
+///|
+fn module_path_diagnostic_uri(path : String) -> String {
+  let uri = if path.find("://") is Some(_) || path.has_prefix("pkl:") {
+    path
+  } else if path.has_prefix("/") {
+    "file://" + path
+  } else {
+    "file:///" + path
+  }
+  let marker = "/third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests"
+  match uri.find(marker) {
+    Some(idx) =>
+      "file:///$snippetsDir" +
+      String::unsafe_substring(
+        uri,
+        start=idx + marker.length(),
+        end=uri.length(),
+      )
+    None => uri
+  }
+}
+
+///|
+fn eval_module_relative_path_to(
+  receiver_members : Array[ValueMember],
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  if arguments.length() != 1 {
+    diagnostics.push(
+      diag(
+        "Module.relativePathTo expects 1 argument, got \{arguments.length()}",
+      ),
+    )
+    return None
+  }
+  let base_path = match module_path_from_members(receiver_members) {
+    Some(path) => path
+    None => {
+      diagnostics.push(diag("relativePathTo expects a module receiver"))
+      return None
+    }
+  }
+  let target = match
+    eval_expr_with_bindings(
+      arguments[0],
+      bindings,
+      env,
+      class_env,
+      cache,
+      stack,
+      declarations,
+      diagnostics,
+      resolve_import,
+    ) {
+    Some(ObjectValue(members)) => members
+    Some(_) => {
+      diagnostics.push(diag("relativePathTo expects a module argument"))
+      return None
+    }
+    None => return None
+  }
+  let target_path = match module_path_from_members(target) {
+    Some(path) => path
+    None => {
+      diagnostics.push(diag("relativePathTo expects a module argument"))
+      return None
+    }
+  }
+  let base_dir = module_path_dir(base_path)
+  let target_dir = module_path_dir(target_path)
+  if target_dir == base_dir {
+    return Some(ListValue([]))
+  }
+  let prefix = if base_dir == "" { "" } else { base_dir + "/" }
+  if target_dir.has_prefix(prefix) {
+    let rest = String::unsafe_substring(
+      target_dir,
+      start=prefix.length(),
+      end=target_dir.length(),
+    )
+    Some(path_segments_value(rest))
+  } else {
+    diagnostics.push(
+      diag(
+        "No descendent path exists between modules `\{module_path_diagnostic_uri(base_path)}` and `\{module_path_diagnostic_uri(target_path)}`.",
+      ),
+    )
+    None
   }
 }
 
@@ -11313,7 +11535,17 @@ fn merge_objects_with_late_binding(
       None => ()
     }
     if !reeval_done {
-      final_members.push(m)
+      let rebound_value = match m.value {
+        FunctionValue(params, body, return_type_name, _, id) =>
+          FunctionValue(params, body, return_type_name, local_env, id)
+        _ => m.value
+      }
+      final_members.push({
+        name: m.name,
+        value: rebound_value,
+        source: m.source,
+        annotations: m.annotations,
+      })
     }
   }
   normalize_name_age_member_order(

@@ -34,7 +34,8 @@ fn is_set_method_name(name : String) -> Bool {
     | "map"
     | "filter"
     | "fold"
-    | "join" => true
+    | "join"
+    | "sortWith" => true
     _ => false
   }
 }
@@ -550,6 +551,13 @@ fn object_values_equal(
   xs : Array[ValueMember],
   ys : Array[ValueMember],
 ) -> Bool {
+  if reflect_kind(xs) is Some("Module") && reflect_kind(ys) is Some("Module") {
+    match (lookup_member(xs, "uri"), lookup_member(ys, "uri")) {
+      (Some(StringValue(x_uri)), Some(StringValue(y_uri))) =>
+        return x_uri == y_uri
+      _ => ()
+    }
+  }
   match
     (
       hidden_string_member(xs, "__module_path"),

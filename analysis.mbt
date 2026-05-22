@@ -278,16 +278,23 @@ fn builtin_stdlib_source(uri : String) -> String? {
         #|minInt32 = 0 - 2147483647 - 1
         #|maxInt = 9223372036854775807
         #|minInt = 0 - 9223372036854775807 - 1
+        #|maxUInt = 9223372036854775807
+        #|maxUInt8 = 255
+        #|maxUInt16 = 65535
+        #|maxUInt32 = 4294967295
         #|pi = 3.141592653589793
         #|e = 2.718281828459045
         #|maxFiniteFloat = 1.7976931348623157E308
         #|minFiniteFloat = 0.0 - 1.7976931348623157E308
         #|abs = (x) -> if (x < 0) 0 - x else x
-        #|min = (a, b) -> if (a < b) a else b
-        #|max = (a, b) -> if (a > b) a else b
+        #|min = (a, b) -> _pkl_math_min(a, b)
+        #|max = (a, b) -> _pkl_math_max(a, b)
         #|sqrt = (x) -> _pkl_math_sqrt(x)
+        #|cbrt = (x) -> _pkl_math_cbrt(x)
         #|pow = (x, y) -> _pkl_math_pow(x, y)
         #|log = (x) -> _pkl_math_log(x)
+        #|log2 = (x) -> _pkl_math_log2(x)
+        #|log10 = (x) -> _pkl_math_log10(x)
         #|exp = (x) -> _pkl_math_exp(x)
         #|floor = (x) -> _pkl_math_floor(x)
         #|ceil = (x) -> _pkl_math_ceil(x)
@@ -295,8 +302,13 @@ fn builtin_stdlib_source(uri : String) -> String? {
         #|sin = (x) -> _pkl_math_sin(x)
         #|cos = (x) -> _pkl_math_cos(x)
         #|tan = (x) -> _pkl_math_tan(x)
+        #|asin = (x) -> _pkl_math_asin(x)
+        #|acos = (x) -> _pkl_math_acos(x)
         #|atan = (x) -> _pkl_math_atan(x)
         #|atan2 = (y, x) -> _pkl_math_atan2(y, x)
+        #|gcd = (a, b) -> _pkl_math_gcd(a, b)
+        #|lcm = (a, b) -> _pkl_math_lcm(a, b)
+        #|isPowerOfTwo = (x) -> _pkl_math_is_power_of_two(x)
       Some(source)
     }
     "pkl:platform" => {
@@ -339,18 +351,14 @@ fn builtin_stdlib_source(uri : String) -> String? {
       // a diagnostic on bad input while `parseOrNull` returns null.
       // Comparison helpers wrap `_pkl_semver_compare` (`<0` / `0` /
       // `>0` style) so pre-release ordering follows the SemVer spec
-      // without re-implementing it in pkl.
+      // without re-implementing it in pkl. Apple Pkl's public
+      // `comparator` is the Boolean shape expected by `sortWith`.
       let source =
-        #|Version = (major, minor, patch) -> new {
-        #|  major = major
-        #|  minor = minor
-        #|  patch = patch
-        #|  preRelease = null
-        #|  build = null
-        #|}
+        #|Version = (s) -> _pkl_semver_parse(s)
         #|parse = (s) -> _pkl_semver_parse(s)
         #|parseOrNull = (s) -> _pkl_semver_parse_or_null(s)
         #|compare = (a, b) -> _pkl_semver_compare(a, b)
+        #|comparator = (a, b) -> _pkl_semver_compare(a, b) < 0
         #|isLessThan = (a, b) -> _pkl_semver_compare(a, b) < 0
         #|isGreaterThan = (a, b) -> _pkl_semver_compare(a, b) > 0
         #|isEqualTo = (a, b) -> _pkl_semver_compare(a, b) == 0
@@ -485,50 +493,45 @@ fn builtin_stdlib_source(uri : String) -> String? {
       //    naive name-equality check it would collapse to is misleading enough
       //    that a follow-up should add a real subclass relation table.
       let source =
-        #|anyType = "pkl.base#Any"
-        #|booleanType = "pkl.base#Boolean"
-        #|intType = "pkl.base#Int"
-        #|floatType = "pkl.base#Float"
-        #|numberType = "pkl.base#Number"
-        #|stringType = "pkl.base#String"
-        #|durationType = "pkl.base#Duration"
-        #|dataSizeType = "pkl.base#DataSize"
-        #|bytesType = "pkl.base#Bytes"
-        #|pairType = "pkl.base#Pair"
-        #|listType = "pkl.base#List"
-        #|setType = "pkl.base#Set"
-        #|mapType = "pkl.base#Map"
-        #|listingType = "pkl.base#Listing"
-        #|mappingType = "pkl.base#Mapping"
-        #|objectType = "pkl.base#Object"
-        #|dynamicType = "pkl.base#Dynamic"
-        #|typedType = "pkl.base#Typed"
-        #|moduleType = "pkl.base#Module"
-        #|unknownType = "pkl.base#unknown"
-        #|nothingType = "pkl.base#nothing"
+        #|class Type {}
+        #|class Property {}
+        #|class Method {}
+        #|
+        #|anyType = _pkl_reflect_type("Any")
+        #|booleanType = _pkl_reflect_type("Boolean")
+        #|intType = _pkl_reflect_type("Int")
+        #|floatType = _pkl_reflect_type("Float")
+        #|numberType = _pkl_reflect_type("Number")
+        #|stringType = _pkl_reflect_type("String")
+        #|durationType = _pkl_reflect_type("Duration")
+        #|dataSizeType = _pkl_reflect_type("DataSize")
+        #|bytesType = _pkl_reflect_type("Bytes")
+        #|pairType = _pkl_reflect_type("Pair")
+        #|listType = _pkl_reflect_type("List")
+        #|setType = _pkl_reflect_type("Set")
+        #|mapType = _pkl_reflect_type("Map")
+        #|listingType = _pkl_reflect_type("Listing")
+        #|mappingType = _pkl_reflect_type("Mapping")
+        #|objectType = _pkl_reflect_type("Object")
+        #|dynamicType = _pkl_reflect_type("Dynamic")
+        #|typedType = _pkl_reflect_type("Typed")
+        #|moduleType = _pkl_reflect_type("Module")
+        #|unknownType = _pkl_reflect_type("unknown")
+        #|nothingType = _pkl_reflect_type("nothing")
         // PKL-143: Class / Module mirrors carry a hidden `__kind`
         // marker that the evaluator uses to hijack `.properties` /
         // `.methods` / `.supertype` / `.classes` / `.isSubclassOf`
         // member access. The marker doesn't render (hidden modifier)
         // and the user-facing surface still exposes `reflectee`.
-        #|Class = (name) -> new {
-        #|  reflectee = name
-        #|  hidden __kind = "Class"
-        #|  modifiers = Set()
-        #|}
-        #|Module = (name) -> new {
-        #|  reflectee = name
-        #|  hidden __kind = "Module"
-        #|  modifiers = Set()
-        #|  imports = if (name is Object) name.imports else Map()
-        #|}
-        #|TypeAlias = (name) -> new {
-        #|  reflectee = name
-        #|  hidden __kind = "TypeAlias"
-        #|  modifiers = Set()
-        #|}
+        #|Class = (name) -> _pkl_reflect_class(name)
+        #|Module = (name) -> _pkl_reflect_module(name)
+        #|moduleOf = (name) -> _pkl_reflect_module(name)
+        #|TypeAlias = (name) -> _pkl_reflect_type_alias(name)
         #|Property = (name) -> new { name = name }
-        #|DeclaredType = (referent) -> new { referent = referent }
+        #|DeclaredType = (referent) -> _pkl_reflect_declared_type(referent)
+        #|UnionType = (types) -> _pkl_reflect_union_type(types)
+        #|StringLiteralType = (value) -> _pkl_reflect_string_literal_type(value)
+        #|TypeVariable = (parameter) -> _pkl_reflect_type_variable(parameter)
       Some(source)
     }
     _ => None
