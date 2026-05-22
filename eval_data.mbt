@@ -63,6 +63,8 @@ fn is_map_method_name(name : String) -> Bool {
     | "toMapping"
     | "toList"
     | "map"
+    | "mapKeys"
+    | "mapValues"
     | "filter"
     | "fold"
     // PKL-148bb: Map shares the every / any / none predicate trio with

@@ -226,6 +226,34 @@ fn binding_collection_host_constraint_rejection_message(
 }
 
 ///|
+fn inherited_module_object_amend_expr(
+  binding_name : String,
+  expr : Expr,
+  type_name : String?,
+  cache : Array[ValueBinding],
+) -> Expr {
+  if binding_name != "output" {
+    return expr
+  }
+  match (expr, type_name) {
+    (ObjectLiteral(members), None) =>
+      match module_super_members_from_cache(cache) {
+        Some(parent_members) =>
+          match lookup_value_member(parent_members, binding_name) {
+            Some(_) =>
+              AmendExpr(
+                MemberAccess(Identifier("super"), binding_name),
+                members,
+              )
+            None => expr
+          }
+        None => expr
+      }
+    _ => expr
+  }
+}
+
+///|
 fn resolve_binding_value(
   name : String,
   bindings : Array[Binding],
@@ -386,9 +414,14 @@ fn resolve_binding_value(
         // (`res1: someModule = new { foo = "..." }`), promote the
         // RHS to `AmendExpr(Identifier(someModule), members)` so
         // the module's own defaults flow through.
-        let collection_rewritten_value = collection_literal_expr_for_type_annotation(
-          binding.value,
+        let collection_rewritten_value = inherited_module_object_amend_expr(
+          binding.name,
+          collection_literal_expr_for_type_annotation(
+            binding.value,
+            binding.type_name,
+          ),
           binding.type_name,
+          cache,
         )
         let rewritten_value : Expr = match
           (collection_rewritten_value, binding.type_name) {

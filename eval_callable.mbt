@@ -1778,7 +1778,8 @@ fn eval_callable_call(
       if method_name == "apply" ||
         method_name == "applyToList" ||
         method_name == "toString" ||
-        method_name == "getClass" {
+        method_name == "getClass" ||
+        is_typed_method_name(method_name) {
         Some((target_expr, method_name))
       } else {
         None
@@ -1787,7 +1788,8 @@ fn eval_callable_call(
       if method_name == "apply" ||
         method_name == "applyToList" ||
         method_name == "toString" ||
-        method_name == "getClass" {
+        method_name == "getClass" ||
+        is_typed_method_name(method_name) {
         Some((target_expr, method_name))
       } else {
         None
@@ -1910,26 +1912,12 @@ fn eval_callable_call(
           }
         Some(ObjectValue(members)) =>
           if method_name == "toString" && arguments.length() == 0 {
-            match semver_to_string(members) {
-              Some(s) => return Some(StringValue(s))
-              None => ()
-            }
-            // PKL-148bh: `Class.toString()` / `TypeAlias.toString()` on
-            // a reflect mirror returns the module-qualified name
-            // stashed via `@__qualified_name`. The fallback when the
-            // marker is absent (mirror was built without a known
-            // module) is the mirror's `name` field, which already
-            // carries the simple name (types/modifiersForTypes).
-            let qualified = match
-              lookup_member(members, hidden_member_name("__qualified_name")) {
-              Some(StringValue(s)) => s
-              _ =>
-                match lookup_member(members, "name") {
-                  Some(StringValue(s)) => s
-                  _ => ""
-                }
-            }
-            return Some(StringValue(qualified))
+            return Some(StringValue(object_to_string_value(members)))
+          } else if is_typed_method_name(method_name) {
+            return eval_typed_method_dispatch(
+              members, method_name, arguments, bindings, env, class_env, cache, stack,
+              declarations, diagnostics, resolve_import,
+            )
           } else if method_name == "apply" &&
             (
               object_class_tag_matches(members, "Mixin") ||

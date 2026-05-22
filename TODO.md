@@ -1,6 +1,6 @@
 # Release TODO
 
-Current coverage: 355 / 391 PCF gold-match (90.8%).
+Current coverage: 356 / 391 PCF gold-match (91.0%).
 Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-05-22.
 
 Release focus:
@@ -32,7 +32,7 @@ End-user blocker priority is based on "will a normal Pkl config author hit this?
 4. Basic scalar / collection parity: `Bytes`, `DataSize`, `Duration`, `Int`, `Float`, `Map`, nullable, `new`, `as`, `outer`, and const provenance are gold-matching for all with-gold `basic` fixtures.
 5. Deep stdlib / reflect parity: important for long-term compatibility, but not a first release blocker unless a public API or real package depends on it.
 
-Latest API-surface pass: `api/module`, `api/semverModule`, and `api/reflect1` / `api/reflect2` / `api/reflect3` / `api/reflect5` now gold-match. `reflect.Module(...).imports` keeps existing `reflect5` parity and no longer fails on modules without an import map. Remaining reflect DIFFs are inherited `allProperties` / `allMethods` metadata depth (`api/reflect4`) and the full recursive stdlib shape in `api/reflectedDeclaration`, not basic Module construction. `api/mathModule` remains DIFF only on last-bit host floating-point output for `log2` / trig functions.
+Latest API-surface pass: `api/module`, `api/semverModule`, and `api/reflect1` / `api/reflect2` / `api/reflect3` / `api/reflect4` / `api/reflect5` now gold-match. `reflect.Module(...).imports` keeps existing `reflect5` parity and no longer fails on modules without an import map. Remaining reflect DIFF is the full recursive stdlib declaration shape in `api/reflectedDeclaration`, not basic Module/Class/Property construction. `api/mathModule` remains DIFF only on last-bit host floating-point output for `log2` / trig functions.
 
 For this release pass, Resource / Glob, Numeric / Bytes, nullable basics, and the advertised renderer validation surface are gold-matching for their targeted fixtures.
 

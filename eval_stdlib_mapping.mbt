@@ -873,6 +873,64 @@ fn eval_map_method(
       }
       Some(MapValue(result))
     }
+    "mapKeys" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("Map.mapKeys expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let result : Array[ValueEntry] = []
+      for entry in entries {
+        match
+          apply_function_value(
+            "Map.mapKeys callback",
+            arg_values[0],
+            [entry.key, entry.value],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(new_key) => result.push({ key: new_key, value: entry.value })
+          None => return None
+        }
+      }
+      Some(MapValue(result))
+    }
+    "mapValues" => {
+      if arg_values.length() != 1 {
+        diagnostics.push(
+          diag("Map.mapValues expects 1 argument, got \{arg_values.length()}"),
+        )
+        return None
+      }
+      let result : Array[ValueEntry] = []
+      for entry in entries {
+        match
+          apply_function_value(
+            "Map.mapValues callback",
+            arg_values[0],
+            [entry.key, entry.value],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
+          ) {
+          Some(new_value) => result.push({ key: entry.key, value: new_value })
+          None => return None
+        }
+      }
+      Some(MapValue(result))
+    }
     "filter" => {
       if arg_values.length() != 1 {
         diagnostics.push(

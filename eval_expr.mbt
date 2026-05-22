@@ -502,6 +502,197 @@ fn synthesize_output_text_member(
 }
 
 ///|
+fn output_super_text_suffix(expr : Expr) -> String? {
+  match expr {
+    MemberAccess(Identifier("super"), "text") => Some("")
+    BinaryExpr(Add, left, StringLiteral(right)) =>
+      match output_super_text_suffix(left) {
+        Some(prefix) => Some(prefix + right)
+        None => None
+      }
+    _ => None
+  }
+}
+
+///|
+fn output_renderer_omit_null_properties(
+  output_members : Array[ValueMember],
+) -> Bool {
+  match lookup_member(output_members, "renderer") {
+    Some(ObjectValue(renderer_members)) =>
+      match lookup_member(renderer_members, "omitNullProperties") {
+        Some(BoolValue(value)) => value
+        _ => false
+      }
+    _ => false
+  }
+}
+
+///|
+fn strip_null_object_properties_for_output(value : Value) -> Value {
+  match value {
+    ObjectValue(members) => {
+      let kept : Array[ValueMember] = []
+      for field in members {
+        if field.value is NullValue {
+          continue
+        }
+        kept.push({
+          name: field.name,
+          value: strip_null_object_properties_for_output(field.value),
+          source: field.source,
+          annotations: field.annotations,
+        })
+      }
+      ObjectValue(kept)
+    }
+    ListingValue(elements) => {
+      let mapped : Array[Value] = []
+      for element in elements {
+        mapped.push(strip_null_object_properties_for_output(element))
+      }
+      ListingValue(mapped)
+    }
+    DefaultedListingValue(raw, elements, default_value) => {
+      let mapped_raw : Array[Value] = []
+      for element in raw {
+        mapped_raw.push(strip_null_object_properties_for_output(element))
+      }
+      let mapped : Array[Value] = []
+      for element in elements {
+        mapped.push(strip_null_object_properties_for_output(element))
+      }
+      DefaultedListingValue(
+        mapped_raw,
+        mapped,
+        strip_null_object_properties_for_output(default_value),
+      )
+    }
+    MappingValue(entries) => {
+      let mapped : Array[ValueEntry] = []
+      for entry in entries {
+        mapped.push({
+          key: entry.key,
+          value: strip_null_object_properties_for_output(entry.value),
+        })
+      }
+      MappingValue(mapped)
+    }
+    MapValue(entries) => {
+      let mapped : Array[ValueEntry] = []
+      for entry in entries {
+        mapped.push({
+          key: entry.key,
+          value: strip_null_object_properties_for_output(entry.value),
+        })
+      }
+      MapValue(mapped)
+    }
+    DefaultedMappingValue(raw, entries, default_value) => {
+      let mapped_raw : Array[ValueEntry] = []
+      for entry in raw {
+        mapped_raw.push({
+          key: entry.key,
+          value: strip_null_object_properties_for_output(entry.value),
+        })
+      }
+      let mapped : Array[ValueEntry] = []
+      for entry in entries {
+        mapped.push({
+          key: entry.key,
+          value: strip_null_object_properties_for_output(entry.value),
+        })
+      }
+      DefaultedMappingValue(
+        mapped_raw,
+        mapped,
+        strip_null_object_properties_for_output(default_value),
+      )
+    }
+    _ => value
+  }
+}
+
+///|
+fn finalize_output_super_text(value : Value) -> Value {
+  match value {
+    ObjectValue(members) => {
+      let finalized : Array[ValueMember] = []
+      for field in members {
+        if field.name == "output" {
+          match field.value {
+            ObjectValue(output_members) => {
+              let rewritten_output : Array[ValueMember] = []
+              let mut rewritten = false
+              for output_member in output_members {
+                if output_member.name == "text" {
+                  match output_member.source {
+                    Some(source) =>
+                      match output_super_text_suffix(source) {
+                        Some(suffix) => {
+                          let projected_value = output_projection_value(
+                            members, output_members,
+                          )
+                          let projected = if output_renderer_omit_null_properties(
+                              output_members,
+                            ) {
+                            strip_null_object_properties_for_output(
+                              projected_value,
+                            )
+                          } else {
+                            projected_value
+                          }
+                          let base_text = render_output_text_for_renderer(
+                            projected,
+                            lookup_member(output_members, "renderer"),
+                          )
+                          let normalized_base = if base_text.length() > 0 &&
+                            !base_text.has_suffix("\n") {
+                            base_text + "\n"
+                          } else {
+                            base_text
+                          }
+                          let text = normalized_base + suffix
+                          rewritten_output.push({
+                            name: output_member.name,
+                            value: StringValue(text),
+                            source: output_member.source,
+                            annotations: output_member.annotations,
+                          })
+                          rewritten = true
+                        }
+                        None => rewritten_output.push(output_member)
+                      }
+                    None => rewritten_output.push(output_member)
+                  }
+                } else {
+                  rewritten_output.push(output_member)
+                }
+              }
+              if rewritten {
+                finalized.push({
+                  name: field.name,
+                  value: ObjectValue(rewritten_output),
+                  source: field.source,
+                  annotations: field.annotations,
+                })
+              } else {
+                finalized.push(field)
+              }
+            }
+            _ => finalized.push(field)
+          }
+        } else {
+          finalized.push(field)
+        }
+      }
+      ObjectValue(finalized)
+    }
+    _ => value
+  }
+}
+
+///|
 fn value_or_top_level_deferred_diagnostic(
   value : Value,
   diagnostics : Array[Diagnostic],
@@ -4121,7 +4312,7 @@ fn eval_expr_with_bindings(
                                 if name == "module" {
                                   Some(
                                     reflect_module_class_properties(
-                                      bindings, cache,
+                                      bindings, cache, declarations,
                                     ),
                                   )
                                 } else {
@@ -4139,6 +4330,37 @@ fn eval_expr_with_bindings(
                             match reflect_reflectee_name(members) {
                               Some(name) =>
                                 Some(reflect_class_methods(name, declarations))
+                              None => None
+                            }
+                        }
+                      "allProperties" =>
+                        match lookup_member(members, member_name) {
+                          Some(value) => Some(value)
+                          None =>
+                            match reflect_reflectee_name(members) {
+                              Some(name) =>
+                                Some(
+                                  MapValue(
+                                    reflect_class_all_property_entries(
+                                      name,
+                                      declarations,
+                                      "",
+                                      None,
+                                      match
+                                        lookup_value(cache, "@__module_path") {
+                                        Some(StringValue(path)) => Some(path)
+                                        _ => None
+                                      },
+                                      match
+                                        lookup_value(cache, "@__module_source") {
+                                        Some(StringValue(source)) =>
+                                          Some(source)
+                                        _ => None
+                                      },
+                                      [],
+                                    ),
+                                  ),
+                                )
                               None => None
                             }
                         }
@@ -5943,6 +6165,7 @@ fn eval_expr_with_bindings(
               is_typed_method_name(method_name) ||
               is_semver_version_method_name(method_name) ||
               is_reflect_type_method_name(method_name) ||
+              method_name == "toString" ||
               method_name == "toUnit" ||
               method_name == "toBinaryUnit" ||
               method_name == "toDecimalUnit" ||
@@ -5965,7 +6188,9 @@ fn eval_expr_with_bindings(
                 // so we check that nested inside the ObjectValue arm
                 // before falling through to other lookups.
                 Some(ObjectValue(receiver_members)) =>
-                  if is_semver_version_method_name(method_name) &&
+                  if method_name == "toString" && arguments.length() == 0 {
+                    Some(StringValue(object_to_string_value(receiver_members)))
+                  } else if is_semver_version_method_name(method_name) &&
                     is_semver_value_members(receiver_members) {
                     eval_semver_version_method(
                       receiver_members, method_name, arguments, bindings, env, class_env,
@@ -11747,7 +11972,31 @@ fn resolve_object_super_member_value(
           }
         None => Some(value_member.value)
       }
-    None => None
+    None =>
+      if name == "text" &&
+        (
+          lookup_member(super_members, "renderer") is Some(_) ||
+          lookup_member(super_members, "value") is Some(_)
+        ) {
+        match
+          module_object_value_from_scope(
+            bindings,
+            env,
+            cache,
+            stack,
+            const_context=false,
+          ) {
+          ObjectValue(owner_members) =>
+            match synthesize_output_text_member(owner_members, super_members) {
+              ObjectValue(output_members) =>
+                lookup_member(output_members, "text")
+              _ => None
+            }
+          _ => None
+        }
+      } else {
+        None
+      }
   }
 }
 

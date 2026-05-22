@@ -744,6 +744,22 @@ test "PKL-119d: Map.map projects to a new MapValue" {
 }
 
 ///|
+test "PKL-119d: Map.mapKeys and mapValues project keys and values" {
+  guard eval_source(
+      "ks = Map(\"a\", 1).mapKeys((k, v) -> k + v.toString())\nvs = Map(\"a\", 1).mapValues((k, v) -> k.length + v)",
+    )
+    is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  guard members[0].value is MapValue(key_entries) else { panic() }
+  guard key_entries[0].key is StringValue(key) else { panic() }
+  inspect(key, content="a1")
+  guard members[1].value is MapValue(value_entries) else { panic() }
+  guard value_entries[0].value is IntValue(value) else { panic() }
+  inspect(value, content="2")
+}
+
+///|
 test "PKL-119d: Map.filter keeps the Map type" {
   guard eval_source("m = Map(\"a\", 1, \"b\", 2).filter((k, v) -> v > 1)")
     is EvalOk(ObjectValue(members)) else {
@@ -1463,6 +1479,149 @@ test "PKL-148c: reflect module surface handles modules without imports" {
     #|docNull = true
     #|isAmend = false
     #|selfImports = Map("reflect", "pkl:reflect")
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
+test "PKL-148c: reflect class allProperties merges inherited metadata" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:reflect"
+      #|class MyAnn extends Annotation
+      #|open class A {
+      #|  @MyAnn
+      #|  p: String
+      #|}
+      #|class B extends A {
+      #|  hidden fixed p: Int = 1
+      #|}
+      #|local prop = reflect.Class(B).allProperties["p"]
+      #|name = prop.name
+      #|typeName = prop.type.referent.name
+      #|annotations = prop.annotations.map((it) -> it.toString()).toListing()
+      #|allAnnotations = prop.allAnnotations.map((it) -> it.toString()).toListing()
+      #|modifiers = prop.modifiers.toListing()
+      #|allModifiers = prop.allModifiers.toListing()
+    ),
+  )
+  let expected =
+    #|name = "p"
+    #|typeName = "Int"
+    #|annotations {}
+    #|allAnnotations {
+    #|  "new MyAnn {}"
+    #|}
+    #|modifiers {
+    #|  "hidden"
+    #|  "fixed"
+    #|}
+    #|allModifiers {
+    #|  "hidden"
+    #|  "fixed"
+    #|}
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
+test "PKL-148c: reflect module class exposes output property metadata" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:reflect"
+      #|local prop = reflect.Class(module.getClass()).properties["output"]
+      #|name = prop.name
+      #|typeName = prop.type.name
+      #|modifiers = prop.modifiers.toListing()
+      #|allModifiers = prop.allModifiers.toListing()
+      #|output { text = "ok" }
+    ),
+  )
+  let expected =
+    #|name = "output"
+    #|typeName = "unknown"
+    #|modifiers {}
+    #|allModifiers {
+    #|  "hidden"
+    #|}
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
+test "PKL-148c: module output amend appends synthesized super text" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "base.pkl",
+    (
+      #|open module Base
+      #|output {
+      #|  renderer = new PcfRenderer {}
+      #|}
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|amends "base.pkl"
+      #|a = 1
+      #|output {
+      #|  text = super.text + "\n// tail"
+      #|}
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut output_value : Value? = None
+  for field in members {
+    if field.name == "output" {
+      output_value = Some(field.value)
+      break
+    }
+  }
+  guard output_value is Some(ObjectValue(output_members)) else { panic() }
+  let mut text_value : Value? = None
+  for field in output_members {
+    if field.name == "text" {
+      text_value = Some(field.value)
+      break
+    }
+  }
+  guard text_value is Some(StringValue(text)) else { panic() }
+  inspect(
+    text,
+    content=(
+      #|a = 1
+      #|
+      #|// tail
+    ),
+  )
+}
+
+///|
+test "PKL-148c: reflect type getters work from class defaults" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:reflect"
+      #|class A { p: String }
+      #|class DisplayProperty {
+      #|  hidden property: reflect.Property
+      #|  fixed type = property.type.getPropertyOrNull("referent")?.getPropertyOrNull("name") ?? "unknown"
+      #|}
+      #|x = new DisplayProperty { property = reflect.Class(A).allProperties["p"] }
+    ),
+  )
+  let expected =
+    #|x {
+    #|  type = "String"
+    #|}
   guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
   inspect(@pkl.render_value(value), content=expected)
 }

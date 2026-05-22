@@ -51,12 +51,50 @@ fn reflect_module_metadata_name() -> String {
 }
 
 ///|
+fn object_to_string_value(members : Array[ValueMember]) -> String {
+  match semver_to_string(members) {
+    Some(s) => return s
+    None => ()
+  }
+  match find_object_class_tag(members) {
+    Some(class_name) =>
+      match lookup_member(members, "__annotation_body_text") {
+        Some(StringValue(body)) => {
+          let trimmed = trim_spaces(body)
+          if trimmed == "" {
+            return "new \{class_name} {}"
+          }
+          return "new \{class_name} { \{trimmed} }"
+        }
+        _ => ()
+      }
+    None => ()
+  }
+  match reflect_kind(members) {
+    Some("Class") | Some("TypeAlias") =>
+      match lookup_member(members, hidden_member_name("__qualified_name")) {
+        Some(StringValue(s)) => return s
+        _ =>
+          match lookup_member(members, "name") {
+            Some(StringValue(s)) => return s
+            _ => return ""
+          }
+      }
+    _ => render_pcf_value_inline(ObjectValue(members))
+  }
+}
+
+///|
 fn reflect_type_value(name : String, type_arguments : Array[Value]) -> Value {
-  ObjectValue([
+  let members : Array[ValueMember] = [
     reflect_hidden_member("__kind", StringValue("Type")),
     reflect_member("name", StringValue(name)),
     reflect_member("typeArguments", ListValue(type_arguments)),
-  ])
+  ]
+  if is_stdlib_class_name(name) && name != "unknown" && name != "module" {
+    members.push(reflect_member("referent", synth_class_mirror_for_name(name)))
+  }
+  ObjectValue(members)
 }
 
 ///|
@@ -337,26 +375,53 @@ fn module_property_doc_comment_from_source(
   source : String,
   property_name : String,
 ) -> String? {
-  let tokens = tokenize(source)
-  let lines : Array[String] = []
-  for token in tokens {
-    if token.kind() == whitespace() || token.kind() == newline() {
-      continue
-    }
-    if token.kind() == comment() {
-      let text = token.text()
-      if text.has_prefix("///") && !text.has_prefix("////") {
-        lines.push(strip_doc_comment_line(text))
+  let lines = source.split("\n").collect()
+  for i = 0; i < lines.length(); i = i + 1 {
+    if line_declares_reflect_name(
+        lines[i].to_owned(),
+        property_name,
+        "property",
+      ) {
+      let docs : Array[String] = []
+      let mut in_block_comment = false
+      for j = i - 1; j >= 0; j = j - 1 {
+        let line = trim_spaces(lines[j].to_owned())
+        if in_block_comment {
+          if line.has_prefix("/*") {
+            in_block_comment = false
+          }
+          continue
+        }
+        if line == "" {
+          if docs.length() == 0 {
+            continue
+          }
+          break
+        }
+        if line.has_prefix("*/") {
+          in_block_comment = true
+          continue
+        }
+        if line.has_prefix("//") && !line.has_prefix("///") {
+          continue
+        }
+        if line.has_prefix("/*") {
+          continue
+        }
+        if docs.length() == 0 && line.has_prefix("@") {
+          continue
+        }
+        if line.has_prefix("///") && !line.has_prefix("////") {
+          docs.insert(0, strip_doc_comment_line(line))
+          continue
+        }
+        break
       }
-      continue
-    }
-    if token.kind() == identifier() && token.text() == property_name {
-      if lines.length() == 0 {
+      if docs.length() == 0 {
         return None
       }
-      return Some(join_doc_comment_lines(lines))
+      return Some(join_doc_comment_lines(docs))
     }
-    lines.clear()
   }
   None
 }
@@ -517,6 +582,45 @@ fn doc_comment_before_class_member(
       ordered.push(docs[k])
     }
     return Some(join_doc_comment_lines(ordered))
+  }
+  None
+}
+
+///|
+fn reflect_class_member_decl_line_from_source(
+  source : String?,
+  class_name : String,
+  member_name : String,
+  kind : String,
+) -> String? {
+  let text = match source {
+    Some(s) => s
+    None => return None
+  }
+  let lines = text.split("\n").collect()
+  let mut start = 0
+  let mut found_class = false
+  for i = 0; i < lines.length(); i = i + 1 {
+    if line_declares_reflect_name(lines[i].to_owned(), class_name, "class") {
+      start = i + 1
+      found_class = true
+      break
+    }
+  }
+  if !found_class {
+    return reflect_decl_line_from_source(source, member_name, kind)
+  }
+  for i = start; i < lines.length(); i = i + 1 {
+    let line = lines[i].to_owned()
+    if i > start && line_declares_reflect_name(line, "", "module") {
+      return None
+    }
+    if i > start && line_declares_reflect_name(line, "", "class") {
+      return None
+    }
+    if line_declares_reflect_name(line, member_name, kind) {
+      return Some(trim_spaces(line))
+    }
   }
   None
 }
@@ -685,6 +789,34 @@ fn reflect_decl_modifiers_from_source(
 }
 
 ///|
+fn reflect_class_member_modifiers_from_source(
+  source : String?,
+  class_name : String,
+  member_name : String,
+  kind : String,
+  hidden : Bool,
+  fixed : Bool,
+  const_ : Bool,
+  abstract_ : Bool,
+  open_ : Bool,
+) -> Value {
+  match
+    reflect_class_member_decl_line_from_source(
+      source, class_name, member_name, kind,
+    ) {
+    Some(line) =>
+      reflect_modifiers_value(
+        hidden || reflect_line_has_decl_modifier(line, "hidden"),
+        fixed || reflect_line_has_decl_modifier(line, "fixed"),
+        const_ || reflect_line_has_decl_modifier(line, "const"),
+        abstract_ || reflect_line_has_decl_modifier(line, "abstract"),
+        open_ || reflect_line_has_decl_modifier(line, "open"),
+      )
+    None => reflect_modifiers_value(hidden, fixed, const_, abstract_, open_)
+  }
+}
+
+///|
 fn reflect_qualified_decl_name(prefix : String, name : String) -> String {
   if prefix == "" || prefix == "module" {
     name
@@ -750,6 +882,12 @@ fn reflect_annotation_values(
       }
     }
     let members = reflect_parse_annotation_body(annotation)
+    members.push(
+      reflect_hidden_member(
+        "__annotation_body_text",
+        StringValue(trim_spaces(annotation.body_text)),
+      ),
+    )
     values.push(ObjectValue(tag_object_with_class(members, class_name)))
   }
   ListValue(values)
@@ -928,13 +1066,65 @@ fn reflect_type_from_annotation_text(
 }
 
 ///|
-fn reflect_property_metadata_object(
+fn reflect_annotation_value_list_concat(left : Value, right : Value) -> Value {
+  let values : Array[Value] = []
+  match left {
+    ListValue(xs) | ListingValue(xs) =>
+      for x in xs {
+        values.push(x)
+      }
+    _ => ()
+  }
+  match right {
+    ListValue(xs) | ListingValue(xs) =>
+      for x in xs {
+        values.push(x)
+      }
+    _ => ()
+  }
+  ListValue(values)
+}
+
+///|
+fn reflect_modifier_value_has(value : Value, name : String) -> Bool {
+  match value {
+    SetValue(xs) | ListingValue(xs) | ListValue(xs) =>
+      for x in xs {
+        if x == StringValue(name) {
+          return true
+        }
+      }
+    _ => ()
+  }
+  false
+}
+
+///|
+fn reflect_modifier_values_merge(left : Value, right : Value) -> Value {
+  reflect_modifiers_value(
+    reflect_modifier_value_has(left, "hidden") ||
+    reflect_modifier_value_has(right, "hidden"),
+    reflect_modifier_value_has(left, "fixed") ||
+    reflect_modifier_value_has(right, "fixed"),
+    reflect_modifier_value_has(left, "const") ||
+    reflect_modifier_value_has(right, "const"),
+    reflect_modifier_value_has(left, "abstract") ||
+    reflect_modifier_value_has(right, "abstract"),
+    reflect_modifier_value_has(left, "open") ||
+    reflect_modifier_value_has(right, "open"),
+  )
+}
+
+///|
+fn reflect_property_metadata_object_with_values(
   name : String,
   type_name : String?,
   default_value : Value?,
-  annotations : Array[Annotation],
+  annotations_value : Value,
+  all_annotations_value : Value,
   doc_comment : String?,
   modifiers : Value,
+  all_modifiers : Value,
   declarations : Array[Declaration],
   module_prefix : String,
   parent_module_prefix : String?,
@@ -944,20 +1134,10 @@ fn reflect_property_metadata_object(
   let members : Array[ValueMember] = [
     reflect_member("location", reflect_location_value(path)),
     reflect_member("docComment", reflect_doc_value(doc_comment)),
-    reflect_member(
-      "annotations",
-      reflect_annotation_values(
-        annotations, declarations, module_prefix, parent_module_prefix,
-      ),
-    ),
+    reflect_member("annotations", annotations_value),
     reflect_member("modifiers", modifiers),
-    reflect_member("allModifiers", modifiers),
-    reflect_member(
-      "allAnnotations",
-      reflect_annotation_values(
-        annotations, declarations, module_prefix, parent_module_prefix,
-      ),
-    ),
+    reflect_member("allModifiers", all_modifiers),
+    reflect_member("allAnnotations", all_annotations_value),
     reflect_member("name", StringValue(bare_name)),
     reflect_member(
       "type",
@@ -971,6 +1151,28 @@ fn reflect_property_metadata_object(
     None => members.push(reflect_member("defaultValue", NullValue))
   }
   ObjectValue(members)
+}
+
+///|
+fn reflect_property_metadata_object(
+  name : String,
+  type_name : String?,
+  default_value : Value?,
+  annotations : Array[Annotation],
+  doc_comment : String?,
+  modifiers : Value,
+  declarations : Array[Declaration],
+  module_prefix : String,
+  parent_module_prefix : String?,
+  path : String?,
+) -> Value {
+  let annotations_value = reflect_annotation_values(
+    annotations, declarations, module_prefix, parent_module_prefix,
+  )
+  reflect_property_metadata_object_with_values(
+    name, type_name, default_value, annotations_value, annotations_value, doc_comment,
+    modifiers, modifiers, declarations, module_prefix, parent_module_prefix, path,
+  )
 }
 
 ///|
@@ -1115,6 +1317,225 @@ fn reflect_class_parent_name(
 }
 
 ///|
+fn reflect_lookup_class_decl(
+  declarations : Array[Declaration],
+  name : String,
+) -> ClassDecl? {
+  let simple = if name.find("#") is Some(idx) {
+    String::unsafe_substring(name, start=idx + 1, end=name.length())
+  } else {
+    match name.rev_find(".") {
+      Some(idx) =>
+        String::unsafe_substring(name, start=idx + 1, end=name.length())
+      None => name
+    }
+  }
+  for declaration in declarations {
+    match declaration {
+      ClassDeclaration(class_decl) =>
+        if class_decl.name == simple {
+          return Some(class_decl)
+        }
+      _ => ()
+    }
+  }
+  None
+}
+
+///|
+fn reflect_class_decl_chain(
+  out : Array[ClassDecl],
+  class_name : String,
+  declarations : Array[Declaration],
+  seen : Array[String],
+) -> Unit {
+  if contains_string(seen, class_name) {
+    return
+  }
+  seen.push(class_name)
+  match reflect_lookup_class_decl(declarations, class_name) {
+    Some(class_decl) => {
+      match class_decl.parent_name {
+        Some(parent) =>
+          reflect_class_decl_chain(out, parent, declarations, seen)
+        None => ()
+      }
+      out.push(class_decl)
+    }
+    None => ()
+  }
+}
+
+///|
+fn reflect_property_default_value(
+  default_members : Array[ValueMember],
+  property_name : String,
+) -> Value? {
+  let bare_name = strip_member_visibility_prefix(property_name)
+  match lookup_value_member(default_members, bare_name) {
+    Some(value_member) => Some(value_member.value)
+    None =>
+      match lookup_value_member(default_members, property_name) {
+        Some(value_member) => Some(value_member.value)
+        None => None
+      }
+  }
+}
+
+///|
+fn reflect_entry_index(entries : Array[ValueEntry], key : Value) -> Int {
+  for i = 0; i < entries.length(); i = i + 1 {
+    if entries[i].key == key {
+      return i
+    }
+  }
+  -1
+}
+
+///|
+fn reflect_property_all_annotations_for_override(
+  direct_annotations : Value,
+  old_value : Value?,
+) -> Value {
+  match old_value {
+    Some(ObjectValue(old_members)) =>
+      match lookup_member(old_members, "allAnnotations") {
+        Some(previous) =>
+          reflect_annotation_value_list_concat(direct_annotations, previous)
+        None => direct_annotations
+      }
+    _ => direct_annotations
+  }
+}
+
+///|
+fn reflect_property_all_modifiers_for_override(
+  direct_modifiers : Value,
+  old_value : Value?,
+) -> Value {
+  match old_value {
+    Some(ObjectValue(old_members)) =>
+      match lookup_member(old_members, "allModifiers") {
+        Some(previous) =>
+          reflect_modifier_values_merge(direct_modifiers, previous)
+        None => direct_modifiers
+      }
+    _ => direct_modifiers
+  }
+}
+
+///|
+fn reflect_class_property_metadata_value(
+  class_decl : ClassDecl,
+  property : ClassProperty,
+  declarations : Array[Declaration],
+  module_prefix : String,
+  parent_module_prefix : String?,
+  path : String?,
+  source : String?,
+  default_members : Array[ValueMember],
+  all_annotations_value : Value,
+  all_modifiers_value : Value,
+) -> Value {
+  let bare_name = strip_member_visibility_prefix(property.name)
+  let modifiers = reflect_class_member_modifiers_from_source(
+    source,
+    class_decl.name,
+    bare_name,
+    "property",
+    is_hidden_member_name(property.name),
+    false,
+    false,
+    false,
+    false,
+  )
+  reflect_property_metadata_object_with_values(
+    property.name,
+    property.type_name,
+    reflect_property_default_value(default_members, property.name),
+    reflect_annotation_values(
+      property.annotations,
+      declarations,
+      module_prefix,
+      parent_module_prefix,
+    ),
+    all_annotations_value,
+    doc_comment_before_class_member(
+      source,
+      class_decl.name,
+      bare_name,
+      "property",
+    ),
+    modifiers,
+    all_modifiers_value,
+    declarations,
+    module_prefix,
+    parent_module_prefix,
+    path,
+  )
+}
+
+///|
+fn reflect_class_all_property_entries(
+  class_name : String,
+  declarations : Array[Declaration],
+  module_prefix : String,
+  parent_module_prefix : String?,
+  path : String?,
+  source : String?,
+  default_members : Array[ValueMember],
+) -> Array[ValueEntry] {
+  let chain : Array[ClassDecl] = []
+  reflect_class_decl_chain(chain, class_name, declarations, [])
+  let entries : Array[ValueEntry] = []
+  for class_decl in chain {
+    for property in class_decl.properties {
+      let bare_name = strip_member_visibility_prefix(property.name)
+      let key = StringValue(bare_name)
+      let direct_annotations = reflect_annotation_values(
+        property.annotations,
+        declarations,
+        module_prefix,
+        parent_module_prefix,
+      )
+      let direct_modifiers = reflect_class_member_modifiers_from_source(
+        source,
+        class_decl.name,
+        bare_name,
+        "property",
+        is_hidden_member_name(property.name),
+        false,
+        false,
+        false,
+        false,
+      )
+      let idx = reflect_entry_index(entries, key)
+      let old_value = if idx >= 0 { Some(entries[idx].value) } else { None }
+      let value = reflect_class_property_metadata_value(
+        class_decl,
+        property,
+        declarations,
+        module_prefix,
+        parent_module_prefix,
+        path,
+        source,
+        default_members,
+        reflect_property_all_annotations_for_override(
+          direct_annotations, old_value,
+        ),
+        reflect_property_all_modifiers_for_override(direct_modifiers, old_value),
+      )
+      if idx >= 0 {
+        entries[idx] = { key, value }
+      } else {
+        entries.push({ key, value })
+      }
+    }
+  }
+  entries
+}
+
+///|
 fn reflect_class_mirror_from_decl(
   class_decl : ClassDecl,
   declarations : Array[Declaration],
@@ -1136,8 +1557,9 @@ fn reflect_class_mirror_from_decl(
           None => None
         }
     }
-    let modifiers = reflect_decl_modifiers_from_source(
+    let modifiers = reflect_class_member_modifiers_from_source(
       source,
+      class_decl.name,
       bare_name,
       "property",
       is_hidden_member_name(property.name),
@@ -1186,6 +1608,15 @@ fn reflect_class_mirror_from_decl(
       ),
     })
   }
+  let all_property_entries = reflect_class_all_property_entries(
+    class_decl.name,
+    declarations,
+    module_prefix,
+    parent_module_prefix,
+    path,
+    source,
+    default_members,
+  )
   let parent_name = reflect_class_parent_name(
     class_decl, declarations, module_prefix, parent_module_prefix,
   )
@@ -1234,7 +1665,7 @@ fn reflect_class_mirror_from_decl(
     reflect_member("superclass", superclass),
     reflect_member("supertype", reflect_declared_type_value(superclass, [])),
     reflect_member("properties", MapValue(property_entries)),
-    reflect_member("allProperties", MapValue(property_entries)),
+    reflect_member("allProperties", MapValue(all_property_entries)),
     reflect_member("methods", MapValue(method_entries)),
     reflect_member("allMethods", MapValue(method_entries)),
   ])
@@ -1321,7 +1752,7 @@ fn reflect_module_property_entries(
 ) -> Array[ValueEntry] {
   let entries : Array[ValueEntry] = []
   for binding in bindings {
-    if !binding.exported || binding.name == "output" {
+    if !binding.exported {
       continue
     }
     let bare_name = strip_member_visibility_prefix(binding.name)
@@ -1333,24 +1764,44 @@ fn reflect_module_property_entries(
           None => None
         }
     }
+    let modifiers = reflect_decl_modifiers_from_source(
+      source,
+      bare_name,
+      "property",
+      is_hidden_member_name(binding.name),
+      false,
+      binding.is_const,
+      false,
+      false,
+    )
+    let all_modifiers = if bare_name == "output" {
+      reflect_modifier_values_merge(
+        modifiers,
+        reflect_modifiers_value(true, false, false, false, false),
+      )
+    } else {
+      modifiers
+    }
+    let annotations_value = reflect_annotation_values(
+      binding.annotations,
+      declarations,
+      module_prefix,
+      parent_module_prefix,
+    )
     entries.push({
       key: StringValue(bare_name),
-      value: reflect_property_metadata_object(
+      value: reflect_property_metadata_object_with_values(
         binding.name,
         binding.type_name,
         default_value,
-        binding.annotations,
-        doc_comment_before_reflect_decl(source, bare_name, "property"),
-        reflect_decl_modifiers_from_source(
-          source,
-          bare_name,
-          "property",
-          is_hidden_member_name(binding.name),
-          false,
-          binding.is_const,
-          false,
-          false,
-        ),
+        annotations_value,
+        annotations_value,
+        match source {
+          Some(text) => module_property_doc_comment_from_source(text, bare_name)
+          None => None
+        },
+        modifiers,
+        all_modifiers,
         declarations,
         module_prefix,
         parent_module_prefix,
@@ -1727,30 +2178,32 @@ fn reflect_property_object(
 fn reflect_module_class_properties(
   bindings : Array[Binding],
   cache : Array[ValueBinding],
+  declarations : Array[Declaration],
 ) -> Value {
   let source = match lookup_value(cache, "@__module_source") {
     Some(StringValue(text)) => Some(text)
     _ => None
   }
-  let entries : Array[ValueEntry] = []
-  for binding in bindings {
-    if !binding.exported || binding.name == "output" {
-      continue
-    }
-    let doc_comment = match source {
-      Some(text) => module_property_doc_comment_from_source(text, binding.name)
-      None => None
-    }
-    entries.push({
-      key: StringValue(binding.name),
-      value: reflect_property_object(
-        binding.name,
-        binding.type_name,
-        doc_comment,
-      ),
-    })
+  let path = match lookup_value(cache, "@__module_path") {
+    Some(StringValue(text)) => Some(text)
+    _ => None
   }
-  MappingValue(entries)
+  let module_name = match lookup_value(cache, "@__module_name") {
+    Some(StringValue(text)) => Some(text)
+    _ => None
+  }
+  let module_prefix = reflect_module_short_name(path, module_name)
+  MapValue(
+    reflect_module_property_entries(
+      bindings,
+      [],
+      declarations,
+      module_prefix,
+      None,
+      path,
+      source,
+    ),
+  )
 }
 
 ///|

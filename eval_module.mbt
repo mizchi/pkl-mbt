@@ -1399,10 +1399,11 @@ fn eval_program(
   // ObjectValue carries its source class.
   match result {
     Some(value) => {
-      let converters = collect_path_converters(value)
-      let class_converters = collect_class_converters(value)
+      let finalized_value = finalize_output_super_text(value)
+      let converters = collect_path_converters(finalized_value)
+      let class_converters = collect_class_converters(finalized_value)
       let property_transformers = collect_convert_property_transformers(
-        value,
+        finalized_value,
         bindings,
         env,
         class_env,
@@ -1411,8 +1412,8 @@ fn eval_program(
         diagnostics,
         resolve_import,
       )
-      let renderer_value = collect_output_renderer(value)
-      let mut current = value
+      let renderer_value = collect_output_renderer(finalized_value)
+      let mut current = finalized_value
       if property_transformers.length() > 0 ||
         value_has_member_annotations(current) {
         current = apply_convert_property_transformers(
