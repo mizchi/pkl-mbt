@@ -1619,6 +1619,59 @@ test "PKL-148c: module relativePathTo returns descendant path segments" {
 }
 
 ///|
+test "PKL-153: dynamic resource reader services read() on demand" {
+  reset_sandbox_io_cache()
+  clear_sandbox_resource_readers()
+  configure_sandbox_resource_reader("cmd", fn(uri) {
+    Some({
+      uri,
+      resource_uri: uri,
+      text: "cmd-output:\{uri}",
+    })
+  })
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|local r = read("cmd:ls /tmp")
+      #|uri = r.uri
+      #|text = r.text
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let expected =
+    #|uri = "cmd:ls /tmp"
+    #|text = "cmd-output:cmd:ls /tmp"
+  inspect(@pkl.render_value(value), content=expected)
+  clear_sandbox_resource_readers()
+  reset_sandbox_io_cache()
+}
+
+///|
+test "PKL-153: resource reader returning None falls through to not-found diagnostic" {
+  reset_sandbox_io_cache()
+  clear_sandbox_resource_readers()
+  configure_sandbox_resource_reader("http", fn(_uri) { None })
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|x = read("http://example.com/missing").text
+    ),
+  )
+  match session.eval_path("main.pkl") {
+    EvalOk(_) => panic()
+    EvalError(diagnostics) =>
+      inspect(
+        diagnostics[0].message,
+        content="Cannot find resource `http://example.com/missing`.",
+      )
+  }
+  clear_sandbox_resource_readers()
+  reset_sandbox_io_cache()
+}
+
+///|
 test "PKL-152: read Resource exposes bytes and digest properties" {
   reset_sandbox_io_cache()
   register_read_resource(

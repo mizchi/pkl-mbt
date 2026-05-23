@@ -814,15 +814,45 @@ fn eval_read_uri(
           Some(path) =>
             match sandbox_lookup_read_resource(path, uri) {
               Some(resource) => Some(sandbox_resource_value(resource))
+              None =>
+                // PKL-153: fall through to the dynamic resource-reader
+                // registry before refusing. Embedded callers register
+                // `configure_sandbox_resource_reader("cmd", fn)` and
+                // similar to service `read("cmd:...")` /
+                // `read("http:...")` etc. The static
+                // `register_read_resource` path still wins (matches
+                // the existing pre-registered cache), so this is purely
+                // an on-demand fallback.
+                match sandbox_dynamic_resource_reader(scheme) {
+                  Some(reader) =>
+                    match reader(uri) {
+                      Some(resource) => Some(sandbox_resource_value(resource))
+                      None => {
+                        diagnostics.push(diag(read_resource_not_found_message(uri)))
+                        None
+                      }
+                    }
+                  None => {
+                    diagnostics.push(diag(read_resource_refused_message(uri)))
+                    None
+                  }
+                }
+            }
+          None =>
+            match sandbox_dynamic_resource_reader(scheme) {
+              Some(reader) =>
+                match reader(uri) {
+                  Some(resource) => Some(sandbox_resource_value(resource))
+                  None => {
+                    diagnostics.push(diag(read_resource_not_found_message(uri)))
+                    None
+                  }
+                }
               None => {
                 diagnostics.push(diag(read_resource_refused_message(uri)))
                 None
               }
             }
-          None => {
-            diagnostics.push(diag(read_resource_refused_message(uri)))
-            None
-          }
         }
       }
     }

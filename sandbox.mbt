@@ -63,6 +63,15 @@ priv struct SandboxConfig {
   // result (even None) so subsequent calls are O(1).
   mut stdlib_base_resolved : Bool
   mut stdlib_base_loader : (() -> String?)?
+  // PKL-153: dynamic resource readers registered by embedded callers.
+  // Keyed by scheme (no trailing `:`), the closure is invoked when
+  // `read("scheme:path")` is evaluated and the static
+  // `read_resources` map has no entry. Returning `None` falls back
+  // to the existing "Cannot find / refusing resource" diagnostic.
+  // Apple Pkl's `--external-resource-reader=<scheme>=<bin>` is the
+  // CLI-side equivalent; this hook lets pkfire / pkspec embed mpkl
+  // and serve `cmd:` / `http:` / arbitrary-scheme reads in-process.
+  mut resource_readers : Map[String, (String) -> SandboxResource?]
 }
 
 ///|
@@ -90,6 +99,7 @@ let sandbox_config : SandboxConfig = {
   stdlib_base_source: None,
   stdlib_base_resolved: false,
   stdlib_base_loader: None,
+  resource_readers: Map([], capacity=4),
 }
 
 ///|
@@ -481,6 +491,35 @@ pub fn register_module_alias(raw : String, resolved : String) -> Unit {
 ///|
 pub fn sandbox_module_alias(raw : String) -> String? {
   sandbox_config.module_aliases.get(raw)
+}
+
+///|
+/// Register a dynamic resource reader for `scheme:` URIs. The reader
+/// is invoked the first time `read("<scheme>:<path>")` misses the
+/// static `read_resources` map. Returning `None` falls back to the
+/// "Cannot find / refusing" diagnostic. Re-registering for the same
+/// scheme replaces the prior reader. Pass the bare scheme (no
+/// trailing colon) — `configure_sandbox_resource_reader("cmd", fn)`
+/// services `read("cmd:ls")` etc.
+pub fn configure_sandbox_resource_reader(
+  scheme : String,
+  reader : (String) -> SandboxResource?,
+) -> Unit {
+  sandbox_config.resource_readers[scheme] = reader
+}
+
+///|
+/// Drop all dynamic resource readers. Useful for embedded callers that
+/// share a sandbox across runs.
+pub fn clear_sandbox_resource_readers() -> Unit {
+  sandbox_config.resource_readers = Map([], capacity=4)
+}
+
+///|
+fn sandbox_dynamic_resource_reader(
+  scheme : String,
+) -> ((String) -> SandboxResource?)? {
+  sandbox_config.resource_readers.get(scheme)
 }
 
 ///|
