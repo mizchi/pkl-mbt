@@ -6494,43 +6494,28 @@ fn eval_expr_with_bindings(
                         Some(StringValue(source_text)) => {
                           let use_mapping = parser_use_mapping(receiver_members)
                           let yaml_mode = parser_mode(receiver_members)
-                          // PKL-153c: `? <seq>\n: <val>` explicit-key
-                          // mapping entries can't flow through the
-                          // upstream lib (which only accepts string
-                          // keys); handle the single-entry form
-                          // directly so Apple Pkl's `yamlParser1*`
-                          // complex-mapping-key fixture gold-matches.
-                          let _ = use_mapping
-                          if yaml_mode == "1.2" && method_name == "parse" {
-                            match yaml_v12_try_complex_key_doc(source_text) {
-                              Some(value) =>
-                                return Some(
-                                  apply_parser_converters(
-                                    value,
-                                    receiver_members,
-                                    true,
-                                    bindings,
-                                    env,
-                                    class_env,
-                                    cache,
-                                    declarations,
-                                    diagnostics,
-                                    resolve_import,
-                                  ),
-                                )
-                              None => ()
-                            }
-                          }
                           try {
                             let yaml_source = normalize_yaml_folded_block_chomping(
                               source_text,
                             )
+                            // PKL-153d: explicit-key `? <key>\n: <val>`
+                            // entries can't ride through `Map[String,
+                            // Yaml]`. Rewrite them to sentinel-prefixed
+                            // string keys regardless of mode; the
+                            // post-projection step in
+                            // `yaml_to_value_with_aliases` decodes the
+                            // sentinel back into the original Pkl
+                            // value. Cheap: when the source has no `?`
+                            // line the rewrite is a near-identity.
+                            let complex_rewritten = yaml_v12_rewrite_complex_keys(
+                              yaml_source,
+                            )
                             let prepared_source = if yaml_mode == "1.2" {
                               yaml_v12_rewrite_tags(
-                                yaml_v12_source_rewrite(yaml_source),
+                                yaml_v12_source_rewrite(complex_rewritten),
                               )
                             } else {
-                              yaml_source
+                              complex_rewritten
                             }
                             let raw_docs = @yaml.Yaml::load_from_string(
                               prepared_source[:],
@@ -10727,6 +10712,9 @@ fn eval_value_renderer_method(
           let is_stream = renderer_bool_option(
             renderer_members, "isStream", false,
           )
+          let yaml_render_mode = xml_renderer_option(
+            renderer_members, "mode", "compat",
+          )
           if is_stream && method_name == "renderDocument" {
             match
               yaml_stream_top_level_error(rendered_value, class_env, cache) {
@@ -10740,16 +10728,16 @@ fn eval_value_renderer_method(
           if method_name == "renderDocument" {
             Some(
               StringValue(
-                render_value_as_yaml_with_options(
-                  rendered_value, indent_width, is_stream,
+                render_value_as_yaml_with_mode(
+                  rendered_value, indent_width, is_stream, yaml_render_mode,
                 ),
               ),
             )
           } else {
             Some(
               StringValue(
-                render_value_as_yaml_fragment_with_options(
-                  rendered_value, indent_width, false,
+                render_value_as_yaml_fragment_with_mode(
+                  rendered_value, indent_width, false, yaml_render_mode,
                 ),
               ),
             )

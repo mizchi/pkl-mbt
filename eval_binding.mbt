@@ -454,7 +454,19 @@ fn resolve_binding_value(
             match lookup_class_binding(class_env, class_name) {
               Some(_) => TypedObjectLiteral(class_name, members)
               None =>
-                if class_name.contains(".") ||
+                if is_stdlib_class_name(class_name) {
+                  // PKL-153e: stdlib classes (YamlRenderer / PcfRenderer
+                  // / JsonRenderer / ...) aren't `class_env` bindings
+                  // but Apple Pkl still routes the typed annotation
+                  // through their class. Tag the literal so renderer
+                  // dispatch (`renderer_format_from_members`) and the
+                  // class-mirror surface see the right class identity
+                  // — without this, `hidden r: YamlRenderer = new { ...
+                  // }` leaves the value as a bare Dynamic and
+                  // `r.renderValue(...)` reports "Expected value of
+                  // type YamlRenderer".
+                  TypedObjectLiteral(class_name, members)
+                } else if class_name.contains(".") ||
                   class_name.contains("<") ||
                   class_name.contains("(") ||
                   class_name.contains("?") {

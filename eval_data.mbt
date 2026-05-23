@@ -461,28 +461,49 @@ fn yaml_to_value_with_aliases(
           elements.push(StringValue(k))
         }
         ListingValue(elements)
-      } else if use_mapping {
-        let entries : Array[ValueEntry] = []
-        for k, v in map {
-          entries.push({
-            key: StringValue(k),
-            value: yaml_to_value_with_aliases(v, true, refs),
-          })
-        }
-        MappingValue(entries)
       } else {
-        let members : Array[ValueMember] = []
-        for k, v in map {
-          members.push({
-            name: k,
-            value: yaml_to_value_with_aliases(v, false, refs),
-            source: None,
-            annotations: [],
-          })
+        // PKL-153d: a YAML map may contain explicit-key entries that
+        // we pre-rewrote into sentinel string keys. If any entry's
+        // raw key carries the sentinel prefix we project the WHOLE
+        // map as a `MappingValue` (since `ObjectValue` member names
+        // can't hold non-string keys), decoding each sentinel back
+        // into the original value.
+        let mut has_complex = false
+        for k, _ in map {
+          if yaml_v12_try_decode_complex_key(k, refs, use_mapping)
+            is Some(_) {
+            has_complex = true
+            break
+          }
         }
-        ObjectValue(
-          attach_yaml_alias_member(members, yaml_map_alias_id(refs, map)),
-        )
+        if use_mapping || has_complex {
+          let entries : Array[ValueEntry] = []
+          for k, v in map {
+            let key_value = match
+              yaml_v12_try_decode_complex_key(k, refs, use_mapping) {
+              Some(decoded) => decoded
+              None => StringValue(k)
+            }
+            entries.push({
+              key: key_value,
+              value: yaml_to_value_with_aliases(v, use_mapping, refs),
+            })
+          }
+          MappingValue(entries)
+        } else {
+          let members : Array[ValueMember] = []
+          for k, v in map {
+            members.push({
+              name: k,
+              value: yaml_to_value_with_aliases(v, false, refs),
+              source: None,
+              annotations: [],
+            })
+          }
+          ObjectValue(
+            attach_yaml_alias_member(members, yaml_map_alias_id(refs, map)),
+          )
+        }
       }
     BadValue => NullValue
   }

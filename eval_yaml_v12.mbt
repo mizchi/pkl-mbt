@@ -48,6 +48,12 @@ fn yaml_v12_source_rewrite(source : String) -> String {
 ///   - `0b...`, `[-+]0b...`        (binary, 1.1 only)
 ///   - `[-+]0o...`, `[-+]0x...`    (signed octal/hex, 1.1 only)
 ///   - `..._...`                   (underscore-grouped numerics, 1.1 only)
+///
+/// Restricted to "looks like a plain numeric token": no whitespace
+/// and no YAML structural characters (`:`, `,`, `[`, `]`, `{`, `}`,
+/// `"`, `\``, `#`). Without this guard the matcher fires on
+/// multi-line documents with embedded underscores + digits and
+/// inadvertently wraps the whole document as a quoted scalar.
 fn is_v12_string_only_scalar(text : String) -> Bool {
   let len = text.length()
   if len == 0 || text == "_" {
@@ -56,6 +62,10 @@ fn is_v12_string_only_scalar(text : String) -> Bool {
   let mut has_underscore = false
   let mut has_digit = false
   for c in text {
+    if c is (' ' | '\t' | '\n' | '\r' | ':' | ',' | '[' | ']' | '{' | '}'
+      | '"' | '\'' | '#') {
+      return false
+    }
     if c == '_' {
       has_underscore = true
     } else if c is '0'..='9' {
@@ -630,125 +640,15 @@ fn extract_yaml_scalar_after(
 }
 
 ///|
-/// Detect Apple Pkl's "explicit key with non-string key" pattern
-/// (`? <seq>\n: <val>`) and, when present, project the whole
-/// document into a Pkl `MappingValue` with the parsed key and
-/// value. Returns `None` when the source doesn't match the
-/// pattern so the regular parse path continues. Today this only
-/// targets the single-entry shape that `yamlParser1*`'s "complex
-/// mapping key" fixture stresses — the upstream lib's `Map[String,
-/// Yaml]` doesn't let us route this through the standard projection.
-fn yaml_v12_try_complex_key_doc(source : String) -> Value? {
-  let lines = split_lines_for_block_detect(source)
-  if lines.length() < 3 {
-    return None
-  }
-  // Locate `? `-prefixed line and the matching `: ` line.
-  let mut key_start : Int = -1
-  let mut value_start : Int = -1
-  let mut indent_target : Int = -1
-  for i = 0; i < lines.length(); i = i + 1 {
-    let line = lines[i]
-    let line_indent = leading_space_count(line)
-    let body = String::unsafe_substring(line, start=line_indent, end=line.length())
-    if key_start < 0 {
-      // Looking for the `? ` start.
-      if body.length() >= 2 && body[0] == '?' && body[1] is (' ' | '\t') {
-        key_start = i
-        indent_target = line_indent
-      }
-    } else if value_start < 0 && line_indent == indent_target {
-      if body.length() >= 2 && body[0] == ':' && body[1] is (' ' | '\t') {
-        value_start = i
-        break
-      }
-    }
-  }
-  if key_start < 0 || value_start < 0 || value_start <= key_start {
-    return None
-  }
-  // Reject doc if other top-level entries exist beyond the single
-  // `?: ` pair — Apple Pkl's fixture has just the one entry; mixing
-  // it with regular keys here would require a deeper rewrite.
-  for i = 0; i < lines.length(); i = i + 1 {
-    if i == key_start || i == value_start {
-      continue
-    }
-    let line = lines[i]
-    let line_indent = leading_space_count(line)
-    if line_indent != indent_target {
-      continue
-    }
-    let trimmed = trim_yaml_ws_v12(line)
-    if trimmed == "" {
-      continue
-    }
-    // A bare top-level key at the marker indent we don't recognise
-    // → bail out.
-    return None
-  }
-  // Reassemble the key block: `? <first>` becomes `<first>` and the
-  // following lines preserve their original indent but get the `?`
-  // prefix peeled. The block ends at the `: ` line.
-  let key_buf = StringBuilder::new()
-  let first_key_line = lines[key_start]
-  let first_indent = leading_space_count(first_key_line)
-  if first_key_line.length() > first_indent + 2 {
-    key_buf.write_string(
-      String::unsafe_substring(
-        first_key_line, start=first_indent + 2, end=first_key_line.length(),
-      ),
-    )
-  }
-  for i = key_start + 1; i < value_start; i = i + 1 {
-    key_buf.write_char('\n')
-    let line = lines[i]
-    let li = leading_space_count(line)
-    let body_start = if li >= first_indent + 2 { first_indent + 2 } else { li }
-    key_buf.write_string(
-      String::unsafe_substring(line, start=body_start, end=line.length()),
-    )
-  }
-  // Value: everything after `: ` on the value line plus all
-  // subsequent lines verbatim. Trim trailing whitespace lines so
-  // upstream doesn't add a phantom trailing empty document.
-  let val_buf = StringBuilder::new()
-  let value_line = lines[value_start]
-  let vi = leading_space_count(value_line)
-  if value_line.length() > vi + 2 {
-    val_buf.write_string(
-      String::unsafe_substring(
-        value_line, start=vi + 2, end=value_line.length(),
-      ),
-    )
-  }
-  for i = value_start + 1; i < lines.length(); i = i + 1 {
-    val_buf.write_char('\n')
-    val_buf.write_string(lines[i])
-  }
-  let key_source = key_buf.to_string()
-  let val_source = val_buf.to_string()
-  let key_doc = try? @yaml.Yaml::load_from_string(key_source[:])
-  let val_doc = try? @yaml.Yaml::load_from_string(val_source[:])
-  match (key_doc, val_doc) {
-    (Ok(key_docs), Ok(val_docs)) => {
-      if key_docs.length() == 0 || val_docs.length() == 0 {
-        return None
-      }
-      let alias_refs : YamlAliasRefs = {
-        array_refs: [], map_refs: [], next_id: 1L,
-      }
-      let key_value = yaml_to_value_with_aliases(
-        key_docs[0], false, alias_refs,
-      )
-      let val_value = yaml_to_value_with_aliases(
-        val_docs[0], false, alias_refs,
-      )
-      Some(MappingValue([{ key: key_value, value: val_value }]))
-    }
-    _ => None
-  }
-}
+/// Sentinel prefix for a YAML mapping entry whose key was originally
+/// expressed with the `? <complex-key>` syntax. The upstream loader
+/// can't carry non-string keys through its `Map[String, Yaml]`, so
+/// `yaml_v12_extract_complex_keys` rewrites each such entry to a
+/// string key beginning with this prefix and carrying the original
+/// key as an embedded YAML scalar. `yaml_to_value_with_aliases`
+/// recognises the prefix and reconstructs the complex key on the
+/// way out (see `yaml_v12_try_decode_complex_key`).
+let yaml_v12_complex_key_prefix : String = "\u{001f}PKL_KEY:"
 
 ///|
 fn leading_space_count(line : String) -> Int {
@@ -766,6 +666,169 @@ fn yaml_v12_map_is_set(m : Map[String, @yaml.Yaml]) -> Bool {
   match m.get(yaml_v12_set_marker_member) {
     Some(@yaml.Yaml::String(s)) => s == yaml_v12_set_sentinel
     _ => false
+  }
+}
+
+///|
+/// Pre-process the YAML source so `? <key>\n: <val>` explicit-key
+/// entries become string-keyed sentinel entries that the upstream
+/// loader accepts. The original key block YAML is base64-encoded
+/// into the key so `yaml_v12_try_decode_complex_key` can recover
+/// it when projecting back to a Pkl value.
+///
+/// Returns the rewritten source. Lines that don't match the
+/// explicit-key form pass through unchanged so this is a no-op for
+/// the vast majority of YAML inputs.
+fn yaml_v12_rewrite_complex_keys(source : String) -> String {
+  let lines = split_lines_for_block_detect(source)
+  let out = StringBuilder::new()
+  let mut i = 0
+  let mut first = true
+  while i < lines.length() {
+    let line = lines[i]
+    let indent = leading_space_count(line)
+    let body_start = indent
+    let body = String::unsafe_substring(
+      line, start=body_start, end=line.length(),
+    )
+    if body.length() >= 2 && body[0] == '?' && body[1] is (' ' | '\t') {
+      // Collect lines belonging to the key block: the rest of this
+      // line (after `? `), plus continuation lines that are indented
+      // strictly more than `indent`. The key block terminates at the
+      // matching `: ` line at the same indent (`indent` again).
+      let key_buf = StringBuilder::new()
+      // First line of the key block: everything after `? `.
+      if line.length() > body_start + 2 {
+        key_buf.write_string(
+          String::unsafe_substring(
+            line, start=body_start + 2, end=line.length(),
+          ),
+        )
+      }
+      let mut j = i + 1
+      let mut value_line : Int = -1
+      while j < lines.length() {
+        let lj = lines[j]
+        let li = leading_space_count(lj)
+        let bj = String::unsafe_substring(lj, start=li, end=lj.length())
+        if li == indent &&
+          bj.length() >= 1 &&
+          bj[0] == ':' &&
+          (bj.length() == 1 || bj[1] is (' ' | '\t')) {
+          value_line = j
+          break
+        }
+        if li > indent || trim_yaml_ws_v12(lj) == "" {
+          key_buf.write_char('\n')
+          // Dedent the key block by `body_start + 2` so the captured
+          // text is a standalone YAML document. If the line wasn't
+          // indented that far (e.g. blank line), take it as-is.
+          let dedent = body_start + 2
+          if li >= dedent {
+            key_buf.write_string(
+              String::unsafe_substring(lj, start=dedent, end=lj.length()),
+            )
+          } else {
+            key_buf.write_string(lj)
+          }
+          j = j + 1
+        } else {
+          // Same / less indent, not the `: ` line — no matching `:`,
+          // give up on this entry. Emit the original lines verbatim.
+          break
+        }
+      }
+      if value_line < 0 {
+        // Didn't find matching `: ` — emit the lines we consumed
+        // verbatim and fall through to the upstream loader.
+        if !first {
+          out.write_char('\n')
+        }
+        first = false
+        out.write_string(line)
+        i = i + 1
+        continue
+      }
+      // Build the sentinel-key entry. Reuse the value-line's body
+      // after the `:`. Use a base64 encoding of the key YAML so the
+      // result is safe to embed as a double-quoted scalar.
+      let key_yaml = key_buf.to_string()
+      let key_bytes = string_to_bytes_for_b64(key_yaml)
+      let encoded = @base64.encode(key_bytes[:])
+      let sentinel_key = yaml_v12_complex_key_prefix + encoded
+      let vline = lines[value_line]
+      let vli = leading_space_count(vline)
+      let value_text = if vline.length() > vli + 2 {
+        String::unsafe_substring(vline, start=vli + 2, end=vline.length())
+      } else {
+        ""
+      }
+      if !first {
+        out.write_char('\n')
+      }
+      first = false
+      // Indent the synthesized line at the original indent so it
+      // remains a sibling of the explicit-key entry's neighbours.
+      for _ in 0..<indent {
+        out.write_char(' ')
+      }
+      out.write_char('"')
+      out.write_string(sentinel_key)
+      out.write_string("\": ")
+      out.write_string(value_text)
+      i = value_line + 1
+      continue
+    }
+    if !first {
+      out.write_char('\n')
+    }
+    first = false
+    out.write_string(line)
+    i = i + 1
+  }
+  out.to_string()
+}
+
+///|
+fn string_to_bytes_for_b64(s : String) -> Bytes {
+  // `@base64.encode` takes a Bytes view; encode the string's UTF-8
+  // byte representation so non-ASCII characters round-trip cleanly.
+  @utf8.encode(s)
+}
+
+///|
+/// When projecting a Pkl `MappingValue` from a YAML map, intercept
+/// entries whose key begins with `yaml_v12_complex_key_prefix` and
+/// rebuild the original key by base64-decoding the embedded YAML
+/// then re-parsing it through the upstream loader.
+fn yaml_v12_try_decode_complex_key(
+  encoded_key : String,
+  refs : YamlAliasRefs,
+  use_mapping : Bool,
+) -> Value? {
+  let prefix = yaml_v12_complex_key_prefix
+  if encoded_key.length() < prefix.length() {
+    return None
+  }
+  for i in 0..<prefix.length() {
+    if encoded_key[i] != prefix[i] {
+      return None
+    }
+  }
+  let payload = String::unsafe_substring(
+    encoded_key, start=prefix.length(), end=encoded_key.length(),
+  )
+  try {
+    let raw_bytes = @base64.decode(payload[:])
+    let key_yaml_text = @utf8.decode(raw_bytes[:])
+    let docs = @yaml.Yaml::load_from_string(key_yaml_text[:])
+    if docs.length() == 0 {
+      None
+    } else {
+      Some(yaml_to_value_with_aliases(docs[0], use_mapping, refs))
+    }
+  } catch {
+    _ => None
   }
 }
 

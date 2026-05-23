@@ -1,6 +1,57 @@
 ///|
+/// PKL-153e: yaml.Renderer's `mode = "1.2"` toggle. The renderer
+/// quoting decision walks string scalars and asks "could this round-
+/// trip as a non-string?". In compat mode the answer is yes for the
+/// full set of 1.1 + 1.2 patterns (`y`, `yes`, `0b1001`, `1_2_3`,
+/// base-60, etc.); in 1.2 mode it's narrowed to just what 1.2's
+/// core schema produces (`true/null/0o/0x/decimals/floats`). The
+/// renderer entry points stash the mode in `yaml_render_mode_ref`
+/// for `render_yaml_string` to consult — saves threading the
+/// parameter through every helper in the chain.
+let yaml_render_mode_ref : Ref[String] = { val: "compat" }
+
+///|
+fn yaml_render_mode_current() -> String {
+  yaml_render_mode_ref.val
+}
+
+///|
 pub fn render_value_as_yaml(value : Value) -> String {
   render_value_as_yaml_with_options(value, 2, false)
+}
+
+///|
+/// Mode-aware entry point used by the runtime renderer dispatch.
+/// External callers should prefer this when the YamlRenderer's
+/// `mode` slot matters; `render_value_as_yaml_with_options` keeps
+/// the historical default-"compat" behaviour intact.
+pub fn render_value_as_yaml_with_mode(
+  value : Value,
+  indent_width : Int,
+  is_stream : Bool,
+  mode : String,
+) -> String {
+  let prev = yaml_render_mode_ref.val
+  yaml_render_mode_ref.val = mode
+  let result = render_value_as_yaml_with_options(value, indent_width, is_stream)
+  yaml_render_mode_ref.val = prev
+  result
+}
+
+///|
+pub fn render_value_as_yaml_fragment_with_mode(
+  value : Value,
+  indent_width : Int,
+  is_stream : Bool,
+  mode : String,
+) -> String {
+  let prev = yaml_render_mode_ref.val
+  yaml_render_mode_ref.val = mode
+  let result = render_value_as_yaml_fragment_with_options(
+    value, indent_width, is_stream,
+  )
+  yaml_render_mode_ref.val = prev
+  result
 }
 
 ///|
@@ -836,6 +887,10 @@ fn yaml_string_needs_single_quote(s : String) -> Bool {
 
 ///|
 fn yaml_is_reserved_keyword(s : String) -> Bool {
+  // 1.2 core schema: only `true|false|null` (and `~` for null) are
+  // reserved scalars. 1.1 / compat additionally treat the y/yes/on
+  // boolean aliases as reserved.
+  let mode = yaml_render_mode_current()
   match s {
     "true"
     | "True"
@@ -846,60 +901,265 @@ fn yaml_is_reserved_keyword(s : String) -> Bool {
     | "null"
     | "Null"
     | "NULL"
-    | "~"
-    | "yes"
-    | "Yes"
-    | "YES"
-    | "no"
-    | "No"
-    | "NO"
-    | "on"
-    | "On"
-    | "ON"
-    | "off"
-    | "Off"
-    | "OFF" => true
-    _ => false
+    | "~" => true
+    _ =>
+      if mode == "1.2" {
+        false
+      } else {
+        match s {
+          "yes"
+          | "Yes"
+          | "YES"
+          | "no"
+          | "No"
+          | "NO"
+          | "on"
+          | "On"
+          | "ON"
+          | "off"
+          | "Off"
+          | "OFF"
+          | "y"
+          | "Y"
+          | "n"
+          | "N" => true
+          _ => false
+        }
+      }
   }
 }
 
 ///|
 fn yaml_looks_like_number(s : String) -> Bool {
-  // Recognize the common `[+-]?digits(.digits)?(e[+-]?digits)?` shape that
-  // YAML would otherwise parse as a number.
-  let mut idx = 0
-  let mut saw_digit = false
-  let mut saw_dot = false
-  let mut saw_exp = false
-  let chars : Array[Char] = []
-  for c in s {
-    chars.push(c)
+  let mode = yaml_render_mode_current()
+  if yaml_looks_like_number_v12(s) {
+    return true
   }
-  if chars.length() == 0 {
+  if mode == "1.2" {
+    return yaml_looks_like_special_float_v12(s)
+  }
+  // compat / 1.1 mode: also catch 1.1-only numeric forms so the
+  // renderer quotes them and a downstream parser doesn't
+  // re-interpret the string as a number.
+  if yaml_looks_like_special_float_v12(s) {
+    return true
+  }
+  yaml_looks_like_v11_only_number(s)
+}
+
+///|
+/// Matches the YAML 1.2 core-schema integer / float regex grammar.
+///   - decimal int: `[-+]?[0-9]+`
+///   - octal: `0o[0-7]+` (unsigned only)
+///   - hex: `0x[0-9a-fA-F]+` (unsigned only)
+///   - float: `[-+]? ( \.[0-9]+ | [0-9]+ (\.[0-9]*)? ) ( [eE] [-+]? [0-9]+ )?`
+fn yaml_looks_like_number_v12(s : String) -> Bool {
+  let len = s.length()
+  if len == 0 {
     return false
   }
-  if chars[idx] == '+' || chars[idx] == '-' {
+  if len >= 2 && s[0] == '0' && (s[1] == 'o' || s[1] == 'O') {
+    if len == 2 {
+      return false
+    }
+    for i in 2..<len {
+      if !(s[i] is '0'..='7') {
+        return false
+      }
+    }
+    return true
+  }
+  if len >= 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X') {
+    if len == 2 {
+      return false
+    }
+    for i in 2..<len {
+      let c = s[i]
+      if !(c is '0'..='9' || c is 'a'..='f' || c is 'A'..='F') {
+        return false
+      }
+    }
+    return true
+  }
+  let mut idx = 0
+  if s[idx] == '+' || s[idx] == '-' {
     idx = idx + 1
   }
-  while idx < chars.length() {
-    let c = chars[idx]
-    if c >= '0' && c <= '9' {
-      saw_digit = true
+  let int_start = idx
+  while idx < len && s[idx] is '0'..='9' {
+    idx = idx + 1
+  }
+  let int_len = idx - int_start
+  let mut saw_dot = false
+  if idx < len && s[idx] == '.' {
+    saw_dot = true
+    idx = idx + 1
+    let frac_start = idx
+    while idx < len && s[idx] is '0'..='9' {
       idx = idx + 1
-    } else if c == '.' && !saw_dot && !saw_exp {
-      saw_dot = true
+    }
+    if int_len == 0 && idx == frac_start {
+      return false
+    }
+  } else if int_len == 0 {
+    return false
+  }
+  let _ = saw_dot
+  if idx < len && (s[idx] == 'e' || s[idx] == 'E') {
+    idx = idx + 1
+    if idx < len && (s[idx] == '+' || s[idx] == '-') {
       idx = idx + 1
-    } else if (c == 'e' || c == 'E') && !saw_exp && saw_digit {
-      saw_exp = true
+    }
+    let exp_start = idx
+    while idx < len && s[idx] is '0'..='9' {
       idx = idx + 1
-      if idx < chars.length() && (chars[idx] == '+' || chars[idx] == '-') {
-        idx = idx + 1
-      }
-    } else {
+    }
+    if idx == exp_start {
       return false
     }
   }
-  saw_digit
+  idx == len
+}
+
+///|
+fn yaml_looks_like_special_float_v12(s : String) -> Bool {
+  match s {
+    ".inf"
+    | ".Inf"
+    | ".INF"
+    | "+.inf"
+    | "+.Inf"
+    | "+.INF"
+    | "-.inf"
+    | "-.Inf"
+    | "-.INF"
+    | ".nan"
+    | ".NaN"
+    | ".NAN" => true
+    _ => false
+  }
+}
+
+///|
+/// 1.1-only number-looking patterns that compat / 1.1 modes should
+/// still quote when they appear as YAML output strings:
+///   - binary `[-+]?0b[01]+`
+///   - signed octal / hex `[-+](0o[0-7]+|0x[0-9a-fA-F]+)`
+///   - base-60 `[-+]?[0-9]+(:[0-5]?[0-9])+(\.[0-9]*)?`
+///   - underscore-separated `[0-9]+(_[0-9]+)*` (with optional `.frac`)
+///   - bare leading `0` octal `0[0-7]+`
+fn yaml_looks_like_v11_only_number(s : String) -> Bool {
+  let len = s.length()
+  if len == 0 {
+    return false
+  }
+  // Underscored numerics.
+  let mut has_underscore = false
+  let mut has_digit = false
+  let mut nonnumeric = false
+  for c in s {
+    if c == '_' {
+      has_underscore = true
+    } else if c is '0'..='9' || c == '+' || c == '-' || c == '.' {
+      if c is '0'..='9' {
+        has_digit = true
+      }
+    } else {
+      nonnumeric = true
+    }
+  }
+  if has_underscore && has_digit && !nonnumeric {
+    return true
+  }
+  // Binary (0b...).
+  let mut idx = 0
+  if s[0] == '+' || s[0] == '-' {
+    idx = 1
+  }
+  if idx + 1 < len && s[idx] == '0' && (s[idx + 1] == 'b' || s[idx + 1] == 'B') {
+    let mut k = idx + 2
+    let mut bin_ok = k < len
+    while k < len {
+      if !(s[k] == '0' || s[k] == '1') {
+        bin_ok = false
+        break
+      }
+      k = k + 1
+    }
+    if bin_ok && k == len {
+      return true
+    }
+  }
+  // Signed `0o` / `0x` (1.1 only).
+  if (s[0] == '+' || s[0] == '-') &&
+    idx + 1 < len &&
+    s[idx] == '0' &&
+    (s[idx + 1] == 'o' || s[idx + 1] == 'x') {
+    return true
+  }
+  // Base-60 (`d+(:d+)+`).
+  if yaml_looks_like_base60(s) {
+    return true
+  }
+  // Bare leading-zero octal `0\d+` is treated as int by 1.1.
+  if s[0] == '0' &&
+    len >= 2 &&
+    s[1] is '0'..='9' &&
+    yaml_string_all_digits(s) {
+    return true
+  }
+  false
+}
+
+///|
+fn yaml_string_all_digits(s : String) -> Bool {
+  for c in s {
+    if !(c is '0'..='9') {
+      return false
+    }
+  }
+  true
+}
+
+///|
+fn yaml_looks_like_base60(s : String) -> Bool {
+  // Pattern: optional sign, digits, then one or more `:digits`
+  // groups, optionally followed by `.digits`. Used by YAML 1.1.
+  let len = s.length()
+  if len == 0 {
+    return false
+  }
+  let mut idx = 0
+  if s[idx] == '+' || s[idx] == '-' {
+    idx = idx + 1
+  }
+  let head_start = idx
+  while idx < len && s[idx] is '0'..='9' {
+    idx = idx + 1
+  }
+  if idx == head_start {
+    return false
+  }
+  if idx >= len || s[idx] != ':' {
+    return false
+  }
+  while idx < len && s[idx] == ':' {
+    idx = idx + 1
+    let group_start = idx
+    while idx < len && s[idx] is '0'..='9' {
+      idx = idx + 1
+    }
+    if idx == group_start {
+      return false
+    }
+  }
+  if idx < len && s[idx] == '.' {
+    idx = idx + 1
+    while idx < len && s[idx] is '0'..='9' {
+      idx = idx + 1
+    }
+  }
+  idx == len
 }
 
 ///|

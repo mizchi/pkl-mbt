@@ -64,6 +64,7 @@ GOLD_FIXTURES=(
   "api/yamlParser3"
   "api/yamlParser4"
   "api/yamlParser5"
+  "api/yamlParser6"
   "api/yamlRenderer4"
   "api/yamlRenderer5"
   "api/yamlRendererStream1"
@@ -489,6 +490,7 @@ eval_matches_gold_with_io() {
 # Fixtures whose `read*` / `env:` / `prop:` calls require the
 # controlled environment Apple Pkl's snippet runner sets up.
 IO_GOLD_FIXTURES=(
+  "basic/read"
   "basic/readGlob"
 )
 
