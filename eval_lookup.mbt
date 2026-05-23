@@ -160,7 +160,6 @@ fn reflect_class_factory_value(arg : Value) -> Value {
   }
 }
 
-///|
 fn reflect_type_alias_factory_value(arg : Value) -> Value {
   match arg {
     ObjectValue(members) =>
@@ -171,6 +170,114 @@ fn reflect_type_alias_factory_value(arg : Value) -> Value {
       }
     StringValue(name) => synth_type_alias_mirror_for_qualified(name, None)
     _ => synth_type_alias_mirror_for_qualified(eval_value_type_name(arg), None)
+  }
+}
+
+///|
+/// PKL-080: gold-shape TypeAlias mirror (matches Apple Pkl's reflect
+/// output). When `arg` is a TypeAlias-tagged mirror of a *user*
+/// typealias declared in the current module, build a full mirror
+/// with `{location, docComment, annotations, modifiers, name,
+/// typeParameters, referent}` — no `simpleName` / `reflectee` /
+/// `enclosingDeclaration` field, which the gold doesn't carry.
+/// Falls through to `reflect_type_alias_factory_value` for non-
+/// matching args so stdlib typealias references retain the minimal
+/// surface.
+fn reflect_type_alias_gold_factory(
+  arg : Value,
+  declarations : Array[Declaration],
+  cache : Array[ValueBinding],
+) -> Value {
+  let alias_name = match arg {
+    ObjectValue(members) =>
+      match lookup_member(members, "simpleName") {
+        Some(StringValue(s)) => Some(s)
+        _ => None
+      }
+    _ => None
+  }
+  match alias_name {
+    Some(name) => {
+      for decl in declarations {
+        match decl {
+          TypeAliasDeclaration(alias_decl) =>
+            if alias_decl.name == name {
+              let path = match lookup_value(cache, "@__module_path") {
+                Some(StringValue(p)) => Some(p)
+                _ => None
+              }
+              let source = match lookup_value(cache, "@__module_source") {
+                Some(StringValue(s)) => Some(s)
+                _ => None
+              }
+              let module_name = match lookup_value(cache, "@__module_name") {
+                Some(StringValue(s)) => Some(s)
+                _ => None
+              }
+              let module_prefix = reflect_module_short_name(path, module_name)
+              return build_typealias_gold_mirror(
+                alias_decl, declarations, module_prefix, path, source,
+              )
+            }
+          _ => ()
+        }
+      }
+      reflect_type_alias_factory_value(arg)
+    }
+    None => reflect_type_alias_factory_value(arg)
+  }
+}
+
+///|
+/// PKL-080: gold-shape Class mirror for *user* classes — same
+/// `reflect_type_alias_gold_factory` story for classes. Stdlib
+/// classes (`Boolean`, `String`, ...) still pass through the
+/// minimal factory; the recursive expansion to full stdlib mirrors
+/// happens via the `StdlibReflectDb` machinery when the gold-shape
+/// builder reaches a stdlib reference inside the `referent` /
+/// `superclass` chain.
+fn reflect_class_gold_factory(
+  arg : Value,
+  declarations : Array[Declaration],
+  cache : Array[ValueBinding],
+) -> Value {
+  let class_name = match arg {
+    ObjectValue(members) =>
+      match lookup_member(members, "simpleName") {
+        Some(StringValue(s)) => Some(s)
+        _ => None
+      }
+    _ => None
+  }
+  match class_name {
+    Some(name) => {
+      for decl in declarations {
+        match decl {
+          ClassDeclaration(class_decl) =>
+            if class_decl.name == name {
+              let path = match lookup_value(cache, "@__module_path") {
+                Some(StringValue(p)) => Some(p)
+                _ => None
+              }
+              let source = match lookup_value(cache, "@__module_source") {
+                Some(StringValue(s)) => Some(s)
+                _ => None
+              }
+              let module_name = match lookup_value(cache, "@__module_name") {
+                Some(StringValue(s)) => Some(s)
+                _ => None
+              }
+              let module_prefix = reflect_module_short_name(path, module_name)
+              return build_class_gold_mirror(
+                class_decl, declarations, module_prefix, path, source,
+              )
+            }
+          _ => ()
+        }
+      }
+      reflect_class_factory_value(arg)
+    }
+    None => reflect_class_factory_value(arg)
   }
 }
 

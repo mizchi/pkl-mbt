@@ -905,7 +905,8 @@ fn eval_pkl_reflect_intrinsic(
         }
       }
     "_pkl_reflect_class" => Some(reflect_class_factory_value(arg))
-    "_pkl_reflect_type_alias" => Some(reflect_type_alias_factory_value(arg))
+    "_pkl_reflect_type_alias" =>
+      Some(reflect_type_alias_gold_factory(arg, declarations, cache))
     "_pkl_reflect_module" => Some(reflect_module_factory_value(arg))
     "_pkl_reflect_declared_type" => Some(reflect_declared_type_value(arg, []))
     "_pkl_reflect_union_type" =>

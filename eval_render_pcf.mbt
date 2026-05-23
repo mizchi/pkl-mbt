@@ -437,7 +437,16 @@ fn render_pcf_scalar_with_indent(
     BoolValue(true) => buf.write_string("true")
     BoolValue(false) => buf.write_string("false")
     StringValue(s) =>
-      render_pcf_string_value(s, indent, use_custom_string_delimiters, buf)
+      if pcf_bare_marker_text(s) is Some(text) {
+        // PKL-080: snippet-test runner's line / column placeholder
+        // (`X`, `XX`, `XXXX`) lands in PCF position as a *bare* token
+        // — Apple Pkl's gold has `line = X` without quotes. We tag
+        // such placeholders with a `\u{001f}BARE:` sentinel and emit
+        // the trailing text raw so the diff matches.
+        buf.write_string(text)
+      } else {
+        render_pcf_string_value(s, indent, use_custom_string_delimiters, buf)
+      }
     NullValue => buf.write_string("null")
     DeferredImportValue(_) => buf.write_string("new {}")
     FunctionValue(_, _, _, _, _) => buf.write_string("<function>")
@@ -572,6 +581,25 @@ fn render_pcf_inline(
         )
     }
   }
+}
+
+///|
+///|
+/// PKL-080: when a `StringValue` carries a `\u{001f}BARE:` prefix
+/// it's a snippet-test placeholder (`X` / `XX` / `XXXX` / etc.) that
+/// must render *unquoted* in PCF position so the snippet-test gold
+/// matches. Returns the bare text without the prefix when present.
+fn pcf_bare_marker_text(s : String) -> String? {
+  let prefix = "__PKL_BARE__:"
+  if s.length() < prefix.length() {
+    return None
+  }
+  for i in 0..<prefix.length() {
+    if s[i] != prefix[i] {
+      return None
+    }
+  }
+  Some(String::unsafe_substring(s, start=prefix.length(), end=s.length()))
 }
 
 ///|
@@ -995,7 +1023,13 @@ fn render_pcf_object_member(
     )
   } else if field.value is StringValue(s) {
     buf.write_string(" = ")
-    render_pcf_string_value(s, indent + 2, use_custom_string_delimiters, buf)
+    match pcf_bare_marker_text(s) {
+      Some(text) => buf.write_string(text)
+      None =>
+        render_pcf_string_value(
+          s, indent + 2, use_custom_string_delimiters, buf,
+        )
+    }
   } else {
     buf.write_string(" = ")
     render_pcf_scalar_with_indent(
