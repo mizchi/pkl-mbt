@@ -61,6 +61,7 @@ GOLD_FIXTURES=(
   "api/yamlRenderer2b"
   "api/reflect1"
   "api/renderDirective"
+  "api/renderDirective2"
   "api/yamlParser1Yaml12"
   "api/yamlParser2"
   "api/yamlParser3"

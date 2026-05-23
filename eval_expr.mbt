@@ -8678,12 +8678,75 @@ fn push_mixin_object_member(
   for i = 0; i < values.length(); i = i + 1 {
     if !is_invisible_member_name(values[i].name) &&
       values[i].name == value_member.name {
-      values[i] = value_member
+      // PKL-153h: Mixin `|>` should AMEND nested mappings / objects
+      // rather than replace them, so `renderer { converters { [Listing]
+      // = ... } } |> mixin { converters { [String] = ... } }` ends up
+      // with both keys in `converters`. Replace-style assignment was
+      // dropping the renderer-declared converter before the mixin's
+      // could be added (`api/renderDirective2` Properties branch).
+      let merged_value = mixin_merge_member_values(
+        values[i].value, value_member.value,
+      )
+      values[i] = {
+        name: value_member.name,
+        value: merged_value,
+        source: value_member.source,
+        annotations: value_member.annotations,
+      }
       return true
     }
   }
   values.push(value_member)
   true
+}
+
+///|
+/// PKL-153h: AMEND-merge two Mapping / Object values produced by the
+/// `target |> mixin` pipe. Scalars / lists / non-mapping objects fall
+/// back to the mixin value (replace) since Apple Pkl's semantics for
+/// non-merge-eligible shapes is "the right side wins".
+fn mixin_merge_member_values(left : Value, right : Value) -> Value {
+  match (left, right) {
+    (MappingValue(left_entries), MappingValue(right_entries))
+    | (DefaultedMappingValue(_, left_entries, _), MappingValue(right_entries))
+    | (MappingValue(left_entries), DefaultedMappingValue(_, right_entries, _))
+    | (
+        DefaultedMappingValue(_, left_entries, _),
+        DefaultedMappingValue(_, right_entries, _),
+      ) => {
+      let merged : Array[ValueEntry] = []
+      for entry in left_entries {
+        merged.push(entry)
+      }
+      for new_entry in right_entries {
+        let mut replaced = false
+        for i = 0; i < merged.length(); i = i + 1 {
+          if values_equal_for_mixin(merged[i].key, new_entry.key) {
+            merged[i] = new_entry
+            replaced = true
+            break
+          }
+        }
+        if !replaced {
+          merged.push(new_entry)
+        }
+      }
+      MappingValue(merged)
+    }
+    (ObjectValue(left_members), ObjectValue(right_members)) =>
+      ObjectValue(merge_value_members(left_members, right_members))
+    _ => right
+  }
+}
+
+///|
+fn values_equal_for_mixin(left : Value, right : Value) -> Bool {
+  match (left, right) {
+    (StringValue(a), StringValue(b)) => a == b
+    (IntValue(a), IntValue(b)) => a == b
+    (BoolValue(a), BoolValue(b)) => a == b
+    _ => false
+  }
 }
 
 ///|
