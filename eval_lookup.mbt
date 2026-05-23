@@ -713,13 +713,33 @@ fn build_reflect_source_index(text : String) -> ReflectSourceIndex {
   let class_member_line : Map[String, Int] = Map([], capacity=64)
   let module_decl_line : Map[String, Int] = Map([], capacity=64)
   let mut current_class : String? = None
+  // Brace depth INSIDE the current class body. Once the `class X {` line is
+  // seen we treat `{` / `}` outside string / comment / generic contexts as
+  // depth deltas; when depth drops back to zero on a `}` the scope ends
+  // and `current_class` resets. Without this the next sibling declaration
+  // (`typealias MyMap`, etc.) gets attributed to the previous class and
+  // its doc-comment lookup fails. (`api/reflect1`.)
+  let mut class_brace_depth = 0
   for i = 0; i < lines.length(); i = i + 1 {
     let line = lines[i]
-    match line_decl_info(line) {
+    let info = line_decl_info(line)
+    let (delta_open, delta_close) = count_braces_in_source_line(line)
+    let starts_class_body = info is Some(("class", _)) && delta_open > 0
+    // Apply class-scope brace tracking BEFORE processing the new decl
+    // so a closing-`}`-only line resets the scope first.
+    if current_class is Some(_) {
+      class_brace_depth = class_brace_depth + delta_open - delta_close
+      if class_brace_depth <= 0 && !starts_class_body {
+        current_class = None
+        class_brace_depth = 0
+      }
+    }
+    match info {
       Some((kind, name)) => {
         if kind == "module" {
           // `module foo` / `amends ...` / `extends ...` resets scope.
           current_class = None
+          class_brace_depth = 0
           let key = " " + kind
           if !module_decl_line.contains(key) {
             module_decl_line[key] = i
@@ -727,7 +747,14 @@ fn build_reflect_source_index(text : String) -> ReflectSourceIndex {
           continue
         }
         if kind == "class" {
-          current_class = Some(name)
+          if delta_open > 0 {
+            current_class = Some(name)
+            class_brace_depth = delta_open - delta_close
+            if class_brace_depth <= 0 {
+              current_class = None
+              class_brace_depth = 0
+            }
+          }
           let key = name + " " + kind
           if !module_decl_line.contains(key) {
             module_decl_line[key] = i
@@ -773,6 +800,69 @@ fn build_reflect_source_index(text : String) -> ReflectSourceIndex {
     }
   }
   { lines, class_member_line, module_decl_line }
+}
+
+///|
+/// Count `{` / `}` occurrences on `line`, skipping double-quoted
+/// strings, single-line comments, and the `<…>` generic brackets
+/// that appear in declarations like `typealias MyMap<V> = …`.
+/// Returns `(open_count, close_count)`. Used by the class-scope
+/// tracker in `build_reflect_source_index` so a closing `}` ends
+/// the class body and sibling declarations (`typealias`, …) get
+/// attributed to module scope.
+fn count_braces_in_source_line(line : String) -> (Int, Int) {
+  let len = line.length()
+  let mut opens = 0
+  let mut closes = 0
+  let mut i = 0
+  let mut in_dquote = false
+  let mut in_squote = false
+  while i < len {
+    let c = line[i].to_int().unsafe_to_char()
+    if in_dquote {
+      if c == '\\' && i + 1 < len {
+        i = i + 2
+        continue
+      }
+      if c == '"' {
+        in_dquote = false
+      }
+      i = i + 1
+      continue
+    }
+    if in_squote {
+      if c == '\\' && i + 1 < len {
+        i = i + 2
+        continue
+      }
+      if c == '\'' {
+        in_squote = false
+      }
+      i = i + 1
+      continue
+    }
+    if c == '"' {
+      in_dquote = true
+      i = i + 1
+      continue
+    }
+    if c == '\'' {
+      in_squote = true
+      i = i + 1
+      continue
+    }
+    if c == '/' && i + 1 < len && line[i + 1].to_int().unsafe_to_char() == '/' {
+      // single-line comment — rest of line is ignored.
+      break
+    }
+    if c == '{' {
+      opens = opens + 1
+    } else if c == '}' {
+      closes = closes + 1
+    }
+    i = i + 1
+  }
+  (opens, closes)
 }
 
 ///|
