@@ -2054,9 +2054,12 @@ fn eval_class_default_members(
 priv struct ClassDefaultMemoEntry {
   declarations : Array[Declaration]
   memo : Map[String, Array[ValueMember]]
-  // `unsafe_classes` recorded by name to avoid the static walk a
-  // second time when the same class fails the purity check.
+  // `unsafe_classes` records classes whose `outer` / `module` / `super`
+  // walks proved them caller-context dependent (can't memoize).
+  // `safe_classes` records the positive case so the recursive purity
+  // walk runs once per class per `eval_source`, not once per call site.
   unsafe_classes : Map[String, Bool]
+  safe_classes : Map[String, Bool]
 }
 
 ///|
@@ -2074,6 +2077,7 @@ fn class_default_memo_for(declarations : Array[Declaration]) -> ClassDefaultMemo
     declarations,
     memo: Map([], capacity=16),
     unsafe_classes: Map([], capacity=16),
+    safe_classes: Map([], capacity=16),
   }
   while class_default_memo_cache.val.length() >= 4 {
     let _ = class_default_memo_cache.val.remove(0)
@@ -2110,6 +2114,13 @@ fn class_default_is_memoizable_with_seen(
   let entry = class_default_memo_for(declarations)
   if entry.unsafe_classes.get(type_name) is Some(true) {
     return false
+  }
+  // Positive memo: when the recursive purity walk previously concluded
+  // `type_name` is safe to memoize, skip the walk. The result depends
+  // only on `declarations` + `class_env`, both stable within a single
+  // `eval_source`, so the cached verdict holds.
+  if entry.safe_classes.get(type_name) is Some(true) {
+    return true
   }
   let binding = match lookup_class_binding(class_env, type_name) {
     Some(b) => b
@@ -2154,6 +2165,7 @@ fn class_default_is_memoizable_with_seen(
     }
     None => ()
   }
+  entry.safe_classes[type_name] = true
   true
 }
 
@@ -2209,11 +2221,12 @@ fn eval_class_default_members_seen(
   // `moonbit_make_ref_array` / `moonbit_unsafe_ref_array_blit`. We
   // know the upper bound from the class binding's property / method
   // lists before we walk them.
-  let property_capacity = match lookup_class_binding(class_env, type_name) {
+  let class_binding_opt = lookup_class_binding(class_env, type_name)
+  let property_capacity = match class_binding_opt {
     Some(cb) => cb.properties.length()
     None => 0
   }
-  let method_capacity = match lookup_class_binding(class_env, type_name) {
+  let method_capacity = match class_binding_opt {
     Some(cb) => cb.methods.length()
     None => 0
   }
@@ -2223,7 +2236,7 @@ fn eval_class_default_members_seen(
   base_values.reserve_capacity(property_capacity)
   let own_methods : Array[FunctionDecl] = []
   own_methods.reserve_capacity(method_capacity)
-  match lookup_class_binding(class_env, type_name) {
+  match class_binding_opt {
     Some(class_binding) => {
       match class_binding.parent_name {
         Some(parent_name) => {
@@ -2392,18 +2405,24 @@ fn eval_class_default_members_seen(
   // as siblings — Apple Pkl resolves bare references against the body
   // and outer scope first — so the late-binding pass must treat these
   // slots as "not body-declared" and skip them from in-base shadowing.
-  let stripped : Array[ValueMember] = []
-  stripped.reserve_capacity(combined.length())
-  for value_member in combined {
-    stripped.push({
-      name: value_member.name,
-      value: value_member.value,
-      source: None,
-      annotations: value_member.annotations,
-    })
+  //
+  // Update in place: `combined` is a fresh array we own (returned by
+  // `merge_value_members`), and elements whose `source` is already
+  // `None` (the merged-from-base path) don't need rewriting. Saves one
+  // Array allocation plus all the unconditional struct copies.
+  for i in 0..<combined.length() {
+    let m = combined[i]
+    if m.source is Some(_) {
+      combined[i] = {
+        name: m.name,
+        value: m.value,
+        source: None,
+        annotations: m.annotations,
+      }
+    }
   }
   if is_memoizable {
-    memo_entry.memo[type_name] = stripped
+    memo_entry.memo[type_name] = combined
   }
-  stripped
+  combined
 }
