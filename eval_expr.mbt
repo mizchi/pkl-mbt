@@ -4272,16 +4272,6 @@ fn eval_expr_with_bindings(
           }
         }
       } else if target_expr is Identifier("module") {
-        if lookup_value(cache, member_name) is None &&
-          find_binding(bindings, member_name) is Some(_) {
-          match lookup_value(cache, "outer") {
-            Some(ObjectValue(snapshot)) =>
-              if visible_members(snapshot).length() > 0 {
-                return Some(ObjectValue(snapshot))
-              }
-            _ => ()
-          }
-        }
         if stack.length() > 0 && member_name == stack[stack.length() - 1] {
           match lookup_value(cache, "outer") {
             Some(ObjectValue(snapshot)) =>

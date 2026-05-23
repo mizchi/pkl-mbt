@@ -3913,6 +3913,36 @@ test "PKL-153: self-referential Listing default does not infinite-loop" {
 }
 
 ///|
+test "PKL-153b: module.X inside nested object literal does not return outer snapshot" {
+  // Previously, evaluating `module.workflowTests` from inside R's body
+  // hit a `target_expr is Identifier("module")` short-circuit that
+  // returned the in-flight outer ObjectValue (R's body so far) instead
+  // of the actual module-level `workflowTests` Listing. Iterating over
+  // R's body dynamically yields ValueEntry pairs whose values point
+  // back at the body itself, and accessing `.name` on one of those
+  // Listing-typed pseudo-members produced "Cannot find property `name`
+  // in object of type `Listing`." in pkfire's Taskfile schema. The
+  // early return is removed; `module.X` now always resolves through
+  // the standard binding / cache / parent-super chain.
+  let source =
+    #|class Wt { name: String }
+    #|class RWt { name: String }
+    #|class R { workflowTests: Listing<RWt> }
+    #|workflowTests: Listing<Wt> = new {}
+    #|out = new R {
+    #|  workflowTests = new Listing {
+    #|    for (wt in module.workflowTests) {
+    #|      new RWt { name = wt.name }
+    #|    }
+    #|  }
+    #|}
+
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  let rendered = render_value(value)
+  inspect(rendered.contains("workflowTests {}"), content="true")
+}
+
+///|
 test "PKL-153a: module.X resolves to outer binding through inner field shadow" {
   // `new R { defaults = module.defaults }` inside a derived module's
   // `output.value` re-eval used to false-positive a `cyclic property
