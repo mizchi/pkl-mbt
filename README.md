@@ -50,6 +50,10 @@ These don't exist in Apple Pkl:
 
 The parser, evaluator, typechecker, package/project loading, and advertised renderers (PCF, JSON, YAML, properties, plist, textproto, XML, and Jsonnet) are passing the current release test gate. The remaining Jsonnet fixtures (`jsonnetRenderer7` — Mixin / Function rendering diagnostic, `jsonnetRenderer8` — `convertPropertyTransformers`) are tracked as follow-ups; see [TODO.md](TODO.md) for the full upstream fixture inventory and release notes.
 
+### 0.2.2 highlights
+
+- **`default` field on a user class is no longer hidden.** `class P { default: String? = null }; new P { default = "world" }` previously rendered as `default = null` — the parser unconditionally renamed any body `default = ...` slot to the hidden namespace (a workaround for `new Dynamic { default = (_) -> 42 }`'s per-element-default semantics). The rename is now narrowed to the lambda-valued case, so scalar / collection assignments to a `default`-named property flow through to the class's public slot. Unblocks pkfire's `Param.default`.
+
 ### 0.2.1 highlights
 
 - **Self-referential `Listing<T>` / `Mapping<K, T>` defaults no longer hang.** A class declared as `class Task { deps: Listing<Task> = new {} }` used to spin mpkl indefinitely when its class-default was materialised — the element-default synthesis path entered a fresh seen-set and recursed forever on the element type. A `materializing` marker on the class-default memo entry now records the in-flight class name so element synthesis short-circuits to the empty shape (the materialised default is unobservable for an empty collection anyway). Real schemas that model graphs (pkfire's `Taskfile`, recursive AST types) build through.

@@ -1,6 +1,6 @@
 # Release TODO
 
-Current version: `0.2.1` (see `moon.mod.json`).
+Current version: `0.2.2` (see `moon.mod.json`).
 Current coverage: 376 / 391 PCF gold-match (96.2%).
 Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-05-22.
 
@@ -13,6 +13,10 @@ Embedded-host blockers cleared during the 0.2.0 round:
 - `Listing<T>` / `Mapping<K,V>` return types now drive the `new {}` rewrite even when the body is `let (...) new { ... }`. Apple Pkl's listing-vs-object disambiguation is satisfied for the common QuickCheck pattern.
 - `mpkl test --junit-reports <dir>` emits a JUnit XML envelope (one `<testsuite>` per module, one `<testcase>` per fact + one for `examples`). Eval-time errors surface as a single failed `<testcase name="eval">`. The text-mode summary is unchanged.
 - `configure_sandbox_resource_reader(scheme, reader)` lets an embedded caller service `read("scheme:path")` in-process — pkspec / pkfire's `cmd:` reader use case without a separate subprocess.
+
+0.2.2 fix (2026-05-24):
+
+- **PKL-154** (`1b67c48`): `new P { default = "world" }` for a user class with `default: T` no longer collapses to the class default (`null`). The parser used to rename every `default = ...` slot to the hidden namespace, which matches Apple Pkl only for `new Dynamic { default = (_) -> 42 }` (the per-element default of a Dynamic). The rename is now narrowed to the lambda-valued case so typed user-class properties named `default` propagate. Required for pkfire's `Param.default` so `pkf run greet` (no args) picks up its declared default value.
 
 0.2.1 fixes (2026-05-24):
 
