@@ -491,6 +491,7 @@ eval_matches_gold_with_io() {
 # Fixtures whose `read*` / `env:` / `prop:` calls require the
 # controlled environment Apple Pkl's snippet runner sets up.
 IO_GOLD_FIXTURES=(
+  "basic/importGlob"
   "basic/read"
   "basic/readGlob"
 )
