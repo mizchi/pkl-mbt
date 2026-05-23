@@ -1429,6 +1429,7 @@ fn eval_program(
   // `is_hidden_member_name(field.name)`); internal references inside
   // the declaring module continue to flow through the bare-named entry
   // in `bindings` produced by `all_eval_bindings`.
+  let function_member_indices : Array[Int] = []
   for declaration in program.declarations {
     match declaration {
       FunctionDeclaration(function_decl) =>
@@ -1451,19 +1452,84 @@ fn eval_program(
                 diagnostics,
                 resolve_import,
               ) {
-              Some(value) =>
+              Some(value) => {
+                function_member_indices.push(members.length())
                 members.push({
                   name: hidden_member_name(function_decl.name),
                   value,
                   source: None,
                   annotations: [],
                 })
+              }
               None => ()
             }
           }
           None => ()
         }
       _ => ()
+    }
+  }
+  // PKL-153: surface module-private bindings (sibling functions +
+  // module-local values) into each top-level function's captured env
+  // so the body can call other top-level functions — including
+  // itself recursively — and reference local helpers when the module
+  // is imported and the function is invoked from outside.
+  //
+  // Without this, an external `X.seedAt(seed, n)` body that recurses
+  // into `seedAt(...)` and consults a `local mask32 = 0xffffffff`
+  // looks both names up in the captured env (the only state
+  // available at apply time, since the caller's `bindings` come from
+  // the calling module) and misses — `captured_env` at function-eval
+  // time hadn't yet seen the function itself, and module-locals
+  // never enter the `cache` (they live only in `bindings` for the
+  // same-module path).
+  if function_member_indices.length() > 0 {
+    let captured_bindings : Array[ValueBinding] = []
+    for idx in function_member_indices {
+      let m = members[idx]
+      let bare = strip_member_visibility_prefix(m.name)
+      captured_bindings.push({ name: bare, value: m.value })
+    }
+    for binding in program.bindings {
+      if binding.exported || binding.abstract_slot {
+        continue
+      }
+      match
+        eval_expr_with_bindings(
+          binding.value,
+          bindings,
+          env,
+          class_env,
+          cache,
+          [],
+          program.declarations,
+          [],
+          resolve_import,
+        ) {
+        Some(value) =>
+          captured_bindings.push({ name: binding.name, value })
+        None => ()
+      }
+    }
+    // Mutate each function's captured array in place. Because
+    // `captured_bindings` holds the SAME FunctionValue references that
+    // we just stored in `members` (we read them off `members[idx]`),
+    // the entries we append cross-reference each other once mutated:
+    // `step_FV.captured` ends with `(step → step_FV, seedAt →
+    // seedAt_FV, mask32 → ...)`, and `seedAt_FV.captured` ends with
+    // the same set. Apply-time `copy_value_bindings(captured)` copies
+    // the ValueBinding structs but the inner Value (each FunctionValue)
+    // still references the mutated arrays, so recursive / sibling /
+    // local lookups resolve through the cache chain.
+    for idx in function_member_indices {
+      let m = members[idx]
+      match m.value {
+        FunctionValue(_, _, _, captured, _) =>
+          for fb in captured_bindings {
+            captured.push(fb)
+          }
+        _ => ()
+      }
     }
   }
   match program.module_name {
