@@ -121,6 +121,181 @@ fn trim_whitespace_v12(text : String) -> String {
 }
 
 ///|
+/// Returns true when `source` ends with a literal-/folded-block
+/// scalar whose payload runs to the end of input (no sibling key /
+/// no more content follows). The upstream lexer always appends a
+/// trailing `\n` to the block's clip-chomped value even when the
+/// source itself has no trailing newline, which produces
+/// `"hello\nworld\n"` instead of the `"hello\nworld"` Apple Pkl
+/// emits in this case (`yamlParser1*` standalone literal-block
+/// example). When the block is followed by sibling content this
+/// quirk happens to match Apple Pkl, so we restrict the post-strip
+/// to the block-at-EOF case.
+fn yaml_v12_source_ends_in_block_scalar(source : String) -> Bool {
+  // Strip trailing whitespace then walk lines bottom-up: the source
+  // ends in a block scalar iff there exists some "indicator" line
+  // (`<key>: |[chomp][indent]<ws>`) followed only by content lines
+  // (i.e. no later sibling-key line, since that would terminate the
+  // block before EOF). Detection runs to mirror Apple Pkl's
+  // behavior of dropping the final `\n` clip-chomping would
+  // otherwise add when the block has nothing after it.
+  let lines = split_lines_for_block_detect(source)
+  if lines.length() == 0 {
+    return false
+  }
+  // Walk lines bottom-up; ignore trailing blank lines.
+  let mut idx = lines.length() - 1
+  while idx >= 0 && trim_yaml_ws_v12(lines[idx]) == "" {
+    idx = idx - 1
+  }
+  if idx < 0 {
+    return false
+  }
+  // Walk upward looking for an indicator line. Each line in between
+  // must be a block-content line (i.e. not a `key: value` form).
+  while idx >= 0 {
+    let line = lines[idx]
+    if line_is_block_indicator(line) {
+      return true
+    }
+    if line_starts_new_key(line) {
+      // A `key:` line above implies the block already terminated.
+      return false
+    }
+    idx = idx - 1
+  }
+  false
+}
+
+///|
+fn split_lines_for_block_detect(source : String) -> Array[String] {
+  let result : Array[String] = []
+  let buf = StringBuilder::new()
+  for c in source {
+    if c == '\n' {
+      result.push(buf.to_string())
+      buf.reset()
+    } else {
+      buf.write_char(c)
+    }
+  }
+  result.push(buf.to_string())
+  result
+}
+
+///|
+fn trim_yaml_ws_v12(s : String) -> String {
+  let len = s.length()
+  let mut start = 0
+  let mut stop = len
+  while start < stop && s[start] is (' ' | '\t') {
+    start = start + 1
+  }
+  while stop > start && s[stop - 1] is (' ' | '\t') {
+    stop = stop - 1
+  }
+  if start == 0 && stop == len {
+    s
+  } else {
+    String::unsafe_substring(s, start~, end=stop)
+  }
+}
+
+///|
+fn line_is_block_indicator(line : String) -> Bool {
+  let trimmed = trim_yaml_ws_v12(line)
+  let len = trimmed.length()
+  if len == 0 {
+    return false
+  }
+  // Strip trailing chomping/indent indicators (`-`, `+`, `0..9`) off
+  // the right edge, then check the remaining trailing char.
+  let mut tail = len
+  while tail > 0 && trimmed[tail - 1] is ('-' | '+' | '0'..='9') {
+    tail = tail - 1
+  }
+  if tail == 0 {
+    return false
+  }
+  trimmed[tail - 1] is ('|' | '>')
+}
+
+///|
+/// Detect lines of the form `<key>:[<ws><value>?]`. Used to bail
+/// out when scanning upward for a block indicator — a sibling key
+/// terminates the block before we'd reach the indicator.
+fn line_starts_new_key(line : String) -> Bool {
+  let trimmed = trim_yaml_ws_v12(line)
+  let len = trimmed.length()
+  if len == 0 || trimmed[0] is ('-' | '?' | ':' | '#') {
+    return false
+  }
+  let mut i = 0
+  while i < len {
+    let c = trimmed[i]
+    if c == ':' {
+      let next_is_space = i + 1 >= len || trimmed[i + 1] is (' ' | '\t')
+      if next_is_space {
+        return true
+      }
+    }
+    i = i + 1
+  }
+  false
+}
+
+///|
+/// Strip the trailing `\n` off the LAST leaf string of a document.
+/// "Last leaf" follows insertion order for maps and last-element for
+/// arrays, mirroring source order. The upstream lexer adds an extra
+/// `\n` to the final clip-chomped block scalar when the source ends
+/// without a trailing newline, so we walk the document spine and
+/// strip exactly one `\n` from the terminal string. Other strings in
+/// the tree are left intact.
+fn yaml_v12_strip_trailing_block_newline(y : @yaml.Yaml) -> @yaml.Yaml {
+  match y {
+    @yaml.Yaml::String(s) => {
+      let len = s.length()
+      if len == 0 || s[len - 1] != '\n' {
+        @yaml.Yaml::String(s)
+      } else {
+        @yaml.Yaml::String(String::unsafe_substring(s, start=0, end=len - 1))
+      }
+    }
+    @yaml.Yaml::Array(items) => {
+      if items.length() == 0 {
+        return @yaml.Yaml::Array(items)
+      }
+      let out : Array[@yaml.Yaml] = []
+      for i = 0; i < items.length(); i = i + 1 {
+        if i == items.length() - 1 {
+          out.push(yaml_v12_strip_trailing_block_newline(items[i]))
+        } else {
+          out.push(items[i])
+        }
+      }
+      @yaml.Yaml::Array(out)
+    }
+    @yaml.Yaml::Map(m) => {
+      let out : Map[String, @yaml.Yaml] = {}
+      let mut last_key : String? = None
+      for k, _ in m {
+        last_key = Some(k)
+      }
+      for k, v in m {
+        if Some(k) == last_key {
+          out[k] = yaml_v12_strip_trailing_block_newline(v)
+        } else {
+          out[k] = v
+        }
+      }
+      @yaml.Yaml::Map(out)
+    }
+    other => other
+  }
+}
+
+///|
 /// 1.2 core schema differs from the upstream resolver on one
 /// non-numeric pattern: `Null` and `NULL` are still null (1.2
 /// accepts `null|Null|NULL|~|<empty>` as the null token, but the
@@ -164,5 +339,330 @@ fn parser_mode(members : Array[ValueMember]) -> String {
   match lookup_member(members, "mode") {
     Some(StringValue(s)) => s
     _ => "compat"
+  }
+}
+
+///|
+/// Sentinel that flows through the YAML loader as a plain string and
+/// is recognized by `yaml_v12_decode_sentinels` after parsing.
+/// `\u{1f}` (ASCII Unit Separator) is a control char that cannot
+/// legally appear in YAML plain scalars, so the prefix is collision-
+/// free for realistic inputs.
+let yaml_v12_binary_sentinel : String = "\u{001f}PKL_BYTES:"
+
+///|
+let yaml_v12_set_sentinel : String = "\u{001f}PKL_SET"
+
+///|
+let yaml_v12_set_marker_member : String = "__pkl_v12_set_marker"
+
+///|
+/// Drives both `!!binary` and `!!set` rewriting. Replaces every
+/// `!!binary <payload>` region in `source` with a single-quoted
+/// sentinel containing the stripped base64 text, and replaces every
+/// `!!set` tag with `!!str` plus an injected sentinel mapping entry
+/// so the loader still produces a mapping but we can recognise it
+/// after the fact.
+fn yaml_v12_rewrite_tags(source : String) -> String {
+  let binary_rewritten = yaml_v12_rewrite_binary(source)
+  yaml_v12_rewrite_set(binary_rewritten)
+}
+
+///|
+fn yaml_v12_rewrite_binary(source : String) -> String {
+  let needle = "!!binary"
+  let len = source.length()
+  if len < needle.length() {
+    return source
+  }
+  let buf = StringBuilder::new()
+  let mut i = 0
+  while i < len {
+    if i + needle.length() <= len && substring_equals(source, i, needle) {
+      // Confirm `!!binary` is followed by a separator. Otherwise it
+      // could be part of a longer identifier (highly unlikely in YAML
+      // but cheap to check).
+      let after = i + needle.length()
+      let sep_ok = if after >= len {
+        true
+      } else {
+        let next_u = source[after]
+        next_u is (' ' | '\t' | '\n' | '\r')
+      }
+      if !sep_ok {
+        buf.write_char(char_at_v12(source, i))
+        i = i + 1
+        continue
+      }
+      let value = extract_yaml_scalar_after(source, after)
+      match value {
+        Some((value_text, consumed_end)) => {
+          let payload = strip_yaml_whitespace_v12(value_text)
+          buf.write_char('\'')
+          buf.write_string(yaml_v12_binary_sentinel)
+          buf.write_string(payload)
+          buf.write_char('\'')
+          i = consumed_end
+          continue
+        }
+        None => ()
+      }
+    }
+    buf.write_char(char_at_v12(source, i))
+    i = i + 1
+  }
+  buf.to_string()
+}
+
+///|
+fn yaml_v12_rewrite_set(source : String) -> String {
+  let needle = "!!set"
+  let len = source.length()
+  if len < needle.length() {
+    return source
+  }
+  let buf = StringBuilder::new()
+  let mut i = 0
+  while i < len {
+    if i + needle.length() <= len && substring_equals(source, i, needle) {
+      let after = i + needle.length()
+      let sep_ok = if after >= len {
+        true
+      } else {
+        let next_u = source[after]
+        next_u is (' ' | '\t' | '\n' | '\r')
+      }
+      if sep_ok {
+        // Drop the `!!set` tag entirely. The block / flow content
+        // that follows still parses correctly as a mapping (or, for
+        // the "wrong tag/node combination" example, as a sequence);
+        // we tag the *result* via `yaml_v12_finalize_set_marker`
+        // below by leaning on the position of `!!set` in the source.
+        // We also inject a synthetic mapping entry so downstream
+        // code can identify the result was set-tagged.
+        buf.write_string("? \"")
+        buf.write_string(yaml_v12_set_marker_member)
+        buf.write_string("\"\n: \"")
+        buf.write_string(yaml_v12_set_sentinel)
+        buf.write_string("\"\n")
+        i = after
+        continue
+      }
+    }
+    buf.write_char(char_at_v12(source, i))
+    i = i + 1
+  }
+  buf.to_string()
+}
+
+///|
+fn char_at_v12(s : String, i : Int) -> Char {
+  s[i].to_int().unsafe_to_char()
+}
+
+///|
+fn substring_equals(source : String, start : Int, needle : String) -> Bool {
+  let nlen = needle.length()
+  if start + nlen > source.length() {
+    return false
+  }
+  for j in 0..<nlen {
+    if source[start + j] != needle[j] {
+      return false
+    }
+  }
+  true
+}
+
+///|
+fn strip_yaml_whitespace_v12(text : String) -> String {
+  let buf = StringBuilder::new()
+  for c in text {
+    if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+      continue
+    }
+    buf.write_char(c)
+  }
+  buf.to_string()
+}
+
+///|
+/// Skip leading horizontal whitespace, then capture the YAML scalar
+/// that follows. Handles four scalar styles seen by Apple Pkl's
+/// `yamlParser1*` fixtures:
+///   - plain (up to end-of-line / end-of-source)
+///   - single-quoted: `'...'`
+///   - double-quoted: `"..."`
+///   - block literal `|`, `|-`, `|+` (indented payload until dedent)
+/// Returns `Some((text, consumed_end))` where `text` is the captured
+/// scalar (still containing newlines for block style — caller
+/// normalises) and `consumed_end` is the absolute index past the
+/// scalar. Returns `None` when we cannot identify the scalar (e.g.
+/// `!!binary` at end of source with no value); the caller leaves the
+/// region untouched in that case.
+fn extract_yaml_scalar_after(
+  source : String,
+  start : Int,
+) -> (String, Int)? {
+  let len = source.length()
+  let mut i = start
+  while i < len {
+    let u = source[i]
+    if u is (' ' | '\t') {
+      i = i + 1
+    } else {
+      break
+    }
+  }
+  if i >= len {
+    return None
+  }
+  let first = source[i]
+  if first == '\'' {
+    let mut j = i + 1
+    while j < len && source[j] != '\'' {
+      j = j + 1
+    }
+    if j >= len {
+      return None
+    }
+    Some((String::unsafe_substring(source, start=i + 1, end=j), j + 1))
+  } else if first == '"' {
+    let mut j = i + 1
+    while j < len {
+      let c = source[j]
+      if c == '\\' {
+        j = j + 2
+        continue
+      }
+      if c == '"' {
+        break
+      }
+      j = j + 1
+    }
+    if j >= len {
+      return None
+    }
+    Some((String::unsafe_substring(source, start=i + 1, end=j), j + 1))
+  } else if first == '|' || first == '>' {
+    // Block-literal / folded indicator. Skip the indicator and any
+    // chomping / indent indicators, then capture indented lines.
+    let mut j = i + 1
+    while j < len && source[j] is ('-' | '+' | '0'..='9') {
+      j = j + 1
+    }
+    // Skip the rest of the indicator line.
+    while j < len && source[j] != '\n' {
+      j = j + 1
+    }
+    if j < len {
+      j = j + 1
+    }
+    // Determine block indent from the first non-empty content line.
+    let mut indent = -1
+    let mut probe = j
+    while probe < len {
+      let mut spaces = 0
+      while probe < len && source[probe] == ' ' {
+        spaces = spaces + 1
+        probe = probe + 1
+      }
+      if probe >= len {
+        break
+      }
+      if source[probe] == '\n' {
+        probe = probe + 1
+        continue
+      }
+      indent = spaces
+      break
+    }
+    if indent <= 0 {
+      // No indented payload found.
+      return Some((String::unsafe_substring(source, start=j, end=j), j))
+    }
+    let payload = StringBuilder::new()
+    let mut k = j
+    while k < len {
+      // Count this line's leading-space count.
+      let mut spaces = 0
+      let line_start = k
+      while k < len && source[k] == ' ' {
+        spaces = spaces + 1
+        k = k + 1
+      }
+      if k < len && source[k] == '\n' {
+        // Empty / whitespace-only line — keep newline and continue.
+        payload.write_char('\n')
+        k = k + 1
+        continue
+      }
+      if k >= len {
+        break
+      }
+      if spaces < indent {
+        // Dedented — block ends. Restore to line start.
+        k = line_start
+        break
+      }
+      // Copy content (after `indent` spaces) up to and including newline.
+      let content_start = line_start + indent
+      while k < len && source[k] != '\n' {
+        k = k + 1
+      }
+      payload.write_string(
+        String::unsafe_substring(source, start=content_start, end=k),
+      )
+      payload.write_char('\n')
+      if k < len {
+        k = k + 1
+      }
+    }
+    Some((payload.to_string(), k))
+  } else {
+    // Plain scalar: read until end-of-line / end-of-source.
+    let mut j = i
+    while j < len && source[j] != '\n' {
+      j = j + 1
+    }
+    Some((String::unsafe_substring(source, start=i, end=j), j))
+  }
+}
+
+///|
+/// Returns true if a Yaml::Map has the `!!set` sentinel injected by
+/// `yaml_v12_rewrite_set`.
+fn yaml_v12_map_is_set(m : Map[String, @yaml.Yaml]) -> Bool {
+  match m.get(yaml_v12_set_marker_member) {
+    Some(@yaml.Yaml::String(s)) => s == yaml_v12_set_sentinel
+    _ => false
+  }
+}
+
+///|
+/// Convert a sentinel-marked `Yaml::String` into a Pkl `BytesValue`,
+/// or pass through other strings. Tree-walks composites by routing
+/// through the regular `yaml_to_value_with_aliases` path; only the
+/// leaves need this hook. Caller invokes this on each `Yaml::String`
+/// node before falling through to the existing converter.
+fn yaml_v12_try_decode_binary_string(value : String) -> Value? {
+  let prefix = yaml_v12_binary_sentinel
+  if value.length() < prefix.length() {
+    return None
+  }
+  for i in 0..<prefix.length() {
+    if value[i] != prefix[i] {
+      return None
+    }
+  }
+  let payload = String::unsafe_substring(
+    value, start=prefix.length(), end=value.length(),
+  )
+  let cleaned = strip_yaml_whitespace_v12(payload)
+  try {
+    let bytes = @base64.decode(cleaned[:])
+    Some(BytesValue(bytes))
+  } catch {
+    _ => None
   }
 }

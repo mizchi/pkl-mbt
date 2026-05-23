@@ -6499,7 +6499,9 @@ fn eval_expr_with_bindings(
                               source_text,
                             )
                             let prepared_source = if yaml_mode == "1.2" {
-                              yaml_v12_source_rewrite(yaml_source)
+                              yaml_v12_rewrite_tags(
+                                yaml_v12_source_rewrite(yaml_source),
+                              )
                             } else {
                               yaml_source
                             }
@@ -6508,8 +6510,20 @@ fn eval_expr_with_bindings(
                             )
                             let docs = if yaml_mode == "1.2" {
                               let promoted : Array[@yaml.Yaml] = []
+                              let strip_trailing = yaml_v12_source_ends_in_block_scalar(
+                                prepared_source,
+                              )
                               for doc in raw_docs {
-                                promoted.push(yaml_v12_promote_null(doc))
+                                let promoted_doc = yaml_v12_promote_null(doc)
+                                if strip_trailing {
+                                  promoted.push(
+                                    yaml_v12_strip_trailing_block_newline(
+                                      promoted_doc,
+                                    ),
+                                  )
+                                } else {
+                                  promoted.push(promoted_doc)
+                                }
                               }
                               promoted
                             } else {

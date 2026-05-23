@@ -436,7 +436,11 @@ fn yaml_to_value_with_aliases(
     Boolean(b) => BoolValue(b)
     Integer(i) => IntValue(i)
     Real(d, ..) => FloatValue(d)
-    String(s) => StringValue(s)
+    String(s) =>
+      match yaml_v12_try_decode_binary_string(s) {
+        Some(v) => v
+        None => StringValue(s)
+      }
     Array(items) => {
       let elements : Array[Value] = []
       for item in items {
@@ -445,7 +449,19 @@ fn yaml_to_value_with_aliases(
       ListingValue(elements)
     }
     Map(map) =>
-      if use_mapping {
+      if yaml_v12_map_is_set(map) {
+        // PKL-153c: `!!set` rewritten into a sentinel-marked map by
+        // `yaml_v12_rewrite_set`. Project to a Listing of the (string)
+        // keys to mirror Apple Pkl's `!!set` → Listing-of-keys rendering.
+        let elements : Array[Value] = []
+        for k, _ in map {
+          if k == yaml_v12_set_marker_member {
+            continue
+          }
+          elements.push(StringValue(k))
+        }
+        ListingValue(elements)
+      } else if use_mapping {
         let entries : Array[ValueEntry] = []
         for k, v in map {
           entries.push({
