@@ -242,21 +242,36 @@ fn inherited_module_object_amend_expr(
   type_name : String?,
   cache : Array[ValueBinding],
 ) -> Expr {
-  if binding_name != "output" {
-    return expr
-  }
+  // PKL-148bv: `output { ... }` and any module-level `name { body }`
+  // whose parent slot was declared `hidden` (e.g. `hidden parser:
+  // yaml.Parser`) must amend the parent's value rather than replace
+  // it, so the parent's hidden defaults / class markers (`__kind` on
+  // `yaml.Parser`) survive into the child. Visible parent properties
+  // intentionally stay on the existing "fresh literal" path —
+  // promoting them to `AmendExpr` would re-route closure / module
+  // references in `foo { m = module.a }` style amends through the
+  // amend cache and drop them (basic/moduleRef2).
   match (expr, type_name) {
     (ObjectLiteral(members), None) =>
       match module_super_members_from_cache(cache) {
-        Some(parent_members) =>
-          match lookup_value_member(parent_members, binding_name) {
-            Some(_) =>
-              AmendExpr(
-                MemberAccess(Identifier("super"), binding_name),
-                members,
-              )
-            None => expr
+        Some(parent_members) => {
+          let matches_hidden = lookup_value_member(
+              parent_members, hidden_member_name(binding_name),
+            ) is Some(_)
+          let force_amend = binding_name == "output"
+          if matches_hidden || force_amend {
+            match lookup_value_member(parent_members, binding_name) {
+              Some(_) =>
+                AmendExpr(
+                  MemberAccess(Identifier("super"), binding_name),
+                  members,
+                )
+              None => expr
+            }
+          } else {
+            expr
           }
+        }
         None => expr
       }
     _ => expr

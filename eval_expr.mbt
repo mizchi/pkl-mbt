@@ -6493,13 +6493,28 @@ fn eval_expr_with_bindings(
                         ) {
                         Some(StringValue(source_text)) => {
                           let use_mapping = parser_use_mapping(receiver_members)
+                          let yaml_mode = parser_mode(receiver_members)
                           try {
                             let yaml_source = normalize_yaml_folded_block_chomping(
                               source_text,
                             )
-                            let docs = @yaml.Yaml::load_from_string(
-                              yaml_source[:],
+                            let prepared_source = if yaml_mode == "1.2" {
+                              yaml_v12_source_rewrite(yaml_source)
+                            } else {
+                              yaml_source
+                            }
+                            let raw_docs = @yaml.Yaml::load_from_string(
+                              prepared_source[:],
                             )
+                            let docs = if yaml_mode == "1.2" {
+                              let promoted : Array[@yaml.Yaml] = []
+                              for doc in raw_docs {
+                                promoted.push(yaml_v12_promote_null(doc))
+                              }
+                              promoted
+                            } else {
+                              raw_docs
+                            }
                             let alias_refs = yaml_alias_refs_for_documents(docs)
                             let max_aliases = parser_max_collection_aliases(
                               receiver_members,
