@@ -12,6 +12,13 @@ fn render_value_with_custom_string_delimiters(
   if deferred_error_message(value) is Some(_) {
     return "?"
   }
+  // PKL-153f: a `RenderDirective` at the document root (`renderer.
+  // renderDocument(new RenderDirective {...})`) emits its `text`
+  // verbatim across every renderer, including PCF.
+  match render_directive_text(value) {
+    Some(text) => return text
+    None => ()
+  }
   match value {
     ObjectValue(members) =>
       render_pcf_module(members, use_custom_string_delimiters, buf)

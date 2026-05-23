@@ -12240,7 +12240,20 @@ fn instantiable_class_name_for_type_annotation(
   }
   match lookup_class_binding(class_env, name) {
     Some(_) => Some(name)
-    None => None
+    None =>
+      // PKL-153g: stdlib classes (RenderDirective / YamlRenderer /
+      // JsonRenderer / etc.) aren't `class_env` bindings, but a class
+      // property `directiveProperty: RenderDirective = new { text =
+      // … }` still needs `new { … }` to flow as a TypedObjectLiteral
+      // so the class tag (and `render_directive_text` dispatch) sees
+      // the right identity. Recognise the name as instantiable when
+      // it sits in the stdlib-class set we keep for the binding-level
+      // promotion path (`is_stdlib_class_name`).
+      if is_stdlib_class_name(name) {
+        Some(name)
+      } else {
+        None
+      }
   }
 }
 
