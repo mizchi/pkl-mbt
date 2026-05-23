@@ -2659,13 +2659,15 @@ async fn main {
     "stdlib/base.pkl",
     "/usr/local/share/pkl/stdlib/base.pkl",
   ]
-  for candidate in stdlib_candidates {
-    let source = @fs.read_file_to_string(candidate) catch { _ => "" }
-    if source != "" {
-      @pkl.configure_stdlib_base_source(source)
-      break
+  @pkl.configure_stdlib_base_paths(fn() {
+    for candidate in stdlib_candidates {
+      let source = @fs.read_file_to_string(candidate) catch { _ => "" }
+      if source != "" {
+        return Some(source)
+      }
     }
-  }
+    None
+  })
   // PKL-132x: `mpkl stdlib` takes no positional file argument — it
   // runs the in-process stdlib probe table and exits with the result.
   // Dispatch it before the standard `<cmd> <file>` argc check so a

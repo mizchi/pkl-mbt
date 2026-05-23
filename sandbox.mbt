@@ -56,6 +56,13 @@ priv struct SandboxConfig {
   // `None` when the source isn't reachable (embedded callers, JS /
   // WASM target without FS access).
   mut stdlib_base_source : String?
+  // Lazy `base.pkl` resolution: the CLI registers a loader closure that
+  // reads from a candidate path list on first use. Fixtures that never
+  // touch `reflect.*` (the common case) skip the ~140 KB file read
+  // entirely. Resolution is one-shot: `stdlib_base_source` caches the
+  // result (even None) so subsequent calls are O(1).
+  mut stdlib_base_resolved : Bool
+  mut stdlib_base_loader : (() -> String?)?
 }
 
 ///|
@@ -81,6 +88,8 @@ let sandbox_config : SandboxConfig = {
   module_imports: Map([], capacity=16),
   module_aliases: Map([], capacity=16),
   stdlib_base_source: None,
+  stdlib_base_resolved: false,
+  stdlib_base_loader: None,
 }
 
 ///|
@@ -475,13 +484,41 @@ pub fn sandbox_module_alias(raw : String) -> String? {
 }
 
 ///|
+/// Eagerly register the `base.pkl` source text. Use this when the
+/// caller already holds the source in memory (tests, embedded callers).
+/// CLI callers should prefer `configure_stdlib_base_paths` so the file
+/// is only read on first reflect use.
 pub fn configure_stdlib_base_source(source : String) -> Unit {
   sandbox_config.stdlib_base_source = Some(source)
+  sandbox_config.stdlib_base_resolved = true
+}
+
+///|
+/// Register candidate filesystem paths for `base.pkl`. The first
+/// readable path is loaded lazily on the first `sandbox_stdlib_base_source()`
+/// call. Reads go through `stdlib_base_loader` so this module avoids a
+/// direct dependency on `@fs`.
+pub fn configure_stdlib_base_paths(loader : () -> String?) -> Unit {
+  sandbox_config.stdlib_base_loader = Some(loader)
 }
 
 ///|
 pub fn sandbox_stdlib_base_source() -> String? {
-  sandbox_config.stdlib_base_source
+  if sandbox_config.stdlib_base_resolved {
+    return sandbox_config.stdlib_base_source
+  }
+  sandbox_config.stdlib_base_resolved = true
+  match sandbox_config.stdlib_base_loader {
+    Some(loader) =>
+      match loader() {
+        Some(src) => {
+          sandbox_config.stdlib_base_source = Some(src)
+          Some(src)
+        }
+        None => None
+      }
+    None => None
+  }
 }
 
 ///|
