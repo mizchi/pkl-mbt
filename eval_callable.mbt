@@ -1183,22 +1183,9 @@ fn eval_lambda_application(
       // PKL-148bh: see `apply_function_value` — when a user-class
       // return type wraps a bare `new { ... }` body, treat as
       // `new T { ... }` so `getClass()` and class defaults flow.
-      let body_to_eval : Expr = match (body, return_type_name) {
-        (ObjectLiteral(members), Some(class_name)) =>
-          if class_name.contains("<") ||
-            class_name.contains("|") ||
-            class_name.contains("(") ||
-            class_name.contains("?") ||
-            class_name.contains(".") {
-            body
-          } else {
-            match lookup_class_binding(class_env, class_name) {
-              Some(_) => TypedObjectLiteral(class_name, members)
-              None => body
-            }
-          }
-        _ => body
-      }
+      let body_to_eval : Expr = rewrite_function_body_for_return_type(
+        body, return_type_name, class_env,
+      )
       match
         eval_expr_with_bindings(
           body_to_eval, bindings, body_env, class_env, call_cache, stack, declarations,
@@ -1220,6 +1207,59 @@ fn eval_lambda_application(
 /// arguments. Mirrors `eval_lambda_application` but accepts values instead
 /// of expressions so the stdlib builtins (Listing.map / .filter / .fold)
 /// can invoke user callbacks per element.
+fn rewrite_function_body_for_return_type(
+  body : Expr,
+  return_type_name : String?,
+  class_env : Array[ClassBinding],
+) -> Expr {
+  // PKL-153: a function declaration `function f(...): T = expr` may
+  // have `expr` be a `LetExpr`-wrapped `new { ... }` instead of a bare
+  // `new { ... }` — `function intCases(...): Listing<Case> = let (r
+  // = ...) new { for (...) { ... } }`. Apple Pkl uses the annotated
+  // return type to choose between class-typed object (`new T {...}`)
+  // and collection literal (`new {...}` reinterpreted as
+  // `Listing<...> / Mapping<...>`). Walk through `LetExpr` layers so
+  // both shapes flow through the same rewrite.
+  match return_type_name {
+    None => body
+    Some(class_name) =>
+      if class_name.contains("|") ||
+        class_name.contains("(") ||
+        class_name.contains("?") ||
+        class_name.contains(".") {
+        body
+      } else {
+        rewrite_function_body_for_return_type_inner(body, class_name, class_env)
+      }
+  }
+}
+
+///|
+fn rewrite_function_body_for_return_type_inner(
+  body : Expr,
+  type_name : String,
+  class_env : Array[ClassBinding],
+) -> Expr {
+  match body {
+    LetExpr(n, tn, v, inner) =>
+      LetExpr(
+        n, tn, v,
+        rewrite_function_body_for_return_type_inner(inner, type_name, class_env),
+      )
+    ObjectLiteral(members) =>
+      if type_name.contains("<") {
+        collection_literal_expr_for_type_annotation(body, Some(type_name))
+      } else {
+        match lookup_class_binding(class_env, type_name) {
+          Some(_) => TypedObjectLiteral(type_name, members)
+          None => body
+        }
+      }
+    _ => body
+  }
+}
+
+///|
 fn apply_function_value(
   label : String,
   fn_value : Value,
@@ -1344,22 +1384,9 @@ fn apply_function_value(
       // identity. This drives `getClass().simpleName` inside the
       // body — basic/newInAmendingModuleMethod's typed function
       // bodies expect the declared class name, not "Dynamic".
-      let body_to_eval : Expr = match (body, return_type_name) {
-        (ObjectLiteral(members), Some(class_name)) =>
-          if class_name.contains("<") ||
-            class_name.contains("|") ||
-            class_name.contains("(") ||
-            class_name.contains("?") ||
-            class_name.contains(".") {
-            body
-          } else {
-            match lookup_class_binding(class_env, class_name) {
-              Some(_) => TypedObjectLiteral(class_name, members)
-              None => body
-            }
-          }
-        _ => body
-      }
+      let body_to_eval : Expr = rewrite_function_body_for_return_type(
+        body, return_type_name, class_env,
+      )
       match
         eval_expr_with_bindings(
           body_to_eval, bindings, body_env, class_env, call_cache, stack, declarations,
