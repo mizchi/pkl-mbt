@@ -26,25 +26,17 @@ priv struct StdlibClassMeta {
   parent_name : String?
   doc_comment : String?
   modifiers : Array[String]
-  is_abstract : Bool
   decl : ClassDecl
 }
 
 ///|
-priv struct StdlibTypeAliasMeta {
-  name : String
-  line : Int
-  doc_comment : String?
-  decl : TypeAliasDecl
-}
-
-///|
 /// Lazy-loaded metadata cache. Built once on first access; subsequent
-/// reflect calls hit the in-memory map.
+/// reflect calls hit the in-memory map. A `StdlibTypeAliasMeta` map
+/// existed alongside `classes` for stdlib `reflect.TypeAlias(x)` but
+/// nothing reads it — those calls go through a different code path —
+/// so it's elided to drop the dead build cost.
 priv struct StdlibReflectDb {
   classes : Map[String, StdlibClassMeta]
-  aliases : Map[String, StdlibTypeAliasMeta]
-  declarations : Array[Declaration]
 }
 
 ///|
@@ -71,7 +63,6 @@ fn build_stdlib_reflect_db(source : String) -> StdlibReflectDb {
   let parsed = parse_source(source)
   let lines = stdlib_split_lines(source)
   let classes : Map[String, StdlibClassMeta] = Map([], capacity=64)
-  let aliases : Map[String, StdlibTypeAliasMeta] = Map([], capacity=32)
   for decl in parsed.program.declarations {
     match decl {
       ClassDeclaration(class_decl) => {
@@ -87,28 +78,13 @@ fn build_stdlib_reflect_db(source : String) -> StdlibReflectDb {
           parent_name: parent,
           doc_comment: doc,
           modifiers,
-          is_abstract: class_decl.is_abstract,
           decl: class_decl,
-        }
-      }
-      TypeAliasDeclaration(alias_decl) => {
-        let info = stdlib_decl_header_line(lines, alias_decl.name, "typealias ")
-        let doc = stdlib_doc_comment_above(lines, info)
-        aliases[alias_decl.name] = {
-          name: alias_decl.name,
-          line: info,
-          doc_comment: doc,
-          decl: alias_decl,
         }
       }
       _ => ()
     }
   }
-  {
-    classes,
-    aliases,
-    declarations: parsed.program.declarations,
-  }
+  { classes, }
 }
 
 ///|
@@ -136,21 +112,6 @@ fn stdlib_class_header_line(lines : Array[String], name : String) -> Int {
   for i = 0; i < lines.length(); i = i + 1 {
     let line = lines[i]
     if stdlib_line_declares_class(line, name) {
-      return i + 1
-    }
-  }
-  -1
-}
-
-///|
-fn stdlib_decl_header_line(
-  lines : Array[String],
-  name : String,
-  keyword : String,
-) -> Int {
-  for i = 0; i < lines.length(); i = i + 1 {
-    let line = lines[i]
-    if stdlib_line_declares(line, name, keyword) {
       return i + 1
     }
   }
@@ -901,8 +862,8 @@ fn build_user_class_all_method_entries(
 /// PKL-080: rewrite the `displayUri` of a method mirror's
 /// `location` to a new value. Returns a fresh ObjectValue with the
 /// location member replaced.
-fn gold_replace_method_display_uri(method : Value, new_uri : String) -> Value {
-  match method {
+fn gold_replace_method_display_uri(method_value : Value, new_uri : String) -> Value {
+  match method_value {
     ObjectValue(members) => {
       let next : Array[ValueMember] = []
       for m in members {
