@@ -48,6 +48,14 @@ priv struct SandboxConfig {
   // graph by walking these adjacency lists.
   module_imports : Map[String, Array[String]]
   module_aliases : Map[String, String]
+  // PKL-080: stdlib `base.pkl` source text, registered by the CLI
+  // when the file is available on disk. The library-side reflect
+  // intrinsics parse this on first use to build full stdlib Class
+  // mirrors (location / docComment / methods / properties etc.) for
+  // `reflect.Class(stdlibType)` calls in `api/reflectedDeclaration`.
+  // `None` when the source isn't reachable (embedded callers, JS /
+  // WASM target without FS access).
+  mut stdlib_base_source : String?
 }
 
 ///|
@@ -72,6 +80,7 @@ let sandbox_config : SandboxConfig = {
   import_glob_errors: Map([], capacity=8),
   module_imports: Map([], capacity=16),
   module_aliases: Map([], capacity=16),
+  stdlib_base_source: None,
 }
 
 ///|
@@ -463,6 +472,16 @@ pub fn register_module_alias(raw : String, resolved : String) -> Unit {
 ///|
 pub fn sandbox_module_alias(raw : String) -> String? {
   sandbox_config.module_aliases.get(raw)
+}
+
+///|
+pub fn configure_stdlib_base_source(source : String) -> Unit {
+  sandbox_config.stdlib_base_source = Some(source)
+}
+
+///|
+pub fn sandbox_stdlib_base_source() -> String? {
+  sandbox_config.stdlib_base_source
 }
 
 ///|

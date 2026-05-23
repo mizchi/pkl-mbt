@@ -2648,6 +2648,24 @@ fn parse_file(path : String) -> Bool {
 ///|
 async fn main {
   let args = @sys.get_cli_args()
+  // PKL-080: register the bundled stdlib `base.pkl` source so the
+  // library-side reflect machinery can build full Class mirrors for
+  // stdlib types (`api/reflectedDeclaration` etc.). The candidate
+  // paths are tried in order — `third_party/...` for in-repo builds,
+  // a few common bundle locations as fallbacks. Failure is silent;
+  // the reflect surface degrades to the minimal "name only" form.
+  let stdlib_candidates = [
+    "third_party/apple-pkl/stdlib/base.pkl",
+    "stdlib/base.pkl",
+    "/usr/local/share/pkl/stdlib/base.pkl",
+  ]
+  for candidate in stdlib_candidates {
+    let source = @fs.read_file_to_string(candidate) catch { _ => "" }
+    if source != "" {
+      @pkl.configure_stdlib_base_source(source)
+      break
+    }
+  }
   // PKL-132x: `mpkl stdlib` takes no positional file argument — it
   // runs the in-process stdlib probe table and exits with the result.
   // Dispatch it before the standard `<cmd> <file>` argc check so a
