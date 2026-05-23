@@ -3913,6 +3913,26 @@ test "PKL-153: self-referential Listing default does not infinite-loop" {
 }
 
 ///|
+test "PKL-153a: module.X resolves to outer binding through inner field shadow" {
+  // `new R { defaults = module.defaults }` inside a derived module's
+  // `output.value` re-eval used to false-positive a `cyclic property
+  // reference defaults` diagnostic. `find_binding`'s reverse walk
+  // picked up R's `defaults` field (last-wins) instead of the module-
+  // level `defaults` binding. `module.X` now reorders the bindings
+  // list so the module-level binding wins the reverse walk regardless
+  // of how many inner-scope fields share the name.
+  let source =
+    #|class D { shell: String = "bash" }
+    #|class R { defaults: D }
+    #|defaults: D = new {}
+    #|res = new R { defaults = module.defaults }
+
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  let rendered = render_value(value)
+  inspect(rendered.contains("shell = \"bash\""), content="true")
+}
+
+///|
 test "PKL-153: self-referential Mapping default does not infinite-loop" {
   let source =
     #|class Node {

@@ -4295,10 +4295,43 @@ fn eval_expr_with_bindings(
             return Some(ObjectValue(snapshot))
           }
         }
+        // PKL-153a: when an inner object-literal body declares a field
+        // whose name shadows a module-level binding (`new R { defaults
+        // = module.defaults }`), `find_binding`'s reverse walk picks
+        // up the inner shadow (last-wins) and either reports a false
+        // cycle (when the field is on the stack) or returns the
+        // half-built inner value. `module.X` should target the
+        // module-level binding, never an inner-scope shadow — move the
+        // first matching binding (the module-level one, since module
+        // bindings are pushed before inner-body fields) to the tail of
+        // the lookup list so the reverse-walk picks it instead of the
+        // shadow.
+        let mut module_idx : Int = -1
+        for i in 0..<bindings.length() {
+          if bindings[i].name == member_name {
+            module_idx = i
+            break
+          }
+        }
+        let prefer_module_bindings : Array[Binding] = if module_idx >= 0 &&
+          module_idx < bindings.length() - 1 {
+          let reordered : Array[Binding] = []
+          reordered.reserve_capacity(bindings.length())
+          let module_binding = bindings[module_idx]
+          for i in 0..<bindings.length() {
+            if i != module_idx {
+              reordered.push(bindings[i])
+            }
+          }
+          reordered.push(module_binding)
+          reordered
+        } else {
+          bindings
+        }
         match
           resolve_binding_value(
-            member_name, bindings, env, class_env, cache, stack, declarations, diagnostics,
-            resolve_import,
+            member_name, prefer_module_bindings, env, class_env, cache, stack, declarations,
+            diagnostics, resolve_import,
           ) {
           Some(value) => Some(value)
           None =>
