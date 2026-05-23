@@ -6494,6 +6494,33 @@ fn eval_expr_with_bindings(
                         Some(StringValue(source_text)) => {
                           let use_mapping = parser_use_mapping(receiver_members)
                           let yaml_mode = parser_mode(receiver_members)
+                          // PKL-153c: `? <seq>\n: <val>` explicit-key
+                          // mapping entries can't flow through the
+                          // upstream lib (which only accepts string
+                          // keys); handle the single-entry form
+                          // directly so Apple Pkl's `yamlParser1*`
+                          // complex-mapping-key fixture gold-matches.
+                          let _ = use_mapping
+                          if yaml_mode == "1.2" && method_name == "parse" {
+                            match yaml_v12_try_complex_key_doc(source_text) {
+                              Some(value) =>
+                                return Some(
+                                  apply_parser_converters(
+                                    value,
+                                    receiver_members,
+                                    true,
+                                    bindings,
+                                    env,
+                                    class_env,
+                                    cache,
+                                    declarations,
+                                    diagnostics,
+                                    resolve_import,
+                                  ),
+                                )
+                              None => ()
+                            }
+                          }
                           try {
                             let yaml_source = normalize_yaml_folded_block_chomping(
                               source_text,

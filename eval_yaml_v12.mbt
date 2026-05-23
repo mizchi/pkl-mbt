@@ -630,6 +630,136 @@ fn extract_yaml_scalar_after(
 }
 
 ///|
+/// Detect Apple Pkl's "explicit key with non-string key" pattern
+/// (`? <seq>\n: <val>`) and, when present, project the whole
+/// document into a Pkl `MappingValue` with the parsed key and
+/// value. Returns `None` when the source doesn't match the
+/// pattern so the regular parse path continues. Today this only
+/// targets the single-entry shape that `yamlParser1*`'s "complex
+/// mapping key" fixture stresses — the upstream lib's `Map[String,
+/// Yaml]` doesn't let us route this through the standard projection.
+fn yaml_v12_try_complex_key_doc(source : String) -> Value? {
+  let lines = split_lines_for_block_detect(source)
+  if lines.length() < 3 {
+    return None
+  }
+  // Locate `? `-prefixed line and the matching `: ` line.
+  let mut key_start : Int = -1
+  let mut value_start : Int = -1
+  let mut indent_target : Int = -1
+  for i = 0; i < lines.length(); i = i + 1 {
+    let line = lines[i]
+    let line_indent = leading_space_count(line)
+    let body = String::unsafe_substring(line, start=line_indent, end=line.length())
+    if key_start < 0 {
+      // Looking for the `? ` start.
+      if body.length() >= 2 && body[0] == '?' && body[1] is (' ' | '\t') {
+        key_start = i
+        indent_target = line_indent
+      }
+    } else if value_start < 0 && line_indent == indent_target {
+      if body.length() >= 2 && body[0] == ':' && body[1] is (' ' | '\t') {
+        value_start = i
+        break
+      }
+    }
+  }
+  if key_start < 0 || value_start < 0 || value_start <= key_start {
+    return None
+  }
+  // Reject doc if other top-level entries exist beyond the single
+  // `?: ` pair — Apple Pkl's fixture has just the one entry; mixing
+  // it with regular keys here would require a deeper rewrite.
+  for i = 0; i < lines.length(); i = i + 1 {
+    if i == key_start || i == value_start {
+      continue
+    }
+    let line = lines[i]
+    let line_indent = leading_space_count(line)
+    if line_indent != indent_target {
+      continue
+    }
+    let trimmed = trim_yaml_ws_v12(line)
+    if trimmed == "" {
+      continue
+    }
+    // A bare top-level key at the marker indent we don't recognise
+    // → bail out.
+    return None
+  }
+  // Reassemble the key block: `? <first>` becomes `<first>` and the
+  // following lines preserve their original indent but get the `?`
+  // prefix peeled. The block ends at the `: ` line.
+  let key_buf = StringBuilder::new()
+  let first_key_line = lines[key_start]
+  let first_indent = leading_space_count(first_key_line)
+  if first_key_line.length() > first_indent + 2 {
+    key_buf.write_string(
+      String::unsafe_substring(
+        first_key_line, start=first_indent + 2, end=first_key_line.length(),
+      ),
+    )
+  }
+  for i = key_start + 1; i < value_start; i = i + 1 {
+    key_buf.write_char('\n')
+    let line = lines[i]
+    let li = leading_space_count(line)
+    let body_start = if li >= first_indent + 2 { first_indent + 2 } else { li }
+    key_buf.write_string(
+      String::unsafe_substring(line, start=body_start, end=line.length()),
+    )
+  }
+  // Value: everything after `: ` on the value line plus all
+  // subsequent lines verbatim. Trim trailing whitespace lines so
+  // upstream doesn't add a phantom trailing empty document.
+  let val_buf = StringBuilder::new()
+  let value_line = lines[value_start]
+  let vi = leading_space_count(value_line)
+  if value_line.length() > vi + 2 {
+    val_buf.write_string(
+      String::unsafe_substring(
+        value_line, start=vi + 2, end=value_line.length(),
+      ),
+    )
+  }
+  for i = value_start + 1; i < lines.length(); i = i + 1 {
+    val_buf.write_char('\n')
+    val_buf.write_string(lines[i])
+  }
+  let key_source = key_buf.to_string()
+  let val_source = val_buf.to_string()
+  let key_doc = try? @yaml.Yaml::load_from_string(key_source[:])
+  let val_doc = try? @yaml.Yaml::load_from_string(val_source[:])
+  match (key_doc, val_doc) {
+    (Ok(key_docs), Ok(val_docs)) => {
+      if key_docs.length() == 0 || val_docs.length() == 0 {
+        return None
+      }
+      let alias_refs : YamlAliasRefs = {
+        array_refs: [], map_refs: [], next_id: 1L,
+      }
+      let key_value = yaml_to_value_with_aliases(
+        key_docs[0], false, alias_refs,
+      )
+      let val_value = yaml_to_value_with_aliases(
+        val_docs[0], false, alias_refs,
+      )
+      Some(MappingValue([{ key: key_value, value: val_value }]))
+    }
+    _ => None
+  }
+}
+
+///|
+fn leading_space_count(line : String) -> Int {
+  let mut i = 0
+  while i < line.length() && line[i] is (' ') {
+    i = i + 1
+  }
+  i
+}
+
+///|
 /// Returns true if a Yaml::Map has the `!!set` sentinel injected by
 /// `yaml_v12_rewrite_set`.
 fn yaml_v12_map_is_set(m : Map[String, @yaml.Yaml]) -> Bool {
