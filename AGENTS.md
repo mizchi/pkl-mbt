@@ -38,7 +38,7 @@
 
 ## 現在の開発状況
 
-- 現在 version は `0.2.0` (`moon.mod.json`)。
+- 現在 version は `0.2.1` (`moon.mod.json`)。
 - 上流の Apple Pkl LanguageSnippetTests に対する gold-match: **376 / 391 (96.2%)**。確認は `pkf run coverage` で。
 - カテゴリ別の内訳と最終更新は `README.md` / `TODO.md` が source of truth。
 - 0.2.0 で追加された embedded-API: `configure_sandbox_resource_reader(scheme, fn)`、 `extends` chain の base-local 解決、 cross-module recursive function、 `Listing<T>` 返り値推論、 `mpkl test --junit-reports <dir>`。 詳細は `README.md` の "0.2.0 highlights"。

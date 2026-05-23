@@ -1,6 +1,6 @@
 # Release TODO
 
-Current version: `0.2.0` (see `moon.mod.json`).
+Current version: `0.2.1` (see `moon.mod.json`).
 Current coverage: 376 / 391 PCF gold-match (96.2%).
 Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-05-22.
 
@@ -14,7 +14,7 @@ Embedded-host blockers cleared during the 0.2.0 round:
 - `mpkl test --junit-reports <dir>` emits a JUnit XML envelope (one `<testsuite>` per module, one `<testcase>` per fact + one for `examples`). Eval-time errors surface as a single failed `<testcase name="eval">`. The text-mode summary is unchanged.
 - `configure_sandbox_resource_reader(scheme, reader)` lets an embedded caller service `read("scheme:path")` in-process — pkspec / pkfire's `cmd:` reader use case without a separate subprocess.
 
-Post-0.2.0 fixes (2026-05-24 on `main`, queued for 0.2.1):
+0.2.1 fixes (2026-05-24):
 
 - **PKL-153** (`dc1c86c`): self-referential `Listing<T>` / `Mapping<K, T>` default expansion no longer infinite-loops. A class with `class Task { deps: Listing<Task> = new {} }` used to hang mpkl indefinitely; `apply_collection_default_for_type`'s call to `synthesize_default_for_type` reset the seen-set, recursing forever on the element type. A `materializing` marker on `ClassDefaultMemoEntry` records the in-flight class name so element-default synthesis on a self-referential type short-circuits to the empty shape (the materialised default is unobservable for an empty collection anyway).
 - **PKL-153a** (`72465cf`): `MemberAccess(Identifier("module"), X)` no longer false-positives "cyclic property reference X" when an inner object-literal body declares a field whose name shadows a module-level binding (`new R { defaults = module.defaults }` inside a derived module's `output.value` re-eval). The fix reorders the bindings list so the module-level binding wins `find_binding`'s reverse walk instead of the inner shadow.
