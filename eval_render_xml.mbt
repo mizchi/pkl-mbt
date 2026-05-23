@@ -889,6 +889,13 @@ fn xml_annotation_string_field(body : String, field_name : String) -> String? {
 
 ///|
 fn xml_coerce_key(value : Value) -> String {
+  // PKL-153f: a RenderDirective key uses its `text` verbatim — Apple
+  // Pkl accepts an arbitrary string (even emoji) as the element name
+  // when it came from a directive.
+  match render_directive_text(value) {
+    Some(text) => return text
+    None => ()
+  }
   match value {
     StringValue(s) => s
     IntValue(n) => "\{n}"
@@ -1235,9 +1242,15 @@ fn xml_entries_render_error(
     if entry.value is NullValue {
       continue
     }
-    match xml_name_error(xml_coerce_key(entry.key), xml_version, "element") {
-      Some(message) => return Some(message)
-      None => ()
+    // PKL-153f: skip the name-validity check for keys that came from
+    // a RenderDirective — Apple Pkl emits the directive's text raw
+    // even when the resulting element name isn't a valid XML 1.0
+    // identifier.
+    if render_directive_text(entry.key) is None {
+      match xml_name_error(xml_coerce_key(entry.key), xml_version, "element") {
+        Some(message) => return Some(message)
+        None => ()
+      }
     }
     match xml_render_nested_value_error(entry.value, xml_version, false) {
       Some(message) => return Some(message)

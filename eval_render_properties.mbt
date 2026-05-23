@@ -1,5 +1,12 @@
 ///|
 pub fn render_value_as_properties(value : Value) -> String {
+  // PKL-153f: a `RenderDirective` at the document root short-circuits
+  // the rest of the renderer and emits its `text` verbatim, mirroring
+  // Apple Pkl's behaviour across PCF / JSON / YAML / Properties.
+  match render_directive_text(value) {
+    Some(text) => return text
+    None => ()
+  }
   let buf = StringBuilder::new()
   match value {
     ObjectValue(members) => render_properties_members(members, "", buf)
@@ -13,6 +20,12 @@ pub fn render_value_as_properties(value : Value) -> String {
 
 ///|
 pub fn render_value_as_properties_fragment(value : Value) -> String {
+  // `renderValue(directive)` returns the directive's `text` directly;
+  // any other value passes through the scalar pipe.
+  match render_directive_text(value) {
+    Some(text) => return text
+    None => ()
+  }
   let buf = StringBuilder::new()
   write_properties_scalar(value, buf)
   buf.to_string()
@@ -49,6 +62,20 @@ fn render_properties_leaf(
   buf : StringBuilder,
 ) -> Unit {
   let full_key = if prefix == "" { name } else { prefix + "." + name }
+  // PKL-153f: a RenderDirective in property position emits its `text`
+  // raw (no key escaping / value quoting), matching Apple Pkl. Apple
+  // Pkl drops the `= ` separator too — the `text` is expected to
+  // contain whatever the user wants, including the `=`.
+  match render_directive_text(value) {
+    Some(text) => {
+      write_properties_key(full_key, buf)
+      buf.write_char(' ')
+      buf.write_string(text)
+      buf.write_char('\n')
+      return
+    }
+    None => ()
+  }
   match value {
     NullValue => ()
     ObjectValue(members) =>

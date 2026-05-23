@@ -80,6 +80,12 @@ fn render_value_as_pcf_fragment_with_custom_string_delimiters(
   value : Value,
   use_custom_string_delimiters : Bool,
 ) -> String {
+  // PKL-153f: directive shortcut — `renderValue(new RenderDirective
+  // { text = "…" })` emits the text raw across every renderer.
+  match render_directive_text(value) {
+    Some(text) => return text
+    None => ()
+  }
   let buf = StringBuilder::new()
   match value {
     ObjectValue(_)

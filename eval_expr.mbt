@@ -9478,6 +9478,12 @@ fn protobuf_mapping_entries_error(
 
 ///|
 fn protobuf_map_key_is_supported(value : Value) -> Bool {
+  // PKL-153f: a RenderDirective key flattens to its `text` at
+  // render time, so the protobuf "scalar key only" rule needs to
+  // see through the directive wrapper rather than reject it.
+  if render_directive_text(value) is Some(_) {
+    return true
+  }
   match value {
     StringValue(_) | IntValue(_) | BoolValue(_) => true
     _ => false
@@ -10178,6 +10184,12 @@ fn properties_renderer_value_error(
   value : Value,
   cache : Array[ValueBinding],
 ) -> String? {
+  // PKL-153f: `renderValue(new RenderDirective {...})` always passes —
+  // the directive's `text` is what gets emitted, regardless of the
+  // renderer's normal scalar/map vocabulary.
+  if render_directive_text(value) is Some(_) {
+    return None
+  }
   match value {
     IntValue(_)
     | FloatValue(_)
