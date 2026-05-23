@@ -453,6 +453,17 @@ fn render_xml_fragment_value(
   indent_text : String,
   buf : StringBuilder,
 ) -> Unit {
+  // PKL-153f: directive short-circuit — `renderValue(new
+  // RenderDirective {...})` flows the directive's `text` into the
+  // fragment verbatim, ahead of the bare-`text`-member ↦ Comment
+  // shortcut that would otherwise wrap it in `<!-- ... -->`.
+  match render_directive_text(value) {
+    Some(text) => {
+      buf.write_string(text)
+      return
+    }
+    None => ()
+  }
   match value {
     ObjectValue(members) => {
       let visible = visible_members(members)

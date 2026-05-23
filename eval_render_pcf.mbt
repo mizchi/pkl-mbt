@@ -1064,6 +1064,16 @@ fn render_pcf_mapping_entry(
   buf.write_char('[')
   render_pcf_inline(entry.key, indent, use_custom_string_delimiters, buf)
   buf.write_char(']')
+  // PKL-153f: a RenderDirective value drops the `= ` separator so
+  // Apple Pkl's `["other"] 💰` shape lines up.
+  match render_directive_text(entry.value) {
+    Some(text) => {
+      buf.write_char(' ')
+      buf.write_string(text)
+      return
+    }
+    None => ()
+  }
   if pcf_is_block_value(entry.value) {
     buf.write_char(' ')
     render_pcf_block_body(

@@ -63,13 +63,12 @@ fn render_properties_leaf(
 ) -> Unit {
   let full_key = if prefix == "" { name } else { prefix + "." + name }
   // PKL-153f: a RenderDirective in property position emits its `text`
-  // raw (no key escaping / value quoting), matching Apple Pkl. Apple
-  // Pkl drops the `= ` separator too — the `text` is expected to
-  // contain whatever the user wants, including the `=`.
+  // raw on the value side (no value escaping / quoting), but Apple
+  // Pkl keeps the `=` separator between key and the directive payload.
   match render_directive_text(value) {
     Some(text) => {
       write_properties_key(full_key, buf)
-      buf.write_char(' ')
+      buf.write_string(" = ")
       buf.write_string(text)
       buf.write_char('\n')
       return

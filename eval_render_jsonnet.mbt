@@ -85,6 +85,16 @@ fn jsonnet_emit_value(
   ctx : JsonnetCtx,
   buf : StringBuilder,
 ) -> Unit {
+  // PKL-153f: directive short-circuit — emit the `text` verbatim
+  // wherever the value appears, mirroring how other renderers handle
+  // `new RenderDirective {...}`.
+  match render_directive_text(value) {
+    Some(text) => {
+      buf.write_string(text)
+      return
+    }
+    None => ()
+  }
   match value {
     NullValue => buf.write_string("null")
     DeferredImportValue(_) => buf.write_string("null")
@@ -202,14 +212,26 @@ fn jsonnet_emit_object_from_entries(
     if ctx.omit_null_properties && entry.value is NullValue {
       continue
     }
-    let key = match entry.key {
-      StringValue(s) => s
-      IntValue(n) => "\{n}"
-      FloatValue(d) => jsonnet_float_text(d)
-      BoolValue(b) => if b { "true" } else { "false" }
-      _ => jsonnet_value_to_string_key(entry.key)
+    let directive_key = render_directive_text(entry.key)
+    let key = match directive_key {
+      Some(text) => text
+      None =>
+        match entry.key {
+          StringValue(s) => s
+          IntValue(n) => "\{n}"
+          FloatValue(d) => jsonnet_float_text(d)
+          BoolValue(b) => if b { "true" } else { "false" }
+          _ => jsonnet_value_to_string_key(entry.key)
+        }
     }
-    kvs.push((key, entry.value))
+    if directive_key is Some(_) {
+      // PKL-153f: directive-sourced keys go in verbatim — bypass the
+      // identifier-validity quoting `jsonnet_object_key` would otherwise
+      // apply (emoji / non-ASCII keys come out unquoted in Apple Pkl).
+      kvs.push(("\u{001f}\{key}", entry.value))
+    } else {
+      kvs.push((key, entry.value))
+    }
   }
   jsonnet_emit_object_entries_typed(kvs, indent, ctx, buf)
 }
@@ -303,6 +325,11 @@ fn jsonnet_write_indent(
 /// Pkl's `jsonnetfmt` output (`annoyingNames` fixture has
 /// `'5hello'`, `'foo.bar'`, `"single'quote"`).
 fn jsonnet_object_key(key : String) -> String {
+  // PKL-153f: directive-sourced keys carry the `\u{001f}` sentinel set
+  // in `jsonnet_emit_object_from_entries`; pass them through raw.
+  if key.length() >= 1 && key[0] == 0x1f {
+    return String::unsafe_substring(key, start=1, end=key.length())
+  }
   if jsonnet_is_simple_identifier(key) && !jsonnet_is_reserved_keyword(key) {
     return key
   }

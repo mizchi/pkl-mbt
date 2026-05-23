@@ -21,6 +21,17 @@ pub fn render_value_as_plist_fragment(value : Value) -> String {
 
 ///|
 fn render_plist_value(value : Value, indent : Int, buf : StringBuilder) -> Unit {
+  // PKL-153f: directive short-circuit emits the `text` verbatim into
+  // the plist body — Apple Pkl bypasses the usual `<string>` /
+  // `<dict>` wrapping for RenderDirective.
+  match render_directive_text(value) {
+    Some(text) => {
+      write_plist_indent(buf, indent)
+      buf.write_string(text)
+      return
+    }
+    None => ()
+  }
   match value {
     IntValue(n) => {
       write_plist_indent(buf, indent)

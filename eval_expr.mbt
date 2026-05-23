@@ -8991,9 +8991,22 @@ fn reeval_class_defaults_after_constructor_overrides(
     if directly_overridden {
       continue
     }
-    let source = match property.value {
+    let raw_source = match property.value {
       Some(expr) => expr
       None => continue
+    }
+    // PKL-153g: mirror the TypedObjectLiteral promotion the initial
+    // class-default pass applies — a stdlib-typed `new { ... }` body
+    // would otherwise come back as a bare Dynamic, dropping the class
+    // tag that `render_directive_text` / renderer dispatch relies on.
+    let source = match (raw_source, property.type_name) {
+      (ObjectLiteral(members), Some(type_name)) =>
+        match
+          instantiable_class_name_for_type_annotation(type_name, class_env) {
+          Some(class_name) => TypedObjectLiteral(class_name, members)
+          None => raw_source
+        }
+      _ => raw_source
     }
     let local_env = copy_value_bindings(env)
     push_current_members_as_env(local_env, current)
@@ -9498,6 +9511,13 @@ fn render_value_as_protobuf_fragment_with_context(
   cache : Array[ValueBinding],
   declarations : Array[Declaration],
 ) -> String {
+  // PKL-153f: directive short-circuit — `renderValue(new
+  // RenderDirective {...})` returns the text raw before the
+  // protobuf-object pipeline kicks in.
+  match render_directive_text(value) {
+    Some(text) => return text
+    None => ()
+  }
   match value {
     DurationValue(_, _) => render_value_as_protobuf_fragment(value, indent_text)
     ObjectValue(members) => {
