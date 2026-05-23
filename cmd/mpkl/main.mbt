@@ -2706,6 +2706,11 @@ async fn main {
   let mut format = "pcf"
   let mut format_explicit = false
   let mut overwrite = false
+  // PKL-153: `--junit-reports <dir>` mirrors Apple Pkl's `pkl test`
+  // flag — when set, the test runner additionally emits a JUnit XML
+  // report at `<dir>/<basename>.xml` so pkspec / CI can pick up
+  // structured pass/fail data.
+  let mut junit_reports_dir : String? = None
   // PKL-131b: codegen target, parsed from `-t` / `--target`. Only
   // `moonbit` is wired today; the dispatcher rejects everything else
   // with the list of supported names so a typo is loud rather than
@@ -2742,6 +2747,13 @@ async fn main {
     } else if token == "--overwrite" {
       overwrite = true
       i = i + 1
+    } else if token == "--junit-reports" {
+      if i + 1 >= args.length() {
+        usage()
+        @sys.exit(1)
+      }
+      junit_reports_dir = Some(args[i + 1])
+      i = i + 2
     } else if token == "-p" {
       if i + 1 >= args.length() {
         usage()
@@ -3059,11 +3071,22 @@ async fn main {
           for line in examples_summary.lines {
             println(line)
           }
+          match junit_reports_dir {
+            Some(dir) =>
+              write_junit_report(
+                dir, path, facts_summary.cases, examples_summary.cases,
+              )
+            None => ()
+          }
           if facts_summary.failed > 0 || examples_summary.failed > 0 {
             @sys.exit(1)
           }
         }
         EvalError(diagnostics) => {
+          match junit_reports_dir {
+            Some(dir) => write_junit_eval_error(dir, path, diagnostics)
+            None => ()
+          }
           print_diagnostics(diagnostics)
           @sys.exit(1)
         }
@@ -3145,9 +3168,20 @@ async fn main {
 }
 
 ///|
+priv struct PklTestCase {
+  name : String
+  passed : Bool
+  failure_message : String?
+}
+
+///|
 priv struct PklTestSummary {
   lines : Array[String]
   failed : Int
+  // PKL-153: structured per-case detail used by the `--junit-reports`
+  // emitter. The text-mode renderer (`lines`) is unchanged for callers
+  // that don't care about machine-readable output.
+  cases : Array[PklTestCase]
 }
 
 ///|
@@ -3159,6 +3193,7 @@ priv struct PklTestSummary {
 /// `moon test`'s behaviour for empty test files.
 fn run_pkl_test(value : @pkl.Value) -> PklTestSummary {
   let lines : Array[String] = []
+  let cases : Array[PklTestCase] = []
   let mut passed = 0
   let mut failed = 0
   let facts : @pkl.Value? = lookup_module_member(value, "facts")
@@ -3190,12 +3225,13 @@ fn run_pkl_test(value : @pkl.Value) -> PklTestSummary {
         }
         if fact_failed {
           failed += 1
-          lines.push(
-            "FAIL \{name}: assertion #\{bad_index + 1} of \{total} did not evaluate to true",
-          )
+          let message = "assertion #\{bad_index + 1} of \{total} did not evaluate to true"
+          lines.push("FAIL \{name}: \{message}")
+          cases.push({ name, passed: false, failure_message: Some(message) })
         } else {
           passed += 1
           lines.push("PASS \{name} (\{total} assertions)")
+          cases.push({ name, passed: true, failure_message: None })
         }
       }
     Some(_) =>
@@ -3205,7 +3241,7 @@ fn run_pkl_test(value : @pkl.Value) -> PklTestSummary {
     None => ()
   }
   lines.push("\{passed} passed, \{failed} failed")
-  { lines, failed }
+  { lines, failed, cases }
 }
 
 ///|
@@ -3243,6 +3279,7 @@ fn run_pkl_examples_test(
   overwrite : Bool,
 ) -> PklTestSummary {
   let lines : Array[String] = []
+  let cases : Array[PklTestCase] = []
   let mut failed = 0
   match lookup_module_member(value, "examples") {
     Some(examples_value) => {
@@ -3263,6 +3300,11 @@ fn run_pkl_examples_test(
             lines.push(
               "FAIL examples could not write golden file \{golden_path}",
             )
+            cases.push({
+              name: "examples",
+              passed: false,
+              failure_message: Some("could not write golden file \{golden_path}"),
+            })
           }
         }
         lines.push("OVERWRITE \{golden_path}")
@@ -3270,7 +3312,13 @@ fn run_pkl_examples_test(
         let expected = @fs.read_file_to_string(golden_path) catch { _ => "" }
         if expected == "" {
           failed = failed + 1
-          lines.push("FAIL examples missing golden file \{golden_path}")
+          let message = "missing golden file \{golden_path}"
+          lines.push("FAIL examples \{message}")
+          cases.push({
+            name: "examples",
+            passed: false,
+            failure_message: Some(message),
+          })
         } else if expected == rendered {
           let count = match examples_value {
             @pkl.MappingValue(entries)
@@ -3278,15 +3326,167 @@ fn run_pkl_examples_test(
             _ => 0
           }
           lines.push("PASS examples (\{count} examples)")
+          cases.push({
+            name: "examples",
+            passed: true,
+            failure_message: None,
+          })
         } else {
           failed = failed + 1
-          lines.push("FAIL examples diff against \{golden_path}")
+          let message = "diff against \{golden_path}"
+          lines.push("FAIL examples \{message}")
+          cases.push({
+            name: "examples",
+            passed: false,
+            failure_message: Some(message),
+          })
         }
       }
     }
     None => ()
   }
-  { lines, failed }
+  { lines, failed, cases }
+}
+
+///|
+/// PKL-153: write a minimal JUnit XML report for the test run so
+/// pkspec / CI can ingest structured results. Output layout matches
+/// Apple Pkl's `--junit-reports`: one `<dir>/<basename>.xml` file
+/// per test module, containing one `<testsuite>` with one
+/// `<testcase>` per fact + one per examples block (when present).
+/// Failures attach a `<failure>` child with the diagnostic message.
+fn write_junit_report(
+  dir : String,
+  path : String,
+  facts_cases : Array[PklTestCase],
+  examples_cases : Array[PklTestCase],
+) -> Unit {
+  let all_cases : Array[PklTestCase] = []
+  for c in facts_cases {
+    all_cases.push(c)
+  }
+  for c in examples_cases {
+    all_cases.push(c)
+  }
+  let suite_name = junit_suite_name(path)
+  let xml = render_junit_xml(suite_name, all_cases)
+  let out_path = "\{dir}/\{suite_name}.xml"
+  @fs.write_string_to_file(out_path, xml) catch {
+    _ => println("warning: could not write JUnit report \{out_path}")
+  }
+}
+
+///|
+fn write_junit_eval_error(
+  dir : String,
+  path : String,
+  diagnostics : Array[@pkl.Diagnostic],
+) -> Unit {
+  let suite_name = junit_suite_name(path)
+  let message = if diagnostics.length() > 0 {
+    diagnostics[0].message
+  } else {
+    "module failed to evaluate"
+  }
+  let case = {
+    name: "eval",
+    passed: false,
+    failure_message: Some(message),
+  }
+  let xml = render_junit_xml(suite_name, [case])
+  let out_path = "\{dir}/\{suite_name}.xml"
+  @fs.write_string_to_file(out_path, xml) catch {
+    _ => println("warning: could not write JUnit report \{out_path}")
+  }
+}
+
+///|
+fn junit_suite_name(path : String) -> String {
+  let trimmed = match path.find("/") {
+    Some(_) => {
+      let mut start = 0
+      let mut i = 0
+      while i < path.length() {
+        if path[i] == '/' {
+          start = i + 1
+        }
+        i = i + 1
+      }
+      String::unsafe_substring(path, start~, end=path.length())
+    }
+    None => path
+  }
+  if trimmed.has_suffix(".pkl") {
+    String::unsafe_substring(trimmed, start=0, end=trimmed.length() - 4)
+  } else {
+    trimmed
+  }
+}
+
+///|
+fn xml_escape(text : String) -> String {
+  let buf = StringBuilder::new()
+  for i = 0; i < text.length(); i = i + 1 {
+    let c = text[i].to_int()
+    if c == '&'.to_int() {
+      buf.write_string("&amp;")
+    } else if c == '<'.to_int() {
+      buf.write_string("&lt;")
+    } else if c == '>'.to_int() {
+      buf.write_string("&gt;")
+    } else if c == '"'.to_int() {
+      buf.write_string("&quot;")
+    } else if c == '\''.to_int() {
+      buf.write_string("&apos;")
+    } else {
+      buf.write_char(c.unsafe_to_char())
+    }
+  }
+  buf.to_string()
+}
+
+///|
+fn render_junit_xml(
+  suite_name : String,
+  cases : Array[PklTestCase],
+) -> String {
+  let mut failures = 0
+  for c in cases {
+    if !c.passed {
+      failures = failures + 1
+    }
+  }
+  let total = cases.length()
+  let buf = StringBuilder::new()
+  buf.write_string("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+  buf.write_string(
+    "<testsuites name=\"\{xml_escape(suite_name)}\" tests=\"\{total}\" failures=\"\{failures}\">\n",
+  )
+  buf.write_string(
+    "  <testsuite name=\"\{xml_escape(suite_name)}\" tests=\"\{total}\" failures=\"\{failures}\">\n",
+  )
+  for c in cases {
+    if c.passed {
+      buf.write_string(
+        "    <testcase classname=\"\{xml_escape(suite_name)}\" name=\"\{xml_escape(c.name)}\"/>\n",
+      )
+    } else {
+      let message = match c.failure_message {
+        Some(m) => m
+        None => "test failed"
+      }
+      buf.write_string(
+        "    <testcase classname=\"\{xml_escape(suite_name)}\" name=\"\{xml_escape(c.name)}\">\n",
+      )
+      buf.write_string(
+        "      <failure message=\"\{xml_escape(message)}\"/>\n",
+      )
+      buf.write_string("    </testcase>\n")
+    }
+  }
+  buf.write_string("  </testsuite>\n")
+  buf.write_string("</testsuites>\n")
+  buf.to_string()
 }
 
 ///|
