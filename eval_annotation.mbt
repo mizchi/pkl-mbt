@@ -505,6 +505,47 @@ fn coerce_value_to_annotated_type(value : Value, type_name : String?) -> Value {
 }
 
 ///|
+///|
+/// PKL-153: returns `true` when `raw_type`'s base class is currently
+/// being materialised on the class-default expansion stack. Used by
+/// `apply_collection_default_for_type` to break the
+/// `Listing<Self> = new {}` cycle. `raw_type` may carry generic args,
+/// constraints, alias names, leading `*` (union default marker), or
+/// trailing `?` (nullable); we strip all of those to land on the bare
+/// class name that the materialising map keys on.
+fn class_default_is_materializing(
+  raw_type : String,
+  declarations : Array[Declaration],
+) -> Bool {
+  let mut name = trim_spaces(raw_type)
+  if name.length() == 0 {
+    return false
+  }
+  if string_starts_with_char(name, '*') {
+    name = trim_spaces(
+      String::unsafe_substring(name, start=1, end=name.length()),
+    )
+  }
+  if string_ends_with_char(name, '?') {
+    name = trim_spaces(
+      String::unsafe_substring(name, start=0, end=name.length() - 1),
+    )
+  }
+  match pkl_constrained_type_base_name(name) {
+    Some(base) => name = trim_spaces(base)
+    None => ()
+  }
+  let aliases = eval_type_alias_bindings(declarations)
+  let resolved = eval_resolved_type_alias(name, aliases)
+  let base = match string_index_of_char(resolved, '<') {
+    idx if idx >= 0 => String::unsafe_substring(resolved, start=0, end=idx)
+    _ => resolved
+  }
+  let memo = class_default_memo_for(declarations)
+  memo.materializing.get(base) is Some(true)
+}
+
+///|
 fn apply_collection_default_for_type(
   value : Value,
   type_name : String?,
@@ -530,7 +571,18 @@ fn apply_collection_default_for_type(
   match generic_argument_text(base, "Listing") {
     Some(element_type) =>
       match value {
-        ListingValue(raw_elements) =>
+        ListingValue(raw_elements) => {
+          // PKL-153: skip element-default synthesis when the element type
+          // names a class currently being materialised. The path lands
+          // here from `eval_class_default_members_seen("Task")` evaluating
+          // `deps: Listing<Task> = new {}`; synthesising Task's default
+          // again would recurse forever (the `seen` array inside
+          // `eval_class_default_members_seen` doesn't reach this far).
+          // For an empty `raw_elements` the materialised default isn't
+          // observable anyway — the rendered shape stays `Listing {}`.
+          if class_default_is_materializing(element_type, declarations) {
+            return value
+          }
           match
             synthesize_default_for_type(
               Some(element_type),
@@ -560,6 +612,7 @@ fn apply_collection_default_for_type(
             }
             None => return value
           }
+        }
         _ => return value
       }
     None => ()
@@ -572,7 +625,10 @@ fn apply_collection_default_for_type(
       }
       let value_type = parts[1]
       match value {
-        MappingValue(raw_entries) =>
+        MappingValue(raw_entries) => {
+          if class_default_is_materializing(value_type, declarations) {
+            return value
+          }
           match
             synthesize_default_for_type(
               Some(value_type),
@@ -602,6 +658,7 @@ fn apply_collection_default_for_type(
             }
             None => return value
           }
+        }
         _ => return value
       }
     }

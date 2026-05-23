@@ -3891,3 +3891,41 @@ test "class property union accepts null branch after generic head" {
 }
 
 ///|
+test "PKL-153: self-referential Listing default does not infinite-loop" {
+  // Before the fix `class Task { deps: Listing<Task> = new {} }` hung
+  // mpkl indefinitely because `apply_collection_default_for_type`
+  // synthesised the element default with a fresh `seen` array,
+  // recursing into the same class. The materialising-marker on
+  // `ClassDefaultMemoEntry` breaks the cycle for empty collections
+  // without disturbing the non-recursive shape.
+  let source =
+    #|class Task {
+    #|  name: String
+    #|  deps: Listing<Task> = new {}
+    #|}
+    #|
+    #|t = new Task { name = "build" }
+
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  let rendered = render_value(value)
+  inspect(rendered.contains("name = \"build\""), content="true")
+  inspect(rendered.contains("deps {}"), content="true")
+}
+
+///|
+test "PKL-153: self-referential Mapping default does not infinite-loop" {
+  let source =
+    #|class Node {
+    #|  label: String
+    #|  children: Mapping<String, Node> = new {}
+    #|}
+    #|
+    #|root = new Node { label = "root" }
+
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  let rendered = render_value(value)
+  inspect(rendered.contains("label = \"root\""), content="true")
+  inspect(rendered.contains("children {}"), content="true")
+}
+
+///|

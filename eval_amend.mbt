@@ -2060,6 +2060,18 @@ priv struct ClassDefaultMemoEntry {
   // walk runs once per class per `eval_source`, not once per call site.
   unsafe_classes : Map[String, Bool]
   safe_classes : Map[String, Bool]
+  // PKL-153: class names currently being materialised. Set on enter /
+  // cleared on exit of `eval_class_default_members_seen` so the
+  // `apply_collection_default_for_type` → `synthesize_default_for_type`
+  // path can detect a self-referential element type (`class Task {
+  // deps: Listing<Task> = new {} }`) and break the cycle.
+  // `eval_class_default_members_seen`'s own `seen` array can't reach
+  // that path because synthesize is called from
+  // `eval_object_members_with_implicit_env`, which doesn't thread
+  // `seen` through. Apple Pkl handles the same shape eagerly without
+  // looping; this map plays the same role as Apple Pkl's
+  // materialisation-stack tracking.
+  materializing : Map[String, Bool]
 }
 
 ///|
@@ -2078,6 +2090,7 @@ fn class_default_memo_for(declarations : Array[Declaration]) -> ClassDefaultMemo
     memo: Map([], capacity=16),
     unsafe_classes: Map([], capacity=16),
     safe_classes: Map([], capacity=16),
+    materializing: Map([], capacity=8),
   }
   while class_default_memo_cache.val.length() >= 4 {
     let _ = class_default_memo_cache.val.remove(0)
@@ -2214,6 +2227,16 @@ fn eval_class_default_members_seen(
     }
   }
   seen.push(type_name)
+  // PKL-153: mark this class as currently materialising so a property
+  // default whose type is `Listing<Self>` / `Mapping<K, Self>` can
+  // detect the cycle in `apply_collection_default_for_type` and skip
+  // synthesising the element/value default (the empty raw collection
+  // doesn't need it anyway, and recursing into the same class would
+  // never terminate).
+  let materializing_was_set = memo_entry.materializing.get(type_name) is Some(true)
+  if !materializing_was_set {
+    memo_entry.materializing[type_name] = true
+  }
   // Pre-size the per-class-layer scratch arrays: each call to
   // `eval_class_default_members_seen` allocated three empty arrays
   // and then grew them by `push` — on the recursive class-default
@@ -2423,6 +2446,13 @@ fn eval_class_default_members_seen(
   }
   if is_memoizable {
     memo_entry.memo[type_name] = combined
+  }
+  // PKL-153: clear the materialising marker so subsequent independent
+  // `eval_class_default_members_seen` calls for sibling properties at
+  // the same class layer still synthesise their own element defaults
+  // (only nested-into-self calls are short-circuited).
+  if !materializing_was_set {
+    let _ = memo_entry.materializing.remove(type_name)
   }
   combined
 }
