@@ -571,7 +571,7 @@ fn resolve_binding_value(
         Some(ObjectValue(parent_members)) =>
           if is_module_member_set(parent_members) {
             resolve_module_parent_member_value(
-              name, parent_members, bindings, env, class_env, cache, stack, declarations,
+              name, parent_members, [], bindings, env, class_env, cache, stack, declarations,
               diagnostics, resolve_import,
             )
           } else {

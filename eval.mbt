@@ -832,7 +832,12 @@ fn eval_source_with_imports(
   source : String,
   resolve_import : (String) -> EvalResult?,
 ) -> EvalResult {
-  eval_source_with_import_details(source, resolve_import, fn(_) { None })
+  eval_source_with_import_details(
+    source,
+    resolve_import,
+    fn(_) { None },
+    fn(_) { None },
+  )
 }
 
 ///|
@@ -840,12 +845,14 @@ fn eval_source_with_import_details(
   source : String,
   resolve_import : (String) -> EvalResult?,
   resolve_import_classes : (String) -> Array[ClassExport]?,
+  resolve_import_bindings : (String) -> Array[Binding]?,
 ) -> EvalResult {
   eval_source_with_import_details_named(
     source,
     None,
     resolve_import,
     resolve_import_classes,
+    resolve_import_bindings,
   )
 }
 
@@ -860,6 +867,7 @@ fn eval_source_with_import_details_named(
   fallback_module_name : String?,
   resolve_import : (String) -> EvalResult?,
   resolve_import_classes : (String) -> Array[ClassExport]?,
+  resolve_import_bindings : (String) -> Array[Binding]?,
 ) -> EvalResult {
   eval_source_with_import_details_named_at(
     source,
@@ -867,6 +875,7 @@ fn eval_source_with_import_details_named(
     None,
     resolve_import,
     resolve_import_classes,
+    resolve_import_bindings,
   )
 }
 
@@ -877,6 +886,7 @@ fn eval_source_with_import_details_named_at(
   current_module_path : String?,
   resolve_import : (String) -> EvalResult?,
   resolve_import_classes : (String) -> Array[ClassExport]?,
+  resolve_import_bindings : (String) -> Array[Binding]?,
 ) -> EvalResult {
   let parsed = parse_source(source)
   let diagnostics = parsed.diagnostics
@@ -909,6 +919,7 @@ fn eval_source_with_import_details_named_at(
       diagnostics,
       resolve_import,
       resolve_import_classes,
+      resolve_import_bindings,
     ) {
     Some(value) =>
       if diagnostics.length() == 0 {

@@ -257,8 +257,22 @@ fn bind_module_function_receiver(
 }
 
 ///|
+fn parent_local_binding_name(
+  parent_bindings : Array[Binding],
+  bare : String,
+) -> Bool {
+  for b in parent_bindings {
+    if !b.exported && b.name == bare {
+      return true
+    }
+  }
+  false
+}
+
+///|
 fn module_parent_reeval_env(
   owner_members : Array[ValueMember],
+  parent_bindings : Array[Binding],
   receiver_bindings : Array[Binding],
   env : Array[ValueBinding],
   receiver_cache : Array[ValueBinding],
@@ -286,11 +300,29 @@ fn module_parent_reeval_env(
     local_env.push(binding)
   }
   for binding in receiver_cache {
-    if should_overlay_module_receiver_binding(binding.name) {
-      local_env.push({
-        name: module_receiver_binding_name(binding.name),
-        value: binding.value,
-      })
+    if should_overlay_module_receiver_binding(binding.name) &&
+      !is_local_member_name(binding.name) {
+      // PKL-153: the derived module's `local` declarations are scoped
+      // to the derived module only. When re-evaluating a parent-module
+      // member body (because it references an inherited visible
+      // field), the parent's identifier resolution must NOT see the
+      // derived's locals — a `derived.local p = "override"` does not
+      // shadow `parent.p`. Filter `@local$*` cache entries out of the
+      // overlay; the visible-amend overlays still flow through.
+      //
+      // Additionally, when the parent declares a `local` of the same
+      // bare name (`base.local p2 = "original"`), the derived's
+      // visible amend `p2 = "override"` must NOT shadow the parent
+      // local for identifier references inside parent-member bodies
+      // (PKL-148d / localModuleMemberOverride2). The env lookup runs
+      // before the bindings reverse-walk, so we exclude the conflicting
+      // overlay here and let the lookup fall through to band 3 of
+      // `module_parent_reeval_bindings` where the parent local lives.
+      let bare = module_receiver_binding_name(binding.name)
+      if parent_local_binding_name(parent_bindings, bare) {
+        continue
+      }
+      local_env.push({ name: bare, value: binding.value })
     }
   }
   local_env
@@ -299,13 +331,25 @@ fn module_parent_reeval_env(
 ///|
 fn module_parent_reeval_cache(
   owner_members : Array[ValueMember],
+  parent_bindings : Array[Binding],
   receiver_cache : Array[ValueBinding],
 ) -> Array[ValueBinding] {
   let local_cache : Array[ValueBinding] = []
   for binding in receiver_cache {
-    if binding.name != "super" {
-      local_cache.push(binding)
+    if binding.name == "super" {
+      continue
     }
+    // PKL-153: drop derived's cached visible-amend value when it
+    // collides with a parent-local name. `resolve_binding_value`
+    // checks `cache` (line 333) before the bindings reverse-walk, so
+    // a `cache["p2"] = "override"` would beat `parent.local p2` even
+    // when the env overlay is filtered. Match by stripped bare name
+    // because the cache stores visible bindings without a prefix.
+    let bare = strip_member_visibility_prefix(binding.name)
+    if parent_local_binding_name(parent_bindings, bare) {
+      continue
+    }
+    local_cache.push(binding)
   }
   match module_members_super(owner_members) {
     Some(super_members) =>
@@ -316,9 +360,96 @@ fn module_parent_reeval_cache(
 }
 
 ///|
+fn parent_member_source_needs_reeval(
+  source : Expr,
+  parent_members : Array[ValueMember],
+  parent_bindings : Array[Binding],
+) -> Bool {
+  if expr_references_super(source) {
+    return true
+  }
+  if expr_references_late_binding(source, "module") {
+    return true
+  }
+  // PKL-153: when a parent-module member body references another
+  // parent-module field by bare name (`output { ... tests.toList() ... }`),
+  // a parent-local (`output { ... duplicateNames.length ... }`), or a
+  // parent-level function, the referenced field might be — directly or
+  // transitively — overridden in the derived module. Re-eval so the
+  // override propagates instead of returning the parent-static cached
+  // value.
+  //
+  // The broad check requires parent's raw `Binding[]` because the
+  // re-eval needs to resolve parent locals; the conservative
+  // super-access callers (eval_binding / eval_expr) pass `[]` and
+  // stay on the original super/module-only trigger.
+  if parent_bindings.length() == 0 {
+    return false
+  }
+  for value_member in parent_members {
+    let bare = strip_member_visibility_prefix(value_member.name)
+    if is_module_runtime_metadata_name(value_member.name) {
+      continue
+    }
+    if expr_references(source, bare) {
+      return true
+    }
+  }
+  for binding in parent_bindings {
+    if !binding.exported && expr_references(source, binding.name) {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn module_parent_reeval_bindings(
+  parent_bindings : Array[Binding],
+  derived_bindings : Array[Binding],
+) -> Array[Binding] {
+  // PKL-153: arrange bindings in three bands so `find_binding`'s
+  // reverse-walk (last-wins) honours Pkl's mixed scope semantics:
+  //
+  //   1. parent visibles (e.g. `tests: Listing<Test> = ...`)
+  //   2. derived exported (e.g. derived amends `tests { ... }`)
+  //   3. parent locals (e.g. `local duplicateNames = tests.toList()...`)
+  //
+  // Reverse-walk for an identifier:
+  //   - `tests`: parent visible is older, derived export wins -> derived's
+  //     overlay value flows into the re-eval (Spec.pkl needs this).
+  //   - `p2` when parent has `local p2`: parent local at the tail wins,
+  //     so derived's `p2 = "override"` cannot override a parent-local
+  //     identifier reference (PKL-148d / localModuleMemberOverride2).
+  //   - `duplicateNames`: parent local-only name, found in band 3.
+  //
+  // Derived's `local` bindings are excluded — they're scoped to the
+  // derived module only and must never appear when re-evaluating
+  // parent member bodies.
+  let merged : Array[Binding] = []
+  for b in parent_bindings {
+    if b.exported {
+      merged.push(b)
+    }
+  }
+  for b in derived_bindings {
+    if b.exported {
+      merged.push(b)
+    }
+  }
+  for b in parent_bindings {
+    if !b.exported {
+      merged.push(b)
+    }
+  }
+  merged
+}
+
+///|
 fn resolve_module_parent_member_value(
   member_name : String,
   parent_members : Array[ValueMember],
+  parent_bindings : Array[Binding],
   bindings : Array[Binding],
   env : Array[ValueBinding],
   class_env : Array[ClassBinding],
@@ -338,14 +469,20 @@ fn resolve_module_parent_member_value(
         _ =>
           match value_member.source {
             Some(source) =>
-              if expr_references_super(source) ||
-                expr_references_late_binding(source, "module") {
+              if parent_member_source_needs_reeval(
+                  source, parent_members, parent_bindings,
+                ) {
+                let reeval_bindings = module_parent_reeval_bindings(
+                  parent_bindings, bindings,
+                )
                 eval_expr_with_bindings(
                   source,
-                  bindings,
-                  module_parent_reeval_env(parent_members, bindings, env, cache),
+                  reeval_bindings,
+                  module_parent_reeval_env(
+                    parent_members, parent_bindings, reeval_bindings, env, cache,
+                  ),
                   class_env,
-                  module_parent_reeval_cache(parent_members, cache),
+                  module_parent_reeval_cache(parent_members, parent_bindings, cache),
                   stack,
                   declarations,
                   diagnostics,
@@ -364,6 +501,7 @@ fn resolve_module_parent_member_value(
 ///|
 fn late_bind_module_parent_members(
   parent_members : Array[ValueMember],
+  parent_bindings : Array[Binding],
   bindings : Array[Binding],
   env : Array[ValueBinding],
   class_env : Array[ClassBinding],
@@ -385,6 +523,7 @@ fn late_bind_module_parent_members(
       resolve_module_parent_member_value(
         strip_member_visibility_prefix(value_member.name),
         parent_members,
+        parent_bindings,
         bindings,
         env,
         class_env,
@@ -914,6 +1053,7 @@ fn eval_program(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
   resolve_import_classes : (String) -> Array[ClassExport]?,
+  resolve_import_bindings : (String) -> Array[Binding]?,
 ) -> Value? {
   let env : Array[ValueBinding] = []
   let class_env = collect_class_bindings(program.declarations)
@@ -1003,6 +1143,7 @@ fn eval_program(
       }
     None => ()
   }
+  let module_parent_bindings : Array[Binding] = []
   match program.module_relation {
     Some(relation) => {
       let parent_members = eval_module_relation(
@@ -1013,6 +1154,19 @@ fn eval_program(
       }
       if parent_members.length() > 0 {
         cache.push({ name: "super", value: ObjectValue(parent_members) })
+      }
+      // PKL-153: pull the parent's raw bindings (including locals).
+      // `late_bind_module_parent_members` re-evaluates parent member
+      // bodies whose expressions reference inherited fields; if those
+      // expressions also reference the parent's own locals (which the
+      // derived module has no syntactic access to), the re-eval needs
+      // the parent's binding list to resolve the identifier.
+      match resolve_import_bindings(relation.uri) {
+        Some(parent_bindings) =>
+          for b in parent_bindings {
+            module_parent_bindings.push(b)
+          }
+        None => ()
       }
     }
     None => ()
@@ -1376,6 +1530,7 @@ fn eval_program(
           merge_value_members(
             late_bind_module_parent_members(
               module_parent_members,
+              module_parent_bindings,
               bindings,
               env,
               class_env,

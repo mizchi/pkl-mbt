@@ -826,6 +826,23 @@ fn eval_module_path(
             None => None
           }
         },
+        fn(uri) {
+          // PKL-153: parent's raw Binding[] (including locals) so the
+          // re-eval path can resolve identifiers like a parent-local
+          // `duplicateNames` that the parent's visible `output` body
+          // references. We re-parse the parent module (cheap; this
+          // resolver is only called when the derived module amends or
+          // extends — i.e. once per module relation) and surface the
+          // raw bindings.
+          let resolved = resolve_import_path(path, uri)
+          match get_module_source(sources, rt, resolved) {
+            Some(parent_source) => {
+              let parsed = parse_source(parent_source)
+              Some(parsed.program.bindings)
+            }
+            None => None
+          }
+        },
       )
     None => EvalError([diag("Cannot find module `\{path}`.")])
   }

@@ -4248,7 +4248,7 @@ fn eval_expr_with_bindings(
         module_super_members_from_cache(cache) is Some(parent_members) {
         match
           resolve_module_parent_member_value(
-            member_name, parent_members, bindings, env, class_env, cache, stack,
+            member_name, parent_members, [], bindings, env, class_env, cache, stack,
             declarations, diagnostics, resolve_import,
           ) {
           Some(value) => Some(value)
