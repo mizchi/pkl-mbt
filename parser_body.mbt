@@ -722,9 +722,25 @@ fn Parser::parse_object_body_members(self : Parser) -> Array[ObjectMember] {
     } else if self.at_property_decl() {
       match self.parse_object_member() {
         Some(field) => {
+          // `parse_object_body_members` is the generic object-body
+          // parser. Listing/Mapping bodies have their own parsers that
+          // route `default = ...` and `default { ... }` to the
+          // collection-default marker (`@collectionDefault`).
+          //
+          // Inside `new Dynamic { name = "..."; default = (_) -> 42 }`
+          // the body lands here too — and Apple Pkl treats Dynamic's
+          // `default` as the per-element default (hidden from
+          // rendering). The body parser has no type context, so we
+          // approximate: when `default = <lambda>` is the body form
+          // (the Dynamic per-element pattern), hide the slot;
+          // otherwise (`default = "world"` inside a typed user class
+          // whose `default: T` is a regular property) keep it visible
+          // so the class's slot gets the override.
+          let dynamic_default_lambda = field.name == "default" &&
+            field.value is LambdaExpr(_, _, _)
           let stored_name = match visibility {
             VisibleMember =>
-              if field.name == "default" {
+              if dynamic_default_lambda {
                 hidden_member_name(field.name)
               } else {
                 field.name
