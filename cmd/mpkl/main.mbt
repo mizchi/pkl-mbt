@@ -1674,6 +1674,135 @@ fn snippet_fixture_file_uri_for_diagnostic(resolved : String) -> String {
 }
 
 ///|
+/// PKL-148bo: canonical URI for the `pkl:analyze.importGraph` map keys
+/// and values. Package URIs pass through verbatim (stripping any
+/// `:checksum` suffix Apple Pkl doesn't show in the import graph);
+/// absolute filesystem paths convert to the `file:///$snippetsDir/...`
+/// shape so snippet-test gold files match independently of where the
+/// repo checkout sits on disk.
+fn analyze_canonical_module_uri(resolved : String) -> String {
+  if is_package_uri_like(resolved) {
+    return strip_package_checksum_segment(resolved)
+  }
+  if resolved.has_prefix("file:") ||
+    resolved.has_prefix("http:") ||
+    resolved.has_prefix("https:") ||
+    resolved.has_prefix("modulepath:") {
+    return resolved
+  }
+  // PKL-148bo: relative CLI args (`mpkl eval third_party/.../analyze1
+  // .pkl`) reach here without the cwd prefix the snippet-dir matcher
+  // expects, so do the join eagerly. Try `$PWD` first then
+  // `@env.current_dir()`. When neither is available, fall back to the
+  // `file:///` + relative-path form `reflect_display_uri` uses so the
+  // map key the intrinsic writes lines up with the URI seed
+  // `reflect.Module(a).uri` produces.
+  let absolute = if resolved.has_prefix("/") {
+    Some(resolved)
+  } else {
+    let pwd = match @env.get_env_var("PWD") {
+      Some(p) if p != "" => Some(p)
+      _ =>
+        match @env.current_dir() {
+          Some(p) if p != "" => Some(p)
+          _ => None
+        }
+    }
+    match pwd {
+      Some(cwd) => Some(normalize_path_segments(cwd + "/" + resolved))
+      None => None
+    }
+  }
+  match absolute {
+    Some(abs) => snippet_fixture_file_uri_for_diagnostic(abs)
+    None => "file:///" + percent_encode_file_path(resolved)
+  }
+}
+
+///|
+/// PKL-148bo: queue of `analyze.importGraph` seed URIs discovered
+/// while walking module ASTs. Drained after the initial load_path
+/// run so the followup pre-load can walk every URI the user feeds
+/// to `analyze.importGraph(Set(...))` without dragging file-system
+/// access into the library-side intrinsic.
+let analyze_import_graph_seeds : Ref[Array[String]] = { val: [] }
+
+///|
+fn collect_analyze_import_graph_seeds(from : String, expr : @pkl.Expr) -> Unit {
+  match expr {
+    CallExpr(Identifier("Set"), elements) =>
+      for el in elements {
+        collect_analyze_import_graph_seeds(from, el)
+      }
+    ListingLiteral(elements) =>
+      for el in elements {
+        collect_analyze_import_graph_seeds(from, el)
+      }
+    StringLiteral(uri) => {
+      let resolved = if is_package_uri_like(uri) ||
+        uri.has_prefix("file:") ||
+        uri.has_prefix("http:") ||
+        uri.has_prefix("https:") ||
+        uri.has_prefix("modulepath:") {
+        uri
+      } else {
+        resolve_import_path(from, uri)
+      }
+      analyze_import_graph_seeds.val.push(resolved)
+    }
+    _ => ()
+  }
+}
+
+///|
+/// PKL-148bo: mirror `reflect_display_uri` (library-side, in
+/// `eval_lookup.mbt`) so we can register a sandbox alias from the
+/// reflect-form URI to the canonical (`$snippetsDir`-substituted)
+/// form. Keep the rules in sync — relative paths get `"file:///"` +
+/// path, absolute paths get `"file://"` + path, scheme-prefixed URIs
+/// pass through.
+fn reflect_form_module_uri(path : String) -> String {
+  if is_package_uri_like(path) {
+    return strip_package_checksum_segment(path)
+  }
+  if path.has_prefix("file://") ||
+    path.has_prefix("pkl:") ||
+    path.find("://") is Some(_) {
+    return path
+  }
+  if path.has_prefix("/") {
+    "file://" + path
+  } else {
+    "file:///" + path
+  }
+}
+
+///|
+fn strip_package_checksum_segment(uri : String) -> String {
+  // `package://host/name@version::sha256...#/path` → drop the
+  // `::sha256...` checksum segment so the rendered import graph
+  // matches Apple Pkl's `pkl:analyze` output, which never shows
+  // checksums.
+  match uri.find("::") {
+    None => uri
+    Some(idx) => {
+      let before = String::unsafe_substring(uri, start=0, end=idx)
+      let rest_start = idx + 2
+      let mut i = rest_start
+      while i < uri.length() && uri[i] != '#' {
+        i = i + 1
+      }
+      let after = if i < uri.length() {
+        String::unsafe_substring(uri, start=i, end=uri.length())
+      } else {
+        ""
+      }
+      before + after
+    }
+  }
+}
+
+///|
 fn resource_uri_for_visible_path(
   resolved : String,
   visible_uri : String,
@@ -1841,6 +1970,17 @@ fn register_read_literal_io(from : String, uri : String) -> Unit {
 
 ///|
 fn register_expr_io(from : String, expr : @pkl.Expr) -> Unit {
+  // PKL-148bo: collect URIs passed to `analyze.importGraph(Set(...))`
+  // so the CLI's pre-load step can walk them even when the test file
+  // doesn't `import` them directly. The intrinsic later reads the
+  // sandbox-registered adjacency map keyed by these URIs.
+  match expr {
+    CallExpr(MemberAccess(Identifier("analyze"), "importGraph"), args) =>
+      for arg in args {
+        collect_analyze_import_graph_seeds(from, arg)
+      }
+    _ => ()
+  }
   match expr {
     CallExpr(Identifier("read"), args) => {
       if args.length() == 1 && args[0] is StringLiteral(uri) {
@@ -2319,28 +2459,41 @@ async fn load_path(
     Some(expr) => register_expr_io(path, expr)
     None => ()
   }
+  // PKL-148bo: collect this module's resolved import URIs (in source
+  // order) so the `pkl:analyze.importGraph` intrinsic can rebuild the
+  // adjacency list later. `module_relation` (amends / extends) is NOT
+  // part of Apple Pkl's `analyze` graph, so we only walk `imports`.
+  let analyze_imports : Array[String] = []
   for decl in parsed.program.imports {
     if decl.is_glob {
       let scan = register_import_glob_scan(path, decl.uri)
       for visible_uri in scan.uris {
         if scan.errors.get(visible_uri) is None {
-          load_path(
-            session,
-            resolve_import_path(path, visible_uri),
-            push_stack(stack, path),
-            loaded,
-          )
+          let resolved = resolve_import_path(path, visible_uri)
+          analyze_imports.push(analyze_canonical_module_uri(resolved))
+          load_path(session, resolved, push_stack(stack, path), loaded)
         }
       }
     } else {
-      load_path(
-        session,
-        resolve_import_path(path, decl.uri),
-        push_stack(stack, path),
-        loaded,
-      )
+      let resolved = resolve_import_path(path, decl.uri)
+      let canonical = analyze_canonical_module_uri(resolved)
+      analyze_imports.push(canonical)
+      @pkl.register_module_alias(decl.uri, canonical)
+      load_path(session, resolved, push_stack(stack, path), loaded)
     }
   }
+  let canonical_module_uri = analyze_canonical_module_uri(path)
+  @pkl.register_module_imports(canonical_module_uri, analyze_imports)
+  // PKL-148bo: `reflect.Module(...).uri` writes the path through
+  // `reflect_display_uri` (library-side), which doesn't apply the
+  // `$snippetsDir` substitution our CLI uses for sandbox keys.
+  // Register an alias from the reflect form to the canonical form so
+  // an intrinsic seed coming through `reflect.Module(a).uri` lands on
+  // the same key we registered against.
+  @pkl.register_module_alias(
+    reflect_form_module_uri(path),
+    canonical_module_uri,
+  )
   match parsed.program.module_relation {
     Some(relation) =>
       load_path(
@@ -2696,6 +2849,19 @@ async fn main {
     "eval" => {
       let session = @pkl.AnalysisSession::new()
       load_path(session, path, [], Map([], capacity=32))
+      // PKL-148bo: drain the `analyze.importGraph(Set(...))` seed queue
+      // collected during the initial AST walk. These URIs (notably
+      // `package://` literals the test doesn't `import` directly)
+      // wouldn't otherwise reach `load_path` and would be missing from
+      // the sandbox-recorded adjacency map by the time the intrinsic
+      // runs. Pre-walking now puts each seed and its transitive
+      // imports into the map.
+      let analyze_loaded : Map[String, Unit] = Map([], capacity=8)
+      let analyze_seeds = analyze_import_graph_seeds.val
+      analyze_import_graph_seeds.val = []
+      for seed in analyze_seeds {
+        load_path(session, seed, [], analyze_loaded)
+      }
       match session.eval_path(path) {
         EvalOk(raw) => {
           // PKL-147: `output { text = "..." }` short-circuits the

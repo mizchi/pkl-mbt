@@ -6163,6 +6163,13 @@ fn eval_expr_with_bindings(
           callee, arguments, bindings, env, class_env, cache, stack, declarations,
           diagnostics, resolve_import,
         )
+      } else if is_pkl_analyze_intrinsic_call(callee, bindings, stack) {
+        // PKL-148bo: route `pkl:analyze.importGraph(...)` through the
+        // sandbox-backed graph walker.
+        eval_pkl_analyze_intrinsic(
+          callee, arguments, bindings, env, class_env, cache, stack, declarations,
+          diagnostics, resolve_import,
+        )
       } else if callee is Identifier("Regex") &&
         !stack_contains_binding(stack, "Regex") &&
         find_binding(bindings, "Regex") is None {

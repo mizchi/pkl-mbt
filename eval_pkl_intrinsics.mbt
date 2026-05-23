@@ -950,3 +950,194 @@ fn eval_pkl_reflect_intrinsic(
     _ => None
   }
 }
+
+///|
+/// PKL-148bo: `_pkl_analyze_import_graph(Set<String>)` builds the
+/// `pkl:analyze.importGraph` result by BFS-walking the per-module
+/// adjacency lists the CLI registered during the load step. The
+/// intrinsic is library-side (no file IO) — every URI it consults
+/// must already sit in `sandbox_module_imports`. The CLI's
+/// `load_path` pre-walks each `import "..."` declaration of the
+/// program being evaluated, so any URI passed in here through a
+/// transitive import is covered; URIs passed in as bare strings
+/// (e.g. `Set("package://...")`) get an entry too because
+/// `load_path` registers every module URI it sees.
+fn is_pkl_analyze_intrinsic_call(
+  callee : Expr,
+  bindings : Array[Binding],
+  stack : Array[String],
+) -> Bool {
+  match callee {
+    Identifier("_pkl_analyze_import_graph") =>
+      !stack_contains_binding(stack, "_pkl_analyze_import_graph") &&
+      find_binding(bindings, "_pkl_analyze_import_graph") is None
+    _ => false
+  }
+}
+
+///|
+fn eval_pkl_analyze_intrinsic(
+  callee : Expr,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let name = match callee {
+    Identifier(n) => n
+    _ => return None
+  }
+  ignore(name)
+  if arguments.length() != 1 {
+    diagnostics.push(
+      diag("_pkl_analyze_import_graph expects 1 argument, got \{arguments.length()}"),
+    )
+    return None
+  }
+  let arg = match
+    eval_expr_with_bindings(
+      arguments[0], bindings, env, class_env, cache, stack, declarations,
+      diagnostics, resolve_import,
+    ) {
+    Some(v) => v
+    None => return None
+  }
+  let seed_uris : Array[String] = []
+  let push_seed = fn(value : Value) -> Unit {
+    match value {
+      StringValue(s) => seed_uris.push(analyze_resolve_alias(s))
+      _ => ()
+    }
+  }
+  match arg {
+    SetValue(elements) =>
+      for v in elements {
+        push_seed(v)
+      }
+    ListingValue(elements) | DefaultedListingValue(_, elements, _) | ListValue(elements) =>
+      for v in elements {
+        push_seed(v)
+      }
+    StringValue(_) => push_seed(arg)
+    _ =>
+      diagnostics.push(
+        diag("_pkl_analyze_import_graph expects a Set / Listing of String URIs"),
+      )
+  }
+  // BFS walk via the sandbox-registered adjacency map. Cycle-safe via
+  // a "visited" set; missing URIs (i.e. not registered by the CLI's
+  // load step) emit an empty children list to keep the graph closed.
+  let visited : Array[String] = []
+  let imports_keys : Array[String] = []
+  let imports_lists : Array[Array[String]] = []
+  let queue : Array[String] = []
+  for uri in seed_uris {
+    queue.push(uri)
+  }
+  let mut head = 0
+  while head < queue.length() {
+    let uri = queue[head]
+    head = head + 1
+    if analyze_seen(visited, uri) {
+      continue
+    }
+    visited.push(uri)
+    let children = match sandbox_module_imports(uri) {
+      Some(list) => list
+      None => []
+    }
+    imports_keys.push(uri)
+    imports_lists.push(children)
+    for child in children {
+      if !analyze_seen(visited, child) &&
+        !analyze_seen(queue, child) {
+        queue.push(child)
+      }
+    }
+  }
+  // Sort the (key, list) pairs lexicographically — Apple Pkl renders
+  // `imports` keys in alphabetical order even when the BFS discovery
+  // order differs.
+  let order = analyze_sort_keys(imports_keys)
+  let imports_entries : Array[ValueEntry] = []
+  let resolved_entries : Array[ValueEntry] = []
+  for idx in order {
+    let key = imports_keys[idx]
+    let children = imports_lists[idx]
+    let import_objects : Array[Value] = []
+    for child in children {
+      import_objects.push(
+        ObjectValue([
+          { name: "uri", value: StringValue(child), source: None, annotations: [] },
+        ]),
+      )
+    }
+    imports_entries.push({
+      key: StringValue(key),
+      value: ListingValue(import_objects),
+    })
+    resolved_entries.push({
+      key: StringValue(key),
+      value: StringValue(key),
+    })
+  }
+  Some(
+    ObjectValue([
+      {
+        name: "imports",
+        value: MappingValue(imports_entries),
+        source: None,
+        annotations: [],
+      },
+      {
+        name: "resolvedImports",
+        value: MappingValue(resolved_entries),
+        source: None,
+        annotations: [],
+      },
+    ]),
+  )
+}
+
+///|
+fn analyze_resolve_alias(raw : String) -> String {
+  match sandbox_module_alias(raw) {
+    Some(resolved) => resolved
+    None => raw
+  }
+}
+
+///|
+fn analyze_seen(seen : Array[String], uri : String) -> Bool {
+  for s in seen {
+    if s == uri {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn analyze_sort_keys(keys : Array[String]) -> Array[Int] {
+  let n = keys.length()
+  let order : Array[Int] = []
+  for i in 0..<n {
+    order.push(i)
+  }
+  // Insertion sort by URI ascending; keys are short so this is fine.
+  for i = 1; i < n; i = i + 1 {
+    let cur = order[i]
+    let mut j = i - 1
+    while j >= 0 && keys[order[j]] > keys[cur] {
+      order[j + 1] = order[j]
+      j = j - 1
+    }
+    order[j + 1] = cur
+  }
+  order
+}

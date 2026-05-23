@@ -467,13 +467,13 @@ fn builtin_stdlib_source(uri : String) -> String? {
     }
     "pkl:test" => Some("catch = null")
     "pkl:analyze" => {
-      // PKL-148bn: minimal `pkl:analyze` shape so `import "pkl:analyze"`
-      // resolves without erroring; the real `importGraph` body needs
-      // CLI-side import-walk machinery that doesn't reach into the
-      // intrinsic dispatch yet. Returns an empty graph for any input
-      // Set — fixtures asserting on the graph contents (`api/analyze1`)
-      // still DIFF but the module loads cleanly so user code that
-      // simply imports the module keeps building.
+      // PKL-148bo: forward `importGraph(moduleUris)` to the
+      // `_pkl_analyze_import_graph` intrinsic. The intrinsic walks the
+      // sandbox-recorded per-module import edges (populated by the
+      // CLI's `load_path` pre-walk) and returns a value that already
+      // matches the `ImportGraph { imports, resolvedImports }` shape;
+      // we still declare the class so type annotations / `is
+      // ImportGraph` checks line up.
       let source =
         #|class ImportGraph {
         #|  imports: Mapping = new {}
@@ -482,7 +482,7 @@ fn builtin_stdlib_source(uri : String) -> String? {
         #|class Import {
         #|  uri: String
         #|}
-        #|importGraph = (_moduleUris) -> new ImportGraph {}
+        #|importGraph = (moduleUris) -> _pkl_analyze_import_graph(moduleUris)
       Some(source)
     }
     "pkl:jsonnet" => {

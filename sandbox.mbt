@@ -41,6 +41,13 @@ priv struct SandboxConfig {
   read_globs : Map[String, Array[SandboxResource]]
   import_globs : Map[String, Array[String]]
   import_glob_errors : Map[String, Map[String, String]]
+  // PKL-148bo: per-module import edges in source order, keyed by the
+  // canonical `file:///$snippetsDir/...` or `package://...` URI.
+  // Populated by the CLI's load step (which has the file IO surface)
+  // so the IO-free `pkl:analyze.importGraph` intrinsic can rebuild the
+  // graph by walking these adjacency lists.
+  module_imports : Map[String, Array[String]]
+  module_aliases : Map[String, String]
 }
 
 ///|
@@ -63,6 +70,8 @@ let sandbox_config : SandboxConfig = {
   read_globs: Map([], capacity=8),
   import_globs: Map([], capacity=8),
   import_glob_errors: Map([], capacity=8),
+  module_imports: Map([], capacity=16),
+  module_aliases: Map([], capacity=16),
 }
 
 ///|
@@ -348,6 +357,8 @@ pub fn reset_sandbox_io_cache() -> Unit {
   sandbox_config.read_globs.clear()
   sandbox_config.import_globs.clear()
   sandbox_config.import_glob_errors.clear()
+  sandbox_config.module_imports.clear()
+  sandbox_config.module_aliases.clear()
 }
 
 ///|
@@ -406,6 +417,52 @@ pub fn register_import_glob_errors(
   errors : Map[String, String],
 ) -> Unit {
   sandbox_config.import_glob_errors[sandbox_io_key(from, pattern)] = errors
+}
+
+///|
+/// PKL-148bo: record the resolved import edges for a single module.
+/// `module_uri` is the canonical `file:///$snippetsDir/...` or
+/// `package://...` URI of the module; `import_uris` is the (ordered)
+/// list of resolved URIs the module declares via `import` / `import*`
+/// / `amends` / `extends`. The list preserves source order because
+/// `pkl:analyze.importGraph` is order-sensitive in its rendering.
+pub fn register_module_imports(
+  module_uri : String,
+  import_uris : Array[String],
+) -> Unit {
+  sandbox_config.module_imports[module_uri] = import_uris
+}
+
+///|
+/// PKL-148bo: lookup helper used by the `_pkl_analyze_import_graph`
+/// intrinsic to walk a recorded module's adjacency list.
+pub fn sandbox_module_imports(module_uri : String) -> Array[String]? {
+  sandbox_config.module_imports.get(module_uri)
+}
+
+///|
+/// PKL-148bo: every module URI we've registered. The intrinsic uses
+/// this to break out of cycles cleanly.
+pub fn sandbox_all_module_uris() -> Array[String] {
+  let out : Array[String] = []
+  for entry in sandbox_config.module_imports {
+    out.push(entry.0)
+  }
+  out
+}
+
+///|
+/// PKL-148bo: register a canonical alias from one URI form to another.
+/// Used for `import "@dep/foo.pkl"` → `package://...#/foo.pkl` so the
+/// `resolvedImports` table sees the right shape even when callers ask
+/// for the raw form.
+pub fn register_module_alias(raw : String, resolved : String) -> Unit {
+  sandbox_config.module_aliases[raw] = resolved
+}
+
+///|
+pub fn sandbox_module_alias(raw : String) -> String? {
+  sandbox_config.module_aliases.get(raw)
 }
 
 ///|
