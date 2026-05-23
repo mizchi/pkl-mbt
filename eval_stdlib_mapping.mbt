@@ -129,9 +129,47 @@ fn value_to_string_for_join(v : Value) -> String {
               if i > 0 {
                 buf.write_string("; ")
               }
-              buf.write_string(visible[i].name)
-              buf.write_string(" = ")
-              render_pcf_scalar(visible[i].value, buf)
+              // PKL-148c: a property whose value is a Listing /
+              // Mapping uses the implicit-body form (`names { ... }`)
+              // rather than the explicit-assignment form (`names =
+              // new Listing { ... }`). Matches Apple Pkl's
+              // `reflect.Property.toString()` projection.
+              match visible[i].value {
+                ListingValue(elements)
+                | DefaultedListingValue(_, elements, _)
+                | ListValue(elements)
+                | SetValue(elements) => {
+                  buf.write_string(visible[i].name)
+                  buf.write_string(" { ")
+                  for j = 0; j < elements.length(); j = j + 1 {
+                    if j > 0 {
+                      buf.write_string("; ")
+                    }
+                    render_pcf_scalar(elements[j], buf)
+                  }
+                  buf.write_string(" }")
+                }
+                MappingValue(entries) | DefaultedMappingValue(_, entries, _)
+                | MapValue(entries) => {
+                  buf.write_string(visible[i].name)
+                  buf.write_string(" { ")
+                  for j = 0; j < entries.length(); j = j + 1 {
+                    if j > 0 {
+                      buf.write_string("; ")
+                    }
+                    buf.write_char('[')
+                    render_pcf_scalar(entries[j].key, buf)
+                    buf.write_string("] = ")
+                    render_pcf_scalar(entries[j].value, buf)
+                  }
+                  buf.write_string(" }")
+                }
+                _ => {
+                  buf.write_string(visible[i].name)
+                  buf.write_string(" = ")
+                  render_pcf_scalar(visible[i].value, buf)
+                }
+              }
             }
             buf.write_string(" }")
           }

@@ -904,7 +904,12 @@ fn eval_pkl_reflect_intrinsic(
           None
         }
       }
-    "_pkl_reflect_class" => Some(reflect_class_factory_value(arg))
+    "_pkl_reflect_class" =>
+      if arg is ObjectValue(_) {
+        Some(reflect_class_gold_factory(arg, declarations, cache))
+      } else {
+        Some(reflect_class_factory_value(arg))
+      }
     "_pkl_reflect_type_alias" =>
       Some(reflect_type_alias_gold_factory(arg, declarations, cache))
     "_pkl_reflect_module" => Some(reflect_module_factory_value(arg))

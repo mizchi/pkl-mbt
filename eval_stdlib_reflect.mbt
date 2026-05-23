@@ -549,6 +549,24 @@ fn build_typealias_gold_mirror(
 }
 
 ///|
+/// PKL-080: stack of class names currently being expanded by the
+/// gold-shape Class mirror builder. Used to break self-references
+/// (`class Rec { rec: Rec? }`) and indirect cycles — the inner
+/// reference falls back to the minimal mirror once the name is
+/// already on the stack so the outer expansion can complete.
+let gold_class_expansion_stack : Ref[Array[String]] = { val: [] }
+
+///|
+fn gold_class_expansion_contains(name : String) -> Bool {
+  for n in gold_class_expansion_stack.val {
+    if n == name {
+      return true
+    }
+  }
+  false
+}
+
+///|
 /// PKL-080: gold-shape Class mirror — produces the exact shape Apple
 /// Pkl's `reflect.Class(userClass)` returns.
 fn build_class_gold_mirror(
@@ -589,9 +607,62 @@ fn build_class_gold_mirror(
     let prop_doc = doc_comment_before_class_member(
       source, class_decl.name, bare_name, "property",
     )
-    let _ = property.type_name
-    let _ = declarations
-    let _ = module_prefix
+    let prop_type_text = match property.type_name {
+      Some(t) => t
+      None => "Any"
+    }
+    let prop_type = gold_type_from_annotation(
+      prop_type_text, declarations, module_prefix, [],
+    )
+    let modifiers_value = reflect_class_member_modifiers_from_source(
+      source,
+      class_decl.name,
+      bare_name,
+      "property",
+      is_hidden_member_name(property.name),
+      false,
+      false,
+      false,
+      false,
+    )
+    let annotation_values : Array[Value] = []
+    for ann in property.annotations {
+      let text = "@" + ann.class_name + " {" + ann.body_text + "}"
+      match stdlib_annotation_text_to_value(text) {
+        Some(v) => annotation_values.push(v)
+        None => ()
+      }
+    }
+    // PKL-148c: `allAnnotations` includes annotations from any
+    // ancestor's same-named property. Walk the user-class chain and
+    // merge.
+    let all_annotation_values : Array[Value] = []
+    for v in annotation_values {
+      all_annotation_values.push(v)
+    }
+    let all_modifiers_buf : Array[String] = []
+    match modifiers_value {
+      SetValue(items) =>
+        for v in items {
+          match v {
+            StringValue(s) => all_modifiers_buf.push(s)
+            _ => ()
+          }
+        }
+      _ => ()
+    }
+    gold_walk_parent_property(
+      class_decl.parent_name,
+      bare_name,
+      declarations,
+      source,
+      all_annotation_values,
+      all_modifiers_buf,
+    )
+    let all_modifiers_values : Array[Value] = []
+    for s in all_modifiers_buf {
+      all_modifiers_values.push(StringValue(s))
+    }
     let property_mirror = ObjectValue([
       {
         name: "location",
@@ -608,11 +679,32 @@ fn build_class_gold_mirror(
         source: None,
         annotations: [],
       },
-      { name: "annotations", value: ListValue([]), source: None, annotations: [] },
-      { name: "modifiers", value: SetValue([]), source: None, annotations: [] },
+      {
+        name: "annotations",
+        value: ListValue(annotation_values),
+        source: None,
+        annotations: [],
+      },
+      { name: "modifiers", value: modifiers_value, source: None, annotations: [] },
       { name: "name", value: StringValue(bare_name), source: None, annotations: [] },
-      { name: "allModifiers", value: SetValue([]), source: None, annotations: [] },
-      { name: "allAnnotations", value: ListValue([]), source: None, annotations: [] },
+      {
+        name: "allModifiers",
+        value: SetValue(all_modifiers_values),
+        source: None,
+        annotations: [],
+      },
+      {
+        name: "allAnnotations",
+        value: ListValue(all_annotation_values),
+        source: None,
+        annotations: [],
+      },
+      // PKL-080: keep `type` as a hidden member so the snippet-test
+      // gold (which doesn't render this field) doesn't pick it up, but
+      // the internal `PKL-148c` / `PKL-152` reflect tests that read
+      // `prop.type.referent.name` still resolve through the bare-name
+      // lookup path.
+      reflect_hidden_member("type", prop_type),
     ])
     property_entries.push({ key: StringValue(bare_name), value: property_mirror })
   }
@@ -683,6 +775,96 @@ fn build_class_gold_mirror(
 }
 
 ///|
+/// PKL-080: walk the user-class ancestor chain looking for a
+/// property with the same name; collect inherited annotations and
+/// modifiers into `all_annotations` / `all_modifiers`.
+fn gold_walk_parent_property(
+  parent_name : String?,
+  prop_name : String,
+  declarations : Array[Declaration],
+  source : String?,
+  all_annotations : Array[Value],
+  all_modifiers : Array[String],
+) -> Unit {
+  let mut current = parent_name
+  let mut limit = 16
+  while current is Some(name) && limit > 0 {
+    let mut found_class : ClassDecl? = None
+    for decl in declarations {
+      match decl {
+        ClassDeclaration(class_decl) =>
+          if class_decl.name == name {
+            found_class = Some(class_decl)
+          }
+        _ => ()
+      }
+    }
+    match found_class {
+      None => current = None
+      Some(class_decl) => {
+        for property in class_decl.properties {
+          let bare = strip_member_visibility_prefix(property.name)
+          if bare == prop_name {
+            for ann in property.annotations {
+              let text = "@" + ann.class_name + " {" + ann.body_text + "}"
+              match stdlib_annotation_text_to_value(text) {
+                Some(v) => {
+                  let mut already = false
+                  for existing in all_annotations {
+                    if existing == v {
+                      already = true
+                      break
+                    }
+                  }
+                  if !already {
+                    all_annotations.push(v)
+                  }
+                }
+                None => ()
+              }
+            }
+            let parent_mods = reflect_class_member_modifiers_from_source(
+              source,
+              class_decl.name,
+              bare,
+              "property",
+              is_hidden_member_name(property.name),
+              false,
+              false,
+              false,
+              false,
+            )
+            match parent_mods {
+              SetValue(items) =>
+                for v in items {
+                  match v {
+                    StringValue(s) => {
+                      let mut already = false
+                      for existing in all_modifiers {
+                        if existing == s {
+                          already = true
+                          break
+                        }
+                      }
+                      if !already {
+                        all_modifiers.push(s)
+                      }
+                    }
+                    _ => ()
+                  }
+                }
+              _ => ()
+            }
+          }
+        }
+        current = class_decl.parent_name
+      }
+    }
+    limit = limit - 1
+  }
+}
+
+///|
 /// PKL-080: walk a stdlib ancestor chain starting at `parent_name`
 /// (Apple Pkl's default user-class parent is `Typed`) and collect
 /// the methods most-base-first. This populates `allMethods` for the
@@ -691,13 +873,72 @@ fn build_class_gold_mirror(
 fn build_user_class_all_method_entries(
   start_name : String,
 ) -> Array[ValueEntry] {
+  // PKL-080: when stdlib methods get inherited into a user class's
+  // `allMethods`, Apple Pkl rewrites the `displayUri` to `pkl:base`
+  // (vs the GitHub URL the stdlib class's own `allMethods` shows).
+  // Rewrite the entries here after the regular build.
   match stdlib_reflect_db() {
     None => []
     Some(db) =>
       match db.classes.get(start_name) {
         None => []
-        Some(meta) => build_stdlib_all_method_entries(meta, db)
+        Some(meta) => {
+          let entries = build_stdlib_all_method_entries(meta, db)
+          let rewritten : Array[ValueEntry] = []
+          for entry in entries {
+            rewritten.push({
+              key: entry.key,
+              value: gold_replace_method_display_uri(entry.value, "pkl:base"),
+            })
+          }
+          rewritten
+        }
       }
+  }
+}
+
+///|
+/// PKL-080: rewrite the `displayUri` of a method mirror's
+/// `location` to a new value. Returns a fresh ObjectValue with the
+/// location member replaced.
+fn gold_replace_method_display_uri(method : Value, new_uri : String) -> Value {
+  match method {
+    ObjectValue(members) => {
+      let next : Array[ValueMember] = []
+      for m in members {
+        if m.name == "location" {
+          let new_location = match m.value {
+            ObjectValue(loc_members) => {
+              let loc_next : Array[ValueMember] = []
+              for lm in loc_members {
+                if lm.name == "displayUri" {
+                  loc_next.push({
+                    name: lm.name,
+                    value: StringValue(new_uri),
+                    source: lm.source,
+                    annotations: lm.annotations,
+                  })
+                } else {
+                  loc_next.push(lm)
+                }
+              }
+              ObjectValue(loc_next)
+            }
+            other => other
+          }
+          next.push({
+            name: m.name,
+            value: new_location,
+            source: m.source,
+            annotations: m.annotations,
+          })
+        } else {
+          next.push(m)
+        }
+      }
+      ObjectValue(next)
+    }
+    other => other
   }
 }
 
@@ -712,15 +953,25 @@ fn gold_class_mirror_for_name(
   path : String?,
   source : String?,
 ) -> Value {
+  // PKL-080: cycle guard. `class Rec { rec: Rec? }` would otherwise
+  // recurse forever (Rec → Rec? type → DeclaredType.referent → Rec
+  // again). Once a name is on the expansion stack any further
+  // reference to it falls back to the minimal mirror.
+  if gold_class_expansion_contains(name) {
+    return synth_class_mirror_for_name(name)
+  }
   // Try user declarations first (covers the `Rec` self-reference
   // case where the class is defined in the same module).
   for decl in declarations {
     match decl {
       ClassDeclaration(class_decl) =>
         if class_decl.name == name {
-          return build_class_gold_mirror(
+          gold_class_expansion_stack.val.push(name)
+          let result = build_class_gold_mirror(
             class_decl, declarations, module_prefix, path, source,
           )
+          let _ = gold_class_expansion_stack.val.pop()
+          return result
         }
       _ => ()
     }
@@ -729,8 +980,12 @@ fn gold_class_mirror_for_name(
   match stdlib_reflect_db() {
     Some(db) =>
       match db.classes.get(name) {
-        Some(meta) =>
-          return build_stdlib_class_gold_mirror(meta, db)
+        Some(meta) => {
+          gold_class_expansion_stack.val.push(name)
+          let result = build_stdlib_class_gold_mirror(meta, db)
+          let _ = gold_class_expansion_stack.val.pop()
+          return result
+        }
         None => ()
       }
     None => ()
@@ -988,13 +1243,17 @@ fn build_stdlib_property_mirror(
       annotations: [],
     },
   ])
-  let doc = match sandbox_stdlib_base_source() {
+  let (doc, annotations) = match sandbox_stdlib_base_source() {
     Some(s) => {
       let lines = stdlib_split_lines(s)
-      stdlib_doc_comment_above(lines, prop_line)
+      let dc = stdlib_doc_comment_above(lines, prop_line)
+      let anns = stdlib_annotations_above(lines, prop_line)
+      (dc, anns)
     }
-    None => None
+    None => (None, [])
   }
+  let annotation_values = ListValue(annotations)
+  let all_annotation_values = ListValue(annotations)
   ObjectValue([
     { name: "location", value: location, source: None, annotations: [] },
     {
@@ -1006,12 +1265,198 @@ fn build_stdlib_property_mirror(
       source: None,
       annotations: [],
     },
-    { name: "annotations", value: ListValue([]), source: None, annotations: [] },
+    { name: "annotations", value: annotation_values, source: None, annotations: [] },
     { name: "modifiers", value: SetValue([]), source: None, annotations: [] },
     { name: "name", value: StringValue(prop_name), source: None, annotations: [] },
     { name: "allModifiers", value: SetValue([]), source: None, annotations: [] },
-    { name: "allAnnotations", value: ListValue([]), source: None, annotations: [] },
+    { name: "allAnnotations", value: all_annotation_values, source: None, annotations: [] },
   ])
+}
+
+///|
+/// PKL-080: collect `@AnnotationClass { body }` blocks that sit
+/// directly above the declaration line. The body is parsed as an
+/// inline `new { body }` expression and evaluated to produce a
+/// reflect-shaped mirror; the result mirror carries the annotation's
+/// body fields verbatim (no class tag since Apple Pkl's reflect API
+/// renders annotations without their class name). Returns an empty
+/// array when no annotations precede the declaration.
+fn stdlib_annotations_above(
+  lines : Array[String],
+  one_indexed_line : Int,
+) -> Array[Value] {
+  if one_indexed_line <= 1 {
+    return []
+  }
+  // Walk upward collecting annotation blocks. Each block starts with
+  // `@ClassName` on a line and may continue across multiple lines if
+  // a `{` is open. The brace-balanced multi-line accumulation here
+  // matches what our regular parser does.
+  let collected : Array[String] = []
+  let mut i = one_indexed_line - 2
+  while i >= 0 {
+    let raw = lines[i]
+    let trimmed = stdlib_trim_leading_ws(raw)
+    if trimmed == "" {
+      // Blank line — keep walking only if we've already seen at least
+      // one annotation block above.
+      if collected.length() == 0 {
+        i = i - 1
+        continue
+      }
+      break
+    }
+    if trimmed.has_prefix("///") {
+      // Doc comment ends the annotation walk.
+      break
+    }
+    if trimmed.has_prefix("//") {
+      i = i - 1
+      continue
+    }
+    // The previous line might be the tail of a multi-line annotation
+    // body whose closing `}` lives here. Scan upward until we find
+    // the matching `@<ClassName>` line, then take the slice.
+    if trimmed == "}" || trimmed.has_suffix("}") {
+      // Brace-balanced scan upward.
+      let mut depth = 0
+      let mut start = i
+      let mut found = false
+      while start >= 0 {
+        let line = lines[start]
+        for c in line {
+          if c == '}' {
+            depth = depth + 1
+          } else if c == '{' {
+            depth = depth - 1
+          }
+        }
+        if depth == 0 {
+          let head = stdlib_trim_leading_ws(line)
+          if head.has_prefix("@") {
+            found = true
+            break
+          }
+        }
+        start = start - 1
+      }
+      if !found {
+        break
+      }
+      let buf = StringBuilder::new()
+      for k = start; k <= i; k = k + 1 {
+        if k > start {
+          buf.write_char('\n')
+        }
+        buf.write_string(lines[k])
+      }
+      collected.insert(0, buf.to_string())
+      i = start - 1
+      continue
+    }
+    if trimmed.has_prefix("@") {
+      collected.insert(0, raw)
+      i = i - 1
+      continue
+    }
+    // Anything else (e.g. another class member declaration) stops
+    // the walk.
+    break
+  }
+  let values : Array[Value] = []
+  for text in collected {
+    match stdlib_annotation_text_to_value(text) {
+      Some(v) => values.push(v)
+      None => ()
+    }
+  }
+  values
+}
+
+///|
+/// PKL-080: turn the raw `@ClassName { body }` text into a reflect-
+/// shaped annotation mirror. The body — when present — is re-parsed
+/// as `new { body }` so the resulting `ObjectValue` matches what
+/// Apple Pkl shows in `reflect.Class(X).properties.Y.annotations`.
+/// The class name itself isn't surfaced — Apple Pkl strips it.
+fn stdlib_annotation_text_to_value(text : String) -> Value? {
+  let trimmed = stdlib_trim_leading_ws(text)
+  if !trimmed.has_prefix("@") {
+    return None
+  }
+  // Walk past `@ClassName` (and optional `<TypeArgs>`) to the body.
+  let mut i = 1
+  let name_start = 1
+  while i < trimmed.length() {
+    let c = trimmed[i].to_int().unsafe_to_char()
+    if c is ('a'..='z' | 'A'..='Z' | '0'..='9' | '_' | '.') {
+      i = i + 1
+    } else {
+      break
+    }
+  }
+  let class_name = String::unsafe_substring(trimmed, start=name_start, end=i)
+  // Skip whitespace.
+  while i < trimmed.length() && trimmed[i] is (' ' | '\t' | '\n' | '\r') {
+    i = i + 1
+  }
+  if i >= trimmed.length() {
+    return Some(annotation_object_value(class_name, []))
+  }
+  let body = String::unsafe_substring(trimmed, start=i, end=trimmed.length())
+  let trimmed_body = stdlib_trim_leading_ws(body)
+  if !trimmed_body.has_prefix("{") {
+    return Some(annotation_object_value(class_name, []))
+  }
+  // Synthesize `local __x = new BODY` and parse it.
+  let synth = "__x = new " + trimmed_body + "\n"
+  let parsed = parse_source(synth)
+  if parsed.diagnostics.length() > 0 {
+    return None
+  }
+  for binding in parsed.program.bindings {
+    if binding.name == "__x" {
+      let diagnostics : Array[Diagnostic] = []
+      let resolve_import = fn(_uri : String) -> EvalResult? { None }
+      let value = eval_expr_with_bindings(
+        binding.value, [], [], [], [], [], parsed.program.declarations,
+        diagnostics, resolve_import,
+      )
+      match value {
+        Some(ObjectValue(members)) => {
+          let visible : Array[ValueMember] = []
+          for m in members {
+            if !is_invisible_member_name(m.name) {
+              visible.push(m)
+            }
+          }
+          return Some(annotation_object_value(class_name, visible))
+        }
+        _ => return None
+      }
+    }
+  }
+  None
+}
+
+///|
+/// PKL-080: build an annotation mirror that carries the class name
+/// in the hidden `__class` slot. PCF inline rendering uses that slot
+/// to project the value back as `new <ClassName> { ... }` —
+/// matching what `prop.annotations.first.toString()` expects to
+/// see in the `PKL-152: reflected annotation toString preserves
+/// body text` test. The visible members are the parsed annotation
+/// body fields the snippet-test gold renders.
+fn annotation_object_value(
+  class_name : String,
+  visible_members : Array[ValueMember],
+) -> Value {
+  let members : Array[ValueMember] = []
+  members.push(reflect_hidden_member("__class", StringValue(class_name)))
+  for m in visible_members {
+    members.push(m)
+  }
+  ObjectValue(members)
 }
 
 ///|
@@ -1167,12 +1612,14 @@ fn build_stdlib_method_mirror(
       annotations: [],
     },
   ])
-  let doc = match sandbox_stdlib_base_source() {
+  let (doc, annotations) = match sandbox_stdlib_base_source() {
     Some(s) => {
       let lines = stdlib_split_lines(s)
-      stdlib_doc_comment_above(lines, method_line)
+      let dc = stdlib_doc_comment_above(lines, method_line)
+      let anns = stdlib_annotations_above(lines, method_line)
+      (dc, anns)
     }
-    None => None
+    None => (None, [])
   }
   let type_params : Array[Value] = []
   for tp in method_decl.type_parameters {
@@ -1208,7 +1655,12 @@ fn build_stdlib_method_mirror(
       source: None,
       annotations: [],
     },
-    { name: "annotations", value: ListValue([]), source: None, annotations: [] },
+    {
+      name: "annotations",
+      value: ListValue(annotations),
+      source: None,
+      annotations: [],
+    },
     { name: "modifiers", value: SetValue([]), source: None, annotations: [] },
     {
       name: "name",
