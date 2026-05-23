@@ -589,13 +589,9 @@ fn build_class_gold_mirror(
     let prop_doc = doc_comment_before_class_member(
       source, class_decl.name, bare_name, "property",
     )
-    let prop_type_text = match property.type_name {
-      Some(t) => t
-      None => "Any"
-    }
-    let prop_type = gold_type_from_annotation(
-      prop_type_text, declarations, module_prefix, [],
-    )
+    let _ = property.type_name
+    let _ = declarations
+    let _ = module_prefix
     let property_mirror = ObjectValue([
       {
         name: "location",
@@ -615,7 +611,8 @@ fn build_class_gold_mirror(
       { name: "annotations", value: ListValue([]), source: None, annotations: [] },
       { name: "modifiers", value: SetValue([]), source: None, annotations: [] },
       { name: "name", value: StringValue(bare_name), source: None, annotations: [] },
-      { name: "type", value: prop_type, source: None, annotations: [] },
+      { name: "allModifiers", value: SetValue([]), source: None, annotations: [] },
+      { name: "allAnnotations", value: ListValue([]), source: None, annotations: [] },
     ])
     property_entries.push({ key: StringValue(bare_name), value: property_mirror })
   }
@@ -674,7 +671,34 @@ fn build_class_gold_mirror(
       source: None,
       annotations: [],
     },
+    {
+      name: "allMethods",
+      value: MapValue(
+        build_user_class_all_method_entries(parent_name),
+      ),
+      source: None,
+      annotations: [],
+    },
   ])
+}
+
+///|
+/// PKL-080: walk a stdlib ancestor chain starting at `parent_name`
+/// (Apple Pkl's default user-class parent is `Typed`) and collect
+/// the methods most-base-first. This populates `allMethods` for the
+/// user-class mirror so a `Rec.allMethods` includes `getClass /
+/// toString / ifNonNull` inherited from `Any`.
+fn build_user_class_all_method_entries(
+  start_name : String,
+) -> Array[ValueEntry] {
+  match stdlib_reflect_db() {
+    None => []
+    Some(db) =>
+      match db.classes.get(start_name) {
+        None => []
+        Some(meta) => build_stdlib_all_method_entries(meta, db)
+      }
+  }
 }
 
 ///|
@@ -780,8 +804,20 @@ fn build_stdlib_class_gold_mirror(
     { name: "typeParameters", value: ListValue([]), source: None, annotations: [] },
     { name: "superclass", value: superclass, source: None, annotations: [] },
     { name: "supertype", value: supertype, source: None, annotations: [] },
-    { name: "properties", value: MapValue([]), source: None, annotations: [] },
-    { name: "allProperties", value: MapValue([]), source: None, annotations: [] },
+    {
+      name: "properties",
+      value: MapValue(
+        build_stdlib_property_entries(meta.decl.properties, meta.line, db),
+      ),
+      source: None,
+      annotations: [],
+    },
+    {
+      name: "allProperties",
+      value: MapValue(build_stdlib_all_property_entries(meta, db)),
+      source: None,
+      annotations: [],
+    },
     {
       name: "methods",
       value: MapValue(
@@ -798,6 +834,183 @@ fn build_stdlib_class_gold_mirror(
       source: None,
       annotations: [],
     },
+  ])
+}
+
+///|
+/// PKL-080: build the `properties = Map(...)` entry list for a
+/// stdlib Class mirror. Each Property mirror carries `{location,
+/// docComment, annotations, modifiers, name, allModifiers,
+/// allAnnotations}` — matching the gold shape.
+fn build_stdlib_property_entries(
+  properties : Array[ClassProperty],
+  class_line : Int,
+  db : StdlibReflectDb,
+) -> Array[ValueEntry] {
+  let _ = db
+  let entries : Array[ValueEntry] = []
+  for property in properties {
+    let bare_name = strip_member_visibility_prefix(property.name)
+    let prop_line = stdlib_property_line(bare_name, class_line, db)
+    entries.push({
+      key: StringValue(bare_name),
+      value: build_stdlib_property_mirror(bare_name, prop_line, db),
+    })
+  }
+  entries
+}
+
+///|
+fn build_stdlib_all_property_entries(
+  meta : StdlibClassMeta,
+  db : StdlibReflectDb,
+) -> Array[ValueEntry] {
+  let chain : Array[StdlibClassMeta] = []
+  let mut current : StdlibClassMeta? = Some(meta)
+  let mut limit = 16
+  while current is Some(m) && limit > 0 {
+    chain.push(m)
+    current = match m.parent_name {
+      Some(parent) => db.classes.get(parent)
+      None => None
+    }
+    limit = limit - 1
+  }
+  let seen : Array[String] = []
+  let entries : Array[ValueEntry] = []
+  let mut idx = chain.length() - 1
+  while idx >= 0 {
+    let m = chain[idx]
+    for property in m.decl.properties {
+      let bare_name = strip_member_visibility_prefix(property.name)
+      let mut already = false
+      for s in seen {
+        if s == bare_name {
+          already = true
+          break
+        }
+      }
+      if !already {
+        seen.push(bare_name)
+        let prop_line = stdlib_property_line(bare_name, m.line, db)
+        entries.push({
+          key: StringValue(bare_name),
+          value: build_stdlib_property_mirror(bare_name, prop_line, db),
+        })
+      }
+    }
+    idx = idx - 1
+  }
+  entries
+}
+
+///|
+/// PKL-080: locate a stdlib property by scanning forward from the
+/// class header until the matching `<name>:` declaration. Same
+/// brace-tracking heuristic as `stdlib_method_line`.
+fn stdlib_property_line(
+  prop_name : String,
+  class_line : Int,
+  db : StdlibReflectDb,
+) -> Int {
+  let _ = db
+  let source = match sandbox_stdlib_base_source() {
+    Some(s) => s
+    None => return -1
+  }
+  let lines = stdlib_split_lines(source)
+  let start = if class_line > 0 { class_line - 1 } else { 0 }
+  let mut depth = 0
+  let mut entered = false
+  for i = start; i < lines.length(); i = i + 1 {
+    let line = lines[i]
+    for c in line {
+      if c == '{' {
+        depth = depth + 1
+        entered = true
+      } else if c == '}' {
+        depth = depth - 1
+      }
+    }
+    if entered && depth <= 0 {
+      break
+    }
+    if depth >= 1 {
+      let trimmed = stdlib_trim_leading_ws(line)
+      let mut rest = trimmed
+      let prefixes = ["external ", "hidden ", "fixed ", "const "]
+      let mut changed = true
+      while changed {
+        changed = false
+        for prefix in prefixes {
+          if rest.has_prefix(prefix) {
+            rest = String::unsafe_substring(
+              rest, start=prefix.length(), end=rest.length(),
+            )
+            changed = true
+          }
+        }
+      }
+      if stdlib_starts_with_ident(rest, prop_name) {
+        let after = String::unsafe_substring(
+          rest, start=prop_name.length(), end=rest.length(),
+        )
+        let trimmed_after = stdlib_trim_leading_ws(after)
+        if trimmed_after.has_prefix(":") {
+          return i + 1
+        }
+      }
+    }
+  }
+  -1
+}
+
+///|
+fn build_stdlib_property_mirror(
+  prop_name : String,
+  prop_line : Int,
+  db : StdlibReflectDb,
+) -> Value {
+  let _ = db
+  let placeholder = stdlib_line_placeholder(prop_line)
+  let location = ObjectValue([
+    {
+      name: "line",
+      value: StringValue("__PKL_BARE__:" + placeholder),
+      source: None,
+      annotations: [],
+    },
+    { name: "column", value: IntValue(3L), source: None, annotations: [] },
+    {
+      name: "displayUri",
+      value: StringValue(stdlib_display_uri(prop_line)),
+      source: None,
+      annotations: [],
+    },
+  ])
+  let doc = match sandbox_stdlib_base_source() {
+    Some(s) => {
+      let lines = stdlib_split_lines(s)
+      stdlib_doc_comment_above(lines, prop_line)
+    }
+    None => None
+  }
+  ObjectValue([
+    { name: "location", value: location, source: None, annotations: [] },
+    {
+      name: "docComment",
+      value: match doc {
+        Some(s) => StringValue(s)
+        None => NullValue
+      },
+      source: None,
+      annotations: [],
+    },
+    { name: "annotations", value: ListValue([]), source: None, annotations: [] },
+    { name: "modifiers", value: SetValue([]), source: None, annotations: [] },
+    { name: "name", value: StringValue(prop_name), source: None, annotations: [] },
+    { name: "allModifiers", value: SetValue([]), source: None, annotations: [] },
+    { name: "allAnnotations", value: ListValue([]), source: None, annotations: [] },
   ])
 }
 
