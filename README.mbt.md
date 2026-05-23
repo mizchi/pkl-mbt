@@ -1,35 +1,33 @@
 # mizchi/pkl
 
-Pure MoonBit core for Apple's Pkl language.
+Pure-MoonBit parser, typechecker, evaluator, and renderer for Apple's [Pkl](https://pkl-lang.org/) language. Builds clean on all four MoonBit targets (`native`, `js`, `wasm`, `wasm-gc`); the `@pkl` surface is pure (no IO, no async) so an embedder running in a wasm sandbox can depend on it directly.
 
-The package currently exposes:
+The CLI lives in [`cmd/mpkl`](https://github.com/mizchi/pkl-mbt/tree/main/cmd/mpkl) (`mpkl parse|check|eval|test|format|analyze|codegen`). See the [repository README](https://github.com/mizchi/pkl-mbt) for install / usage / benchmarks against Apple Pkl.
 
-- `parse_source` for CST-backed parsing
-- `eval_source` for the first interpreter slice
-- `typecheck_source` for primitive typechecking
-- `AnalysisSession` for ripple-backed source analysis
+## What the library exposes
 
-The supported language subset is integer arithmetic, booleans, strings, `null`, identifiers, parentheses, and top-level `let` bindings.
-It also supports initial Pkl-style `module` declarations, top-level properties, `new { ... }` object literals, and object member lookup.
-`AnalysisSession` resolves import clauses from its source graph for typechecking and evaluation.
-Module-level `local` bindings and `import("...")` expressions resolve through the same source graph.
-Object body property shorthand such as `x { y { z = 1 } }` is supported.
-Explicit `new Listing { ... }` and `new Mapping { [key] = value }` collection values support subscript access.
-Selected `pkl:` standard library modules are available through the same resolver; currently this includes `pkl:math.maxInt32`.
-Primitive type annotations such as `name: String = "hawk"` are checked by the typechecker.
-The native CLI supports `parse`, `check`, and `eval` subcommands for files.
-Common string escapes are decoded and rendered for `\n`, `\t`, `\r`, `\"`, and `\\`.
-The repository also tracks `apple/pkl` as a git submodule and runs selected upstream fixtures through `./scripts/upstream-smoke.sh`.
-For parser coverage, `./scripts/upstream-parse-suite.sh` parses the upstream `LanguageSnippetTests` corpus selected by apple/pkl's `ParserComparisonTest`.
+Entry points:
 
-## Status Estimate
+- `parse_source(source) -> ParseResult` — top-level CST-backed parse.
+- `eval_source(source) -> EvalResult` — parse + evaluate a single source.
+- `typecheck_source(source) -> TypecheckResult` — parse + typecheck.
+- `lint_program(program) -> Array[LintFinding]` — static-analysis pass.
+- `codegen(program, target) -> String` — code generator dispatch (`CodegenTarget::MoonBit` today).
+- `AnalysisSession` — incremental, ripple-backed analysis for editor / multi-file flows.
 
-As of `PKL-045`, this package has 45 implemented pkspec scenarios. The next tracked slice is `PKL-046`, constrained type annotation predicate evaluation.
+Renderers (one entry per format): `render_value` (PCF, default), plus `render_value_as_json` / `_yaml` / `_xml` / `_textproto` / `_properties` / `_plist` / `_jsonnet` and their `_document` / `_fragment` / `_with_indent` / `_with_options` variants. Apple Pkl's `output { renderer = new <Renderer> { ... } }` is honoured.
 
-These are rough implementation estimates, not formal coverage numbers:
+Sandbox configuration (`configure_sandbox_*` / `register_*`): module allowlist, module paths, package caches, `prop:` / `env:` populating, static read-resource registration, import-glob registration, `extends`-chain parent binding resolver, and the lazy stdlib `base.pkl` loader. The dynamic resource-reader hook `configure_sandbox_resource_reader(scheme, fn(uri) -> SandboxResource?)` lets an embedded caller service `read("scheme:path")` calls in-process (HTTP / DB / shell-exec etc.).
 
-- Parser: 60-70%. The upstream parser snippet corpus is accepted in parse-only mode, but some constructs still parse tolerantly or lack full semantic AST coverage.
-- Interpreter: 35-45%. Core arithmetic, object/module flows, imports, collections, class defaults/inheritance, method calls, direct function/lambda calls, and callable runtime values work; broad stdlib behavior is still incomplete.
-- Typechecker: 40-50%. Primitive, nullable, generic collection, union, narrowing, call, typed object, class inheritance, imported class, constrained annotation base types, and class method body checks exist; full Pkl constraint predicate evaluation, type parameters, stdlib types, and deeper module/class semantics remain.
+## Status
 
-Overall this is roughly 40%+ complete as a pure MoonBit Pkl core, or closer to the 30% range if measured as an Apple Pkl compatibility replacement.
+The release gate passes Apple Pkl's upstream LanguageSnippetTests across the advertised renderers (PCF, JSON, YAML, properties, plist, textproto, XML, Jsonnet). Coverage of the Apple Pkl test surface is ~96% by gold-match; see the repository's `TODO.md` for the remaining fixture inventory.
+
+Known gaps for embedded callers:
+
+- **Eager property evaluation.** mpkl evaluates every property of a `new T { ... }` object eagerly; Apple Pkl is lazy. Object bodies that contain a slot whose body errors on a code path the caller never reads (`new Result { cases = cases.length; ... }` where `cases.length` would fail but the caller only reads `result.passed`) still error in mpkl. Tracked as a follow-up.
+- **External-reader subprocess protocol.** Apple Pkl's `--external-resource-reader=<scheme>=<bin>` ships a MessagePack-framed IPC; mpkl's in-process callback hook is the embedded substitute. A subprocess-side adapter would need MoonBit's `core` / `x` packages to ship a subprocess runtime first.
+
+## Versioning
+
+This is `0.2.0`. Pre-1.0 minor bumps may break the public surface — semver promises kick in at `1.0.0`.

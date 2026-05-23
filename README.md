@@ -21,18 +21,21 @@ moon add mizchi/pkl
 ## CLI — `mpkl`
 
 ```bash
-mpkl parse    <file.pkl>                  # parse-only sanity check
-mpkl check    <file.pkl>                  # typecheck, print module type
-mpkl eval     <file.pkl> [-f <format>]    # eval + render (default: pcf)
-mpkl test     <file.pkl> [--overwrite]    # walk facts: / examples:
-mpkl format   <file.pkl>                  # canonical PCF re-emit
-mpkl analyze  <file.pkl>                  # lint (unused locals / imports / ...)
-mpkl codegen  <file.pkl> [-t moonbit]     # lower to a target-language skeleton  (pkl-mbt only)
+mpkl parse    <file.pkl>                       # parse-only sanity check
+mpkl check    <file.pkl>                       # typecheck, print module type
+mpkl eval     <file.pkl> [-f <format>]         # eval + render (default: pcf)
+mpkl test     <file.pkl> [--overwrite]         # walk facts: / examples:
+                       [--junit-reports <dir>] # write JUnit XML per module
+mpkl format   <file.pkl>                       # canonical PCF re-emit
+mpkl analyze  <file.pkl>                       # lint (unused locals / imports / ...)
+mpkl codegen  <file.pkl> [-t moonbit]          # lower to a target-language skeleton  (pkl-mbt only)
 ```
 
 Renderers via `-f` / `--format`: `pcf` (default), `json`, `yaml`, `properties`, `plist`, `textproto`, `xml`. `output { renderer = new <Renderer> { ... } }` also drives the format from the source.
 
 Sandbox flags: `--allowed-modules <pipe|prefixes>`, `--module-path <dir>` (repeatable), `--package-cache <dir>` (repeatable; resolves and stores `package://host/path/name@version#/file.pkl` under `<dir>/path/name@version/package/file.pkl`; when omitted the CLI uses `$PKL_MBT_PACKAGE_CACHE`, `$XDG_CACHE_HOME/pkl-mbt/package-2`, or `$HOME/.cache/pkl-mbt/package-2`), `-p NAME=VALUE` (populates `read("prop:NAME")`).
+
+`mpkl test`: same wire shape as Apple Pkl's `pkl test` for facts + examples + golden diff. `--junit-reports <dir>` writes `<dir>/<basename>.xml` per module (one `<testsuite>` per file, one `<testcase>` per fact + one for the examples block) so CI / pkspec-style runners can ingest structured results. Eval-time errors surface as a single failed `<testcase name="eval">` so a parse / type failure still leaves an envelope.
 
 ## pkl-mbt specific
 
@@ -41,10 +44,19 @@ These don't exist in Apple Pkl:
 - **`mpkl codegen <file.pkl> [-t <target>]`** — lowers a Pkl module to a target-language skeleton. Today only `moonbit` is wired; the `@pkl.CodegenTarget` enum + `@pkl.codegen(program, target)` dispatcher keep the API shape stable when other targets (Java / Kotlin / Swift / Go / TypeScript) land.
 - **`mpkl analyze`** — lint pass over the parsed module (unused locals / imports / class properties / module-level shadowing).
 - **Library entrypoint** (`@pkl`) — pure-MoonBit, no IO / async, builds clean on all four MoonBit targets. Apple's `pkl` ships as a JVM-backed CLI.
+- **In-process resource reader hook** — `@pkl.configure_sandbox_resource_reader(scheme, fn(uri) -> SandboxResource?)` lets an embedded host service `read("<scheme>:<path>")` calls in-process. Useful for plugging in HTTP / DB / shell-exec readers without spawning a separate process. Apple Pkl's equivalent is the `--external-resource-reader=<scheme>=<bin>` MessagePack-IPC binary; the in-process hook trades the protocol overhead for a callback that runs in the same address space.
 
 ## Status
 
 The parser, evaluator, typechecker, package/project loading, and advertised renderers (PCF, JSON, YAML, properties, plist, textproto, XML, and Jsonnet) are passing the current release test gate. The remaining Jsonnet fixtures (`jsonnetRenderer7` — Mixin / Function rendering diagnostic, `jsonnetRenderer8` — `convertPropertyTransformers`) are tracked as follow-ups; see [TODO.md](TODO.md) for the full upstream fixture inventory and release notes.
+
+### 0.2.0 highlights
+
+- **`extends`-chain re-eval is now late-binding-aware.** Parent-module member bodies that reference inherited fields (`local testNames = tests.toList()...; output { value = new { dupCount = duplicateNames.length } }`) now propagate derived-module overrides instead of returning the parent-static cached value. The fix threads parent's raw `Binding[]` through the re-eval path and arranges `parent visibles → derived exported → parent locals` so derived's amends win for shared visible names while `localModuleMemberOverride2`-style derived locals do not shadow a coincident parent visible reference.
+- **Cross-module recursive functions and module-locals.** A `function f(...)` imported from another module can now recurse and reference module-private helpers (`local mask32 = 0xffffffff`); the function-eval post-pass cross-links every top-level function's captured env so the body sees siblings + locals at apply time even when the caller is in a different module.
+- **`Listing<T>` / `Mapping<K,V>` return types drive `new {}` interpretation.** A `function f(): Listing<Case> = let (r = ...) new { for (...) { ... } }` body now produces a ListingValue instead of an ObjectValue — the body rewrite walks through `LetExpr` wrappers to reach the inner `new {}`.
+- **`mpkl test --junit-reports <dir>`.** Same wire shape as Apple Pkl's flag; pkspec / CI runners can ingest structured results.
+- **In-process resource reader hook.** `configure_sandbox_resource_reader("cmd", fn)` services `read("cmd:...")` via an embedded callback; see pkl-mbt specific above.
 
 ## Benchmarks vs Apple Pkl
 
@@ -52,21 +64,21 @@ The parser, evaluator, typechecker, package/project loading, and advertised rend
 
 | fixture | mpkl mean | pkl mean | mpkl / pkl |
 | --- | ---: | ---: | ---: |
-| `cli.pkl` (micro) | 4.5 ms | 9.0 ms | **0.50×** |
-| `cli_amends_base_merge.pkl` | 5.1 ms | 9.5 ms | **0.54×** |
-| `cli_map_value.pkl` | 4.6 ms | 8.4 ms | **0.55×** |
-| `cli_set_value.pkl` | 5.0 ms | 9.4 ms | **0.54×** |
-| `cli_int_seq_value.pkl` | 4.9 ms | 8.2 ms | **0.59×** |
-| upstream `basic/int.pkl` | 6.7 ms | 9.7 ms | **0.69×** |
-| upstream `basic/float.pkl` | 7.5 ms | 8.7 ms | **0.86×** |
-| upstream `basic/string.pkl` | 6.4 ms | 10.1 ms | **0.63×** |
-| upstream `basic/as.pkl` | 7.5 ms | 10.3 ms | **0.73×** |
-| upstream `basic/is.pkl` | 7.1 ms | 9.7 ms | **0.74×** |
-| upstream `basic/new.pkl` | 8.0 ms | 11.4 ms | **0.70×** |
-| upstream `basic/rawString.pkl` | 5.4 ms | 8.7 ms | **0.62×** |
-| `pkspec/Test.pkl` (1643 lines, 49 classes) | 22.2 ms | 10.3 ms | 2.17× |
+| `cli.pkl` (micro) | 4.6 ms | 8.0 ms | **0.58×** |
+| `cli_amends_base_merge.pkl` | 4.3 ms | 7.8 ms | **0.55×** |
+| `cli_map_value.pkl` | 4.8 ms | 9.0 ms | **0.54×** |
+| `cli_set_value.pkl` | 4.6 ms | 7.9 ms | **0.59×** |
+| `cli_int_seq_value.pkl` | 4.6 ms | 7.6 ms | **0.60×** |
+| upstream `basic/int.pkl` | 7.2 ms | 9.4 ms | **0.77×** |
+| upstream `basic/float.pkl` | 6.7 ms | 8.1 ms | **0.83×** |
+| upstream `basic/string.pkl` | 6.3 ms | 10.7 ms | **0.58×** |
+| upstream `basic/as.pkl` | 7.2 ms | 9.1 ms | **0.80×** |
+| upstream `basic/is.pkl` | 6.9 ms | 8.2 ms | **0.84×** |
+| upstream `basic/new.pkl` | 6.5 ms | 9.8 ms | **0.66×** |
+| upstream `basic/rawString.pkl` | 5.4 ms | 7.2 ms | **0.75×** |
+| `pkspec/Test.pkl` (1643 lines, 49 classes) | 20.4 ms | 9.7 ms | 2.11× |
 
-12 of 13 fixtures have `mpkl` faster than `pkl`. The outlier (`pkspec/Test.pkl`) hits the per-merge `find_member_exact` String-equality tail that the eval interpreter pays once per class-default property; Apple Pkl's native AOT covers it more cheaply.
+12 of 13 fixtures have `mpkl` faster than `pkl`. The outlier (`pkspec/Test.pkl`) is now allocator / GC-bound (`moonbit_drop_object` / `malloc` / `_platform_memmove` dominate the profile) — algorithmic wins from the leaf-string and class-default passes have largely landed; further gap-closing on this fixture needs either Array pooling on the class-default synthesis path or cheaper structural-equality fast paths.
 
 On larger synthetic workloads the gap widens in mpkl's favour as the class-default memoisation amortises:
 
@@ -76,7 +88,7 @@ On larger synthetic workloads the gap widens in mpkl's favour as the class-defau
 | 1000 Group × 3 Item Listing | 39 ms | 113 ms | mpkl **2.9× faster** |
 | `apple-pkl/stdlib/base.pkl` (eval as user module, ~150 classes) | 62 ms | — | (no fair pkl comparison — stdlib) |
 
-See [`benchmarks/refactor-2026-05-22.md`](benchmarks/refactor-2026-05-22.md) for the full session retro: 26 commits, baseline `pkspec/Test.pkl` was 830 ms vs the current 22 ms (38×), and `apple-pkl/stdlib/base.pkl` went from a JS-engine stack overflow to 62 ms native.
+See [`benchmarks/refactor-2026-05-22.md`](benchmarks/refactor-2026-05-22.md) for the prior session retro (26 commits, baseline `pkspec/Test.pkl` 830 ms → 22 ms, 38× speedup) and [`benchmarks/refactor-2026-05-23.md`](benchmarks/refactor-2026-05-23.md) for the 0.2.0 round (lazy stdlib base.pkl load, class-default purity verdict memo, strip-source in place, Protobuf renderer extracted to its own file).
 
 ## Development
 

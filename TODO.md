@@ -1,7 +1,22 @@
 # Release TODO
 
+Current version: `0.2.0` (see `moon.mod.json`).
 Current coverage: 376 / 391 PCF gold-match (96.2%).
 Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-05-22.
+
+## 0.2.0 landing notes
+
+Embedded-host blockers cleared during the 0.2.0 round:
+
+- `extends "X.pkl"` chain now late-binds against the derived module's overrides via a parent-`Binding[]` resolver thread; parent-local references inside parent visibles (`local testNames = tests.toList()...; output { value = ... duplicateNames ... }`) propagate derived `tests {}` amends instead of returning the parent-static cached value. `localModuleMemberOverride2` remains gold-matched — derived `local p2 = "override"` does NOT shadow `parent.local p2`.
+- Cross-module recursive functions and module-locals — `function f(...)` imported from another module can recurse into itself and call sibling functions / `local` helpers via a post-pass that cross-links each top-level function's captured env with `(siblings, module_locals)` once all functions exist.
+- `Listing<T>` / `Mapping<K,V>` return types now drive the `new {}` rewrite even when the body is `let (...) new { ... }`. Apple Pkl's listing-vs-object disambiguation is satisfied for the common QuickCheck pattern.
+- `mpkl test --junit-reports <dir>` emits a JUnit XML envelope (one `<testsuite>` per module, one `<testcase>` per fact + one for `examples`). Eval-time errors surface as a single failed `<testcase name="eval">`. The text-mode summary is unchanged.
+- `configure_sandbox_resource_reader(scheme, reader)` lets an embedded caller service `read("scheme:path")` in-process — pkspec / pkfire's `cmd:` reader use case without a separate subprocess.
+
+Known follow-up (not blocking the release gate):
+
+- `length on Int` in `QuickCheck.test.pkl`'s `checkAllInt` fact — Apple Pkl works because of lazy property evaluation (the failing slot `cases = cases.length` inside a `new Result { ... }` body is never demanded by the caller's `r.passed && r.failure == null` reads). mpkl evaluates eagerly and trips on the in-progress self-reference. A real fix needs lazy property evaluation across `new T { ... }` bodies — a major architectural change, deferred.
 
 Release focus:
 
