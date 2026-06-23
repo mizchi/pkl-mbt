@@ -1983,3 +1983,48 @@ test "PKL-158: cross-module amend inherits parent listing element type defaults"
 }
 
 ///|
+// PKL-158b: regression for the cross-module class-identity check that the
+// PKL-158 type backfill enabled. The child amends `schema.pkl` and fills the
+// inherited `tasks: Listing<Task>` with an element constructed through a
+// DIFFERENT import alias (`new s.Task { ... }`). The element's class tag is
+// the alias-qualified `s.Task`, but it denotes the SAME underlying class as
+// the parent's `Task` element type. The element type-check must accept it
+// (Apple Pkl does); the pre-fix backfill wrongly rejected it with
+// `Expected value of type \`schema#Task\`, but got type \`s.Task\``.
+test "PKL-158b: cross-module amend accepts alias-qualified element of same class" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "schema.pkl",
+    (
+      #|module schema
+      #|class Task { name: String; cmd: String = "" }
+      #|tasks: Listing<Task> = new {}
+      #|names = tasks.toList().map((t) -> t.name)
+    ),
+  )
+  session.set_source(
+    "frag.pkl",
+    (
+      #|amends "schema.pkl"
+      #|import "schema.pkl" as s
+      #|tasks {
+      #|  (new s.Task { name = "alpha"; cmd = "echo alpha" })
+      #|}
+    ),
+  )
+  guard session.eval_path("frag.pkl") is EvalOk(value) else { panic() }
+  inspect(
+    render_value(value),
+    content=(
+      #|tasks {
+      #|  new {
+      #|    name = "alpha"
+      #|    cmd = "echo alpha"
+      #|  }
+      #|}
+      #|names = List("alpha")
+    ),
+  )
+}
+
+///|
