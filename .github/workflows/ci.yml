@@ -15,6 +15,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
+        with:
+          # `moon test` runs the cmd/mpkl whitebox tests that `read()`
+          # apple-pkl fixture files under third_party/apple-pkl, so the
+          # submodule must be checked out or those tests abort.
+          submodules: recursive
 
       - name: Set up MoonBit
         run: |
