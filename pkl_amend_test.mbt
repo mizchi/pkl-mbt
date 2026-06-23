@@ -1925,3 +1925,61 @@ test "support additional Pkl numeric constraint predicates" {
 }
 
 ///|
+// PKL-158: cross-module amend of a typed `Listing<Class>` property whose
+// type is declared only on the parent. The child writes
+// `workflowTests { new { workflow = "build" } }` with NO annotation, so its
+// binding carries `type_name = None`. The parent's element type
+// `WorkflowTest` must still be threaded into the listing-literal evaluation
+// so each element gains `WorkflowTest`'s property defaults
+// (`direct: []`, `shell = "bash"`) while keeping the explicit `workflow`.
+test "PKL-158: cross-module amend inherits parent listing element type defaults" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "base.pkl",
+    (
+      #|module base
+      #|class WorkflowTest {
+      #|  workflow: String
+      #|  shell: String = "bash"
+      #|  direct: Listing<String> = new {}
+      #|}
+      #|workflowTests: Listing<WorkflowTest> = new {}
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|amends "base.pkl"
+      #|workflowTests {
+      #|  new { workflow = "build" }
+      #|  new { workflow = "test"; shell = "zsh"; direct { "a"; "b" } }
+      #|}
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  // Element 1 keeps `workflow` and gains the `shell` (String) and
+  // `direct` (Listing) defaults; element 2 keeps all of its explicit
+  // overrides. Matches `pkl eval` exactly.
+  inspect(
+    render_value(value),
+    content=(
+      #|workflowTests {
+      #|  new {
+      #|    workflow = "build"
+      #|    shell = "bash"
+      #|    direct {}
+      #|  }
+      #|  new {
+      #|    workflow = "test"
+      #|    shell = "zsh"
+      #|    direct {
+      #|      "a"
+      #|      "b"
+      #|    }
+      #|  }
+      #|}
+    ),
+  )
+}
+
+///|

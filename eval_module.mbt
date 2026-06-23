@@ -1201,6 +1201,33 @@ fn eval_program(
     }
     None => ()
   }
+  // PKL-158: when a derived module sets a property whose type is declared
+  // only on the `amends`/`extends` parent (`workflowTests:
+  // Listing<WorkflowTest>` in the parent; `workflowTests { new {...} }` in
+  // the child), the child's own binding carries `type_name = None`. The
+  // binding-eval rewrite (`eval_binding.mbt`) keys the typed-literal
+  // promotion (`new {...}` → `TypedObjectLiteral(WorkflowTest, ...)`, and
+  // the listing-element typing that applies element defaults) on
+  // `binding.type_name`, so without the declared type the listing's
+  // elements materialise as untyped `Dynamic` and miss the element type's
+  // property defaults. Backfill the inherited declared type into the eval
+  // binding list so the SAME machinery the same-module case uses fires
+  // here too. Only unannotated child bindings are touched; bindings the
+  // child annotates itself keep their own type.
+  if module_parent_bindings.length() > 0 {
+    let mut i = 0
+    while i < bindings.length() {
+      let binding = bindings[i]
+      if binding.type_name is None {
+        match effective_binding_type_name(binding, module_parent_bindings) {
+          Some(inherited) =>
+            bindings[i] = { ..binding, type_name: Some(inherited) }
+          None => ()
+        }
+      }
+      i = i + 1
+    }
+  }
   for binding in program.bindings {
     // Hidden top-level properties are not part of the rendered module
     // surface, but they are still reachable through `super.x` /
@@ -1260,7 +1287,7 @@ fn eval_program(
           )
           let value = apply_class_defaults_for_type(
             coerced,
-            binding.type_name,
+            effective_binding_type_name(binding, module_parent_bindings),
             bindings,
             env,
             class_env,
@@ -1394,7 +1421,7 @@ fn eval_program(
           // the type name doesn't resolve to a user-defined class.
           let value = apply_class_defaults_for_type(
             coerced,
-            binding.type_name,
+            effective_binding_type_name(binding, module_parent_bindings),
             bindings,
             env,
             class_env,
