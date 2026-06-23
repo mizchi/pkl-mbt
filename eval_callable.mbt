@@ -835,13 +835,38 @@ fn value_satisfies_user_class_annotation(
         None => type_name
       }
       match find_object_class_tag(members) {
-        Some(tag) =>
-          if tag == base {
+        Some(tag) => {
+          // PKL-158b: the value's class tag may be alias-qualified
+          // (`s.Task` from `new s.Task {}`) while the annotation names
+          // the same underlying class by its simple name (`Task`). When
+          // the alias resolves to the module that declares the class,
+          // Apple Pkl treats `s.Task` and `Task` as ONE class, so strip a
+          // leading `<alias>.` qualifier before comparing. Without this the
+          // cross-module element type-check (enabled by the PKL-158 type
+          // backfill) wrongly rejects a structurally-identical value.
+          //
+          // KNOWN LIMITATION: this is simple-name matching, not module-path
+          // identity. A *different* module's same-named class (`b.Task`
+          // where `b` is an unrelated module declaring its own `Task`) is
+          // also accepted here, whereas Apple Pkl rejects it (`modA#Task`
+          // vs `modB#Task`). This loose acceptance predates PKL-158
+          // (`value_satisfies_user_class_annotation` has never carried
+          // module identity); strict identity would require threading the
+          // resolved declaring-module path through the class tag.
+          let tag_simple = match tag.rev_find(".") {
+            Some(idx) =>
+              String::unsafe_substring(tag, start=idx + 1, end=tag.length())
+            None => tag
+          }
+          if tag == base || tag_simple == base {
             return true
           } else {
             let mut current : ClassDecl? = eval_lookup_class_decl(
               declarations, tag,
             )
+            if current is None {
+              current = eval_lookup_class_decl(declarations, tag_simple)
+            }
             while current is Some(decl) {
               match decl.parent_name {
                 Some(parent) =>
@@ -855,6 +880,7 @@ fn value_satisfies_user_class_annotation(
             }
             return false
           }
+        }
         None => ()
       }
       eval_lookup_class_decl(declarations, base) is Some(_)

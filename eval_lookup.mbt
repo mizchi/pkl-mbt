@@ -3428,6 +3428,30 @@ fn find_binding(bindings : Array[Binding], name : String) -> Binding? {
 }
 
 ///|
+/// PKL-158: the declared type of a property a derived module sets but does
+/// NOT itself annotate lives on the PARENT module's binding (`amends`). When
+/// a child assigns/amends such a property (e.g. `workflowTests { new {} }`
+/// over a parent's `workflowTests: Listing<WorkflowTest> = new {}`), the
+/// child's own binding carries `type_name = None`, so class-default
+/// expansion and coercion would be skipped and `new {}` elements would
+/// materialise as untyped `Dynamic` (missing the element type's property
+/// defaults). Fall back to the inherited declared type so the same-module
+/// behaviour (which already expands element defaults) applies cross-module.
+fn effective_binding_type_name(
+  binding : Binding,
+  parent_bindings : Array[Binding],
+) -> String? {
+  match binding.type_name {
+    Some(_) => binding.type_name
+    None =>
+      match find_binding(parent_bindings, binding.name) {
+        Some(parent) => parent.type_name
+        None => None
+      }
+  }
+}
+
+///|
 /// PKL-148t: locate a sibling binding whose value is a `LambdaExpr`
 /// (i.e., a module-level `function NAME(...) = ...` synthesised into
 /// the binding list by `all_eval_bindings`). Used to break the

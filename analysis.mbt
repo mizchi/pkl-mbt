@@ -834,11 +834,58 @@ fn eval_module_path(
           // resolver is only called when the derived module amends or
           // extends — i.e. once per module relation) and surface the
           // raw bindings.
+          //
+          // PKL-158: walk the whole `amends`/`extends` chain (mirroring
+          // the class-export resolver above) so a type declared on a
+          // grandparent (e.g. `workflowTests: Listing<WorkflowTest>`)
+          // is still reachable when an intermediate module re-amends
+          // without re-declaring it. Ancestors are collected farthest-
+          // first so the nearest module's binding lands last; consumers
+          // reverse-walk via `find_binding` (last match wins), so the
+          // closest declaration still shadows ancestors.
           let resolved = resolve_import_path(path, uri)
           match get_module_source(sources, rt, resolved) {
             Some(parent_source) => {
-              let parsed = parse_source(parent_source)
-              Some(parsed.program.bindings)
+              let chain : Array[Array[Binding]] = []
+              let visited : Array[String] = []
+              let mut current_path = resolved
+              let mut current_parsed = parse_source(parent_source)
+              let mut keep_going = true
+              while keep_going {
+                if visited.contains(current_path) {
+                  keep_going = false
+                } else {
+                  visited.push(current_path)
+                  chain.push(current_parsed.program.bindings)
+                  match current_parsed.program.module_relation {
+                    Some(relation) => {
+                      let parent_resolved = resolve_import_path(
+                        current_path,
+                        relation.uri,
+                      )
+                      match get_module_source(sources, rt, parent_resolved) {
+                        Some(ancestor_source) => {
+                          current_path = parent_resolved
+                          current_parsed = parse_source(ancestor_source)
+                        }
+                        None => keep_going = false
+                      }
+                    }
+                    None => keep_going = false
+                  }
+                }
+              }
+              // Flatten farthest-ancestor → nearest-parent so the
+              // nearest binding is last (reverse-walk picks it first).
+              let collected : Array[Binding] = []
+              let mut i = chain.length() - 1
+              while i >= 0 {
+                for binding in chain[i] {
+                  collected.push(binding)
+                }
+                i = i - 1
+              }
+              Some(collected)
             }
             None => None
           }

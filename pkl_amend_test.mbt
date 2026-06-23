@@ -1925,3 +1925,106 @@ test "support additional Pkl numeric constraint predicates" {
 }
 
 ///|
+// PKL-158: cross-module amend of a typed `Listing<Class>` property whose
+// type is declared only on the parent. The child writes
+// `workflowTests { new { workflow = "build" } }` with NO annotation, so its
+// binding carries `type_name = None`. The parent's element type
+// `WorkflowTest` must still be threaded into the listing-literal evaluation
+// so each element gains `WorkflowTest`'s property defaults
+// (`direct: []`, `shell = "bash"`) while keeping the explicit `workflow`.
+test "PKL-158: cross-module amend inherits parent listing element type defaults" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "base.pkl",
+    (
+      #|module base
+      #|class WorkflowTest {
+      #|  workflow: String
+      #|  shell: String = "bash"
+      #|  direct: Listing<String> = new {}
+      #|}
+      #|workflowTests: Listing<WorkflowTest> = new {}
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|amends "base.pkl"
+      #|workflowTests {
+      #|  new { workflow = "build" }
+      #|  new { workflow = "test"; shell = "zsh"; direct { "a"; "b" } }
+      #|}
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  // Element 1 keeps `workflow` and gains the `shell` (String) and
+  // `direct` (Listing) defaults; element 2 keeps all of its explicit
+  // overrides. Matches `pkl eval` exactly.
+  inspect(
+    render_value(value),
+    content=(
+      #|workflowTests {
+      #|  new {
+      #|    workflow = "build"
+      #|    shell = "bash"
+      #|    direct {}
+      #|  }
+      #|  new {
+      #|    workflow = "test"
+      #|    shell = "zsh"
+      #|    direct {
+      #|      "a"
+      #|      "b"
+      #|    }
+      #|  }
+      #|}
+    ),
+  )
+}
+
+///|
+// PKL-158b: regression for the cross-module class-identity check that the
+// PKL-158 type backfill enabled. The child amends `schema.pkl` and fills the
+// inherited `tasks: Listing<Task>` with an element constructed through a
+// DIFFERENT import alias (`new s.Task { ... }`). The element's class tag is
+// the alias-qualified `s.Task`, but it denotes the SAME underlying class as
+// the parent's `Task` element type. The element type-check must accept it
+// (Apple Pkl does); the pre-fix backfill wrongly rejected it with
+// `Expected value of type \`schema#Task\`, but got type \`s.Task\``.
+test "PKL-158b: cross-module amend accepts alias-qualified element of same class" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "schema.pkl",
+    (
+      #|module schema
+      #|class Task { name: String; cmd: String = "" }
+      #|tasks: Listing<Task> = new {}
+      #|names = tasks.toList().map((t) -> t.name)
+    ),
+  )
+  session.set_source(
+    "frag.pkl",
+    (
+      #|amends "schema.pkl"
+      #|import "schema.pkl" as s
+      #|tasks {
+      #|  (new s.Task { name = "alpha"; cmd = "echo alpha" })
+      #|}
+    ),
+  )
+  guard session.eval_path("frag.pkl") is EvalOk(value) else { panic() }
+  inspect(
+    render_value(value),
+    content=(
+      #|tasks {
+      #|  new {
+      #|    name = "alpha"
+      #|    cmd = "echo alpha"
+      #|  }
+      #|}
+      #|names = List("alpha")
+    ),
+  )
+}
+
+///|
