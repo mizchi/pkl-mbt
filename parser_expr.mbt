@@ -4,6 +4,34 @@ fn Parser::parse_expr(self : Parser) -> Expr {
 }
 
 ///|
+// PKL-pkspec-C2: Apple Pkl lets an unambiguously-infix operator lead a
+// continuation line:
+//   pending =
+//     s.pending
+//       || (...)
+// After `skip_whitespace` leaves the cursor on a newline, peek past
+// trivia + semicolons; if `kind` follows, advance the cursor onto it and
+// return true so the binary-loop / null-coalesce detectors treat it as a
+// chain continuation. The operators that use this (`||`, `&&`, `==`,
+// `!=`, `|>`, `??`) can never start a fresh statement, so consuming the
+// intervening newline is unambiguous.
+fn Parser::at_infix_across_newline(
+  self : Parser,
+  kind : @cst.SyntaxKind,
+) -> Bool {
+  if self.at(kind) {
+    return true
+  }
+  let after_sep = self.skip_trivia_and_semicolons_from(self.pos)
+  if after_sep < self.len && self.tokens[after_sep].kind() == kind {
+    self.skip_trivia_and_semicolons()
+    true
+  } else {
+    false
+  }
+}
+
+///|
 fn Parser::parse_binary_loop(
   self : Parser,
   parse_operand : () -> Expr,
@@ -15,6 +43,10 @@ fn Parser::parse_binary_loop(
   while maybe_op is Some(op) {
     self.builder.start_node_at(checkpoint, binary_expr())
     ignore(self.bump())
+    // PKL-pkspec-C2: the right operand may sit on a fresh line after a
+    // leading-operator newline (`p\n  || (\n  ...)`). Swallow the
+    // intervening separators so the operand parser starts on it.
+    self.skip_trivia_and_semicolons()
     let right = parse_operand()
     self.builder.finish_node()
     left = BinaryExpr(op, left, right)
@@ -43,7 +75,7 @@ fn Parser::parse_null_coalesce_expr(self : Parser) -> Expr {
 fn Parser::parse_pipe_expr(self : Parser) -> Expr {
   self.parse_binary_loop(fn() { self.parse_or_expr() }, fn() {
     self.skip_whitespace()
-    if self.at(pipe_forward()) {
+    if self.at_infix_across_newline(pipe_forward()) {
       Some(Pipe)
     } else {
       None
@@ -55,7 +87,7 @@ fn Parser::parse_pipe_expr(self : Parser) -> Expr {
 fn Parser::parse_or_expr(self : Parser) -> Expr {
   self.parse_binary_loop(fn() { self.parse_and_expr() }, fn() {
     self.skip_whitespace()
-    if self.at(or_or()) {
+    if self.at_infix_across_newline(or_or()) {
       Some(Or)
     } else {
       None
@@ -67,7 +99,7 @@ fn Parser::parse_or_expr(self : Parser) -> Expr {
 fn Parser::parse_and_expr(self : Parser) -> Expr {
   self.parse_binary_loop(fn() { self.parse_equality_expr() }, fn() {
     self.skip_whitespace()
-    if self.at(and_and()) {
+    if self.at_infix_across_newline(and_and()) {
       Some(And)
     } else {
       None

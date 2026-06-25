@@ -198,6 +198,51 @@ test "module output.value overrides the rendered module body" {
 }
 
 ///|
+// pkspec Spec-layer parity: Apple Pkl lets an infix boolean operator
+// lead a continuation line, so pkspec's `scenarioToTest` auto-pending
+// expression
+//   pending =
+//     s.pending
+//       || (s.given.isEmpty && s.`when`.isEmpty && ...)
+// parses as one expression. The mbt parser only skipped plain
+// whitespace (not newlines) before `||` / `&&`, so it cut the
+// expression at the first operand and either errored
+// (`unsupported expression`) or silently dropped the rest — making a
+// scenario with no steps render `pending = false` instead of `true`.
+test "infix boolean operators continue across a leading-operator newline" {
+  let result = eval_source(
+    (
+      #|p = false
+      #|a = true
+      #|b = true
+      #|r =
+      #|  p
+      #|    || (
+      #|      a
+      #|        && b
+      #|    )
+    ),
+  )
+  guard result is EvalOk(ObjectValue(members)) else {
+    match result {
+      EvalError(diagnostics) =>
+        fail("expected EvalOk, got error: \{diagnostics[0].message}")
+      _ => fail("expected EvalOk")
+    }
+  }
+  let mut r : Value? = None
+  for m in members {
+    if m.name == "r" {
+      r = Some(m.value)
+    }
+  }
+  guard r is Some(BoolValue(value)) else {
+    fail("expected r to be a BoolValue")
+  }
+  inspect(value, content="true")
+}
+
+///|
 test "PKL-118: imported module-level function is callable across modules" {
   let session = AnalysisSession::new()
   session.set_source("base.pkl", "function double(x: Int): Int = x * 2")
