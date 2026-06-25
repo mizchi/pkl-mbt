@@ -333,6 +333,55 @@ test "qualified-alias field annotation accepts bare-named class value" {
 }
 
 ///|
+// pkspec Spec-layer parity: a function whose return type is a collection
+// with a qualified element type (`tagSteps(...): Listing<base.Step>`) must
+// still have its bare `new { for (...) { ... } }` body promoted to a
+// collection literal. The return-type rewrite bailed whenever the type
+// contained a `.`, which `Listing<base.Step>` does (in the element type),
+// so the body stayed an Object and spreading it tripped
+// `Expected value of type Listing, but got type Object`. In pkspec this
+// dropped every `prelude` (Background) step.
+test "function returning collection of qualified element type promotes body" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "gp.pkl",
+    (
+      #|open module demo.gp
+      #|class Step { name: String }
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "gp.pkl" as base
+      #|xs: Listing<String> = new { "a"; "b" }
+      #|local function build(items: Listing<String>): Listing<base.Step> = new {
+      #|  for (x in items) { new base.Step { name = x } }
+      #|}
+      #|out: Listing<base.Step> = new { ...build(xs) }
+    ),
+  )
+  let result = session.eval_path("main.pkl")
+  guard result is EvalOk(ObjectValue(members)) else {
+    match result {
+      EvalError(diagnostics) =>
+        fail("expected EvalOk, got error: \{diagnostics[0].message}")
+      _ => fail("expected EvalOk")
+    }
+  }
+  let mut out : Value? = None
+  for m in members {
+    if m.name == "out" {
+      out = Some(m.value)
+    }
+  }
+  guard out is Some(ListingValue(items)) else {
+    fail("expected out to be a Listing")
+  }
+  inspect(items.length(), content="2")
+}
+
+///|
 test "PKL-118: imported module-level function is callable across modules" {
   let session = AnalysisSession::new()
   session.set_source("base.pkl", "function double(x: Int): Int = x * 2")

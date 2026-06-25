@@ -1264,10 +1264,17 @@ fn rewrite_function_body_for_return_type(
   match return_type_name {
     None => body
     Some(class_name) =>
+      // A `.` normally marks a qualified *simple* type (`base.Step`)
+      // whose body is a typed object, not a collection — bail so the
+      // class-lookup branch (which keys off bare names) doesn't mishandle
+      // it. But a collection type can carry a dotted *element* type
+      // (`Listing<base.Step>`); there the dot is inside `<...>` and the
+      // inner rewrite promotes the `new { ... }` body to a collection
+      // literal regardless of the element name, so let it through.
       if class_name.contains("|") ||
         class_name.contains("(") ||
         class_name.contains("?") ||
-        class_name.contains(".") {
+        (class_name.contains(".") && not(class_name.contains("<"))) {
         body
       } else {
         rewrite_function_body_for_return_type_inner(body, class_name, class_env)
