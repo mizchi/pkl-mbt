@@ -2028,3 +2028,68 @@ test "PKL-158b: cross-module amend accepts alias-qualified element of same class
 }
 
 ///|
+// PKL-159b/c: cross-module late-binding + collection finalization. `Vitest`
+// (its own module, `import "Adapter.pkl" as adapter`) builds inherited
+// `argv: Listing<…>` / `config: Mapping<…>` defaults via cross-module
+// qualified constructors (`new adapter.Command { argv { …include… } }`)
+// that read overridable siblings. A `Derived` in ANOTHER module overrides
+// `include` / `configPath`. The inherited default must (a) re-bind to the
+// derived `include`, and (b) finalize the `Listing` / `Mapping` despite the
+// qualified `adapter.Command` type only being reachable through the
+// transitive import. Previously the body came back as a bare Dynamic
+// (`@element$…` / `["k"] = v`) and failed the field's annotation.
+test "PKL-159: cross-module inherited collection default late-binds and finalizes" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "adapter.pkl",
+    (
+      #|module adapter
+      #|class Command { argv: Listing<String> }
+      #|class Cfg { entries: Mapping<String, String> }
+    ),
+  )
+  session.set_source(
+    "vitest.pkl",
+    (
+      #|module vitest
+      #|import "adapter.pkl" as adapter
+      #|open class Vitest {
+      #|  adapterCommand: Listing<String> = new { "tool" }
+      #|  include: Listing<String> = new {}
+      #|  cfgKey: String = "base"
+      #|  command: adapter.Command = new adapter.Command {
+      #|    argv {
+      #|      ...adapterCommand
+      #|      for (p in include) { p }
+      #|    }
+      #|  }
+      #|  cfg: adapter.Cfg = new adapter.Cfg {
+      #|    entries { [cfgKey] = "on" }
+      #|  }
+      #|}
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "vitest.pkl" as V
+      #|class WebVitest extends V.Vitest {
+      #|  include = new { "a"; "b" }
+      #|  cfgKey = "web"
+      #|}
+      #|result = new WebVitest {}
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let json = render_value_as_json(value)
+  // argv late-binds to WebVitest's `include` and renders as a JSON array
+  // (finalized Listing), not a Dynamic object.
+  assert_true(json.contains("\"tool\""))
+  assert_true(json.contains("\"a\""))
+  assert_true(json.contains("\"b\""))
+  // cfg.entries late-binds to the overridden key and finalizes as a Mapping.
+  assert_true(json.contains("\"web\": \"on\""))
+  assert_false(json.contains("@element$"))
+}
+
+///|

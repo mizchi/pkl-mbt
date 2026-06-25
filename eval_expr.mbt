@@ -9253,16 +9253,41 @@ fn reeval_class_defaults_after_constructor_overrides(
       Some(expr) => expr
       None => continue
     }
+    // PKL-159c: an override that drops the type annotation (`config { …
+    // }` amending the inherited `Adapter.config: Mapping<…>`) carries
+    // `property.type_name == None`. Fall back to the type the class chain
+    // declares for this property so the collection-literal lowering /
+    // finalization below still recognise it as a `Mapping` / `Listing`.
+    let effective_property_type = match property.type_name {
+      Some(_) => property.type_name
+      None =>
+        class_property_type_annotation_from_class_env(
+          type_name, property.name, class_env,
+        )
+    }
     // PKL-153g: mirror the TypedObjectLiteral promotion the initial
     // class-default pass applies — a stdlib-typed `new { ... }` body
     // would otherwise come back as a bare Dynamic, dropping the class
     // tag that `render_directive_text` / renderer dispatch relies on.
-    let source = match (raw_source, property.type_name) {
+    let source = match (raw_source, effective_property_type) {
       (ObjectLiteral(members), Some(type_name)) =>
         match
           instantiable_class_name_for_type_annotation(type_name, class_env) {
           Some(class_name) => TypedObjectLiteral(class_name, members)
-          None => raw_source
+          None =>
+            // PKL-159c: a collection-typed default body
+            // (`config: Mapping<...> = new { ... }`,
+            // `argv: Listing<...> = new { ... }`) re-evaluated here must
+            // be lowered to a Listing / Mapping literal, exactly as the
+            // member-eval path does via
+            // `collection_literal_expr_for_type_annotation`. Without this
+            // the body comes back as a bare Dynamic object with
+            // `["k"] = v` / `@element$` sentinels and fails to satisfy
+            // the field's `Mapping` / `Listing` annotation.
+            collection_literal_expr_for_type_annotation(
+              ObjectLiteral(members),
+              Some(type_name),
+            )
         }
       _ => raw_source
     }
@@ -9304,7 +9329,23 @@ fn reeval_class_defaults_after_constructor_overrides(
       Some(raw_value) => {
         let value = coerce_value_to_annotated_type(
           raw_value,
-          property.type_name,
+          effective_property_type,
+        )
+        // PKL-159c: finalize a re-evaluated collection default the same
+        // way the member-eval path does, so a `Listing<T>` / `Mapping<K,
+        // V>` body's element / value defaults are applied (matches
+        // `apply_collection_default_for_type` at the field-eval site).
+        let value = apply_collection_default_for_type(
+          value,
+          effective_property_type,
+          bindings,
+          local_env,
+          class_env,
+          reeval_cache,
+          stack,
+          declarations,
+          diagnostics,
+          resolve_import,
         )
         if replace_member_value_by_bare_name(current, property.name, value) {
           remove_pending_error_member_by_bare_name(current, property.name)
