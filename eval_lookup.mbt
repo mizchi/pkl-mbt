@@ -2703,23 +2703,31 @@ fn reflect_module_classes(declarations : Array[Declaration]) -> Value {
   let result : Array[Value] = []
   for decl in declarations {
     match decl {
+      // `reflect.Module(m).classes` lists only the module's OWN classes.
+      // Imported classes are folded into `declarations` under their
+      // qualified `alias.ClassName` form (for type resolution); a module's
+      // own class names never contain `.`, so skip the dotted ones.
       ClassDeclaration(class_decl) =>
-        result.push(
-          ObjectValue([
-            {
-              name: "reflectee",
-              value: StringValue(class_decl.name),
-              source: None,
-              annotations: [],
-            },
-            {
-              name: hidden_member_name("__kind"),
-              value: StringValue("Class"),
-              source: None,
-              annotations: [],
-            },
-          ]),
-        )
+        if class_decl.name.contains(".") {
+          ()
+        } else {
+          result.push(
+            ObjectValue([
+              {
+                name: "reflectee",
+                value: StringValue(class_decl.name),
+                source: None,
+                annotations: [],
+              },
+              {
+                name: hidden_member_name("__kind"),
+                value: StringValue("Class"),
+                source: None,
+                annotations: [],
+              },
+            ]),
+          )
+        }
       _ => ()
     }
   }

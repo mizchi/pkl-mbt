@@ -243,6 +243,50 @@ test "infix boolean operators continue across a leading-operator newline" {
 }
 
 ///|
+// pkspec Spec-layer parity: a function whose RETURN type is a qualified
+// import alias (`local function tagStep(...): base.Step = ...`) must
+// resolve `base.Step` against the module's own `import "..." as base`.
+// The return-type acceptance gate only consulted `declarations`, where
+// imported classes weren't registered (they lived in `class_env` under
+// their `base.Step` name), so it surfaced `Cannot find type base.Step`.
+// In pkspec this silently dropped every `prelude` (Background) step from
+// the rendered tests.
+test "function return type that is a qualified import alias resolves" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "gp.pkl",
+    (
+      #|module demo.gp
+      #|class Step { name: String }
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "gp.pkl" as base
+      #|local function mk(): base.Step = new { name = "x" }
+      #|r = mk().name
+    ),
+  )
+  let result = session.eval_path("main.pkl")
+  guard result is EvalOk(ObjectValue(members)) else {
+    match result {
+      EvalError(diagnostics) =>
+        fail("expected EvalOk, got error: \{diagnostics[0].message}")
+      _ => fail("expected EvalOk")
+    }
+  }
+  let mut r : Value? = None
+  for m in members {
+    if m.name == "r" {
+      r = Some(m.value)
+    }
+  }
+  guard r is Some(StringValue(value)) else { fail("expected r to be String") }
+  inspect(value, content="x")
+}
+
+///|
 test "PKL-118: imported module-level function is callable across modules" {
   let session = AnalysisSession::new()
   session.set_source("base.pkl", "function double(x: Int): Int = x * 2")

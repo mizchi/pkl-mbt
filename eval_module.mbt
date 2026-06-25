@@ -1134,6 +1134,37 @@ fn eval_program(
   for declaration in program.declarations {
     declarations.push(declaration)
   }
+  // pkspec Spec-layer parity: the module's own non-glob imports expose
+  // their classes under the `alias.ClassName` qualified form (matching
+  // `add_imported_class_bindings` for `class_env`). The runtime
+  // type-resolution gate (`eval_type_name_is_unresolvable`) keys off
+  // `declarations`, so without these a function return type like
+  // `(): base.Step` surfaced `Cannot find type base.Step` even though
+  // the same name resolved in `class_env`.
+  for import_decl in program.imports {
+    if not(import_decl.is_glob) {
+      match resolve_import_classes(import_decl.uri) {
+        Some(exports) =>
+          for class_export in exports {
+            let qualified_parent = match class_export.parent_name {
+              Some(parent) =>
+                Some(imported_class_parent_name(import_decl.import_name, parent))
+              None => None
+            }
+            declarations.push(
+              ClassDeclaration(
+                class_decl_from_export({
+                  ..class_export,
+                  name: "\{import_decl.import_name}.\{class_export.name}",
+                  parent_name: qualified_parent,
+                }),
+              ),
+            )
+          }
+        None => ()
+      }
+    }
+  }
   // `class_env` / `type_aliases` stay keyed off the child's own
   // declarations here; the parent's classes are merged into `class_env`
   // separately (PKL-140, below) so building them off `declarations`
