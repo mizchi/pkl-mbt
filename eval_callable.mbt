@@ -858,7 +858,22 @@ fn value_satisfies_user_class_annotation(
               String::unsafe_substring(tag, start=idx + 1, end=tag.length())
             None => tag
           }
-          if tag == base || tag_simple == base {
+          // PKL-pkspec: the annotation may itself be alias-qualified
+          // (`impl: base.Step`) while the value's tag is the bare class
+          // name (`new Step {}`, where `Step` is reachable via the same
+          // module's `extends`). Strip a leading `<alias>.` from the
+          // annotation base too, so `base.Step` and `Step` (same
+          // underlying imported class) unify by simple name — mirroring
+          // the tag-side stripping above and its KNOWN LIMITATION.
+          let base_simple = match base.rev_find(".") {
+            Some(idx) =>
+              String::unsafe_substring(base, start=idx + 1, end=base.length())
+            None => base
+          }
+          if tag == base ||
+            tag_simple == base ||
+            tag == base_simple ||
+            tag_simple == base_simple {
             return true
           } else {
             let mut current : ClassDecl? = eval_lookup_class_decl(

@@ -287,6 +287,52 @@ test "function return type that is a qualified import alias resolves" {
 }
 
 ///|
+// pkspec Spec-layer parity: a class field annotated with a qualified
+// import alias (`impl: base.Step`) must accept a value tagged with the
+// bare class name (`new Step {}`, reachable via the same module's
+// `extends`). `base.Step` and `Step` are one underlying imported class;
+// mbt rejected the value with `Expected value of type base.Step, but got
+// type Step`, which in pkspec turned each amended `prelude` element into
+// `Dynamic` and dropped every Background step.
+test "qualified-alias field annotation accepts bare-named class value" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "gp.pkl",
+    (
+      #|open module demo.gp
+      #|class Step { name: String }
+    ),
+  )
+  session.set_source(
+    "base.pkl",
+    (
+      #|open module demo.base
+      #|extends "gp.pkl"
+      #|import "gp.pkl" as base
+      #|class SpecStep { description: String; impl: base.Step }
+      #|prelude: Listing<SpecStep> = new {}
+      #|local function tagStep(s: SpecStep): base.Step = new { name = s.description }
+      #|tagged: Listing<base.Step> = new { for (s in prelude) { tagStep(s) } }
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|amends "base.pkl"
+      #|prelude { new SpecStep { description = "seed"; impl = new Step { name = "x" } } }
+    ),
+  )
+  let result = session.eval_path("main.pkl")
+  guard result is EvalOk(_) else {
+    match result {
+      EvalError(diagnostics) =>
+        fail("expected EvalOk, got error: \{diagnostics[0].message}")
+      _ => fail("expected EvalOk")
+    }
+  }
+}
+
+///|
 test "PKL-118: imported module-level function is callable across modules" {
   let session = AnalysisSession::new()
   session.set_source("base.pkl", "function double(x: Int): Int = x * 2")
