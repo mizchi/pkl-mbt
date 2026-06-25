@@ -827,6 +827,18 @@ fn value_satisfies_user_class_annotation(
       if reflect_kind(members) is Some(_) {
         return false
       }
+      // A nullable annotation `T?` carries the same class identity as `T`
+      // for a non-null object value (the `null` arm is handled elsewhere /
+      // short-circuited before this check). Strip a single trailing `?` so
+      // `InlineSnapshot?` unifies with a value tagged `InlineSnapshot` —
+      // without this, a `T?`-annotated function parameter / field whose
+      // type-check reaches here (post PKL-158 backfill) wrongly rejects a
+      // structurally-identical value with "Expected `T?`, got `T`".
+      let type_name = if type_name.has_suffix("?") {
+        String::unsafe_substring(type_name, start=0, end=type_name.length() - 1)
+      } else {
+        type_name
+      }
       if type_name == "Dynamic" || type_name == "Typed" {
         return true
       }
@@ -884,12 +896,32 @@ fn value_satisfies_user_class_annotation(
             }
             while current is Some(decl) {
               match decl.parent_name {
-                Some(parent) =>
-                  if parent == base {
+                Some(parent) => {
+                  // A parent named via an import alias (`adapter.Adapter`,
+                  // `Vitest.Vitest`) is the SAME underlying class as the
+                  // simple-name annotation base (`Adapter`). Reduce both to
+                  // their bare simple name (strip a `<module>#` / `<alias>.`
+                  // qualifier) before comparing — without this an
+                  // extends-chain that crosses a module boundary
+                  // (`WebVitest -> Vitest.Vitest -> adapter.Adapter`) never
+                  // unifies with the bare `Adapter` field annotation. Same
+                  // simple-name KNOWN LIMITATION as the tag/base comparison
+                  // above (no module-path identity).
+                  let parent_simple = name_class_simple_name(parent)
+                  if parent == base ||
+                    parent_simple == base ||
+                    parent == base_simple ||
+                    parent_simple == base_simple {
                     return true
                   } else {
-                    current = eval_lookup_class_decl(declarations, parent)
+                    let next = eval_lookup_class_decl(declarations, parent)
+                    current = if next is Some(_) {
+                      next
+                    } else {
+                      eval_lookup_class_decl(declarations, parent_simple)
+                    }
                   }
+                }
                 None => current = None
               }
             }

@@ -41,13 +41,34 @@ fn add_imported_class_bindings(
       match resolve_import_classes(decl.uri) {
         Some(exports) =>
           for class_export in exports {
+            // PKL-159b: `resolve_import_classes` also surfaces the
+            // imported module's OWN imported classes under their
+            // already-qualified `alias.ClassName` form (see the
+            // transitive walk in the resolver). Those names carry a `.`
+            // and must keep their original alias — re-prefixing with the
+            // importer's alias would yield `Vitest.adapter.Command`,
+            // which the inherited default body (written against the
+            // declaring module's literal alias `adapter.Command`) can't
+            // resolve, so a `Listing` field built via a cross-module
+            // `new adapter.Command { ... }` would fail to finalize.
+            // Direct exports of the imported module are simple names and
+            // still get the importer's alias prefix.
+            let qualified_name = if class_export.name.contains(".") {
+              class_export.name
+            } else {
+              "\{decl.import_name}.\{class_export.name}"
+            }
             let parent_name = match class_export.parent_name {
               Some(parent) =>
-                Some(imported_class_parent_name(decl.import_name, parent))
+                if class_export.name.contains(".") {
+                  Some(parent)
+                } else {
+                  Some(imported_class_parent_name(decl.import_name, parent))
+                }
               None => None
             }
             class_env.push({
-              name: "\{decl.import_name}.\{class_export.name}",
+              name: qualified_name,
               parent_name,
               properties: class_export.properties,
               methods: class_export.methods,
@@ -1146,16 +1167,30 @@ fn eval_program(
       match resolve_import_classes(import_decl.uri) {
         Some(exports) =>
           for class_export in exports {
+            // PKL-159b: keep transitively-qualified `alias.ClassName`
+            // exports under their own alias (mirrors the class_env fix in
+            // `add_imported_class_bindings`); only simple-named direct
+            // exports take the importer's alias prefix.
+            let already_qualified = class_export.name.contains(".")
+            let qualified_name = if already_qualified {
+              class_export.name
+            } else {
+              "\{import_decl.import_name}.\{class_export.name}"
+            }
             let qualified_parent = match class_export.parent_name {
               Some(parent) =>
-                Some(imported_class_parent_name(import_decl.import_name, parent))
+                if already_qualified {
+                  Some(parent)
+                } else {
+                  Some(imported_class_parent_name(import_decl.import_name, parent))
+                }
               None => None
             }
             declarations.push(
               ClassDeclaration(
                 class_decl_from_export({
                   ..class_export,
-                  name: "\{import_decl.import_name}.\{class_export.name}",
+                  name: qualified_name,
                   parent_name: qualified_parent,
                 }),
               ),

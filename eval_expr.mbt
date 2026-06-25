@@ -2998,8 +2998,172 @@ fn cast_value_to_single_type_annotation(
       resolve_import,
     ) {
     Some(message) => TypeCastErr(message)
-    None => TypeCastOk(value)
+    None =>
+      // PKL-160: when an ObjectValue is cast to a user class (e.g. a
+      // `Listing<Test>` element or a typed parameter), Apple Pkl applies
+      // the class's property defaults to the element — including
+      // defaults that live on the element type's *own* typed sub-fields
+      // (`class Test { background: Listing<Background> }`,
+      // `class Background { shell = "bash" }`). The previous cast
+      // accepted the object as-is, so a nested `Background` element kept
+      // only its explicitly-set members and dropped `shell`. Backfill the
+      // class's typed fields so the same defaulting the direct
+      // `new Test { ... }` construction performs also reaches collection
+      // elements / cast targets.
+      TypeCastOk(
+        backfill_user_class_typed_fields(
+          head, value, bindings, env, class_env, cache, stack, declarations,
+          resolve_import,
+        ),
+      )
   }
+}
+
+///|
+/// PKL-160: re-apply each declared field's type annotation to the
+/// members of an ObjectValue that has just been accepted as `class_name`.
+/// Reuses the same collection-default / typed-listing machinery the
+/// direct-construction path runs, so nested typed-Listing element
+/// defaults are backfilled recursively (the element cast lands back in
+/// `cast_value_to_type_annotation`, which calls this again one level
+/// down). Only user classes (a `class_env` binding under `class_name`)
+/// are processed; stdlib / non-class targets return the value untouched.
+fn backfill_user_class_typed_fields(
+  class_name : String,
+  value : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  let members = match value {
+    ObjectValue(members) => members
+    _ => return value
+  }
+  if lookup_class_binding(class_env, class_name) is None {
+    return value
+  }
+  // Guard against re-entrant blow-up on self-referential class types
+  // (`class Node { next: Node? }`): only recurse a bounded depth via the
+  // stack marker the element cast already threads.
+  let marker = "@__backfill$" + class_name
+  if stack_contains_binding(stack, marker) {
+    return value
+  }
+  let nested_stack : Array[String] = []
+  for s in stack {
+    nested_stack.push(s)
+  }
+  nested_stack.push(marker)
+  let scratch_diagnostics : Array[Diagnostic] = []
+  let out : Array[ValueMember] = []
+  for member in members {
+    let bare = strip_member_visibility_prefix(member.name)
+    // Only touch members that carry actual collection elements: a
+    // populated `Listing` / `Mapping`. Scalars, objects, and empty
+    // collections already render correctly, and re-running the typed
+    // machinery over them risks clobbering a value the construction path
+    // produced (`body`, `expectStatus`, …). This keeps the backfill
+    // strictly to the "nested typed-collection element defaults weren't
+    // applied" case it targets.
+    let touch = match member.value {
+      ListingValue(elements)
+      | DefaultedListingValue(_, elements, _)
+      | ListValue(elements)
+      | SetValue(elements) => elements.length() > 0
+      MappingValue(entries)
+      | DefaultedMappingValue(_, entries, _)
+      | MapValue(entries) => entries.length() > 0
+      _ => false
+    }
+    if !touch {
+      out.push(member)
+      continue
+    }
+    if is_invisible_member_name(member.name) && !is_hidden_member_name(member.name) {
+      out.push(member)
+      continue
+    }
+    let field_type = class_property_type_annotation_from_class_env(
+      class_name, bare, class_env,
+    )
+    // Only backfill when the declared element / value type is a user
+    // class that owns defaults — `Listing<String>` and friends never
+    // need element-default expansion, so leave them untouched.
+    let element_is_user_class = match field_type {
+      Some(t) => {
+        let base = match pkl_constrained_type_base_name(t) {
+          Some(b) => b
+          None => t
+        }
+        let inner = match collection_element_type_from_annotation(
+            base, declarations,
+          ) {
+          Some(et) => Some(et)
+          None =>
+            match mapping_entry_types_from_annotation(base, declarations) {
+              Some((_, vt)) => Some(vt)
+              None => None
+            }
+        }
+        match inner {
+          Some(et) => {
+            let et_base = match pkl_constrained_type_base_name(et) {
+              Some(b) => b
+              None => et
+            }
+            lookup_class_binding(class_env, trim_spaces(et_base)) is Some(_)
+          }
+          None => false
+        }
+      }
+      None => false
+    }
+    if !element_is_user_class {
+      out.push(member)
+      continue
+    }
+    let type_name = match field_type {
+      Some(t) => t
+      None => {
+        out.push(member)
+        continue
+      }
+    }
+    let applied = apply_collection_default_for_type(
+      member.value,
+      Some(type_name),
+      bindings,
+      env,
+      class_env,
+      cache,
+      nested_stack,
+      declarations,
+      scratch_diagnostics,
+      resolve_import,
+    )
+    let applied = apply_typed_listing_annotation(
+      type_name,
+      applied,
+      bindings,
+      env,
+      class_env,
+      cache,
+      nested_stack,
+      declarations,
+      resolve_import,
+    )
+    out.push({
+      name: member.name,
+      value: applied,
+      source: member.source,
+      annotations: member.annotations,
+    })
+  }
+  ObjectValue(out)
 }
 
 ///|
@@ -9089,16 +9253,41 @@ fn reeval_class_defaults_after_constructor_overrides(
       Some(expr) => expr
       None => continue
     }
+    // PKL-159c: an override that drops the type annotation (`config { …
+    // }` amending the inherited `Adapter.config: Mapping<…>`) carries
+    // `property.type_name == None`. Fall back to the type the class chain
+    // declares for this property so the collection-literal lowering /
+    // finalization below still recognise it as a `Mapping` / `Listing`.
+    let effective_property_type = match property.type_name {
+      Some(_) => property.type_name
+      None =>
+        class_property_type_annotation_from_class_env(
+          type_name, property.name, class_env,
+        )
+    }
     // PKL-153g: mirror the TypedObjectLiteral promotion the initial
     // class-default pass applies — a stdlib-typed `new { ... }` body
     // would otherwise come back as a bare Dynamic, dropping the class
     // tag that `render_directive_text` / renderer dispatch relies on.
-    let source = match (raw_source, property.type_name) {
+    let source = match (raw_source, effective_property_type) {
       (ObjectLiteral(members), Some(type_name)) =>
         match
           instantiable_class_name_for_type_annotation(type_name, class_env) {
           Some(class_name) => TypedObjectLiteral(class_name, members)
-          None => raw_source
+          None =>
+            // PKL-159c: a collection-typed default body
+            // (`config: Mapping<...> = new { ... }`,
+            // `argv: Listing<...> = new { ... }`) re-evaluated here must
+            // be lowered to a Listing / Mapping literal, exactly as the
+            // member-eval path does via
+            // `collection_literal_expr_for_type_annotation`. Without this
+            // the body comes back as a bare Dynamic object with
+            // `["k"] = v` / `@element$` sentinels and fails to satisfy
+            // the field's `Mapping` / `Listing` annotation.
+            collection_literal_expr_for_type_annotation(
+              ObjectLiteral(members),
+              Some(type_name),
+            )
         }
       _ => raw_source
     }
@@ -9140,7 +9329,23 @@ fn reeval_class_defaults_after_constructor_overrides(
       Some(raw_value) => {
         let value = coerce_value_to_annotated_type(
           raw_value,
-          property.type_name,
+          effective_property_type,
+        )
+        // PKL-159c: finalize a re-evaluated collection default the same
+        // way the member-eval path does, so a `Listing<T>` / `Mapping<K,
+        // V>` body's element / value defaults are applied (matches
+        // `apply_collection_default_for_type` at the field-eval site).
+        let value = apply_collection_default_for_type(
+          value,
+          effective_property_type,
+          bindings,
+          local_env,
+          class_env,
+          reeval_cache,
+          stack,
+          declarations,
+          diagnostics,
+          resolve_import,
         )
         if replace_member_value_by_bare_name(current, property.name, value) {
           remove_pending_error_member_by_bare_name(current, property.name)
