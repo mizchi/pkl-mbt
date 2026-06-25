@@ -2410,7 +2410,7 @@ fn eval_class_default_members_seen(
       None => ()
     }
   }
-  let combined = merge_value_members(
+  let merged_defaults = merge_value_members(
     base_values,
     eval_object_members_with_options(
       defaults,
@@ -2425,6 +2425,36 @@ fn eval_class_default_members_seen(
       defer_property_errors=true,
     ),
   )
+  // PKL-159: late-bind inherited defaults against this class's overrides.
+  // When `class Derived extends Base` overrides a field that a Base-
+  // declared default reads (`Base.argv = new { for (p in include) { p }
+  // }`, `Derived.include = …`), Apple Pkl re-evaluates `argv`'s inherited
+  // default with `this` = the most-derived object so the loop sees
+  // Derived's `include`. The initial merge above evaluates `Base.argv`
+  // against Base's own `include` default (empty) and copies the stale
+  // value down. We reuse the constructor-override late-binding pass,
+  // feeding THIS class's own property bodies (`defaults`) as the set of
+  // overridden names, so any not-directly-overridden inherited default
+  // that references an overridden sibling is re-evaluated against the
+  // merged receiver. (The constructor-body path that builds `new Derived
+  // { … }` instances runs the same pass for constructor-set fields.)
+  let combined = if defaults.length() > 0 {
+    reeval_class_defaults_after_constructor_overrides(
+      type_name,
+      defaults,
+      merged_defaults,
+      bindings,
+      env,
+      class_env,
+      cache,
+      stack,
+      declarations,
+      diagnostics,
+      resolve_import,
+    )
+  } else {
+    merged_defaults
+  }
   // Strip the captured `source` from each class-default slot. The body
   // that amends a `new Foo { ... }` instance never reads class defaults
   // as siblings — Apple Pkl resolves bare references against the body
