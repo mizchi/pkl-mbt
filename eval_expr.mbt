@@ -858,6 +858,7 @@ fn collection_local_binding_from_expr(expr : Expr) -> Binding? {
               is_const: true,
               annotations: [],
               abstract_slot: true,
+              sibling_slot: false,
             })
           }
           _ => None
@@ -11830,6 +11831,7 @@ fn eval_object_members_with_implicit_env(
       is_const: true,
       annotations: field.annotations,
       abstract_slot: false,
+      sibling_slot: true,
     })
   }
   let values : Array[ValueMember] = []

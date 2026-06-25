@@ -886,6 +886,7 @@ fn Parser::parse(self : Parser) -> ParseResult {
               is_const: binding.is_const,
               annotations: binding.annotations,
               abstract_slot: binding.abstract_slot,
+              sibling_slot: binding.sibling_slot,
             })
           } else {
             bindings.push(binding)

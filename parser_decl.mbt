@@ -85,6 +85,7 @@ fn Parser::parse_let_decl(self : Parser) -> Binding? {
       is_const: false,
       annotations,
       abstract_slot: false,
+      sibling_slot: false,
     })
   }
 }
@@ -141,6 +142,7 @@ fn Parser::parse_local_decl(self : Parser) -> Binding? {
       is_const,
       annotations,
       abstract_slot: false,
+      sibling_slot: false,
     })
   }
 }
@@ -872,6 +874,7 @@ fn Parser::parse_property_decl(self : Parser) -> Binding? {
       is_const,
       annotations,
       abstract_slot,
+      sibling_slot: false,
     })
   }
 }

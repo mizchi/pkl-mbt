@@ -1024,6 +1024,7 @@ fn eval_listing_subscript_amend(
       is_const: true,
       annotations: field.annotations,
       abstract_slot: false,
+      sibling_slot: true,
     })
   }
   let bindings = augmented_bindings
@@ -1555,6 +1556,7 @@ fn eval_mapping_amend(
       is_const: true,
       annotations: field.annotations,
       abstract_slot: false,
+      sibling_slot: true,
     })
   }
   let bindings = augmented_bindings

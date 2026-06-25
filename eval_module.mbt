@@ -78,6 +78,31 @@ fn class_exports_from_parse_result(parsed : ParseResult) -> Array[ClassExport] {
 }
 
 ///|
+// pkspec Spec-layer gap: `amends`/`extends` exposes the parent module's
+// class declarations as bare-name lookups in the child (Apple Pkl treats
+// extends as inheritance, not a namespaced import). `class_env` already
+// gets the parent's classes (PKL-140), but the runtime *type-resolution*
+// gate (`eval_type_name_is_unresolvable` and friends) consults the
+// `declarations` array, not `class_env`. Without the parent's classes in
+// `declarations`, a typed parameter like `(s: Scenario)` on a parent
+// function — invoked from a comprehension that runs in the merged child
+// context — wrongly surfaces `Cannot find type Scenario`. Reconstruct a
+// `ClassDecl` from each parent `ClassExport` so the same lookups that
+// the same-module case relies on resolve here too.
+fn class_decl_from_export(class_export : ClassExport) -> ClassDecl {
+  {
+    name: class_export.name,
+    type_parameters: [],
+    type_parameter_bounds: [],
+    parent_name: class_export.parent_name,
+    properties: class_export.properties,
+    methods: class_export.methods,
+    annotations: [],
+    is_abstract: false,
+  }
+}
+
+///|
 fn eval_imports(
   imports : Array[ImportDecl],
   current_module_path : String?,
@@ -1086,6 +1111,64 @@ fn eval_program(
   resolve_import_bindings : (String) -> Array[Binding]?,
 ) -> Value? {
   let env : Array[ValueBinding] = []
+  // pkspec Spec-layer gap: fold the `amends`/`extends` parent chain's
+  // class declarations into the declaration set used for type
+  // resolution. Parent classes are listed first so a child re-declaring
+  // the same name (last-match-wins in `eval_lookup_class_decl`) still
+  // shadows the inherited one. Only classes are synthesised here — the
+  // parent's typealiases already resolve through the existing paths.
+  let declarations : Array[Declaration] = []
+  match program.module_relation {
+    Some(relation) =>
+      match resolve_import_classes(relation.uri) {
+        Some(exports) =>
+          for class_export in exports {
+            declarations.push(
+              ClassDeclaration(class_decl_from_export(class_export)),
+            )
+          }
+        None => ()
+      }
+    None => ()
+  }
+  for declaration in program.declarations {
+    declarations.push(declaration)
+  }
+  // pkspec Spec-layer parity: the module's own non-glob imports expose
+  // their classes under the `alias.ClassName` qualified form (matching
+  // `add_imported_class_bindings` for `class_env`). The runtime
+  // type-resolution gate (`eval_type_name_is_unresolvable`) keys off
+  // `declarations`, so without these a function return type like
+  // `(): base.Step` surfaced `Cannot find type base.Step` even though
+  // the same name resolved in `class_env`.
+  for import_decl in program.imports {
+    if not(import_decl.is_glob) {
+      match resolve_import_classes(import_decl.uri) {
+        Some(exports) =>
+          for class_export in exports {
+            let qualified_parent = match class_export.parent_name {
+              Some(parent) =>
+                Some(imported_class_parent_name(import_decl.import_name, parent))
+              None => None
+            }
+            declarations.push(
+              ClassDeclaration(
+                class_decl_from_export({
+                  ..class_export,
+                  name: "\{import_decl.import_name}.\{class_export.name}",
+                  parent_name: qualified_parent,
+                }),
+              ),
+            )
+          }
+        None => ()
+      }
+    }
+  }
+  // `class_env` / `type_aliases` stay keyed off the child's own
+  // declarations here; the parent's classes are merged into `class_env`
+  // separately (PKL-140, below) so building them off `declarations`
+  // would double-list the inherited classes.
   let class_env = collect_class_bindings(program.declarations)
   let type_aliases = eval_type_alias_bindings(program.declarations)
   let cache : Array[ValueBinding] = []
@@ -1245,7 +1328,7 @@ fn eval_program(
           env,
           class_env,
           cache,
-          program.declarations,
+          declarations,
           hidden_diagnostics,
           resolve_import,
         )
@@ -1258,7 +1341,7 @@ fn eval_program(
             class_env,
             cache,
             [],
-            program.declarations,
+            declarations,
             resolve_import,
           ) {
           Some(value) => {
@@ -1273,7 +1356,7 @@ fn eval_program(
               class_env,
               cache,
               [],
-              program.declarations,
+              declarations,
               hidden_diagnostics,
               resolve_import,
             )
@@ -1292,7 +1375,7 @@ fn eval_program(
             env,
             class_env,
             cache,
-            program.declarations,
+            declarations,
             hidden_diagnostics,
             resolve_import,
           )
@@ -1305,13 +1388,13 @@ fn eval_program(
             eval_user_defined_constrained_type_annotation_value_is_valid(
               binding.type_name,
               value,
-              program.declarations,
+              declarations,
               hidden_diagnostics,
             ) &&
             eval_expr_class_property_constraints_are_valid(
               binding.value,
               value,
-              program.declarations,
+              declarations,
               hidden_diagnostics,
             ) &&
             eval_expr_alias_constraints_are_valid(
@@ -1363,7 +1446,7 @@ fn eval_program(
           env,
           class_env,
           cache,
-          program.declarations,
+          declarations,
           diagnostics,
           resolve_import,
         ) {
@@ -1387,7 +1470,7 @@ fn eval_program(
           class_env,
           cache,
           [],
-          program.declarations,
+          declarations,
           resolve_import,
         ) {
         Some(value) => {
@@ -1402,7 +1485,7 @@ fn eval_program(
             class_env,
             cache,
             [],
-            program.declarations,
+            declarations,
             diagnostics,
             resolve_import,
           )
@@ -1426,7 +1509,7 @@ fn eval_program(
             env,
             class_env,
             cache,
-            program.declarations,
+            declarations,
             diagnostics,
             resolve_import,
           )
@@ -1451,13 +1534,13 @@ fn eval_program(
             eval_user_defined_constrained_type_annotation_value_is_valid(
               binding.type_name,
               value,
-              program.declarations,
+              declarations,
               diagnostics,
             ) &&
             eval_expr_class_property_constraints_are_valid(
               binding.value,
               value,
-              program.declarations,
+              declarations,
               diagnostics,
             ) &&
             eval_expr_alias_constraints_are_valid(
@@ -1505,7 +1588,7 @@ fn eval_program(
                 class_env,
                 cache,
                 [],
-                program.declarations,
+                declarations,
                 diagnostics,
                 resolve_import,
               ) {
@@ -1559,7 +1642,7 @@ fn eval_program(
           class_env,
           cache,
           [],
-          program.declarations,
+          declarations,
           [],
           resolve_import,
         ) {
@@ -1643,7 +1726,7 @@ fn eval_program(
         class_env,
         cache,
         [],
-        program.declarations,
+        declarations,
         diagnostics,
         resolve_import,
       )
@@ -1658,7 +1741,7 @@ fn eval_program(
               env,
               class_env,
               cache,
-              program.declarations,
+              declarations,
               diagnostics,
               resolve_import,
             ),
@@ -1691,7 +1774,7 @@ fn eval_program(
         env,
         class_env,
         cache,
-        program.declarations,
+        declarations,
         diagnostics,
         resolve_import,
       )
@@ -1707,7 +1790,7 @@ fn eval_program(
           env,
           class_env,
           cache,
-          program.declarations,
+          declarations,
           diagnostics,
           resolve_import,
         )
@@ -1720,7 +1803,7 @@ fn eval_program(
           env,
           class_env,
           cache,
-          program.declarations,
+          declarations,
           diagnostics,
           resolve_import,
         )
@@ -1737,7 +1820,7 @@ fn eval_program(
           env,
           class_env,
           cache,
-          program.declarations,
+          declarations,
           diagnostics,
           resolve_import,
         )
@@ -2016,6 +2099,69 @@ fn collect_class_converters_from_renderer_members(
 priv struct ConvertPropertyTransformer {
   class_name : String
   value : Value
+}
+
+///|
+// pkspec Spec-layer parity: `output` is a hidden module property in Apple
+// Pkl, so it never appears in rendered output. When the user sets
+// `output.value = <expr>` (as pkspec's Test.pkl does via
+// `output { value = new Rendered { ... } }`), that value — not the raw
+// module body — is what renders. This helper computes the effective
+// render target: the explicit `output.value` if present, otherwise the
+// module body with its `output` member stripped. Returns `None` when the
+// value isn't a module-shaped ObjectValue carrying an `output` member, so
+// the common no-`output` module renders unchanged.
+/// Resolve a top-level module value to what Apple Pkl actually renders.
+///
+/// `output` is a hidden module property, so it never appears in rendered
+/// output. When the user sets `output.value = <expr>` (as pkspec's
+/// Test.pkl does via `output { value = new Rendered { ... } }`), that
+/// value — not the raw module body — is the render target. A bare
+/// `output` member (only `renderer` / other knobs, no `value`) is simply
+/// dropped.
+///
+/// `eval_source` deliberately keeps the `output` member on the raw eval
+/// result (see PKL-104); render-boundary callers (the CLI / loader)
+/// apply this before handing a value to `render_value_as_json` & friends.
+/// Returns the value unchanged when it isn't a module-shaped ObjectValue
+/// carrying an `output` member.
+pub fn extract_output_value(value : Value) -> Value {
+  match value {
+    ObjectValue(members) => {
+      let mut has_output = false
+      let mut explicit_output_value : Value? = None
+      for entry in members {
+        if entry.name == "output" {
+          has_output = true
+          match entry.value {
+            ObjectValue(output_members) =>
+              for output_member in output_members {
+                if output_member.name == "value" {
+                  explicit_output_value = Some(output_member.value)
+                }
+              }
+            _ => ()
+          }
+        }
+      }
+      if not(has_output) {
+        return value
+      }
+      match explicit_output_value {
+        Some(output_value) => output_value
+        None => {
+          let kept : Array[ValueMember] = []
+          for entry in members {
+            if entry.name != "output" {
+              kept.push(entry)
+            }
+          }
+          ObjectValue(kept)
+        }
+      }
+    }
+    _ => value
+  }
 }
 
 ///|
@@ -3841,19 +3987,31 @@ fn name_matches_class_tag(name : String, tag : String) -> Bool {
   if name == tag {
     return true
   }
-  // strip "<module>#" prefix
-  let hash = name.find("#")
-  let name_simple = match hash {
-    Some(idx) =>
-      String::unsafe_substring(name, start=idx + 1, end=name.length())
+  name_class_simple_name(name) == name_class_simple_name(tag)
+}
+
+///|
+// Reduce a class name / tag to its bare simple name for identity
+// comparison: strip a `<module>#` prefix (the qualified reflect form)
+// and a leading `<alias>.` qualifier. The latter lets `base.SequentialTest`
+// (a value constructed via an import alias) unify with the bare
+// `SequentialTest` an `is` / annotation check names — same KNOWN
+// LIMITATION as `value_satisfies_user_class_annotation` (simple-name
+// match, not module-path identity).
+fn name_class_simple_name(name : String) -> String {
+  let after_hash = match name.find("#") {
+    Some(idx) => String::unsafe_substring(name, start=idx + 1, end=name.length())
     None => name
   }
-  let hash2 = tag.find("#")
-  let tag_simple = match hash2 {
-    Some(idx) => String::unsafe_substring(tag, start=idx + 1, end=tag.length())
-    None => tag
+  match after_hash.rev_find(".") {
+    Some(idx) =>
+      String::unsafe_substring(
+        after_hash,
+        start=idx + 1,
+        end=after_hash.length(),
+      )
+    None => after_hash
   }
-  name_simple == tag_simple
 }
 
 ///|

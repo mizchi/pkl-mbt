@@ -803,6 +803,35 @@ fn eval_module_path(
                     ) {
                     exports.push(class_export)
                   }
+                  // pkspec Spec-layer gap: an `amends`/`extends` parent
+                  // that itself does `import "X.pkl" as base` and uses
+                  // `base.Type` in its own functions / typed fields must
+                  // keep those qualified types resolvable when the child
+                  // re-runs the parent's bodies in the merged context.
+                  // Surface each ancestor's imported classes under their
+                  // `alias.ClassName` form so the importer's `class_env`
+                  // and declaration set see them by qualified name.
+                  for import_decl in current_parsed.program.imports {
+                    if not(import_decl.is_glob) {
+                      let import_resolved = resolve_import_path(
+                        current_path,
+                        import_decl.uri,
+                      )
+                      match get_module_source(sources, rt, import_resolved) {
+                        Some(import_source) =>
+                          for
+                            imported_export in class_exports_from_parse_result(
+                              parse_source(import_source),
+                            ) {
+                            exports.push({
+                              ..imported_export,
+                              name: "\{import_decl.import_name}.\{imported_export.name}",
+                            })
+                          }
+                        None => ()
+                      }
+                    }
+                  }
                   match current_parsed.program.module_relation {
                     Some(relation) => {
                       let parent_resolved = resolve_import_path(

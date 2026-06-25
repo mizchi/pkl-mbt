@@ -64,6 +64,370 @@ test "PKL-108: unknown type annotation uses Apple Pkl wording" {
 }
 
 ///|
+// pkspec Spec-layer gap: a parent module declares `class Scenario` and a
+// typed `local function f(s: Scenario)` that the parent's own `tests`
+// comprehension calls. A child module that `amends` the parent supplies
+// the `scenarios` list. When the comprehension runs in the (merged) child
+// context, the parameter type `Scenario` must still resolve — it lives in
+// the parent's declarations, which `amends`/`extends` exposes as bare-name
+// lookups. Before the fix the runtime type-rejection gate only consulted
+// the child's own declarations and surfaced `Cannot find type Scenario.`.
+test "amended parent's typed function parameter resolves parent class" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "base.pkl",
+    (
+      #|class Scenario {
+      #|  name: String
+      #|}
+      #|scenarios: Listing<Scenario> = new {}
+      #|local function nameOf(s: Scenario): String = s.name
+      #|names: Listing<String> = new {
+      #|  for (s in scenarios) { nameOf(s) }
+      #|}
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|amends "base.pkl"
+      #|scenarios {
+      #|  new { name = "alpha" }
+      #|  new { name = "beta" }
+      #|}
+    ),
+  )
+  let result = session.eval_path("main.pkl")
+  guard result is EvalOk(value) else {
+    match result {
+      EvalError(diagnostics) =>
+        fail("expected EvalOk, got error: \{diagnostics[0].message}")
+      _ => fail("expected EvalOk")
+    }
+  }
+  let json = @pkl.render_value_as_json(value)
+  inspect(
+    json.contains("alpha") && json.contains("beta"),
+    content="true",
+  )
+}
+
+///|
+// pkspec Spec-layer gap (qualified form): a parent module does
+// `import "gp.pkl" as base` and refers to `base.Test` in a typed
+// function it calls from its own comprehension. When a child `amends`
+// the parent, those parent-side qualified types must still resolve in
+// the merged child context. Before the fix the child only registered
+// *its own* imports' classes, so `base.Test` surfaced
+// `Cannot find type base.Test` (and, downstream, a typed `new {}`
+// literal stayed an Object and tripped `Expected value of type Listing`).
+test "amended parent's imported qualified type resolves in child" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "gp.pkl",
+    (
+      #|module demo.gp
+      #|class Step { name: String }
+      #|class Test { steps: Listing<Step> = new {} }
+    ),
+  )
+  session.set_source(
+    "base.pkl",
+    (
+      #|module demo.base
+      #|extends "gp.pkl"
+      #|import "gp.pkl" as base
+      #|class Scenario { name: String }
+      #|scenarios: Listing<Scenario> = new {}
+      #|local function toTest(s: Scenario): base.Test = new {
+      #|  steps = new Listing<base.Step> {}
+      #|}
+      #|tests: Listing<base.Test> = new {
+      #|  for (s in scenarios) { toTest(s) }
+      #|}
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|amends "base.pkl"
+      #|scenarios { new { name = "alpha" } }
+    ),
+  )
+  let result = session.eval_path("main.pkl")
+  guard result is EvalOk(_) else {
+    match result {
+      EvalError(diagnostics) =>
+        fail("expected EvalOk, got error: \{diagnostics[0].message}")
+      _ => fail("expected EvalOk")
+    }
+  }
+}
+
+///|
+// pkspec Spec-layer parity: a module that sets `output { value = ... }`
+// renders THAT value, not its own raw properties. Test.pkl drives the
+// whole pkspec render through `output.value = new Rendered { ... }`, so
+// `pkl eval -f json` shows only the `Rendered` shape (defaults / tests /
+// scenarios / ...) and drops the module's `rendered*` / `feature` /
+// `prelude` properties. The mbt evaluator was rendering the raw module
+// body instead.
+test "module output.value overrides the rendered module body" {
+  let result = eval_source(
+    (
+      #|foo = "raw"
+      #|bar = "alsoRaw"
+      #|output {
+      #|  value = new Dynamic { only = "rendered"; n = 42 }
+      #|}
+    ),
+  )
+  guard result is EvalOk(value) else { panic() }
+  // The render-boundary helper resolves `output.value` to the actual
+  // render target (mirrors what the CLI / loader does before rendering).
+  let json = @pkl.render_value_as_json(@pkl.extract_output_value(value))
+  inspect(
+    json,
+    content=(
+      #|{
+      #|  "only": "rendered",
+      #|  "n": 42
+      #|}
+    ),
+  )
+}
+
+///|
+// pkspec Spec-layer parity: Apple Pkl lets an infix boolean operator
+// lead a continuation line, so pkspec's `scenarioToTest` auto-pending
+// expression
+//   pending =
+//     s.pending
+//       || (s.given.isEmpty && s.`when`.isEmpty && ...)
+// parses as one expression. The mbt parser only skipped plain
+// whitespace (not newlines) before `||` / `&&`, so it cut the
+// expression at the first operand and either errored
+// (`unsupported expression`) or silently dropped the rest — making a
+// scenario with no steps render `pending = false` instead of `true`.
+test "infix boolean operators continue across a leading-operator newline" {
+  let result = eval_source(
+    (
+      #|p = false
+      #|a = true
+      #|b = true
+      #|r =
+      #|  p
+      #|    || (
+      #|      a
+      #|        && b
+      #|    )
+    ),
+  )
+  guard result is EvalOk(ObjectValue(members)) else {
+    match result {
+      EvalError(diagnostics) =>
+        fail("expected EvalOk, got error: \{diagnostics[0].message}")
+      _ => fail("expected EvalOk")
+    }
+  }
+  let mut r : Value? = None
+  for m in members {
+    if m.name == "r" {
+      r = Some(m.value)
+    }
+  }
+  guard r is Some(BoolValue(value)) else {
+    fail("expected r to be a BoolValue")
+  }
+  inspect(value, content="true")
+}
+
+///|
+// pkspec Spec-layer parity: a function whose RETURN type is a qualified
+// import alias (`local function tagStep(...): base.Step = ...`) must
+// resolve `base.Step` against the module's own `import "..." as base`.
+// The return-type acceptance gate only consulted `declarations`, where
+// imported classes weren't registered (they lived in `class_env` under
+// their `base.Step` name), so it surfaced `Cannot find type base.Step`.
+// In pkspec this silently dropped every `prelude` (Background) step from
+// the rendered tests.
+test "function return type that is a qualified import alias resolves" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "gp.pkl",
+    (
+      #|module demo.gp
+      #|class Step { name: String }
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "gp.pkl" as base
+      #|local function mk(): base.Step = new { name = "x" }
+      #|r = mk().name
+    ),
+  )
+  let result = session.eval_path("main.pkl")
+  guard result is EvalOk(ObjectValue(members)) else {
+    match result {
+      EvalError(diagnostics) =>
+        fail("expected EvalOk, got error: \{diagnostics[0].message}")
+      _ => fail("expected EvalOk")
+    }
+  }
+  let mut r : Value? = None
+  for m in members {
+    if m.name == "r" {
+      r = Some(m.value)
+    }
+  }
+  guard r is Some(StringValue(value)) else { fail("expected r to be String") }
+  inspect(value, content="x")
+}
+
+///|
+// pkspec Spec-layer parity: a class field annotated with a qualified
+// import alias (`impl: base.Step`) must accept a value tagged with the
+// bare class name (`new Step {}`, reachable via the same module's
+// `extends`). `base.Step` and `Step` are one underlying imported class;
+// mbt rejected the value with `Expected value of type base.Step, but got
+// type Step`, which in pkspec turned each amended `prelude` element into
+// `Dynamic` and dropped every Background step.
+test "qualified-alias field annotation accepts bare-named class value" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "gp.pkl",
+    (
+      #|open module demo.gp
+      #|class Step { name: String }
+    ),
+  )
+  session.set_source(
+    "base.pkl",
+    (
+      #|open module demo.base
+      #|extends "gp.pkl"
+      #|import "gp.pkl" as base
+      #|class SpecStep { description: String; impl: base.Step }
+      #|prelude: Listing<SpecStep> = new {}
+      #|local function tagStep(s: SpecStep): base.Step = new { name = s.description }
+      #|tagged: Listing<base.Step> = new { for (s in prelude) { tagStep(s) } }
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|amends "base.pkl"
+      #|prelude { new SpecStep { description = "seed"; impl = new Step { name = "x" } } }
+    ),
+  )
+  let result = session.eval_path("main.pkl")
+  guard result is EvalOk(_) else {
+    match result {
+      EvalError(diagnostics) =>
+        fail("expected EvalOk, got error: \{diagnostics[0].message}")
+      _ => fail("expected EvalOk")
+    }
+  }
+}
+
+///|
+// pkspec Spec-layer parity: a function whose return type is a collection
+// with a qualified element type (`tagSteps(...): Listing<base.Step>`) must
+// still have its bare `new { for (...) { ... } }` body promoted to a
+// collection literal. The return-type rewrite bailed whenever the type
+// contained a `.`, which `Listing<base.Step>` does (in the element type),
+// so the body stayed an Object and spreading it tripped
+// `Expected value of type Listing, but got type Object`. In pkspec this
+// dropped every `prelude` (Background) step.
+test "function returning collection of qualified element type promotes body" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "gp.pkl",
+    (
+      #|open module demo.gp
+      #|class Step { name: String }
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "gp.pkl" as base
+      #|xs: Listing<String> = new { "a"; "b" }
+      #|local function build(items: Listing<String>): Listing<base.Step> = new {
+      #|  for (x in items) { new base.Step { name = x } }
+      #|}
+      #|out: Listing<base.Step> = new { ...build(xs) }
+    ),
+  )
+  let result = session.eval_path("main.pkl")
+  guard result is EvalOk(ObjectValue(members)) else {
+    match result {
+      EvalError(diagnostics) =>
+        fail("expected EvalOk, got error: \{diagnostics[0].message}")
+      _ => fail("expected EvalOk")
+    }
+  }
+  let mut out : Value? = None
+  for m in members {
+    if m.name == "out" {
+      out = Some(m.value)
+    }
+  }
+  guard out is Some(ListingValue(items)) else {
+    fail("expected out to be a Listing")
+  }
+  inspect(items.length(), content="2")
+}
+
+///|
+// pkspec Spec-layer parity: a value constructed through an import alias
+// (`new base.SequentialTest {}`) carries the qualified `base.SequentialTest`
+// class tag, but an `is SequentialTest` test (bare name) must still match
+// — they are one underlying class. mbt compared the tag and name without
+// stripping the alias, so `body is SequentialTest` returned false. In
+// pkspec's `renderTest` this took the empty-steps else branch, dropping
+// every rendered step.
+test "is-operator matches a bare name against an alias-qualified class tag" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "gp.pkl",
+    (
+      #|open module demo.gp
+      #|abstract class TestBody {}
+      #|class SequentialTest extends TestBody { steps: Listing<String> = new {} }
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|extends "gp.pkl"
+      #|import "gp.pkl" as base
+      #|b: base.TestBody = new base.SequentialTest { steps { "a"; "b" } }
+      #|isSeq = b is SequentialTest
+      #|stepsViaIs = if (b is SequentialTest) b.steps else new Listing<String> {}
+    ),
+  )
+  let result = session.eval_path("main.pkl")
+  guard result is EvalOk(ObjectValue(members)) else {
+    match result {
+      EvalError(diagnostics) =>
+        fail("expected EvalOk, got error: \{diagnostics[0].message}")
+      _ => fail("expected EvalOk")
+    }
+  }
+  let mut is_seq : Value? = None
+  for m in members {
+    if m.name == "isSeq" {
+      is_seq = Some(m.value)
+    }
+  }
+  guard is_seq is Some(BoolValue(value)) else { fail("expected isSeq bool") }
+  inspect(value, content="true")
+}
+
+///|
 test "PKL-118: imported module-level function is callable across modules" {
   let session = AnalysisSession::new()
   session.set_source("base.pkl", "function double(x: Int): Int = x * 2")
@@ -1919,6 +2283,95 @@ test "PKL-148c: module output amend appends synthesized super text" {
       #|// tail
     ),
   )
+}
+
+///|
+// PKL-pkspec-A: false-positive `cyclic property reference` when a
+// parent module declares a `local` derived from a property (`tests`)
+// AND the parent's `output` reads that local inside a `new Rendered {
+// tests = ... }` object body whose field name COLLIDES with the
+// module property. A middle module re-declares `tests` via a `for`
+// comprehension over an inherited Listing (`scenarios`), supplied by
+// the leaf module via `amends`. Apple Pkl evaluates this with no
+// cycle; pkl-mbt used to mis-resolve the inner `tests` reference (from
+// the module local `testNames`) to the sibling `Rendered.tests`
+// field, looping `testNames -> tests(field) -> duplicateNames ->
+// testNames` and reporting `cyclic property reference duplicateNames`.
+// Mirrors pkspec's `pkl/Test.pkl` (`local duplicateNames`, `output {
+// new Rendered { tests = ... } }`) + `pkl/Spec.pkl` (`tests = new {
+// for (s in scenarios) { scenarioToTest(s) } }`).
+test "PKL-pkspec-A: comprehension-derived listing does not trip false cyclic detection" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "Test.pkl",
+    (
+      #|open module Test
+      #|class Test { name: String }
+      #|class Rendered { tests: Int }
+      #|tests: Listing<Test> = new {}
+      #|local testNames: List<String> = tests.toList().map((t) -> t.name)
+      #|local duplicateNames: List<String> =
+      #|  testNames.filter((n) -> testNames.count((m) -> m == n) > 1).distinct
+      #|output {
+      #|  value = new Rendered {
+      #|    tests = duplicateNames.length
+      #|  }
+      #|}
+    ),
+  )
+  session.set_source(
+    "Spec.pkl",
+    (
+      #|extends "Test.pkl"
+      #|import "Test.pkl" as base
+      #|scenarios: Listing<String> = new {}
+      #|tests: Listing<base.Test> = new {
+      #|  for (s in scenarios) {
+      #|    new { name = s }
+      #|  }
+      #|}
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|amends "Spec.pkl"
+      #|scenarios { "a"; "b"; "a" }
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    // A failing fix surfaces here as EvalError(["cyclic property
+    // reference duplicateNames", ...]).
+    panic()
+  }
+  // The `output.value.tests` slot is `duplicateNames.length`. With the
+  // listing `["a","b","a"]`, the duplicate set is `{"a"}`, so the
+  // count is 1 (matches `pkl eval -f json`).
+  let mut output_value : Value? = None
+  for field in members {
+    if field.name == "output" {
+      output_value = Some(field.value)
+      break
+    }
+  }
+  guard output_value is Some(ObjectValue(output_members)) else { panic() }
+  let mut value_value : Value? = None
+  for field in output_members {
+    if field.name == "value" {
+      value_value = Some(field.value)
+      break
+    }
+  }
+  guard value_value is Some(ObjectValue(rendered_members)) else { panic() }
+  let mut tests_value : Value? = None
+  for field in rendered_members {
+    if field.name == "tests" {
+      tests_value = Some(field.value)
+      break
+    }
+  }
+  guard tests_value is Some(IntValue(count)) else { panic() }
+  inspect(count, content="1")
 }
 
 ///|
