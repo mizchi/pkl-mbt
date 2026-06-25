@@ -78,6 +78,31 @@ fn class_exports_from_parse_result(parsed : ParseResult) -> Array[ClassExport] {
 }
 
 ///|
+// pkspec Spec-layer gap: `amends`/`extends` exposes the parent module's
+// class declarations as bare-name lookups in the child (Apple Pkl treats
+// extends as inheritance, not a namespaced import). `class_env` already
+// gets the parent's classes (PKL-140), but the runtime *type-resolution*
+// gate (`eval_type_name_is_unresolvable` and friends) consults the
+// `declarations` array, not `class_env`. Without the parent's classes in
+// `declarations`, a typed parameter like `(s: Scenario)` on a parent
+// function — invoked from a comprehension that runs in the merged child
+// context — wrongly surfaces `Cannot find type Scenario`. Reconstruct a
+// `ClassDecl` from each parent `ClassExport` so the same lookups that
+// the same-module case relies on resolve here too.
+fn class_decl_from_export(class_export : ClassExport) -> ClassDecl {
+  {
+    name: class_export.name,
+    type_parameters: [],
+    type_parameter_bounds: [],
+    parent_name: class_export.parent_name,
+    properties: class_export.properties,
+    methods: class_export.methods,
+    annotations: [],
+    is_abstract: false,
+  }
+}
+
+///|
 fn eval_imports(
   imports : Array[ImportDecl],
   current_module_path : String?,
@@ -1086,6 +1111,33 @@ fn eval_program(
   resolve_import_bindings : (String) -> Array[Binding]?,
 ) -> Value? {
   let env : Array[ValueBinding] = []
+  // pkspec Spec-layer gap: fold the `amends`/`extends` parent chain's
+  // class declarations into the declaration set used for type
+  // resolution. Parent classes are listed first so a child re-declaring
+  // the same name (last-match-wins in `eval_lookup_class_decl`) still
+  // shadows the inherited one. Only classes are synthesised here — the
+  // parent's typealiases already resolve through the existing paths.
+  let declarations : Array[Declaration] = []
+  match program.module_relation {
+    Some(relation) =>
+      match resolve_import_classes(relation.uri) {
+        Some(exports) =>
+          for class_export in exports {
+            declarations.push(
+              ClassDeclaration(class_decl_from_export(class_export)),
+            )
+          }
+        None => ()
+      }
+    None => ()
+  }
+  for declaration in program.declarations {
+    declarations.push(declaration)
+  }
+  // `class_env` / `type_aliases` stay keyed off the child's own
+  // declarations here; the parent's classes are merged into `class_env`
+  // separately (PKL-140, below) so building them off `declarations`
+  // would double-list the inherited classes.
   let class_env = collect_class_bindings(program.declarations)
   let type_aliases = eval_type_alias_bindings(program.declarations)
   let cache : Array[ValueBinding] = []
@@ -1245,7 +1297,7 @@ fn eval_program(
           env,
           class_env,
           cache,
-          program.declarations,
+          declarations,
           hidden_diagnostics,
           resolve_import,
         )
@@ -1258,7 +1310,7 @@ fn eval_program(
             class_env,
             cache,
             [],
-            program.declarations,
+            declarations,
             resolve_import,
           ) {
           Some(value) => {
@@ -1273,7 +1325,7 @@ fn eval_program(
               class_env,
               cache,
               [],
-              program.declarations,
+              declarations,
               hidden_diagnostics,
               resolve_import,
             )
@@ -1292,7 +1344,7 @@ fn eval_program(
             env,
             class_env,
             cache,
-            program.declarations,
+            declarations,
             hidden_diagnostics,
             resolve_import,
           )
@@ -1305,13 +1357,13 @@ fn eval_program(
             eval_user_defined_constrained_type_annotation_value_is_valid(
               binding.type_name,
               value,
-              program.declarations,
+              declarations,
               hidden_diagnostics,
             ) &&
             eval_expr_class_property_constraints_are_valid(
               binding.value,
               value,
-              program.declarations,
+              declarations,
               hidden_diagnostics,
             ) &&
             eval_expr_alias_constraints_are_valid(
@@ -1363,7 +1415,7 @@ fn eval_program(
           env,
           class_env,
           cache,
-          program.declarations,
+          declarations,
           diagnostics,
           resolve_import,
         ) {
@@ -1387,7 +1439,7 @@ fn eval_program(
           class_env,
           cache,
           [],
-          program.declarations,
+          declarations,
           resolve_import,
         ) {
         Some(value) => {
@@ -1402,7 +1454,7 @@ fn eval_program(
             class_env,
             cache,
             [],
-            program.declarations,
+            declarations,
             diagnostics,
             resolve_import,
           )
@@ -1426,7 +1478,7 @@ fn eval_program(
             env,
             class_env,
             cache,
-            program.declarations,
+            declarations,
             diagnostics,
             resolve_import,
           )
@@ -1451,13 +1503,13 @@ fn eval_program(
             eval_user_defined_constrained_type_annotation_value_is_valid(
               binding.type_name,
               value,
-              program.declarations,
+              declarations,
               diagnostics,
             ) &&
             eval_expr_class_property_constraints_are_valid(
               binding.value,
               value,
-              program.declarations,
+              declarations,
               diagnostics,
             ) &&
             eval_expr_alias_constraints_are_valid(
@@ -1505,7 +1557,7 @@ fn eval_program(
                 class_env,
                 cache,
                 [],
-                program.declarations,
+                declarations,
                 diagnostics,
                 resolve_import,
               ) {
@@ -1559,7 +1611,7 @@ fn eval_program(
           class_env,
           cache,
           [],
-          program.declarations,
+          declarations,
           [],
           resolve_import,
         ) {
@@ -1643,7 +1695,7 @@ fn eval_program(
         class_env,
         cache,
         [],
-        program.declarations,
+        declarations,
         diagnostics,
         resolve_import,
       )
@@ -1658,7 +1710,7 @@ fn eval_program(
               env,
               class_env,
               cache,
-              program.declarations,
+              declarations,
               diagnostics,
               resolve_import,
             ),
@@ -1691,7 +1743,7 @@ fn eval_program(
         env,
         class_env,
         cache,
-        program.declarations,
+        declarations,
         diagnostics,
         resolve_import,
       )
@@ -1707,7 +1759,7 @@ fn eval_program(
           env,
           class_env,
           cache,
-          program.declarations,
+          declarations,
           diagnostics,
           resolve_import,
         )
@@ -1720,7 +1772,7 @@ fn eval_program(
           env,
           class_env,
           cache,
-          program.declarations,
+          declarations,
           diagnostics,
           resolve_import,
         )
@@ -1737,7 +1789,7 @@ fn eval_program(
           env,
           class_env,
           cache,
-          program.declarations,
+          declarations,
           diagnostics,
           resolve_import,
         )

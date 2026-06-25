@@ -64,6 +64,55 @@ test "PKL-108: unknown type annotation uses Apple Pkl wording" {
 }
 
 ///|
+// pkspec Spec-layer gap: a parent module declares `class Scenario` and a
+// typed `local function f(s: Scenario)` that the parent's own `tests`
+// comprehension calls. A child module that `amends` the parent supplies
+// the `scenarios` list. When the comprehension runs in the (merged) child
+// context, the parameter type `Scenario` must still resolve — it lives in
+// the parent's declarations, which `amends`/`extends` exposes as bare-name
+// lookups. Before the fix the runtime type-rejection gate only consulted
+// the child's own declarations and surfaced `Cannot find type Scenario.`.
+test "amended parent's typed function parameter resolves parent class" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "base.pkl",
+    (
+      #|class Scenario {
+      #|  name: String
+      #|}
+      #|scenarios: Listing<Scenario> = new {}
+      #|local function nameOf(s: Scenario): String = s.name
+      #|names: Listing<String> = new {
+      #|  for (s in scenarios) { nameOf(s) }
+      #|}
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|amends "base.pkl"
+      #|scenarios {
+      #|  new { name = "alpha" }
+      #|  new { name = "beta" }
+      #|}
+    ),
+  )
+  let result = session.eval_path("main.pkl")
+  guard result is EvalOk(value) else {
+    match result {
+      EvalError(diagnostics) =>
+        fail("expected EvalOk, got error: \{diagnostics[0].message}")
+      _ => fail("expected EvalOk")
+    }
+  }
+  let json = @pkl.render_value_as_json(value)
+  inspect(
+    json.contains("alpha") && json.contains("beta"),
+    content="true",
+  )
+}
+
+///|
 test "PKL-118: imported module-level function is callable across modules" {
   let session = AnalysisSession::new()
   session.set_source("base.pkl", "function double(x: Int): Int = x * 2")
