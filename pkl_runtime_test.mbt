@@ -4456,3 +4456,24 @@ test "PKL-pkspec: nullable user-class param accepts non-null object value" {
   let rendered = render_value(value)
   inspect(rendered.contains("result = \"x\""), content="true")
 }
+
+///|
+test "PKL-pkspec: cross-module extends-chain satisfies bare supertype annotation" {
+  // `WebVitest extends Vitest.Vitest extends adapter.Adapter`, assigned to
+  // a field annotated by the bare simple name `Adapter`. The subtype walk
+  // in `value_satisfies_user_class_annotation` followed `parent_name`
+  // values that are alias-qualified (`adapter.Adapter`) and compared them
+  // by exact string against the bare `Adapter` base, so the chain never
+  // unified and a structurally-valid subtype value was rejected with
+  // "Expected `Adapter`, but got `WebVitest`". Reduce each parent name to
+  // its simple form before comparing and when re-looking-up the next link.
+  let source =
+    #|abstract class Adapter { tag: String = "base" }
+    #|open class Mid extends Adapter { tag = "mid" }
+    #|class Leaf extends Mid { tag = "leaf" }
+    #|holder: Adapter = new Leaf {}
+
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  let rendered = render_value(value)
+  inspect(rendered.contains("tag = \"leaf\""), content="true")
+}

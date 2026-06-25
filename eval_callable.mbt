@@ -896,12 +896,32 @@ fn value_satisfies_user_class_annotation(
             }
             while current is Some(decl) {
               match decl.parent_name {
-                Some(parent) =>
-                  if parent == base {
+                Some(parent) => {
+                  // A parent named via an import alias (`adapter.Adapter`,
+                  // `Vitest.Vitest`) is the SAME underlying class as the
+                  // simple-name annotation base (`Adapter`). Reduce both to
+                  // their bare simple name (strip a `<module>#` / `<alias>.`
+                  // qualifier) before comparing — without this an
+                  // extends-chain that crosses a module boundary
+                  // (`WebVitest -> Vitest.Vitest -> adapter.Adapter`) never
+                  // unifies with the bare `Adapter` field annotation. Same
+                  // simple-name KNOWN LIMITATION as the tag/base comparison
+                  // above (no module-path identity).
+                  let parent_simple = name_class_simple_name(parent)
+                  if parent == base ||
+                    parent_simple == base ||
+                    parent == base_simple ||
+                    parent_simple == base_simple {
                     return true
                   } else {
-                    current = eval_lookup_class_decl(declarations, parent)
+                    let next = eval_lookup_class_decl(declarations, parent)
+                    current = if next is Some(_) {
+                      next
+                    } else {
+                      eval_lookup_class_decl(declarations, parent_simple)
+                    }
                   }
+                }
                 None => current = None
               }
             }
