@@ -603,6 +603,13 @@ fn Parser::parse_primary_expr(self : Parser) -> Expr {
       self.builder.start_node(paren_expr())
       ignore(self.bump())
       let expr = self.parse_expr()
+      // PKL-pkspec-C: Apple Pkl treats newlines (and surrounding
+      // trivia) as whitespace inside a parenthesized group, so a `)` on
+      // its own line is valid. Skip any trailing trivia the inner
+      // expression left in place before matching the close paren —
+      // without this `( \n expr \n )` fails with `expected ), got
+      // newline`.
+      self.skip_trivia()
       ignore(self.expect(rparen(), ")"))
       self.builder.finish_node()
       expr

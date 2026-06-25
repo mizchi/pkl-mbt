@@ -11,6 +11,22 @@ test "evaluate integer arithmetic with precedence" {
 }
 
 ///|
+// PKL-pkspec-C: a newline (and surrounding trivia) immediately before
+// a closing `)` must be skipped. `(expr)` and `(expr)\n.member` parse
+// fine, but `( \n expr \n )` used to fail with `expected ), got
+// newline`. Apple Pkl treats newlines as whitespace inside a
+// parenthesized group. Triggered by pkspec's `pkl/Test.test.pkl`,
+// whose parenthesized `new Schema.CmdTest { ... }` puts the `)` on its
+// own line.
+test "PKL-pkspec-C: newline before closing paren parses" {
+  assert_true(eval_source("(\n  1 + 2\n)") == EvalOk(IntValue(3)))
+  // Leading newline after `(` and a trailing comment before `)`.
+  assert_true(
+    eval_source("(\n  4 * 5 // product\n)") == EvalOk(IntValue(20)),
+  )
+}
+
+///|
 test "evaluate let binding" {
   assert_true(eval_source("let x = 41\nx + 1") == EvalOk(IntValue(42)))
 }
