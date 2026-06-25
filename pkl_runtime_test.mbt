@@ -4432,3 +4432,27 @@ test "PKL-153: self-referential Mapping default does not infinite-loop" {
 }
 
 ///|
+
+///|
+test "PKL-pkspec: nullable user-class param accepts non-null object value" {
+  // Regression (PR #22 type-backfill): `flattenInlineSnapshot(s: InlineSnapshot?)`
+  // called with a non-null `new InlineSnapshot {}` reached
+  // `value_satisfies_user_class_annotation` with base `InlineSnapshot?`
+  // (the `?` not stripped) while the value's tag is `InlineSnapshot`, so
+  // none of the simple-name comparisons matched and the call was rejected
+  // with "Expected `InlineSnapshot?`, got `InlineSnapshot`". The `T?`
+  // annotation must unify with a `T`-tagged object value.
+  let source =
+    #|class InlineSnapshot {
+    #|  state: String = "capture"
+    #|  value: String? = null
+    #|}
+    #|local function flatten(s: InlineSnapshot?): String? =
+    #|  if (s == null) null else if (s.state == "capture") "" else s.value
+    #|snap: InlineSnapshot = new InlineSnapshot { state = "match"; value = "x" }
+    #|result = flatten(snap)
+
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  let rendered = render_value(value)
+  inspect(rendered.contains("result = \"x\""), content="true")
+}

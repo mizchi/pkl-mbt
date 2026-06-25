@@ -827,6 +827,18 @@ fn value_satisfies_user_class_annotation(
       if reflect_kind(members) is Some(_) {
         return false
       }
+      // A nullable annotation `T?` carries the same class identity as `T`
+      // for a non-null object value (the `null` arm is handled elsewhere /
+      // short-circuited before this check). Strip a single trailing `?` so
+      // `InlineSnapshot?` unifies with a value tagged `InlineSnapshot` —
+      // without this, a `T?`-annotated function parameter / field whose
+      // type-check reaches here (post PKL-158 backfill) wrongly rejects a
+      // structurally-identical value with "Expected `T?`, got `T`".
+      let type_name = if type_name.has_suffix("?") {
+        String::unsafe_substring(type_name, start=0, end=type_name.length() - 1)
+      } else {
+        type_name
+      }
       if type_name == "Dynamic" || type_name == "Typed" {
         return true
       }
