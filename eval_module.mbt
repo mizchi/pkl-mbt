@@ -3987,19 +3987,31 @@ fn name_matches_class_tag(name : String, tag : String) -> Bool {
   if name == tag {
     return true
   }
-  // strip "<module>#" prefix
-  let hash = name.find("#")
-  let name_simple = match hash {
-    Some(idx) =>
-      String::unsafe_substring(name, start=idx + 1, end=name.length())
+  name_class_simple_name(name) == name_class_simple_name(tag)
+}
+
+///|
+// Reduce a class name / tag to its bare simple name for identity
+// comparison: strip a `<module>#` prefix (the qualified reflect form)
+// and a leading `<alias>.` qualifier. The latter lets `base.SequentialTest`
+// (a value constructed via an import alias) unify with the bare
+// `SequentialTest` an `is` / annotation check names — same KNOWN
+// LIMITATION as `value_satisfies_user_class_annotation` (simple-name
+// match, not module-path identity).
+fn name_class_simple_name(name : String) -> String {
+  let after_hash = match name.find("#") {
+    Some(idx) => String::unsafe_substring(name, start=idx + 1, end=name.length())
     None => name
   }
-  let hash2 = tag.find("#")
-  let tag_simple = match hash2 {
-    Some(idx) => String::unsafe_substring(tag, start=idx + 1, end=tag.length())
-    None => tag
+  match after_hash.rev_find(".") {
+    Some(idx) =>
+      String::unsafe_substring(
+        after_hash,
+        start=idx + 1,
+        end=after_hash.length(),
+      )
+    None => after_hash
   }
-  name_simple == tag_simple
 }
 
 ///|

@@ -382,6 +382,52 @@ test "function returning collection of qualified element type promotes body" {
 }
 
 ///|
+// pkspec Spec-layer parity: a value constructed through an import alias
+// (`new base.SequentialTest {}`) carries the qualified `base.SequentialTest`
+// class tag, but an `is SequentialTest` test (bare name) must still match
+// — they are one underlying class. mbt compared the tag and name without
+// stripping the alias, so `body is SequentialTest` returned false. In
+// pkspec's `renderTest` this took the empty-steps else branch, dropping
+// every rendered step.
+test "is-operator matches a bare name against an alias-qualified class tag" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "gp.pkl",
+    (
+      #|open module demo.gp
+      #|abstract class TestBody {}
+      #|class SequentialTest extends TestBody { steps: Listing<String> = new {} }
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|extends "gp.pkl"
+      #|import "gp.pkl" as base
+      #|b: base.TestBody = new base.SequentialTest { steps { "a"; "b" } }
+      #|isSeq = b is SequentialTest
+      #|stepsViaIs = if (b is SequentialTest) b.steps else new Listing<String> {}
+    ),
+  )
+  let result = session.eval_path("main.pkl")
+  guard result is EvalOk(ObjectValue(members)) else {
+    match result {
+      EvalError(diagnostics) =>
+        fail("expected EvalOk, got error: \{diagnostics[0].message}")
+      _ => fail("expected EvalOk")
+    }
+  }
+  let mut is_seq : Value? = None
+  for m in members {
+    if m.name == "isSeq" {
+      is_seq = Some(m.value)
+    }
+  }
+  guard is_seq is Some(BoolValue(value)) else { fail("expected isSeq bool") }
+  inspect(value, content="true")
+}
+
+///|
 test "PKL-118: imported module-level function is callable across modules" {
   let session = AnalysisSession::new()
   session.set_source("base.pkl", "function double(x: Int): Int = x * 2")
