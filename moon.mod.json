@@ -1,6 +1,6 @@
 {
   "name": "mizchi/pkl",
-  "version": "0.2.4",
+  "version": "0.2.5",
   "deps": {
     "mizchi/cst": "0.1.7",
     "mizchi/ripple": "0.1.3",
