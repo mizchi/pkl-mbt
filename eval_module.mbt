@@ -2071,6 +2071,69 @@ priv struct ConvertPropertyTransformer {
 }
 
 ///|
+// pkspec Spec-layer parity: `output` is a hidden module property in Apple
+// Pkl, so it never appears in rendered output. When the user sets
+// `output.value = <expr>` (as pkspec's Test.pkl does via
+// `output { value = new Rendered { ... } }`), that value — not the raw
+// module body — is what renders. This helper computes the effective
+// render target: the explicit `output.value` if present, otherwise the
+// module body with its `output` member stripped. Returns `None` when the
+// value isn't a module-shaped ObjectValue carrying an `output` member, so
+// the common no-`output` module renders unchanged.
+/// Resolve a top-level module value to what Apple Pkl actually renders.
+///
+/// `output` is a hidden module property, so it never appears in rendered
+/// output. When the user sets `output.value = <expr>` (as pkspec's
+/// Test.pkl does via `output { value = new Rendered { ... } }`), that
+/// value — not the raw module body — is the render target. A bare
+/// `output` member (only `renderer` / other knobs, no `value`) is simply
+/// dropped.
+///
+/// `eval_source` deliberately keeps the `output` member on the raw eval
+/// result (see PKL-104); render-boundary callers (the CLI / loader)
+/// apply this before handing a value to `render_value_as_json` & friends.
+/// Returns the value unchanged when it isn't a module-shaped ObjectValue
+/// carrying an `output` member.
+pub fn extract_output_value(value : Value) -> Value {
+  match value {
+    ObjectValue(members) => {
+      let mut has_output = false
+      let mut explicit_output_value : Value? = None
+      for entry in members {
+        if entry.name == "output" {
+          has_output = true
+          match entry.value {
+            ObjectValue(output_members) =>
+              for output_member in output_members {
+                if output_member.name == "value" {
+                  explicit_output_value = Some(output_member.value)
+                }
+              }
+            _ => ()
+          }
+        }
+      }
+      if not(has_output) {
+        return value
+      }
+      match explicit_output_value {
+        Some(output_value) => output_value
+        None => {
+          let kept : Array[ValueMember] = []
+          for entry in members {
+            if entry.name != "output" {
+              kept.push(entry)
+            }
+          }
+          ObjectValue(kept)
+        }
+      }
+    }
+    _ => value
+  }
+}
+
+///|
 fn collect_output_renderer(value : Value) -> Value? {
   match value {
     ObjectValue(members) =>

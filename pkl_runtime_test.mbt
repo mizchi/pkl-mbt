@@ -165,6 +165,39 @@ test "amended parent's imported qualified type resolves in child" {
 }
 
 ///|
+// pkspec Spec-layer parity: a module that sets `output { value = ... }`
+// renders THAT value, not its own raw properties. Test.pkl drives the
+// whole pkspec render through `output.value = new Rendered { ... }`, so
+// `pkl eval -f json` shows only the `Rendered` shape (defaults / tests /
+// scenarios / ...) and drops the module's `rendered*` / `feature` /
+// `prelude` properties. The mbt evaluator was rendering the raw module
+// body instead.
+test "module output.value overrides the rendered module body" {
+  let result = eval_source(
+    (
+      #|foo = "raw"
+      #|bar = "alsoRaw"
+      #|output {
+      #|  value = new Dynamic { only = "rendered"; n = 42 }
+      #|}
+    ),
+  )
+  guard result is EvalOk(value) else { panic() }
+  // The render-boundary helper resolves `output.value` to the actual
+  // render target (mirrors what the CLI / loader does before rendering).
+  let json = @pkl.render_value_as_json(@pkl.extract_output_value(value))
+  inspect(
+    json,
+    content=(
+      #|{
+      #|  "only": "rendered",
+      #|  "n": 42
+      #|}
+    ),
+  )
+}
+
+///|
 test "PKL-118: imported module-level function is callable across modules" {
   let session = AnalysisSession::new()
   session.set_source("base.pkl", "function double(x: Int): Int = x * 2")
