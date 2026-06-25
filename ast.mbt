@@ -150,6 +150,19 @@ pub(all) struct Binding {
   // these — Apple Pkl's stdlib uses the form for host-bound slots
   // and abstract templates whose subclasses fill in the value.
   abstract_slot : Bool
+  // PKL-pkspec-A: True when this binding was pre-registered for a
+  // *sibling* object-body member (`new Foo { a = b; b = 2 }`) rather
+  // than a module-/lexical-scope property. Sibling slots support
+  // forward references between members of the same object body, but
+  // they must NOT capture a same-named identifier that is referenced
+  // transitively from an OUTER-scope binding's RHS — otherwise an
+  // object body that assigns a field whose name collides with a
+  // module property (`new Rendered { tests = ... }` over module
+  // `tests`) hijacks the module property and produces a false
+  // `cyclic property reference` when an outer local depends on the
+  // real module property. Defaults to `false`; only the object-body
+  // pre-registration sites set it `true`.
+  sibling_slot : Bool
 } derive(Eq, Debug)
 
 ///|

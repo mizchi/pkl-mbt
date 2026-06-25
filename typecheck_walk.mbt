@@ -467,6 +467,7 @@ fn all_program_bindings(program : Program) -> Array[Binding] {
               is_const: true,
               annotations: function_decl.annotations,
               abstract_slot: false,
+              sibling_slot: false,
             })
           None => ()
         }

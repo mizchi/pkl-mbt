@@ -9,6 +9,34 @@ fn stack_contains_binding(stack : Array[String], name : String) -> Bool {
 }
 
 ///|
+/// PKL-pkspec-A: drop object-body sibling slots so an outer-scope
+/// binding's RHS re-evaluation can't capture a same-named field that
+/// an enclosing object literal pre-registered. Returns the original
+/// array unchanged when there is nothing to strip (the common case),
+/// avoiding an allocation on the hot path.
+fn strip_sibling_slot_bindings(
+  bindings : Array[Binding],
+) -> Array[Binding] {
+  let mut has_sibling = false
+  for b in bindings {
+    if b.sibling_slot {
+      has_sibling = true
+      break
+    }
+  }
+  if !has_sibling {
+    return bindings
+  }
+  let filtered : Array[Binding] = []
+  for b in bindings {
+    if !b.sibling_slot {
+      filtered.push(b)
+    }
+  }
+  filtered
+}
+
+///|
 fn push_binding_stack(stack : Array[String], name : String) -> Array[String] {
   let next : Array[String] = []
   for item in stack {
@@ -503,10 +531,29 @@ fn resolve_binding_value(
             }
           _ => collection_rewritten_value
         }
+        // PKL-pkspec-A: a real module-/lexical-scope property's RHS must
+        // not resolve a same-named identifier to an object-body *sibling*
+        // slot. Object bodies pre-register their members as `sibling_slot`
+        // bindings (appended after the outer bindings) so intra-body
+        // forward references work, but those slots must stay invisible
+        // when we re-evaluate an outer binding whose RHS happens to
+        // mention a name that collides with a sibling (e.g. module
+        // `local testNames = tests.toList()` must read the module `tests`,
+        // not the `tests` field of an enclosing `new Rendered { tests =
+        // ... }`). Without this, the sibling `tests` (whose value cycles
+        // back through the same local) is picked by `find_binding`'s
+        // last-wins walk and a false `cyclic property reference` is
+        // raised. Sibling slots themselves keep the full binding set so
+        // genuine intra-body forward refs still resolve.
+        let rhs_bindings = if binding.sibling_slot {
+          bindings
+        } else {
+          strip_sibling_slot_bindings(bindings)
+        }
         match
           eval_expr_with_bindings(
             rewritten_value,
-            bindings,
+            rhs_bindings,
             env,
             class_env,
             cache,

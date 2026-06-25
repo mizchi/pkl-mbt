@@ -1922,6 +1922,95 @@ test "PKL-148c: module output amend appends synthesized super text" {
 }
 
 ///|
+// PKL-pkspec-A: false-positive `cyclic property reference` when a
+// parent module declares a `local` derived from a property (`tests`)
+// AND the parent's `output` reads that local inside a `new Rendered {
+// tests = ... }` object body whose field name COLLIDES with the
+// module property. A middle module re-declares `tests` via a `for`
+// comprehension over an inherited Listing (`scenarios`), supplied by
+// the leaf module via `amends`. Apple Pkl evaluates this with no
+// cycle; pkl-mbt used to mis-resolve the inner `tests` reference (from
+// the module local `testNames`) to the sibling `Rendered.tests`
+// field, looping `testNames -> tests(field) -> duplicateNames ->
+// testNames` and reporting `cyclic property reference duplicateNames`.
+// Mirrors pkspec's `pkl/Test.pkl` (`local duplicateNames`, `output {
+// new Rendered { tests = ... } }`) + `pkl/Spec.pkl` (`tests = new {
+// for (s in scenarios) { scenarioToTest(s) } }`).
+test "PKL-pkspec-A: comprehension-derived listing does not trip false cyclic detection" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "Test.pkl",
+    (
+      #|open module Test
+      #|class Test { name: String }
+      #|class Rendered { tests: Int }
+      #|tests: Listing<Test> = new {}
+      #|local testNames: List<String> = tests.toList().map((t) -> t.name)
+      #|local duplicateNames: List<String> =
+      #|  testNames.filter((n) -> testNames.count((m) -> m == n) > 1).distinct
+      #|output {
+      #|  value = new Rendered {
+      #|    tests = duplicateNames.length
+      #|  }
+      #|}
+    ),
+  )
+  session.set_source(
+    "Spec.pkl",
+    (
+      #|extends "Test.pkl"
+      #|import "Test.pkl" as base
+      #|scenarios: Listing<String> = new {}
+      #|tests: Listing<base.Test> = new {
+      #|  for (s in scenarios) {
+      #|    new { name = s }
+      #|  }
+      #|}
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|amends "Spec.pkl"
+      #|scenarios { "a"; "b"; "a" }
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    // A failing fix surfaces here as EvalError(["cyclic property
+    // reference duplicateNames", ...]).
+    panic()
+  }
+  // The `output.value.tests` slot is `duplicateNames.length`. With the
+  // listing `["a","b","a"]`, the duplicate set is `{"a"}`, so the
+  // count is 1 (matches `pkl eval -f json`).
+  let mut output_value : Value? = None
+  for field in members {
+    if field.name == "output" {
+      output_value = Some(field.value)
+      break
+    }
+  }
+  guard output_value is Some(ObjectValue(output_members)) else { panic() }
+  let mut value_value : Value? = None
+  for field in output_members {
+    if field.name == "value" {
+      value_value = Some(field.value)
+      break
+    }
+  }
+  guard value_value is Some(ObjectValue(rendered_members)) else { panic() }
+  let mut tests_value : Value? = None
+  for field in rendered_members {
+    if field.name == "tests" {
+      tests_value = Some(field.value)
+      break
+    }
+  }
+  guard tests_value is Some(IntValue(count)) else { panic() }
+  inspect(count, content="1")
+}
+
+///|
 test "PKL-148c: reflect type getters work from class defaults" {
   let session = AnalysisSession::new()
   session.set_source(

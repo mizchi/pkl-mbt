@@ -2994,6 +2994,7 @@ fn collect_class_default_bindings_seen(
               is_const: true,
               annotations: property.annotations,
               abstract_slot: false,
+              sibling_slot: false,
             })
           None => ()
         }
@@ -3490,6 +3491,7 @@ fn all_eval_bindings(program : Program) -> Array[Binding] {
               is_const: function_decl.is_const,
               annotations: function_decl.annotations,
               abstract_slot: false,
+              sibling_slot: false,
             })
           None => ()
         }
