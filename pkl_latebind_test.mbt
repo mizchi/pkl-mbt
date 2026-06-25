@@ -82,3 +82,42 @@ test "late binding: inherited default reads subclass scalar override" {
     ),
   )
 }
+
+///|
+// Shape 2: nested typed-Listing element defaults. `tests: Listing<Test>`
+// elements carry a `background: Listing<Background>` field whose element
+// type `Background` declares `shell = "bash"`. Apple Pkl applies the
+// element type's defaults to every nested element; mpkl previously
+// accepted a cast `Test` object as-is and never backfilled the inner
+// `Background` element's `shell`, so `b.shell` surfaced as
+// `Cannot find property 'shell' in Dynamic`. The cast path now
+// re-applies declared user-class collection-field annotations.
+test "late binding: nested typed-Listing element defaults backfilled" {
+  let source =
+    #|class Background {
+    #|  name: String
+    #|  shell: String = "bash"
+    #|}
+    #|class Test {
+    #|  name: String
+    #|  background: Listing<Background> = new {}
+    #|}
+    #|local function renderBg(b: Background): String = b.shell
+    #|tests: Listing<Test> = new {
+    #|  new {
+    #|    name = "t1"
+    #|    background { new { name = "bg1" } }
+    #|  }
+    #|}
+    #|rendered = new Mapping {
+    #|  for (t in tests) {
+    #|    [t.name] = new Listing { for (b in t.background) { renderBg(b) } }
+    #|  }
+    #|}
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  let json = render_value_as_json(value)
+  // The nested Background element must carry its `shell = "bash"`
+  // default (rendered both on `tests` and read back via `renderBg`).
+  assert_true(json.contains("\"shell\": \"bash\""))
+  assert_true(json.contains("\"bash\""))
+}
