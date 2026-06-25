@@ -113,6 +113,58 @@ test "amended parent's typed function parameter resolves parent class" {
 }
 
 ///|
+// pkspec Spec-layer gap (qualified form): a parent module does
+// `import "gp.pkl" as base` and refers to `base.Test` in a typed
+// function it calls from its own comprehension. When a child `amends`
+// the parent, those parent-side qualified types must still resolve in
+// the merged child context. Before the fix the child only registered
+// *its own* imports' classes, so `base.Test` surfaced
+// `Cannot find type base.Test` (and, downstream, a typed `new {}`
+// literal stayed an Object and tripped `Expected value of type Listing`).
+test "amended parent's imported qualified type resolves in child" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "gp.pkl",
+    (
+      #|module demo.gp
+      #|class Step { name: String }
+      #|class Test { steps: Listing<Step> = new {} }
+    ),
+  )
+  session.set_source(
+    "base.pkl",
+    (
+      #|module demo.base
+      #|extends "gp.pkl"
+      #|import "gp.pkl" as base
+      #|class Scenario { name: String }
+      #|scenarios: Listing<Scenario> = new {}
+      #|local function toTest(s: Scenario): base.Test = new {
+      #|  steps = new Listing<base.Step> {}
+      #|}
+      #|tests: Listing<base.Test> = new {
+      #|  for (s in scenarios) { toTest(s) }
+      #|}
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|amends "base.pkl"
+      #|scenarios { new { name = "alpha" } }
+    ),
+  )
+  let result = session.eval_path("main.pkl")
+  guard result is EvalOk(_) else {
+    match result {
+      EvalError(diagnostics) =>
+        fail("expected EvalOk, got error: \{diagnostics[0].message}")
+      _ => fail("expected EvalOk")
+    }
+  }
+}
+
+///|
 test "PKL-118: imported module-level function is callable across modules" {
   let session = AnalysisSession::new()
   session.set_source("base.pkl", "function double(x: Int): Int = x * 2")
