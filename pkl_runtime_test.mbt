@@ -4477,3 +4477,65 @@ test "PKL-pkspec: cross-module extends-chain satisfies bare supertype annotation
   let rendered = render_value(value)
   inspect(rendered.contains("tag = \"leaf\""), content="true")
 }
+
+///|
+test "PKL-default-ref: bare `default` is an identifier reference in Listing element position" {
+  // Apple Pkl treats `default` as the collection-default member keyword
+  // ONLY when it forms a default member (`default { ... }`). A bare
+  // `default` followed by `}` / `,` / newline / `.member` / operator is an
+  // ordinary identifier reference to a `local default` binding. The parser
+  // previously routed EVERY object-body member beginning with `default`
+  // through `parse_collection_default_expr`, yielding `unsupported
+  // expression` for the reference form.
+  let source =
+    #|class Box { items: Listing<String> = new {} }
+    #|local default: String = "hi"
+    #|box: Box = new { items { default } }
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  let rendered = render_value(value)
+  inspect(rendered.contains("\"hi\""), content="true")
+}
+
+///|
+test "PKL-default-ref: `default` reference forms (non-last, member access)" {
+  // (a) bare ref as non-last element `{ default; other }`
+  let source_a =
+    #|local default: String = "hi"
+    #|local other: String = "bye"
+    #|res: Listing<String> = new { default; other }
+  guard eval_source(source_a) is EvalOk(va) else { panic() }
+  let ra = render_value(va)
+  inspect(ra.contains("\"hi\"") && ra.contains("\"bye\""), content="true")
+
+  // (b) `x = default` reference form
+  let source_b =
+    #|local default: String = "hi"
+    #|x: String = default
+  guard eval_source(source_b) is EvalOk(vb) else { panic() }
+  inspect(render_value(vb).contains("x = \"hi\""), content="true")
+
+  // (c) `default.member` reference form inside a Listing element
+  let source_c =
+    #|local default: String = "hi"
+    #|res: Listing<Int> = new { default.length }
+  guard eval_source(source_c) is EvalOk(vc) else { panic() }
+  inspect(render_value(vc).contains("2"), content="true")
+}
+
+///|
+test "PKL-default-ref: `default { ... }` collection-default member still recognized" {
+  // Discrimination guard: the amends-body form MUST stay the collection
+  // default member, not become an identifier reference.
+  let source =
+    #|class Person { name: String; age: Int = 42 }
+    #|res1: Listing<Person> = new {
+    #|  new { name = "Pigeon" }
+    #|}
+    #|res2 = (res1) {
+    #|  default { age = 21 }
+    #|  new { name = "Parrot" }
+    #|}
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  let rendered = render_value(value)
+  inspect(rendered.contains("name = \"Parrot\"\n    age = 21"), content="true")
+}
