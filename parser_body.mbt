@@ -111,7 +111,7 @@ fn Parser::parse_listing_body(self : Parser) -> Expr {
         type_name: None,
         value: CallExpr(Identifier("@__listing_index_entry"), [key_expr]),
       })
-    } else if self.at(identifier()) && self.peek().text() == "default" {
+    } else if self.at_collection_default_member() {
       match self.parse_collection_default_expr() {
         Some(default_expr) =>
           items.push({
@@ -150,6 +150,30 @@ fn Parser::parse_listing_body(self : Parser) -> Expr {
 ///|
 fn collection_default_marker_name() -> String {
   "@collectionDefault"
+}
+
+///|
+/// Discriminate the contextual `default` collection-default member keyword
+/// from `default` used as an ordinary identifier reference.
+///
+/// In Apple Pkl `default` only introduces a collection-default member when
+/// it is immediately followed by an amends body (`default { ... }`) or an
+/// `=` assignment (`default = expr`). When the `default` token is followed
+/// by anything else — `}` / `,` / a member-ending newline / an infix
+/// operator / `.member` / `[` / `(` — it is a bare identifier expression
+/// that must parse through the normal element path (e.g. referencing a
+/// `local default` binding). The parser previously treated EVERY object-body
+/// member starting with `default` as the keyword, so reference forms failed
+/// with `unsupported expression`.
+fn Parser::at_collection_default_member(self : Parser) -> Bool {
+  if !self.at(identifier()) || self.peek().text() != "default" {
+    return false
+  }
+  // Look past the `default` token (skipping trivia) without mutating the
+  // parser position. Only `{` (amends body) and `=` (assignment) keep the
+  // collection-default-member interpretation.
+  let next = self.peek_non_trivia_kind(self.pos + 1)
+  next == lbrace() || next == eq()
 }
 
 ///|
@@ -449,7 +473,7 @@ fn Parser::parse_mapping_body(self : Parser) -> Expr {
         }
         None => ()
       }
-    } else if self.at(identifier()) && self.peek().text() == "default" {
+    } else if self.at_collection_default_member() {
       match self.parse_collection_default_expr() {
         Some(default_expr) =>
           entries.push({
