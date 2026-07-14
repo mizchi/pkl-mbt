@@ -1,6 +1,6 @@
 # mizchi/pkl
 
-Pure-MoonBit parser, typechecker, evaluator, and renderer for Apple's [Pkl](https://pkl-lang.org/) language. Builds clean on all four MoonBit targets (`native`, `js`, `wasm`, `wasm-gc`); the `@pkl` surface is pure (no IO, no async) so an embedder running in a wasm sandbox can depend on it directly.
+Pure-MoonBit parser, typechecker, evaluator, and renderer for Apple's [Pkl](https://pkl-lang.org/) language. Builds clean on all four MoonBit targets (`native`, `js`, `wasm`, `wasm-gc`); the `@pkl` surface is pure (no IO, no async) so an embedder running in a wasm sandbox can depend on it directly. The `cmd/mpkl` package includes a Marketplace `SKILL.md` and a `moon runwasm` entry for parse, check, eval, and format workflows over inline source or local files with relative imports and cache-backed `package://` modules.
 
 The CLI lives in [`cmd/mpkl`](https://github.com/mizchi/pkl-mbt/tree/main/cmd/mpkl) (`mpkl parse|check|eval|test|format|analyze|codegen`). See the [repository README](https://github.com/mizchi/pkl-mbt) for install / usage / benchmarks against Apple Pkl.
 
@@ -21,7 +21,7 @@ Sandbox configuration (`configure_sandbox_*` / `register_*`): module allowlist, 
 
 ## Status
 
-The release gate passes Apple Pkl's upstream LanguageSnippetTests across the advertised renderers (PCF, JSON, YAML, properties, plist, textproto, XML, Jsonnet). Coverage of the Apple Pkl test surface is ~96% by gold-match; see the repository's `TODO.md` for the remaining fixture inventory.
+The release gate passes Apple Pkl's upstream LanguageSnippetTests across the advertised renderers (PCF, JSON, YAML, properties, plist, textproto, XML, Jsonnet). Coverage of the Apple Pkl test surface is 98.5% by gold-match; see the repository's `TODO.md` for the remaining fixture inventory.
 
 Known gaps for embedded callers:
 
@@ -30,4 +30,4 @@ Known gaps for embedded callers:
 
 ## Versioning
 
-This is `0.2.2`. Pre-1.0 minor bumps may break the public surface — semver promises kick in at `1.0.0`.
+This is `0.3.3`. Pre-1.0 minor bumps may break the public surface — semver promises kick in at `1.0.0`.

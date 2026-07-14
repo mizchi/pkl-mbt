@@ -160,6 +160,7 @@ fn reflect_class_factory_value(arg : Value) -> Value {
   }
 }
 
+///|
 fn reflect_type_alias_factory_value(arg : Value) -> Value {
   match arg {
     ObjectValue(members) =>
@@ -280,7 +281,6 @@ fn reflect_class_gold_factory(
     None => reflect_class_factory_value(arg)
   }
 }
-
 
 ///|
 fn reflect_module_factory_value(arg : Value) -> Value {
@@ -544,7 +544,6 @@ fn module_property_doc_comment_from_source(
   Some(join_doc_comment_lines(docs))
 }
 
-
 ///|
 fn doc_comment_before_reflect_decl(
   source : String?,
@@ -592,10 +591,7 @@ fn doc_comment_before_class_member(
 /// `doc_comment_before_reflect_decl` / `module_property_doc_comment_from_source`
 /// used to do inline before they were routed through
 /// `reflect_source_index`.
-fn collect_doc_comment_above(
-  lines : Array[String],
-  line_idx : Int,
-) -> String? {
+fn collect_doc_comment_above(lines : Array[String], line_idx : Int) -> String? {
   let docs : Array[String] = []
   let mut j = line_idx - 1
   while j >= 0 {
@@ -1038,7 +1034,7 @@ fn line_decl_info(line : String) -> (String, String)? {
   if end == 0 {
     return None
   }
-  let name = String::unsafe_substring(rest, start=0, end=end)
+  let name = String::unsafe_substring(rest, start=0, end~)
   if end == rest.length() {
     return Some(("property", name))
   }
@@ -1079,7 +1075,7 @@ fn extract_decl_name(rest : String, keyword : String) -> String? {
   if end == 0 {
     return None
   }
-  Some(String::unsafe_substring(tail, start=0, end=end))
+  Some(String::unsafe_substring(tail, start=0, end~))
 }
 
 ///|

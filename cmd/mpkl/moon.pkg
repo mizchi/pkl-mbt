@@ -1,25 +1,24 @@
 import {
-  "mizchi/pkl" @pkl,
-  "mizchi/x/http" @http,
-  "mizchi/zlib" @zlib,
+  "mizchi/pkl",
+  "mizchi/x/http",
+  "mizchi/zlib",
   "moonbitlang/async",
-  "moonbitlang/core/encoding/utf8" @utf8,
-  "moonbitlang/core/env" @env,
-  "moonbitlang/core/json" @json,
-  "moonbitlang/x/crypto" @crypto,
-  "moonbitlang/x/fs" @fs,
-  "moonbitlang/x/sys" @sys,
+  "moonbitlang/core/encoding/utf8",
+  "moonbitlang/core/env",
+  "moonbitlang/core/json",
+  "moonbitlang/x/crypto",
+  "moonbitlang/x/fs",
+  "moonbitlang/x/sys",
 }
 
-// `async fn main` in main.mbt routes through moonbitlang/async's
-// `run_async_main`, which is `#cfg(target="native"|"js")` only.
-// The wasm / wasm-gc targets therefore can't host the CLI; restrict
-// every source file in this package to native + js. Wasm consumers
-// embed the `@pkl` library directly (it builds clean on all four
-// targets) — see README's Install section.
+// `main.mbt` is the native / JS CLI with async file, package, and network IO.
+// `main_wasm.mbt` is the synchronous Marketplace entry for inline source or a
+// local file tree. Keep the source sets target-specific so network and package
+// fetching remain outside the Wasm command.
+
+pkgtype(kind: "executable")
 
 options(
-  "is-main": true,
   targets: {
     "main.mbt": [ "native", "js" ],
     "stdlib_check.mbt": [ "native", "js" ],
@@ -27,6 +26,8 @@ options(
     "fetch_js.mbt": [ "js" ],
     "package_download.mbt": [ "native", "js" ],
     "package_download_wbtest.mbt": [ "native" ],
+    "package_cache_native.mbt": [ "native", "js" ],
     "main_wasm.mbt": [ "wasm", "wasm-gc" ],
+    "main_wasm_wbtest.mbt": [ "wasm", "wasm-gc" ],
   },
 )

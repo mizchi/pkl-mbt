@@ -1,0 +1,4 @@
+import "lib.pkl" as lib
+
+name = lib.name
+answer = lib.answer

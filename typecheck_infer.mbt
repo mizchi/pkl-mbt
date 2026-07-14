@@ -124,6 +124,24 @@ fn infer_expr_with_bindings(
         if collection_local_binding_from_expr(entry.key) is Some(_) {
           continue
         }
+        // `when`, `for`, and spread entries use a WhenSpread key plus a
+        // synthetic Null value. They contribute entries at runtime, so the
+        // placeholder pair must not be checked as an actual K/Null entry.
+        if entry.key is WhenSpread(_) {
+          ignore(
+            infer_expr_with_bindings(
+              entry.key,
+              collection_bindings,
+              env,
+              type_env,
+              cache,
+              stack,
+              diagnostics,
+              resolve_import,
+            ),
+          )
+          continue
+        }
         let key = infer_expr_with_bindings(
           entry.key,
           collection_bindings,
@@ -148,6 +166,19 @@ fn infer_expr_with_bindings(
       }
       MappingType(entry_types)
     }
+    // `module.foo` is a reference to the enclosing module binding, not a
+    // property lookup on an ordinary identifier named `module`.
+    MemberAccess(Identifier("module"), member_name) =>
+      match
+        resolve_binding_type(
+          member_name, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+        ) {
+        Some(typ) => typ
+        None => {
+          diagnostics.push(diag("Cannot find property `\{member_name}`."))
+          UnknownType
+        }
+      }
     MemberAccess(target_expr, member_name) =>
       match
         infer_expr_with_bindings(
@@ -201,6 +232,37 @@ fn infer_expr_with_bindings(
               diagnostics.push(
                 diag(
                   "Cannot find property `\{member_name}` in object of type `IntSeq`.",
+                ),
+              )
+              UnknownType
+            }
+          }
+        // Listing/List properties mirror the Set collection surface while
+        // preserving the indexed collection kind.
+        ListingType(element_types) =>
+          match member_name {
+            "length" => IntType
+            "isEmpty" | "isNotEmpty" => BoolType
+            "first" | "last" =>
+              if element_types.length() == 0 {
+                UnknownType
+              } else {
+                common_type(element_types)
+              }
+            "distinct" => ListingType(element_types)
+            "contains"
+            | "count"
+            | "toList"
+            | "toListing"
+            | "map"
+            | "flatMap"
+            | "filter"
+            | "fold"
+            | "join" => UnknownType
+            _ => {
+              diagnostics.push(
+                diag(
+                  "Cannot find property `\{member_name}` in object of type `Listing`.",
                 ),
               )
               UnknownType

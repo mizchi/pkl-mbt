@@ -194,6 +194,11 @@ fn module_metadata_super_name() -> String {
 }
 
 ///|
+fn module_metadata_imports_name() -> String {
+  "__module_imports"
+}
+
+///|
 fn module_metadata_path_name() -> String {
   "__module_path"
 }
@@ -210,6 +215,14 @@ fn module_members_name(members : Array[ValueMember]) -> String? {
 fn module_members_super(members : Array[ValueMember]) -> Array[ValueMember]? {
   match lookup_member(members, module_metadata_super_name()) {
     Some(ObjectValue(super_members)) => Some(super_members)
+    _ => None
+  }
+}
+
+///|
+fn module_members_imports(members : Array[ValueMember]) -> Array[ValueMember]? {
+  match lookup_member(members, module_metadata_imports_name()) {
+    Some(ObjectValue(imports)) => Some(imports)
     _ => None
   }
 }
@@ -240,6 +253,7 @@ fn is_module_runtime_metadata_name(name : String) -> Bool {
   let bare = strip_member_visibility_prefix(name)
   bare == module_metadata_name() ||
   bare == module_metadata_super_name() ||
+  bare == module_metadata_imports_name() ||
   bare == reflect_module_metadata_name() ||
   bare == "__class" ||
   bare == "__kind" ||
@@ -528,7 +542,9 @@ fn resolve_module_parent_member_value(
                     parent_members, parent_bindings, reeval_bindings, env, cache,
                   ),
                   class_env,
-                  module_parent_reeval_cache(parent_members, parent_bindings, cache),
+                  module_parent_reeval_cache(
+                    parent_members, parent_bindings, cache,
+                  ),
                   stack,
                   declarations,
                   diagnostics,
@@ -874,7 +890,9 @@ fn eval_read_uri(
                     match reader(uri) {
                       Some(resource) => Some(sandbox_resource_value(resource))
                       None => {
-                        diagnostics.push(diag(read_resource_not_found_message(uri)))
+                        diagnostics.push(
+                          diag(read_resource_not_found_message(uri)),
+                        )
                         None
                       }
                     }
@@ -1163,7 +1181,7 @@ fn eval_program(
   // `(): base.Step` surfaced `Cannot find type base.Step` even though
   // the same name resolved in `class_env`.
   for import_decl in program.imports {
-    if not(import_decl.is_glob) {
+    if !import_decl.is_glob {
       match resolve_import_classes(import_decl.uri) {
         Some(exports) =>
           for class_export in exports {
@@ -1182,7 +1200,9 @@ fn eval_program(
                 if already_qualified {
                   Some(parent)
                 } else {
-                  Some(imported_class_parent_name(import_decl.import_name, parent))
+                  Some(
+                    imported_class_parent_name(import_decl.import_name, parent),
+                  )
                 }
               None => None
             }
@@ -1299,6 +1319,20 @@ fn eval_program(
       )
       for parent_member in parent_members {
         module_parent_members.push(parent_member)
+      }
+      // Parent module type annotations and default bodies retain access to
+      // the imports declared by that parent. Keep those values as hidden
+      // module metadata, then inherit only aliases the child did not
+      // redeclare so the child's own imports continue to shadow them.
+      match module_members_imports(parent_members) {
+        Some(parent_imports) =>
+          for parent_import in parent_imports {
+            let name = strip_member_visibility_prefix(parent_import.name)
+            if lookup_value(env, name) is None {
+              env.push({ name, value: parent_import.value })
+            }
+          }
+        None => ()
       }
       if parent_members.length() > 0 {
         cache.push({ name: "super", value: ObjectValue(parent_members) })
@@ -1681,8 +1715,7 @@ fn eval_program(
           [],
           resolve_import,
         ) {
-        Some(value) =>
-          captured_bindings.push({ name: binding.name, value })
+        Some(value) => captured_bindings.push({ name: binding.name, value })
         None => ()
       }
     }
@@ -1706,6 +1739,23 @@ fn eval_program(
         _ => ()
       }
     }
+  }
+  if env.length() > 0 {
+    let import_members : Array[ValueMember] = []
+    for import_binding in env {
+      import_members.push({
+        name: import_binding.name,
+        value: import_binding.value,
+        source: None,
+        annotations: [],
+      })
+    }
+    members.push({
+      name: hidden_member_name(module_metadata_imports_name()),
+      value: ObjectValue(import_members),
+      source: None,
+      annotations: [],
+    })
   }
   match program.module_name {
     Some(name) =>
@@ -1770,15 +1820,8 @@ fn eval_program(
         ObjectValue(
           merge_value_members(
             late_bind_module_parent_members(
-              module_parent_members,
-              module_parent_bindings,
-              bindings,
-              env,
-              class_env,
-              cache,
-              declarations,
-              diagnostics,
-              resolve_import,
+              module_parent_members, module_parent_bindings, bindings, env, class_env,
+              cache, declarations, diagnostics, resolve_import,
             ),
             members,
           ),
@@ -1804,13 +1847,7 @@ fn eval_program(
       let converters = collect_path_converters(finalized_value)
       let class_converters = collect_class_converters(finalized_value)
       let property_transformers = collect_convert_property_transformers(
-        finalized_value,
-        bindings,
-        env,
-        class_env,
-        cache,
-        declarations,
-        diagnostics,
+        finalized_value, bindings, env, class_env, cache, declarations, diagnostics,
         resolve_import,
       )
       let renderer_value = collect_output_renderer(finalized_value)
@@ -1818,28 +1855,13 @@ fn eval_program(
       if property_transformers.length() > 0 ||
         value_has_member_annotations(current) {
         current = apply_convert_property_transformers(
-          current,
-          renderer_value,
-          property_transformers,
-          bindings,
-          env,
-          class_env,
-          cache,
-          declarations,
-          diagnostics,
-          resolve_import,
+          current, renderer_value, property_transformers, bindings, env, class_env,
+          cache, declarations, diagnostics, resolve_import,
         )
       }
       if converters.length() > 0 {
         current = apply_path_converters(
-          current,
-          converters,
-          bindings,
-          env,
-          class_env,
-          cache,
-          declarations,
-          diagnostics,
+          current, converters, bindings, env, class_env, cache, declarations, diagnostics,
           resolve_import,
         )
       }
@@ -1849,15 +1871,8 @@ fn eval_program(
       // that isn't a module mirror.
       if class_converters.length() > 0 {
         current = apply_class_converters(
-          current,
-          class_converters,
-          bindings,
-          env,
-          class_env,
-          cache,
-          declarations,
-          diagnostics,
-          resolve_import,
+          current, class_converters, bindings, env, class_env, cache, declarations,
+          diagnostics, resolve_import,
         )
       }
       Some(current)
@@ -2146,6 +2161,8 @@ priv struct ConvertPropertyTransformer {
 // module body with its `output` member stripped. Returns `None` when the
 // value isn't a module-shaped ObjectValue carrying an `output` member, so
 // the common no-`output` module renders unchanged.
+
+///|
 /// Resolve a top-level module value to what Apple Pkl actually renders.
 ///
 /// `output` is a hidden module property, so it never appears in rendered
@@ -2179,7 +2196,7 @@ pub fn extract_output_value(value : Value) -> Value {
           }
         }
       }
-      if not(has_output) {
+      if !has_output {
         return value
       }
       match explicit_output_value {
@@ -4035,7 +4052,8 @@ fn name_matches_class_tag(name : String, tag : String) -> Bool {
 // match, not module-path identity).
 fn name_class_simple_name(name : String) -> String {
   let after_hash = match name.find("#") {
-    Some(idx) => String::unsafe_substring(name, start=idx + 1, end=name.length())
+    Some(idx) =>
+      String::unsafe_substring(name, start=idx + 1, end=name.length())
     None => name
   }
   match after_hash.rev_find(".") {

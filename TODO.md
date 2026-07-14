@@ -1,8 +1,8 @@
 # Release TODO
 
-Current version: `0.2.2` (see `moon.mod.json`).
-Current coverage: 376 / 391 PCF gold-match (96.2%).
-Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-05-22.
+Current version: `0.3.3` (see `moon.mod`).
+Current coverage: 385 / 391 PCF gold-match (98.5%).
+Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-07-14.
 
 ## 0.2.0 landing notes
 
@@ -58,7 +58,7 @@ End-user blocker priority is based on "will a normal Pkl config author hit this?
 4. Basic scalar / collection parity: `Bytes`, `DataSize`, `Duration`, `Int`, `Float`, `Map`, nullable, `new`, `as`, `outer`, and const provenance are gold-matching for all with-gold `basic` fixtures.
 5. Deep stdlib / reflect parity: important for long-term compatibility, but not a first release blocker unless a public API or real package depends on it.
 
-Latest API-surface pass: `api/any`, `api/annotationConverters`, `api/benchmarkModule`, `api/bytes`, `api/dynamic`, `api/list`, `api/listing`, `api/mapping`, `api/map`, `api/regex`, `api/releaseModule`, `api/set`, `api/setNullable`, `api/string`, `api/stringUnicode`, `api/typeAliases`, `api/typed`, `api/Resource`, `api/dir1/dir2/relativePathTo`, `api/module`, `api/semverModule`, and `api/reflect1` / `api/reflect2` / `api/reflect3` / `api/reflect4` / `api/reflect5` now gold-match. `reflect.Module(...).imports` keeps existing `reflect5` parity and no longer fails on modules without an import map. Remaining reflect DIFF is the full recursive stdlib declaration shape in `api/reflectedDeclaration`, not basic Module/Class/Property construction. `api/mathModule` remains DIFF only on last-bit host floating-point output for `log2` / trig functions.
+Latest API-surface pass: `api/any`, `api/annotationConverters`, `api/benchmarkModule`, `api/bytes`, `api/dynamic`, `api/list`, `api/listing`, `api/mapping`, `api/map`, `api/regex`, `api/releaseModule`, `api/set`, `api/setNullable`, `api/string`, `api/stringUnicode`, `api/typeAliases`, `api/typed`, `api/Resource`, `api/dir1/dir2/relativePathTo`, `api/module`, `api/semverModule`, `api/mathModule`, `api/reflectedDeclaration`, and `api/reflect1` / `api/reflect2` / `api/reflect3` / `api/reflect5` now gold-match. `reflect.Module(...).imports` keeps existing `reflect5` parity and no longer fails on modules without an import map. The remaining reflect DIFF is `api/reflect4`.
 
 For this release pass, Resource / Glob, Numeric / Bytes, nullable basics, and the advertised renderer validation surface are gold-matching for their targeted fixtures.
 
@@ -74,14 +74,14 @@ Measured from the release binary against Apple Pkl LanguageSnippetTests gold fil
 
 - Core collection / scalar API: none.
 - Resource / path API: none.
-- Renderer / parser API: `api/jsonnetRenderer7` (Mixin / Function1 rendering diagnostic), `api/jsonnetRenderer8` (`convertPropertyTransformers` + `LineComment` annotation surface), `api/renderDirective`, `api/renderDirective2`, `api/yamlParser1Compat`, `api/yamlParser1Yaml11`, `api/yamlParser1Yaml12`, `api/yamlParser6`, `api/yamlRendererStringsCompat`, `api/yamlRendererStringsYaml11`, `api/yamlRendererStringsYaml12`. `jsonnetRenderer1/2/3/4/5/6` now gold-match through the in-tree Jsonnet renderer.
+- Renderer / parser API: `api/yamlParser1Compat`, `api/yamlParser1Yaml11`, `api/yamlRendererStringsCompat`, `api/yamlRendererStringsYaml11`.
 
 ## RenderDirective parity (deferred)
 
 `api/renderDirective` and `api/renderDirective2` cover every advertised renderer (pcf, json, jsonnet, plist, properties, textproto, xml, yaml) in one go: each fixture invokes `renderValue` / `renderDocument` on `new RenderDirective { text = ... }` against all eight renderers, including RenderDirective values inside Mapping keys, Listing elements, Dynamic objects, and the leaf positions of nested NestedDirectives. PCF / JSON / textproto already pass through `render_directive_text`; properties / plist / yaml / xml / jsonnet reject RenderDirective at the renderer error gate.
 
 A real fix needs to (a) bypass `*_renderer_value_error` / `*_renderer_document_error` when `render_directive_text(value) is Some(_)`, (b) emit `directive.text` verbatim from each renderer's main dispatch (including the mapping-key path, the listing-element path, and the dynamic-foo path), and (c) accept RenderDirective as a Mapping key without coercing to a scalar. The change is structurally similar across the five renderers but each one writes its own `write_leaf` / `write_entry` / `write_array` helpers, so the patch is ~5 × ~30 lines. Not blocking the current release gate — these two fixtures are the only places RenderDirective parity is asserted.
-- Stdlib module / metadata API: `api/analyze1`, `api/mathModule`, `api/reflectedDeclaration`.
+- Stdlib module / metadata API: `api/reflect4`.
 
 `internal` remaining DIFFs: `internal/polymorphicCallSite`.
 

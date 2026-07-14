@@ -712,6 +712,141 @@ test "analysis session resolves module amends and extends" {
 }
 
 ///|
+test "analysis session resolves package-relative module amends" {
+  let session = AnalysisSession::new()
+  let root = "package://localhost:0/birds@0.5.0#"
+  session.set_source(
+    root + "/Bird.pkl",
+    "open module birds.Bird\nname: String\nage: Int = 1",
+  )
+  session.set_source(
+    root + "/catalog/Swallow.pkl",
+    "amends \"../Bird.pkl\"\nname = \"Swallow\"",
+  )
+  guard session.eval_path(root + "/catalog/Swallow.pkl") is EvalOk(value) else {
+    panic()
+  }
+  inspect(
+    render_value(value),
+    content=(
+      #|name = "Swallow"
+      #|age = 1
+    ),
+  )
+}
+
+///|
+test "amended module satisfies an imported parent module type" {
+  let session = AnalysisSession::new()
+  session.set_source("fruit/Fruit.pkl", "module fruit.Fruit\nname: String")
+  session.set_source(
+    "fruit/apple.pkl", "amends \"Fruit.pkl\"\nname = \"Apple\"",
+  )
+  session.set_source(
+    "birds/Bird.pkl",
+    (
+      #|open module birds.Bird
+      #|import "../fruit/Fruit.pkl"
+      #|name: String
+      #|favoriteFruit: Fruit
+    ),
+  )
+  session.set_source(
+    "birds/catalog/Swallow.pkl",
+    (
+      #|amends "../Bird.pkl"
+      #|import "../../fruit/apple.pkl"
+      #|name = "Swallow"
+      #|favoriteFruit = apple
+    ),
+  )
+  session.set_source(
+    "birds/catalog/Ostrich.pkl",
+    (
+      #|amends "../Bird.pkl"
+      #|name = "Ostrich"
+      #|favoriteFruit { name = "Orange" }
+    ),
+  )
+  guard session.eval_path("birds/catalog/Swallow.pkl") is EvalOk(value) else {
+    panic()
+  }
+  inspect(
+    render_value(value),
+    content=(
+      #|name = "Swallow"
+      #|favoriteFruit {
+      #|  name = "Apple"
+      #|}
+    ),
+  )
+  guard session.eval_path("birds/catalog/Ostrich.pkl") is EvalOk(amended) else {
+    panic()
+  }
+  inspect(
+    render_value(amended),
+    content=(
+      #|name = "Ostrich"
+      #|favoriteFruit {
+      #|  name = "Orange"
+      #|}
+    ),
+  )
+}
+
+///|
+test "module-constrained listing accepts an imported module value" {
+  let session = AnalysisSession::new()
+  session.set_source("base.pkl", "items: Listing<module(this != module)>")
+  session.set_source("entry.pkl", "amends \"base.pkl\"\nitems {}")
+  session.set_source(
+    "main.pkl", "amends \"base.pkl\"\nitems { import(\"entry.pkl\") }",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(
+    render_value(value),
+    content=(
+      #|items {
+      #|  new {
+      #|    items {}
+      #|  }
+      #|}
+    ),
+  )
+}
+
+///|
+test "typed inherited module property amendment preserves parent fields" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "base.pkl",
+    (
+      #|class Teacher {
+      #|  name: String
+      #|  subjects: List<String>
+      #|}
+      #|teacher: Teacher = new Teacher {
+      #|  name = "parent"
+      #|  subjects = List("Fire making", "Stone age")
+      #|}
+    ),
+  )
+  session.set_source(
+    "main.pkl", "amends \"base.pkl\"\nteacher { name = \"child\" }",
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(
+    render_value(value),
+    content=(
+      #|teacher {
+      #|  name = "child"
+      #|  subjects = List("Fire making", "Stone age")
+      #|}
+    ),
+  )
+}
+
+///|
 test "Pkl module-level extends dispatches super through parent chain" {
   let session = AnalysisSession::new()
   session.set_source(

@@ -21,9 +21,7 @@ test "evaluate integer arithmetic with precedence" {
 test "PKL-pkspec-C: newline before closing paren parses" {
   assert_true(eval_source("(\n  1 + 2\n)") == EvalOk(IntValue(3)))
   // Leading newline after `(` and a trailing comment before `)`.
-  assert_true(
-    eval_source("(\n  4 * 5 // product\n)") == EvalOk(IntValue(20)),
-  )
+  assert_true(eval_source("(\n  4 * 5 // product\n)") == EvalOk(IntValue(20)))
 }
 
 ///|

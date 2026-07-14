@@ -62,13 +62,25 @@ fn is_v12_string_only_scalar(text : String) -> Bool {
   let mut has_underscore = false
   let mut has_digit = false
   for c in text {
-    if c is (' ' | '\t' | '\n' | '\r' | ':' | ',' | '[' | ']' | '{' | '}'
-      | '"' | '\'' | '#') {
+    if c
+      is (' '
+      | '\t'
+      | '\n'
+      | '\r'
+      | ':'
+      | ','
+      | '['
+      | ']'
+      | '{'
+      | '}'
+      | '"'
+      | '\''
+      | '#') {
       return false
     }
     if c == '_' {
       has_underscore = true
-    } else if c is '0'..='9' {
+    } else if c is ('0'..='9') {
       has_digit = true
     }
   }
@@ -287,7 +299,7 @@ fn yaml_v12_strip_trailing_block_newline(y : @yaml.Yaml) -> @yaml.Yaml {
       @yaml.Yaml::Array(out)
     }
     @yaml.Yaml::Map(m) => {
-      let out : Map[String, @yaml.Yaml] = {}
+      let out : Map[String, @yaml.Yaml] = Map([])
       let mut last_key : String? = None
       for k, _ in m {
         last_key = Some(k)
@@ -327,7 +339,7 @@ fn yaml_v12_promote_null(y : @yaml.Yaml) -> @yaml.Yaml {
       @yaml.Yaml::Array(out)
     }
     @yaml.Yaml::Map(m) => {
-      let out : Map[String, @yaml.Yaml] = {}
+      let out : Map[String, @yaml.Yaml] = Map([])
       for k, v in m {
         out[k] = yaml_v12_promote_null(v)
       }
@@ -510,10 +522,7 @@ fn strip_yaml_whitespace_v12(text : String) -> String {
 /// scalar. Returns `None` when we cannot identify the scalar (e.g.
 /// `!!binary` at end of source with no value); the caller leaves the
 /// region untouched in that case.
-fn extract_yaml_scalar_after(
-  source : String,
-  start : Int,
-) -> (String, Int)? {
+fn extract_yaml_scalar_after(source : String, start : Int) -> (String, Int)? {
   let len = source.length()
   let mut i = start
   while i < len {
@@ -653,7 +662,7 @@ let yaml_v12_complex_key_prefix : String = "\u{001f}PKL_KEY:"
 ///|
 fn leading_space_count(line : String) -> Int {
   let mut i = 0
-  while i < line.length() && line[i] is (' ') {
+  while i < line.length() && line[i] is ' ' {
     i = i + 1
   }
   i
@@ -689,7 +698,9 @@ fn yaml_v12_rewrite_complex_keys(source : String) -> String {
     let indent = leading_space_count(line)
     let body_start = indent
     let body = String::unsafe_substring(
-      line, start=body_start, end=line.length(),
+      line,
+      start=body_start,
+      end=line.length(),
     )
     if body.length() >= 2 && body[0] == '?' && body[1] is (' ' | '\t') {
       // Collect lines belonging to the key block: the rest of this
@@ -701,7 +712,9 @@ fn yaml_v12_rewrite_complex_keys(source : String) -> String {
       if line.length() > body_start + 2 {
         key_buf.write_string(
           String::unsafe_substring(
-            line, start=body_start + 2, end=line.length(),
+            line,
+            start=body_start + 2,
+            end=line.length(),
           ),
         )
       }
@@ -816,7 +829,9 @@ fn yaml_v12_try_decode_complex_key(
     }
   }
   let payload = String::unsafe_substring(
-    encoded_key, start=prefix.length(), end=encoded_key.length(),
+    encoded_key,
+    start=prefix.length(),
+    end=encoded_key.length(),
   )
   try {
     let raw_bytes = @base64.decode(payload[:])
@@ -849,7 +864,9 @@ fn yaml_v12_try_decode_binary_string(value : String) -> Value? {
     }
   }
   let payload = String::unsafe_substring(
-    value, start=prefix.length(), end=value.length(),
+    value,
+    start=prefix.length(),
+    end=value.length(),
   )
   let cleaned = strip_yaml_whitespace_v12(payload)
   try {

@@ -1001,14 +1001,23 @@ fn eval_pkl_analyze_intrinsic(
   ignore(name)
   if arguments.length() != 1 {
     diagnostics.push(
-      diag("_pkl_analyze_import_graph expects 1 argument, got \{arguments.length()}"),
+      diag(
+        "_pkl_analyze_import_graph expects 1 argument, got \{arguments.length()}",
+      ),
     )
     return None
   }
   let arg = match
     eval_expr_with_bindings(
-      arguments[0], bindings, env, class_env, cache, stack, declarations,
-      diagnostics, resolve_import,
+      arguments[0],
+      bindings,
+      env,
+      class_env,
+      cache,
+      stack,
+      declarations,
+      diagnostics,
+      resolve_import,
     ) {
     Some(v) => v
     None => return None
@@ -1025,7 +1034,9 @@ fn eval_pkl_analyze_intrinsic(
       for v in elements {
         push_seed(v)
       }
-    ListingValue(elements) | DefaultedListingValue(_, elements, _) | ListValue(elements) =>
+    ListingValue(elements)
+    | DefaultedListingValue(_, elements, _)
+    | ListValue(elements) =>
       for v in elements {
         push_seed(v)
       }
@@ -1060,8 +1071,7 @@ fn eval_pkl_analyze_intrinsic(
     imports_keys.push(uri)
     imports_lists.push(children)
     for child in children {
-      if !analyze_seen(visited, child) &&
-        !analyze_seen(queue, child) {
+      if !analyze_seen(visited, child) && !analyze_seen(queue, child) {
         queue.push(child)
       }
     }
@@ -1079,7 +1089,12 @@ fn eval_pkl_analyze_intrinsic(
     for child in children {
       import_objects.push(
         ObjectValue([
-          { name: "uri", value: StringValue(child), source: None, annotations: [] },
+          {
+            name: "uri",
+            value: StringValue(child),
+            source: None,
+            annotations: [],
+          },
         ]),
       )
     }
@@ -1087,10 +1102,7 @@ fn eval_pkl_analyze_intrinsic(
       key: StringValue(key),
       value: ListingValue(import_objects),
     })
-    resolved_entries.push({
-      key: StringValue(key),
-      value: StringValue(key),
-    })
+    resolved_entries.push({ key: StringValue(key), value: StringValue(key) })
   }
   Some(
     ObjectValue([

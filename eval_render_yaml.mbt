@@ -963,7 +963,7 @@ fn yaml_looks_like_number_v12(s : String) -> Bool {
       return false
     }
     for i in 2..<len {
-      if !(s[i] is '0'..='7') {
+      if !(s[i] is ('0'..='7')) {
         return false
       }
     }
@@ -975,7 +975,7 @@ fn yaml_looks_like_number_v12(s : String) -> Bool {
     }
     for i in 2..<len {
       let c = s[i]
-      if !(c is '0'..='9' || c is 'a'..='f' || c is 'A'..='F') {
+      if !(c is ('0'..='9') || c is ('a'..='f') || c is ('A'..='F')) {
         return false
       }
     }
@@ -986,7 +986,7 @@ fn yaml_looks_like_number_v12(s : String) -> Bool {
     idx = idx + 1
   }
   let int_start = idx
-  while idx < len && s[idx] is '0'..='9' {
+  while idx < len && s[idx] is ('0'..='9') {
     idx = idx + 1
   }
   let int_len = idx - int_start
@@ -995,7 +995,7 @@ fn yaml_looks_like_number_v12(s : String) -> Bool {
     saw_dot = true
     idx = idx + 1
     let frac_start = idx
-    while idx < len && s[idx] is '0'..='9' {
+    while idx < len && s[idx] is ('0'..='9') {
       idx = idx + 1
     }
     if int_len == 0 && idx == frac_start {
@@ -1011,7 +1011,7 @@ fn yaml_looks_like_number_v12(s : String) -> Bool {
       idx = idx + 1
     }
     let exp_start = idx
-    while idx < len && s[idx] is '0'..='9' {
+    while idx < len && s[idx] is ('0'..='9') {
       idx = idx + 1
     }
     if idx == exp_start {
@@ -1060,8 +1060,8 @@ fn yaml_looks_like_v11_only_number(s : String) -> Bool {
   for c in s {
     if c == '_' {
       has_underscore = true
-    } else if c is '0'..='9' || c == '+' || c == '-' || c == '.' {
-      if c is '0'..='9' {
+    } else if c is ('0'..='9') || c == '+' || c == '-' || c == '.' {
+      if c is ('0'..='9') {
         has_digit = true
       }
     } else {
@@ -1102,10 +1102,7 @@ fn yaml_looks_like_v11_only_number(s : String) -> Bool {
     return true
   }
   // Bare leading-zero octal `0\d+` is treated as int by 1.1.
-  if s[0] == '0' &&
-    len >= 2 &&
-    s[1] is '0'..='9' &&
-    yaml_string_all_digits(s) {
+  if s[0] == '0' && len >= 2 && s[1] is ('0'..='9') && yaml_string_all_digits(s) {
     return true
   }
   false
@@ -1114,7 +1111,7 @@ fn yaml_looks_like_v11_only_number(s : String) -> Bool {
 ///|
 fn yaml_string_all_digits(s : String) -> Bool {
   for c in s {
-    if !(c is '0'..='9') {
+    if !(c is ('0'..='9')) {
       return false
     }
   }
@@ -1134,7 +1131,7 @@ fn yaml_looks_like_base60(s : String) -> Bool {
     idx = idx + 1
   }
   let head_start = idx
-  while idx < len && s[idx] is '0'..='9' {
+  while idx < len && s[idx] is ('0'..='9') {
     idx = idx + 1
   }
   if idx == head_start {
@@ -1146,7 +1143,7 @@ fn yaml_looks_like_base60(s : String) -> Bool {
   while idx < len && s[idx] == ':' {
     idx = idx + 1
     let group_start = idx
-    while idx < len && s[idx] is '0'..='9' {
+    while idx < len && s[idx] is ('0'..='9') {
       idx = idx + 1
     }
     if idx == group_start {
@@ -1155,7 +1152,7 @@ fn yaml_looks_like_base60(s : String) -> Bool {
   }
   if idx < len && s[idx] == '.' {
     idx = idx + 1
-    while idx < len && s[idx] is '0'..='9' {
+    while idx < len && s[idx] is ('0'..='9') {
       idx = idx + 1
     }
   }

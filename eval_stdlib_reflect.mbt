@@ -70,7 +70,9 @@ fn build_stdlib_reflect_db(source : String) -> StdlibReflectDb {
         let parent = stdlib_class_parent_from_source(lines, info)
         let doc = stdlib_doc_comment_above(lines, info)
         let modifiers = stdlib_class_modifiers_from_source(
-          lines, info, class_decl.is_abstract,
+          lines,
+          info,
+          class_decl.is_abstract,
         )
         classes[class_decl.name] = {
           name: class_decl.name,
@@ -170,9 +172,7 @@ fn stdlib_starts_with_ident(text : String, name : String) -> Bool {
     return true
   }
   let next = text[name.length()].to_int().unsafe_to_char()
-  !(
-    next is ('a'..='z' | 'A'..='Z' | '0'..='9' | '_')
-  )
+  !(next is ('a'..='z' | 'A'..='Z' | '0'..='9' | '_'))
 }
 
 ///|
@@ -219,7 +219,7 @@ fn stdlib_class_parent_from_source(
       if end == 0 {
         None
       } else {
-        Some(String::unsafe_substring(after, start=0, end=end))
+        Some(String::unsafe_substring(after, start=0, end~))
       }
     }
   }
@@ -293,7 +293,11 @@ fn stdlib_doc_comment_above(
       continue
     }
     if trimmed.has_prefix("///") && !trimmed.has_prefix("////") {
-      let after = String::unsafe_substring(trimmed, start=3, end=trimmed.length())
+      let after = String::unsafe_substring(
+        trimmed,
+        start=3,
+        end=trimmed.length(),
+      )
       let body = if after.has_prefix(" ") {
         String::unsafe_substring(after, start=1, end=after.length())
       } else {
@@ -371,14 +375,15 @@ fn gold_display_uri_for_path_str(p : String) -> String {
   // (`third_party/...`) forms of the snippet-test prefix so CLI
   // arguments passed as relative paths still substitute correctly.
   let markers = [
-    "/third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests",
-    "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests",
+    "/third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests", "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests",
   ]
   for marker in markers {
     match p.find(marker) {
       Some(idx) => {
         let tail = String::unsafe_substring(
-          p, start=idx + marker.length(), end=p.length(),
+          p,
+          start=idx + marker.length(),
+          end=p.length(),
         )
         return "file:///$snippetsDir" + tail
       }
@@ -473,9 +478,21 @@ fn build_typealias_gold_mirror(
   let line = gold_decl_line(source, alias_decl.name, "typealias")
   let doc = stdlib_doc_comment_lookup(source, alias_decl.name, "typealias")
   let referent = gold_type_from_annotation(
-    alias_decl.target, declarations, module_prefix, [],
+    alias_decl.target,
+    declarations,
+    module_prefix,
+    [],
   )
+  let qualified_name = if alias_decl.name.find(".") is Some(_) ||
+    module_prefix == "" ||
+    module_prefix == "module" {
+    alias_decl.name
+  } else {
+    module_prefix + "." + alias_decl.name
+  }
   ObjectValue([
+    reflect_hidden_member("__kind", StringValue("TypeAlias")),
+    reflect_hidden_member("__qualified_name", StringValue(qualified_name)),
     {
       name: "location",
       value: gold_location_value(line, 1, path),
@@ -499,13 +516,13 @@ fn build_typealias_gold_mirror(
       source: None,
       annotations: [],
     },
-    { name: "typeParameters", value: ListValue([]), source: None, annotations: [] },
     {
-      name: "referent",
-      value: referent,
+      name: "typeParameters",
+      value: ListValue([]),
       source: None,
       annotations: [],
     },
+    { name: "referent", value: referent, source: None, annotations: [] },
   ])
 }
 
@@ -548,12 +565,7 @@ fn build_class_gold_mirror(
   )
   let supertype = ObjectValue([
     reflect_hidden_member("__kind", StringValue("DeclaredType")),
-    {
-      name: "referent",
-      value: superclass,
-      source: None,
-      annotations: [],
-    },
+    { name: "referent", value: superclass, source: None, annotations: [] },
     {
       name: "typeArguments",
       value: ListValue([]),
@@ -561,19 +573,32 @@ fn build_class_gold_mirror(
       annotations: [],
     },
   ])
+  let qualified_name = if class_decl.name.find(".") is Some(_) ||
+    module_prefix == "" ||
+    module_prefix == "module" {
+    class_decl.name
+  } else {
+    module_prefix + "." + class_decl.name
+  }
   let property_entries : Array[ValueEntry] = []
   for property in class_decl.properties {
     let bare_name = strip_member_visibility_prefix(property.name)
     let prop_line = gold_decl_line(source, bare_name, "property")
     let prop_doc = doc_comment_before_class_member(
-      source, class_decl.name, bare_name, "property",
+      source,
+      class_decl.name,
+      bare_name,
+      "property",
     )
     let prop_type_text = match property.type_name {
       Some(t) => t
       None => "Any"
     }
     let prop_type = gold_type_from_annotation(
-      prop_type_text, declarations, module_prefix, [],
+      prop_type_text,
+      declarations,
+      module_prefix,
+      [],
     )
     let modifiers_value = reflect_class_member_modifiers_from_source(
       source,
@@ -646,8 +671,18 @@ fn build_class_gold_mirror(
         source: None,
         annotations: [],
       },
-      { name: "modifiers", value: modifiers_value, source: None, annotations: [] },
-      { name: "name", value: StringValue(bare_name), source: None, annotations: [] },
+      {
+        name: "modifiers",
+        value: modifiers_value,
+        source: None,
+        annotations: [],
+      },
+      {
+        name: "name",
+        value: StringValue(bare_name),
+        source: None,
+        annotations: [],
+      },
       {
         name: "allModifiers",
         value: SetValue(all_modifiers_values),
@@ -667,9 +702,14 @@ fn build_class_gold_mirror(
       // lookup path.
       reflect_hidden_member("type", prop_type),
     ])
-    property_entries.push({ key: StringValue(bare_name), value: property_mirror })
+    property_entries.push({
+      key: StringValue(bare_name),
+      value: property_mirror,
+    })
   }
   ObjectValue([
+    reflect_hidden_member("__kind", StringValue("Class")),
+    reflect_hidden_member("__qualified_name", StringValue(qualified_name)),
     {
       name: "location",
       value: gold_location_value(line, 1, path),
@@ -693,19 +733,14 @@ fn build_class_gold_mirror(
       source: None,
       annotations: [],
     },
-    { name: "typeParameters", value: ListValue([]), source: None, annotations: [] },
     {
-      name: "superclass",
-      value: superclass,
+      name: "typeParameters",
+      value: ListValue([]),
       source: None,
       annotations: [],
     },
-    {
-      name: "supertype",
-      value: supertype,
-      source: None,
-      annotations: [],
-    },
+    { name: "superclass", value: superclass, source: None, annotations: [] },
+    { name: "supertype", value: supertype, source: None, annotations: [] },
     {
       name: "properties",
       value: MapValue(property_entries),
@@ -718,17 +753,10 @@ fn build_class_gold_mirror(
       source: None,
       annotations: [],
     },
-    {
-      name: "methods",
-      value: MapValue([]),
-      source: None,
-      annotations: [],
-    },
+    { name: "methods", value: MapValue([]), source: None, annotations: [] },
     {
       name: "allMethods",
-      value: MapValue(
-        build_user_class_all_method_entries(parent_name),
-      ),
+      value: MapValue(build_user_class_all_method_entries(parent_name)),
       source: None,
       annotations: [],
     },
@@ -862,7 +890,10 @@ fn build_user_class_all_method_entries(
 /// PKL-080: rewrite the `displayUri` of a method mirror's
 /// `location` to a new value. Returns a fresh ObjectValue with the
 /// location member replaced.
-fn gold_replace_method_display_uri(method_value : Value, new_uri : String) -> Value {
+fn gold_replace_method_display_uri(
+  method_value : Value,
+  new_uri : String,
+) -> Value {
   match method_value {
     ObjectValue(members) => {
       let next : Array[ValueMember] = []
@@ -995,8 +1026,18 @@ fn build_stdlib_class_gold_mirror(
           let parent_mirror = build_stdlib_class_gold_mirror(parent_meta, db)
           let supertype_value = ObjectValue([
             reflect_hidden_member("__kind", StringValue("DeclaredType")),
-            { name: "referent", value: parent_mirror, source: None, annotations: [] },
-            { name: "typeArguments", value: ListValue([]), source: None, annotations: [] },
+            {
+              name: "referent",
+              value: parent_mirror,
+              source: None,
+              annotations: [],
+            },
+            {
+              name: "typeArguments",
+              value: ListValue([]),
+              source: None,
+              annotations: [],
+            },
           ])
           (parent_mirror, supertype_value)
         }
@@ -1015,9 +1056,24 @@ fn build_stdlib_class_gold_mirror(
       annotations: [],
     },
     { name: "annotations", value: ListValue([]), source: None, annotations: [] },
-    { name: "modifiers", value: SetValue(modifier_values), source: None, annotations: [] },
-    { name: "name", value: StringValue(meta.name), source: None, annotations: [] },
-    { name: "typeParameters", value: ListValue([]), source: None, annotations: [] },
+    {
+      name: "modifiers",
+      value: SetValue(modifier_values),
+      source: None,
+      annotations: [],
+    },
+    {
+      name: "name",
+      value: StringValue(meta.name),
+      source: None,
+      annotations: [],
+    },
+    {
+      name: "typeParameters",
+      value: ListValue([]),
+      source: None,
+      annotations: [],
+    },
     { name: "superclass", value: superclass, source: None, annotations: [] },
     { name: "supertype", value: supertype, source: None, annotations: [] },
     {
@@ -1044,9 +1100,7 @@ fn build_stdlib_class_gold_mirror(
     },
     {
       name: "allMethods",
-      value: MapValue(
-        build_stdlib_all_method_entries(meta, db),
-      ),
+      value: MapValue(build_stdlib_all_method_entries(meta, db)),
       source: None,
       annotations: [],
     },
@@ -1161,7 +1215,9 @@ fn stdlib_property_line(
         for prefix in prefixes {
           if rest.has_prefix(prefix) {
             rest = String::unsafe_substring(
-              rest, start=prefix.length(), end=rest.length(),
+              rest,
+              start=prefix.length(),
+              end=rest.length(),
             )
             changed = true
           }
@@ -1169,7 +1225,9 @@ fn stdlib_property_line(
       }
       if stdlib_starts_with_ident(rest, prop_name) {
         let after = String::unsafe_substring(
-          rest, start=prop_name.length(), end=rest.length(),
+          rest,
+          start=prop_name.length(),
+          end=rest.length(),
         )
         let trimmed_after = stdlib_trim_leading_ws(after)
         if trimmed_after.has_prefix(":") {
@@ -1226,11 +1284,26 @@ fn build_stdlib_property_mirror(
       source: None,
       annotations: [],
     },
-    { name: "annotations", value: annotation_values, source: None, annotations: [] },
+    {
+      name: "annotations",
+      value: annotation_values,
+      source: None,
+      annotations: [],
+    },
     { name: "modifiers", value: SetValue([]), source: None, annotations: [] },
-    { name: "name", value: StringValue(prop_name), source: None, annotations: [] },
+    {
+      name: "name",
+      value: StringValue(prop_name),
+      source: None,
+      annotations: [],
+    },
     { name: "allModifiers", value: SetValue([]), source: None, annotations: [] },
-    { name: "allAnnotations", value: all_annotation_values, source: None, annotations: [] },
+    {
+      name: "allAnnotations",
+      value: all_annotation_values,
+      source: None,
+      annotations: [],
+    },
   ])
 }
 
@@ -1380,8 +1453,15 @@ fn stdlib_annotation_text_to_value(text : String) -> Value? {
       let diagnostics : Array[Diagnostic] = []
       let resolve_import = fn(_uri : String) -> EvalResult? { None }
       let value = eval_expr_with_bindings(
-        binding.value, [], [], [], [], [], parsed.program.declarations,
-        diagnostics, resolve_import,
+        binding.value,
+        [],
+        [],
+        [],
+        [],
+        [],
+        parsed.program.declarations,
+        diagnostics,
+        resolve_import,
       )
       match value {
         Some(ObjectValue(members)) => {
@@ -1433,9 +1513,7 @@ fn build_stdlib_method_entries(
   let _ = db
   let entries : Array[ValueEntry] = []
   for method_decl in methods {
-    let method_line = stdlib_method_line(
-      method_decl.name, class_line, db,
-    )
+    let method_line = stdlib_method_line(method_decl.name, class_line, db)
     entries.push({
       key: StringValue(method_decl.name),
       value: build_stdlib_method_mirror(method_decl, method_line, db),
@@ -1694,43 +1772,104 @@ fn gold_type_from_annotation(
     }
     return ObjectValue([
       reflect_hidden_member("__kind", StringValue("UnionType")),
-      { name: "members", value: ListValue(members), source: None, annotations: [] },
+      {
+        name: "members",
+        value: ListValue(members),
+        source: None,
+        annotations: [],
+      },
     ])
   }
   if trimmed.has_suffix("?") {
-    let base = String::unsafe_substring(trimmed, start=0, end=trimmed.length() - 1)
+    let base = String::unsafe_substring(
+      trimmed,
+      start=0,
+      end=trimmed.length() - 1,
+    )
     let inner = gold_type_from_annotation(
       base, declarations, module_prefix, type_parameters,
     )
     return ObjectValue([
       reflect_hidden_member("__kind", StringValue("NullableType")),
-      { name: "member", value: inner, source: None, annotations: [] },
+      { name: "baseType", value: inner, source: None, annotations: [] },
     ])
   }
   let base = match pkl_constrained_type_base_name(trimmed) {
     Some(b) => b
     None => trimmed
   }
-  let (head, _args) = match try_split_generic_name(base) {
+  let (head, args) = match try_split_generic_name(base) {
     Some(pair) => pair
     None => (base, [])
+  }
+  let mut simple_start = 0
+  for i = 0; i < head.length(); i = i + 1 {
+    if head[i] == '.' {
+      simple_start = i + 1
+    }
+  }
+  let simple_head = if simple_start == 0 {
+    head
+  } else {
+    String::unsafe_substring(head, start=simple_start, end=head.length())
+  }
+  let type_arguments : Array[Value] = []
+  for arg in args {
+    type_arguments.push(
+      gold_type_from_annotation(
+        arg, declarations, module_prefix, type_parameters,
+      ),
+    )
   }
   // User class / typealias takes precedence over stdlib.
   for decl in declarations {
     match decl {
       ClassDeclaration(class_decl) =>
-        if class_decl.name == head {
+        if class_decl.name == head || class_decl.name == simple_head {
           return ObjectValue([
             reflect_hidden_member("__kind", StringValue("DeclaredType")),
             {
               name: "referent",
               value: gold_class_mirror_for_name(
-                head, declarations, module_prefix, None, None,
+                class_decl.name,
+                declarations,
+                module_prefix,
+                None,
+                None,
               ),
               source: None,
               annotations: [],
             },
-            { name: "typeArguments", value: ListValue([]), source: None, annotations: [] },
+            {
+              name: "typeArguments",
+              value: ListValue(type_arguments),
+              source: None,
+              annotations: [],
+            },
+          ])
+        }
+      TypeAliasDeclaration(alias_decl) =>
+        if alias_decl.name == head || alias_decl.name == simple_head {
+          return ObjectValue([
+            reflect_hidden_member("__kind", StringValue("DeclaredType")),
+            {
+              name: "referent",
+              value: build_typealias_gold_mirror(
+                alias_decl,
+                declarations,
+                module_prefix,
+                None,
+                None,
+              ),
+              source: None,
+              annotations: [],
+            },
+            {
+              name: "typeArguments",
+              value: ListValue(type_arguments),
+              source: None,
+              annotations: [],
+            },
           ])
         }
       _ => ()
@@ -1749,7 +1888,12 @@ fn gold_type_from_annotation(
               source: None,
               annotations: [],
             },
-            { name: "typeArguments", value: ListValue([]), source: None, annotations: [] },
+            {
+              name: "typeArguments",
+              value: ListValue(type_arguments),
+              source: None,
+              annotations: [],
+            },
           ])
         None => ()
       }
@@ -1765,6 +1909,11 @@ fn gold_type_from_annotation(
       source: None,
       annotations: [],
     },
-    { name: "typeArguments", value: ListValue([]), source: None, annotations: [] },
+    {
+      name: "typeArguments",
+      value: ListValue(type_arguments),
+      source: None,
+      annotations: [],
+    },
   ])
 }

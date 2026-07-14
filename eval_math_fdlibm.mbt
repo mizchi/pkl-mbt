@@ -88,8 +88,7 @@ fn fdlibm_kernel_sin(x : Double, y : Double, iy : Bool) -> Double {
   let z = x * x
   let v = z * x
   let r = fdlibm_s2 +
-    z *
-    (fdlibm_s3 + z * (fdlibm_s4 + z * (fdlibm_s5 + z * fdlibm_s6)))
+    z * (fdlibm_s3 + z * (fdlibm_s4 + z * (fdlibm_s5 + z * fdlibm_s6)))
   if !iy {
     x + v * (fdlibm_s1 + z * r)
   } else {
@@ -105,7 +104,10 @@ fn fdlibm_kernel_cos(x : Double, y : Double) -> Double {
     (
       fdlibm_c1 +
       z *
-      (fdlibm_c2 + z * (fdlibm_c3 + z * (fdlibm_c4 + z * (fdlibm_c5 + z * fdlibm_c6))))
+      (
+        fdlibm_c2 +
+        z * (fdlibm_c3 + z * (fdlibm_c4 + z * (fdlibm_c5 + z * fdlibm_c6)))
+      )
     )
   if x.abs() < 0.3 {
     1.0 - (0.5 * z - (z * r - x * y))
@@ -148,7 +150,7 @@ fn fdlibm_rem_pio2(x : Double) -> (Double, Double, Int) {
   // already-correct kernels for `sin(2.34)` / `cos(2.34)`.
   let needs_second = y0_first.abs() * 65536.0 < x.abs()
   if !needs_second {
-    let y1_first = (r1 - y0_first) - w1
+    let y1_first = r1 - y0_first - w1
     return (y0_first, y1_first, n & 3)
   }
   // Second Cody-Waite pass — accurate to ~118 bits. Refine `r` with

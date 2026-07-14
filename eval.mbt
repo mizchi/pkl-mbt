@@ -115,7 +115,7 @@ pub(all) struct ValueMember {
 } derive(Debug)
 
 ///|
-impl Eq for ValueMember with equal(a, b) {
+impl Eq for ValueMember with fn equal(a, b) {
   a.name == b.name && a.value == b.value
 }
 
@@ -832,12 +832,11 @@ fn eval_source_with_imports(
   source : String,
   resolve_import : (String) -> EvalResult?,
 ) -> EvalResult {
-  eval_source_with_import_details(
-    source,
-    resolve_import,
-    fn(_) { None },
-    fn(_) { None },
-  )
+  eval_source_with_import_details(source, resolve_import, fn(_) { None }, fn(
+    _,
+  ) {
+    None
+  })
 }
 
 ///|

@@ -584,6 +584,7 @@ fn render_pcf_inline(
 }
 
 ///|
+
 ///|
 /// PKL-080: when a `StringValue` carries a `\u{001f}BARE:` prefix
 /// it's a snippet-test placeholder (`X` / `XX` / `XXXX` / etc.) that
@@ -1027,7 +1028,10 @@ fn render_pcf_object_member(
       Some(text) => buf.write_string(text)
       None =>
         render_pcf_string_value(
-          s, indent + 2, use_custom_string_delimiters, buf,
+          s,
+          indent + 2,
+          use_custom_string_delimiters,
+          buf,
         )
     }
   } else {

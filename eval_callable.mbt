@@ -1306,7 +1306,7 @@ fn rewrite_function_body_for_return_type(
       if class_name.contains("|") ||
         class_name.contains("(") ||
         class_name.contains("?") ||
-        (class_name.contains(".") && not(class_name.contains("<"))) {
+        (class_name.contains(".") && !class_name.contains("<")) {
         body
       } else {
         rewrite_function_body_for_return_type_inner(body, class_name, class_env)
@@ -1323,7 +1323,9 @@ fn rewrite_function_body_for_return_type_inner(
   match body {
     LetExpr(n, tn, v, inner) =>
       LetExpr(
-        n, tn, v,
+        n,
+        tn,
+        v,
         rewrite_function_body_for_return_type_inner(inner, type_name, class_env),
       )
     ObjectLiteral(members) =>

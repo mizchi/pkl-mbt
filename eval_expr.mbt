@@ -2876,7 +2876,7 @@ fn cast_value_to_single_type_annotation(
     return match value {
       ObjectValue(members) =>
         match find_object_class_tag(members) {
-          Some("module") => TypeCastOk(value)
+          Some("module") | Some("Module") => TypeCastOk(value)
           Some(_) =>
             TypeCastErr(
               as_cast_type_mismatch_message(
@@ -3012,8 +3012,7 @@ fn cast_value_to_single_type_annotation(
       // elements / cast targets.
       TypeCastOk(
         backfill_user_class_typed_fields(
-          head, value, bindings, env, class_env, cache, stack, declarations,
-          resolve_import,
+          head, value, bindings, env, class_env, cache, stack, declarations, resolve_import,
         ),
       )
   }
@@ -3060,8 +3059,8 @@ fn backfill_user_class_typed_fields(
   nested_stack.push(marker)
   let scratch_diagnostics : Array[Diagnostic] = []
   let out : Array[ValueMember] = []
-  for member in members {
-    let bare = strip_member_visibility_prefix(member.name)
+  for value_member in members {
+    let bare = strip_member_visibility_prefix(value_member.name)
     // Only touch members that carry actual collection elements: a
     // populated `Listing` / `Mapping`. Scalars, objects, and empty
     // collections already render correctly, and re-running the typed
@@ -3069,7 +3068,7 @@ fn backfill_user_class_typed_fields(
     // produced (`body`, `expectStatus`, …). This keeps the backfill
     // strictly to the "nested typed-collection element defaults weren't
     // applied" case it targets.
-    let touch = match member.value {
+    let touch = match value_member.value {
       ListingValue(elements)
       | DefaultedListingValue(_, elements, _)
       | ListValue(elements)
@@ -3080,11 +3079,12 @@ fn backfill_user_class_typed_fields(
       _ => false
     }
     if !touch {
-      out.push(member)
+      out.push(value_member)
       continue
     }
-    if is_invisible_member_name(member.name) && !is_hidden_member_name(member.name) {
-      out.push(member)
+    if is_invisible_member_name(value_member.name) &&
+      !is_hidden_member_name(value_member.name) {
+      out.push(value_member)
       continue
     }
     let field_type = class_property_type_annotation_from_class_env(
@@ -3099,9 +3099,8 @@ fn backfill_user_class_typed_fields(
           Some(b) => b
           None => t
         }
-        let inner = match collection_element_type_from_annotation(
-            base, declarations,
-          ) {
+        let inner = match
+          collection_element_type_from_annotation(base, declarations) {
           Some(et) => Some(et)
           None =>
             match mapping_entry_types_from_annotation(base, declarations) {
@@ -3123,18 +3122,18 @@ fn backfill_user_class_typed_fields(
       None => false
     }
     if !element_is_user_class {
-      out.push(member)
+      out.push(value_member)
       continue
     }
     let type_name = match field_type {
       Some(t) => t
       None => {
-        out.push(member)
+        out.push(value_member)
         continue
       }
     }
     let applied = apply_collection_default_for_type(
-      member.value,
+      value_member.value,
       Some(type_name),
       bindings,
       env,
@@ -3146,21 +3145,14 @@ fn backfill_user_class_typed_fields(
       resolve_import,
     )
     let applied = apply_typed_listing_annotation(
-      type_name,
-      applied,
-      bindings,
-      env,
-      class_env,
-      cache,
-      nested_stack,
-      declarations,
+      type_name, applied, bindings, env, class_env, cache, nested_stack, declarations,
       resolve_import,
     )
     out.push({
-      name: member.name,
+      name: value_member.name,
       value: applied,
-      source: member.source,
-      annotations: member.annotations,
+      source: value_member.source,
+      annotations: value_member.annotations,
     })
   }
   ObjectValue(out)
@@ -4413,8 +4405,17 @@ fn eval_expr_with_bindings(
         module_super_members_from_cache(cache) is Some(parent_members) {
         match
           resolve_module_parent_member_value(
-            member_name, parent_members, [], bindings, env, class_env, cache, stack,
-            declarations, diagnostics, resolve_import,
+            member_name,
+            parent_members,
+            [],
+            bindings,
+            env,
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
           ) {
           Some(value) => Some(value)
           None => {
@@ -8873,7 +8874,8 @@ fn push_mixin_object_member(
       // dropping the renderer-declared converter before the mixin's
       // could be added (`api/renderDirective2` Properties branch).
       let merged_value = mixin_merge_member_values(
-        values[i].value, value_member.value,
+        values[i].value,
+        value_member.value,
       )
       values[i] = {
         name: value_member.name,
@@ -8899,9 +8901,9 @@ fn mixin_merge_member_values(left : Value, right : Value) -> Value {
     | (DefaultedMappingValue(_, left_entries, _), MappingValue(right_entries))
     | (MappingValue(left_entries), DefaultedMappingValue(_, right_entries, _))
     | (
-        DefaultedMappingValue(_, left_entries, _),
-        DefaultedMappingValue(_, right_entries, _),
-      ) => {
+      DefaultedMappingValue(_, left_entries, _),
+      DefaultedMappingValue(_, right_entries, _),
+    ) => {
       let merged : Array[ValueEntry] = []
       for entry in left_entries {
         merged.push(entry)
@@ -9262,7 +9264,9 @@ fn reeval_class_defaults_after_constructor_overrides(
       Some(_) => property.type_name
       None =>
         class_property_type_annotation_from_class_env(
-          type_name, property.name, class_env,
+          type_name,
+          property.name,
+          class_env,
         )
     }
     // PKL-153g: mirror the TypedObjectLiteral promotion the initial
@@ -9328,24 +9332,15 @@ fn reeval_class_defaults_after_constructor_overrides(
       ) {
       Some(raw_value) => {
         let value = coerce_value_to_annotated_type(
-          raw_value,
-          effective_property_type,
+          raw_value, effective_property_type,
         )
         // PKL-159c: finalize a re-evaluated collection default the same
         // way the member-eval path does, so a `Listing<T>` / `Mapping<K,
         // V>` body's element / value defaults are applied (matches
         // `apply_collection_default_for_type` at the field-eval site).
         let value = apply_collection_default_for_type(
-          value,
-          effective_property_type,
-          bindings,
-          local_env,
-          class_env,
-          reeval_cache,
-          stack,
-          declarations,
-          diagnostics,
-          resolve_import,
+          value, effective_property_type, bindings, local_env, class_env, reeval_cache,
+          stack, declarations, diagnostics, resolve_import,
         )
         if replace_member_value_by_bare_name(current, property.name, value) {
           remove_pending_error_member_by_bare_name(current, property.name)
