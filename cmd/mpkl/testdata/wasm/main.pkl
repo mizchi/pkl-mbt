@@ -1,0 +1,4 @@
+import "base.pkl" as base
+
+name = base.name
+answer = base.answer + 1

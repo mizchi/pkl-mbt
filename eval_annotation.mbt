@@ -132,10 +132,7 @@ fn eval_resolved_type_alias(
   let entry = match entry_opt {
     Some(e) => e
     None => {
-      let fresh : ResolvedAliasEntry = {
-        aliases,
-        memo: Map([], capacity=32),
-      }
+      let fresh : ResolvedAliasEntry = { aliases, memo: Map([], capacity=32) }
       while resolved_alias_cache.val.length() >= 4 {
         let _ = resolved_alias_cache.val.remove(0)
       }
@@ -192,8 +189,16 @@ fn apply_class_defaults_for_type(
   resolve_import : (String) -> EvalResult?,
 ) -> Value {
   apply_class_defaults_for_type_seen(
-    value, type_name, bindings, env, class_env, cache, declarations, diagnostics,
-    resolve_import, [],
+    value,
+    type_name,
+    bindings,
+    env,
+    class_env,
+    cache,
+    declarations,
+    diagnostics,
+    resolve_import,
+    [],
   )
 }
 
@@ -235,8 +240,16 @@ fn apply_class_defaults_for_type_seen(
               seen_copy.push(s)
             }
             let defaults = eval_class_default_members_seen(
-              base, bindings, env, class_env, cache, [], declarations, diagnostics,
-              resolve_import, seen_copy,
+              base,
+              bindings,
+              env,
+              class_env,
+              cache,
+              [],
+              declarations,
+              diagnostics,
+              resolve_import,
+              seen_copy,
             )
             if defaults.length() == 0 {
               value
@@ -268,8 +281,15 @@ fn synthesize_default_for_type(
   resolve_import : (String) -> EvalResult?,
 ) -> Value? {
   synthesize_default_for_type_seen(
-    type_name, bindings, env, class_env, cache, declarations, diagnostics,
-    resolve_import, [],
+    type_name,
+    bindings,
+    env,
+    class_env,
+    cache,
+    declarations,
+    diagnostics,
+    resolve_import,
+    [],
   )
 }
 
@@ -328,9 +348,7 @@ fn synthesize_default_for_type_seen(
         None => ()
       }
       // Nullable types (`T?`) default to null.
-      if string_ends_with_char(name, '?') ||
-        name == "Null" ||
-        name == "Nothing" {
+      if string_ends_with_char(name, '?') || name == "Null" || name == "Nothing" {
         return Some(NullValue)
       }
       // `A|B|*C|D` — any union choice carrying a leading `*` is the
@@ -427,10 +445,12 @@ fn synthesize_default_for_type_seen(
             } else if name == "Map" || name.has_prefix("Map<") {
               return Some(MapValue([]))
             }
-          'S' => if name == "Set" || name.has_prefix("Set<") {
+          'S' =>
+            if name == "Set" || name.has_prefix("Set<") {
               return Some(SetValue([]))
             }
-          'C' => if name == "Collection" || name.has_prefix("Collection<") {
+          'C' =>
+            if name == "Collection" || name.has_prefix("Collection<") {
               return Some(ListValue([]))
             }
           _ => ()
@@ -505,6 +525,7 @@ fn coerce_value_to_annotated_type(value : Value, type_name : String?) -> Value {
 }
 
 ///|
+
 ///|
 /// PKL-153: returns `true` when `raw_type`'s base class is currently
 /// being materialised on the class-default expansion stack. Used by

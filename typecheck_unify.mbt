@@ -220,6 +220,10 @@ fn type_accepts(expected : Type, inferred : Type) -> Bool {
   }
   match (expected, inferred) {
     (UnknownType, _) => true
+    // Unknown means inference could not refine the expression, not that the
+    // expression is known to violate the annotation. The originating lookup
+    // already emits a diagnostic when it is genuinely unresolved.
+    (_, UnknownType) => true
     // PKL-110: a free type parameter accepts any incoming type at
     // unification time. The substitution pass at the call site fills in
     // the concrete type before the return value flows on; if no call site
@@ -237,6 +241,8 @@ fn type_accepts(expected : Type, inferred : Type) -> Bool {
       type_accepts(expected, actual_inner)
     (ObjectType(_), ObjectType(_)) => true
     (ObjectType(_), ClassType(_, _)) => true
+    (ClassType(expected_name, _), ClassType(actual_name, _)) =>
+      expected_name == actual_name
     (UnionType(expected_options), UnionType(actual_options)) => {
       let mut ok = true
       for actual in actual_options {
@@ -347,7 +353,28 @@ fn type_accepts(expected : Type, inferred : Type) -> Bool {
     // binding annotation; mirror the same coercion here so the
     // typechecker accepts `tests: Listing<Test> = new {}` and
     // `m: Mapping<K, V> = new {}` cleanly.
-    (ListingType(_), ObjectType(members)) => members.length() == 0
+    (ListingType(expected_items), ObjectType(members)) => {
+      let expected_item = if expected_items.length() == 0 {
+        UnknownType
+      } else {
+        common_type(expected_items)
+      }
+      let mut accepted = true
+      for field in members {
+        if field.name == "@spread" {
+          if !type_accepts(ListingType(expected_items), field.typ) {
+            accepted = false
+          }
+        } else if field.name.has_prefix("@element$") {
+          if !type_accepts(expected_item, field.typ) {
+            accepted = false
+          }
+        } else if field.name != "@when" && field.name != "@for" {
+          accepted = false
+        }
+      }
+      accepted
+    }
     (MappingType(_), ObjectType(members)) => members.length() == 0
     (MappingType(expected_entries), MappingType(actual_entries)) => {
       if expected_entries.length() == 0 {

@@ -2080,7 +2080,9 @@ priv struct ClassDefaultMemoEntry {
 let class_default_memo_cache : Ref[Array[ClassDefaultMemoEntry]] = { val: [] }
 
 ///|
-fn class_default_memo_for(declarations : Array[Declaration]) -> ClassDefaultMemoEntry {
+fn class_default_memo_for(
+  declarations : Array[Declaration],
+) -> ClassDefaultMemoEntry {
   let cache = class_default_memo_cache.val
   for entry in cache {
     if physical_equal(entry.declarations, declarations) {
@@ -2235,7 +2237,8 @@ fn eval_class_default_members_seen(
   // synthesising the element/value default (the empty raw collection
   // doesn't need it anyway, and recursing into the same class would
   // never terminate).
-  let materializing_was_set = memo_entry.materializing.get(type_name) is Some(true)
+  let materializing_was_set = memo_entry.materializing.get(type_name)
+    is Some(true)
   if !materializing_was_set {
     memo_entry.materializing[type_name] = true
   }
@@ -2440,17 +2443,8 @@ fn eval_class_default_members_seen(
   // { … }` instances runs the same pass for constructor-set fields.)
   let combined = if defaults.length() > 0 {
     reeval_class_defaults_after_constructor_overrides(
-      type_name,
-      defaults,
-      merged_defaults,
-      bindings,
-      env,
-      class_env,
-      cache,
-      stack,
-      declarations,
-      diagnostics,
-      resolve_import,
+      type_name, defaults, merged_defaults, bindings, env, class_env, cache, stack,
+      declarations, diagnostics, resolve_import,
     )
   } else {
     merged_defaults

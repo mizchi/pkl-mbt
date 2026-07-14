@@ -149,7 +149,8 @@ fn value_to_string_for_join(v : Value) -> String {
                   }
                   buf.write_string(" }")
                 }
-                MappingValue(entries) | DefaultedMappingValue(_, entries, _)
+                MappingValue(entries)
+                | DefaultedMappingValue(_, entries, _)
                 | MapValue(entries) => {
                   buf.write_string(visible[i].name)
                   buf.write_string(" { ")

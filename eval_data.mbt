@@ -470,8 +470,7 @@ fn yaml_to_value_with_aliases(
         // into the original value.
         let mut has_complex = false
         for k, _ in map {
-          if yaml_v12_try_decode_complex_key(k, refs, use_mapping)
-            is Some(_) {
+          if yaml_v12_try_decode_complex_key(k, refs, use_mapping) is Some(_) {
             has_complex = true
             break
           }
@@ -650,6 +649,33 @@ fn object_values_equal(
   xs : Array[ValueMember],
   ys : Array[ValueMember],
 ) -> Bool {
+  match (reflect_kind(xs), reflect_kind(ys)) {
+    (Some("Class"), Some("Class")) | (Some("TypeAlias"), Some("TypeAlias")) => {
+      let x_name = match
+        lookup_member(xs, hidden_member_name("__qualified_name")) {
+        Some(StringValue(name)) => Some(name)
+        _ =>
+          match lookup_member(xs, "name") {
+            Some(StringValue(name)) => Some(name)
+            _ => None
+          }
+      }
+      let y_name = match
+        lookup_member(ys, hidden_member_name("__qualified_name")) {
+        Some(StringValue(name)) => Some(name)
+        _ =>
+          match lookup_member(ys, "name") {
+            Some(StringValue(name)) => Some(name)
+            _ => None
+          }
+      }
+      match (x_name, y_name) {
+        (Some(x), Some(y)) => return x == y
+        _ => ()
+      }
+    }
+    _ => ()
+  }
   if reflect_kind(xs) is Some("Module") && reflect_kind(ys) is Some("Module") {
     match (lookup_member(xs, "uri"), lookup_member(ys, "uri")) {
       (Some(StringValue(x_uri)), Some(StringValue(y_uri))) =>

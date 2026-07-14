@@ -86,3 +86,49 @@ test "typed mapping object literal rewrite keeps default function marker" {
   inspect(default_members.length(), content="2")
   inspect(default_members[0].name, content="@functionAmend$params")
 }
+
+///|
+test "typecheck accepts listing spreads in typed class members" {
+  let source =
+    #|local xs: Listing<String> = new { "a" }
+    #|class Task {
+    #|  inputs: Listing<String> = new {}
+    #|}
+    #|task = new Task {
+    #|  inputs = new {
+    #|    ...xs
+    #|    "b"
+    #|  }
+    #|}
+  guard typecheck_source(source) is TypeOk(_) else { panic() }
+}
+
+///|
+test "typecheck tracks Listing higher-order methods and module builtins" {
+  let source =
+    #|class Task {
+    #|  name: String
+    #|  deps: Listing<Task> = new {}
+    #|}
+    #|tasks: Listing<Task> = new {}
+    #|local taskNames: List<String> = tasks.toList().map((t) -> t.name)
+    #|local duplicateNames: List<String> =
+    #|  taskNames.filter((n) -> taskNames.count((m) -> m == n) > 1).distinct
+    #|local rendered: Mapping<String, Task> = new Mapping {
+    #|  for (task in tasks) {
+    #|    [task.name] = task
+    #|  }
+    #|}
+    #|defaults = new {}
+    #|output {
+    #|  value = new {
+    #|    defaults = module.defaults
+    #|    tasks =
+    #|      if (duplicateNames.isEmpty)
+    #|        rendered
+    #|      else
+    #|        throw("duplicate task names")
+    #|  }
+    #|}
+  guard typecheck_source(source) is TypeOk(_) else { panic() }
+}

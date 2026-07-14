@@ -1,0 +1,4 @@
+amends "package://pkg.pkl-lang.org/github.com/mizchi/pkfire/pkfire@0.6.0#/Taskfile.pkl"
+
+name = "package child"
+answer = 42

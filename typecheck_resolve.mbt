@@ -362,6 +362,55 @@ fn function_type_call_label(callee : Expr) -> String {
 }
 
 ///|
+fn infer_unary_collection_lambda_return(
+  argument : Expr,
+  element_type : Type,
+  bindings : Array[Binding],
+  env : Array[TypeBinding],
+  type_env : Array[TypeBinding],
+  cache : Array[TypeBinding],
+  stack : Array[String],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> TypecheckResult?,
+) -> Type {
+  match argument {
+    LambdaExpr(parameters, body, return_type_name) => {
+      if parameters.length() != 1 {
+        diagnostics.push(
+          diag("collection method expects a one-parameter function"),
+        )
+        return UnknownType
+      }
+      let call_cache = copy_type_bindings(cache)
+      let parameter_type = apply_type_annotation(
+        parameters[0].type_name,
+        element_type,
+        type_env,
+        diagnostics,
+      )
+      call_cache.push({
+        name: parameters[0].name,
+        typ: parameter_type,
+        alias_decl: None,
+        bound: None,
+      })
+      let inferred = infer_expr_with_bindings(
+        body, bindings, env, type_env, call_cache, stack, diagnostics, resolve_import,
+      )
+      apply_type_annotation(return_type_name, inferred, type_env, diagnostics)
+    }
+    _ =>
+      match
+        infer_expr_with_bindings(
+          argument, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+        ) {
+        FunctionType(_, return_type) => return_type
+        _ => UnknownType
+      }
+  }
+}
+
+///|
 fn infer_call_expr(
   callee : Expr,
   arguments : Array[Expr],
@@ -373,6 +422,18 @@ fn infer_call_expr(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> TypecheckResult?,
 ) -> Type {
+  // `throw(message)` never returns. Model it as Unknown so it can occupy one
+  // branch of a typed conditional without inventing a value type.
+  if callee is Identifier("throw") {
+    for argument in arguments {
+      ignore(
+        infer_expr_with_bindings(
+          argument, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
+        ),
+      )
+    }
+    return UnknownType
+  }
   match callee {
     LambdaExpr(parameters, body, return_type_name) =>
       return infer_lambda_application(
@@ -448,6 +509,76 @@ fn infer_call_expr(
         infer_expr_with_bindings(
           target_expr, bindings, env, type_env, cache, stack, diagnostics, resolve_import,
         ) {
+        ListingType(element_types) => {
+          let element_type = if element_types.length() == 0 {
+            UnknownType
+          } else {
+            common_type(element_types)
+          }
+          match method_name {
+            "contains" => return BoolType
+            "toList" | "toListing" => return ListingType(element_types)
+            "map" =>
+              if arguments.length() == 1 {
+                return ListingType([
+                  infer_unary_collection_lambda_return(
+                    arguments[0],
+                    element_type,
+                    bindings,
+                    env,
+                    type_env,
+                    cache,
+                    stack,
+                    diagnostics,
+                    resolve_import,
+                  ),
+                ])
+              } else {
+                return ListingType([UnknownType])
+              }
+            "filter" | "count" => {
+              if arguments.length() == 1 {
+                let predicate_type = infer_unary_collection_lambda_return(
+                  arguments[0],
+                  element_type,
+                  bindings,
+                  env,
+                  type_env,
+                  cache,
+                  stack,
+                  diagnostics,
+                  resolve_import,
+                )
+                if predicate_type != BoolType && predicate_type != UnknownType {
+                  diagnostics.push(
+                    diag("method \{method_name} predicate expects Boolean"),
+                  )
+                }
+              }
+              if method_name == "count" {
+                return IntType
+              }
+              return ListingType(element_types)
+            }
+            "fold" =>
+              if arguments.length() == 2 {
+                return infer_expr_with_bindings(
+                  arguments[0],
+                  bindings,
+                  env,
+                  type_env,
+                  cache,
+                  stack,
+                  diagnostics,
+                  resolve_import,
+                )
+              } else {
+                return UnknownType
+              }
+            "join" => return StringType
+            _ => ()
+          }
+        }
         IntSeqType =>
           match method_name {
             "step" => return IntSeqType

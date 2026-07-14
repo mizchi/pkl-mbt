@@ -14,9 +14,7 @@ fn stack_contains_binding(stack : Array[String], name : String) -> Bool {
 /// an enclosing object literal pre-registered. Returns the original
 /// array unchanged when there is nothing to strip (the common case),
 /// avoiding an allocation on the hot path.
-fn strip_sibling_slot_bindings(
-  bindings : Array[Binding],
-) -> Array[Binding] {
+fn strip_sibling_slot_bindings(bindings : Array[Binding]) -> Array[Binding] {
   let mut has_sibling = false
   for b in bindings {
     if b.sibling_slot {
@@ -280,12 +278,27 @@ fn inherited_module_object_amend_expr(
   // references in `foo { m = module.a }` style amends through the
   // amend cache and drop them (basic/moduleRef2).
   match (expr, type_name) {
+    (ObjectLiteral(members), Some(_)) =>
+      match module_super_members_from_cache(cache) {
+        Some(parent_members) =>
+          match lookup_value_member(parent_members, binding_name) {
+            Some(_) =>
+              AmendExpr(
+                MemberAccess(Identifier("super"), binding_name),
+                members,
+              )
+            None => expr
+          }
+        None => expr
+      }
     (ObjectLiteral(members), None) =>
       match module_super_members_from_cache(cache) {
         Some(parent_members) => {
           let matches_hidden = lookup_value_member(
-              parent_members, hidden_member_name(binding_name),
-            ) is Some(_)
+              parent_members,
+              hidden_member_name(binding_name),
+            )
+            is Some(_)
           let force_amend = binding_name == "output"
           if matches_hidden || force_amend {
             match lookup_value_member(parent_members, binding_name) {
@@ -618,8 +631,17 @@ fn resolve_binding_value(
         Some(ObjectValue(parent_members)) =>
           if is_module_member_set(parent_members) {
             resolve_module_parent_member_value(
-              name, parent_members, [], bindings, env, class_env, cache, stack, declarations,
-              diagnostics, resolve_import,
+              name,
+              parent_members,
+              [],
+              bindings,
+              env,
+              class_env,
+              cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
             )
           } else {
             None

@@ -3,7 +3,7 @@ amends "package://pkg.pkl-lang.org/github.com/mizchi/pkfire/pkfire@0.6.0#/Taskfi
 local moonSources: Listing<String> = new {
   "*.mbt"
   "moon.pkg"
-  "moon.mod.json"
+  "moon.mod"
   "cmd/**/*.mbt"
   "cmd/**/moon.pkg"
   "README.mbt.md"
@@ -38,7 +38,7 @@ local upstreamFixtureSources: Listing<String> = new {
 }
 
 local commonTools: Mapping<String, String> = new {
-  ["moon"] = "0.1.20260512"
+  ["moon"] = "0.1.20260713"
   ["pkspec"] = "0.1.6"
 }
 
@@ -104,7 +104,7 @@ local checkNative: Task = new {
 local checkWasm: Task = new {
   name = "check-wasm"
   description =
-    "Type-check the wasm target with warnings denied — guarantees the @pkl library plus the cmd/mpkl wasm stub stay buildable for library consumers."
+    "Type-check the wasm target with warnings denied — guarantees the @pkl library plus the cmd/mpkl Marketplace entry stay buildable."
   cmd = "moon check --deny-warn --target wasm"
   inputs = moonSources
   tools = commonTools
@@ -113,7 +113,7 @@ local checkWasm: Task = new {
 local checkWasmGc: Task = new {
   name = "check-wasm-gc"
   description =
-    "Type-check the wasm-gc target with warnings denied — same surface as check-wasm but for the wasm-gc backend that modern hosts default to."
+    "Type-check the wasm-gc target with warnings denied — same library and Marketplace surface as check-wasm for modern hosts."
   cmd = "moon check --deny-warn --target wasm-gc"
   inputs = moonSources
   tools = commonTools
@@ -199,7 +199,8 @@ local nextTasks: Task = new {
   name = "next-tasks"
   description =
     "Show the prioritised backlog for the next session: opens the umbrella tracking issue (#8) plus the live list of impact-ordered open issues. Read AGENTS.md «次に触るべきタスク» for the full triage."
-  cmd = "gh issue view 8 && echo && echo '---all open issues (impact order):' && gh issue list --state open --limit 20"
+  cmd =
+    "gh issue view 8 && echo && echo '---all open issues (impact order):' && gh issue list --state open --limit 20"
   tools = commonTools
   cache = false
 }

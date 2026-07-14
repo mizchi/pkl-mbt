@@ -715,30 +715,6 @@ fn pklproject_alias_to_uri_from_file(
 }
 
 ///|
-/// PKL-150 (#258): map a `package://host/name@version[/rest]` (or the
-/// `projectpackage://` variant the deps.json uses) URI onto a local
-/// file under one of the configured `--package-cache` directories, or
-/// the CLI default cache when no explicit root is configured.
-fn resolve_package_uri_to_cache(uri : String, rest : String) -> String? {
-  let relative = match package_cache_parts(uri, rest) {
-    Some(parts) => parts.file_relative
-    None => return None
-  }
-  for cache_dir in package_cache_roots() {
-    let base = if cache_dir.has_suffix("/") {
-      cache_dir
-    } else {
-      cache_dir + "/"
-    }
-    let candidate = base + relative
-    if @fs.path_exists(candidate) {
-      return Some(candidate)
-    }
-  }
-  None
-}
-
-///|
 fn resolve_import_path(from : String, uri : String) -> String {
   // PKL-148ad: project-dependency import (`import "@<dep>/<rest>"`).
   // The PklProject.deps.json file in an ancestor directory carries
@@ -1241,40 +1217,6 @@ fn percent_encode_file_path(path : String) -> String {
       '\\' => buf.write_string("%5C")
       _ => buf.write_char(c)
     }
-  }
-  buf.to_string()
-}
-
-///|
-fn cli_hex_value(c : UInt16) -> Int? {
-  if c >= '0' && c <= '9' {
-    Some(c.to_int() - '0'.to_int())
-  } else if c >= 'a' && c <= 'f' {
-    Some(c.to_int() - 'a'.to_int() + 10)
-  } else if c >= 'A' && c <= 'F' {
-    Some(c.to_int() - 'A'.to_int() + 10)
-  } else {
-    None
-  }
-}
-
-///|
-fn percent_decode_uri_path(path : String) -> String {
-  let buf = StringBuilder::new()
-  let mut i = 0
-  while i < path.length() {
-    if path[i] == '%' && i + 2 < path.length() {
-      match (cli_hex_value(path[i + 1]), cli_hex_value(path[i + 2])) {
-        (Some(hi), Some(lo)) => {
-          buf.write_char((hi * 16 + lo).unsafe_to_char())
-          i = i + 3
-          continue
-        }
-        _ => ()
-      }
-    }
-    buf.write_char(path[i].to_int().unsafe_to_char())
-    i = i + 1
   }
   buf.to_string()
 }
@@ -1947,17 +1889,13 @@ fn register_read_glob_if_file_pattern(from : String, pattern : String) -> Unit {
   }
   match read_resource_from(from, pattern) {
     Some(resource) =>
-      @pkl.register_read_glob(
-        from,
-        pattern,
-        [
-          {
-            uri: pattern,
-            resource_uri: resource.resource_uri,
-            text: resource.text,
-          },
-        ],
-      )
+      @pkl.register_read_glob(from, pattern, [
+        {
+          uri: pattern,
+          resource_uri: resource.resource_uri,
+          text: resource.text,
+        },
+      ])
     None => ()
   }
 }
@@ -2655,9 +2593,7 @@ async fn main {
   // a few common bundle locations as fallbacks. Failure is silent;
   // the reflect surface degrades to the minimal "name only" form.
   let stdlib_candidates = [
-    "third_party/apple-pkl/stdlib/base.pkl",
-    "stdlib/base.pkl",
-    "/usr/local/share/pkl/stdlib/base.pkl",
+    "third_party/apple-pkl/stdlib/base.pkl", "stdlib/base.pkl", "/usr/local/share/pkl/stdlib/base.pkl",
   ]
   @pkl.configure_stdlib_base_paths(fn() {
     for candidate in stdlib_candidates {
@@ -3074,7 +3010,10 @@ async fn main {
           match junit_reports_dir {
             Some(dir) =>
               write_junit_report(
-                dir, path, facts_summary.cases, examples_summary.cases,
+                dir,
+                path,
+                facts_summary.cases,
+                examples_summary.cases,
               )
             None => ()
           }
@@ -3303,7 +3242,9 @@ fn run_pkl_examples_test(
             cases.push({
               name: "examples",
               passed: false,
-              failure_message: Some("could not write golden file \{golden_path}"),
+              failure_message: Some(
+                "could not write golden file \{golden_path}",
+              ),
             })
           }
         }
@@ -3326,11 +3267,7 @@ fn run_pkl_examples_test(
             _ => 0
           }
           lines.push("PASS examples (\{count} examples)")
-          cases.push({
-            name: "examples",
-            passed: true,
-            failure_message: None,
-          })
+          cases.push({ name: "examples", passed: true, failure_message: None })
         } else {
           failed = failed + 1
           let message = "diff against \{golden_path}"
@@ -3388,11 +3325,7 @@ fn write_junit_eval_error(
   } else {
     "module failed to evaluate"
   }
-  let case = {
-    name: "eval",
-    passed: false,
-    failure_message: Some(message),
-  }
+  let case = { name: "eval", passed: false, failure_message: Some(message) }
   let xml = render_junit_xml(suite_name, [case])
   let out_path = "\{dir}/\{suite_name}.xml"
   @fs.write_string_to_file(out_path, xml) catch {
@@ -3446,10 +3379,7 @@ fn xml_escape(text : String) -> String {
 }
 
 ///|
-fn render_junit_xml(
-  suite_name : String,
-  cases : Array[PklTestCase],
-) -> String {
+fn render_junit_xml(suite_name : String, cases : Array[PklTestCase]) -> String {
   let mut failures = 0
   for c in cases {
     if !c.passed {
@@ -3478,9 +3408,7 @@ fn render_junit_xml(
       buf.write_string(
         "    <testcase classname=\"\{xml_escape(suite_name)}\" name=\"\{xml_escape(c.name)}\">\n",
       )
-      buf.write_string(
-        "      <failure message=\"\{xml_escape(message)}\"/>\n",
-      )
+      buf.write_string("      <failure message=\"\{xml_escape(message)}\"/>\n")
       buf.write_string("    </testcase>\n")
     }
   }

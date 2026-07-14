@@ -812,7 +812,7 @@ fn eval_module_path(
                   // `alias.ClassName` form so the importer's `class_env`
                   // and declaration set see them by qualified name.
                   for import_decl in current_parsed.program.imports {
-                    if not(import_decl.is_glob) {
+                    if !import_decl.is_glob {
                       let import_resolved = resolve_import_path(
                         current_path,
                         import_decl.uri,

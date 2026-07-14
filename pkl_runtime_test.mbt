@@ -106,10 +106,7 @@ test "amended parent's typed function parameter resolves parent class" {
     }
   }
   let json = @pkl.render_value_as_json(value)
-  inspect(
-    json.contains("alpha") && json.contains("beta"),
-    content="true",
-  )
+  inspect(json.contains("alpha") && json.contains("beta"), content="true")
 }
 
 ///|
@@ -1987,11 +1984,7 @@ test "PKL-153: dynamic resource reader services read() on demand" {
   reset_sandbox_io_cache()
   clear_sandbox_resource_readers()
   configure_sandbox_resource_reader("cmd", fn(uri) {
-    Some({
-      uri,
-      resource_uri: uri,
-      text: "cmd-output:\{uri}",
-    })
+    Some({ uri, resource_uri: uri, text: "cmd-output:\{uri}" })
   })
   let session = AnalysisSession::new()
   session.set_source(

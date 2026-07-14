@@ -9,6 +9,8 @@ import {
 // Values
 pub fn clear_sandbox_env_vars() -> Unit
 
+pub fn clear_sandbox_resource_readers() -> Unit
+
 pub fn codegen(Program, CodegenTarget) -> String
 
 pub fn configure_sandbox_allowed_modules(Array[String]) -> Unit
@@ -21,7 +23,21 @@ pub fn configure_sandbox_package_caches(Array[String]) -> Unit
 
 pub fn configure_sandbox_props(Map[String, String]) -> Unit
 
+pub fn configure_sandbox_resource_reader(String, (String) -> SandboxResource?) -> Unit
+
+pub fn configure_stdlib_base_paths(() -> String?) -> Unit
+
+pub fn configure_stdlib_base_source(String) -> Unit
+
 pub fn eval_source(String) -> EvalResult
+
+pub fn extract_output_value(Value) -> Value
+
+pub fn fdlibm_cos(Double) -> Double
+
+pub fn fdlibm_sin(Double) -> Double
+
+pub fn fdlibm_tan(Double) -> Double
 
 pub fn lint_program(Program) -> Array[LintFinding]
 
@@ -32,6 +48,10 @@ pub fn parse_source(String) -> ParseResult
 pub fn register_import_glob(String, String, Array[String]) -> Unit
 
 pub fn register_import_glob_errors(String, String, Map[String, String]) -> Unit
+
+pub fn register_module_alias(String, String) -> Unit
+
+pub fn register_module_imports(String, Array[String]) -> Unit
 
 pub fn register_read_glob(String, String, Array[SandboxResource]) -> Unit
 
@@ -50,6 +70,18 @@ pub fn render_value_as_json_document(Value) -> String
 pub fn render_value_as_json_document_with_indent(Value, String) -> String
 
 pub fn render_value_as_json_with_indent(Value, String) -> String
+
+pub fn render_value_as_jsonnet(Value) -> String
+
+pub fn render_value_as_jsonnet_document(Value) -> String
+
+pub fn render_value_as_jsonnet_document_with_indent(Value, String) -> String
+
+pub fn render_value_as_jsonnet_document_with_options(Value, String, Bool) -> String
+
+pub fn render_value_as_jsonnet_with_indent(Value, String) -> String
+
+pub fn render_value_as_jsonnet_with_options(Value, String, Bool) -> String
 
 pub fn render_value_as_pcf_document(Value) -> String
 
@@ -71,6 +103,8 @@ pub fn render_value_as_properties(Value) -> String
 
 pub fn render_value_as_properties_fragment(Value) -> String
 
+pub fn render_value_as_protobuf_fragment(Value, String) -> String
+
 pub fn render_value_as_textproto(Value) -> String
 
 pub fn render_value_as_textproto_fragment(Value, String) -> String
@@ -87,11 +121,15 @@ pub fn render_value_as_yaml(Value) -> String
 
 pub fn render_value_as_yaml_fragment(Value) -> String
 
+pub fn render_value_as_yaml_fragment_with_mode(Value, Int, Bool, String) -> String
+
 pub fn render_value_as_yaml_fragment_with_options(Value, Int, Bool) -> String
 
 pub fn render_value_as_yaml_stream(Value, Int) -> String
 
 pub fn render_value_as_yaml_with_indent_width(Value, Int) -> String
+
+pub fn render_value_as_yaml_with_mode(Value, Int, Bool, String) -> String
 
 pub fn render_value_as_yaml_with_options(Value, Int, Bool) -> String
 
@@ -101,11 +139,19 @@ pub fn render_value_with_pcf_options(Value, String, Bool) -> String
 
 pub fn reset_sandbox_io_cache() -> Unit
 
+pub fn sandbox_all_module_uris() -> Array[String]
+
 pub fn sandbox_is_module_allowed(String) -> Bool
+
+pub fn sandbox_module_alias(String) -> String?
+
+pub fn sandbox_module_imports(String) -> Array[String]?
 
 pub fn sandbox_module_paths() -> Array[String]
 
 pub fn sandbox_package_caches() -> Array[String]
+
+pub fn sandbox_stdlib_base_source() -> String?
 
 pub fn typecheck_source(String) -> TypecheckResult
 
@@ -170,6 +216,7 @@ pub(all) struct Binding {
   is_const : Bool
   annotations : Array[Annotation]
   abstract_slot : Bool
+  sibling_slot : Bool
 } derive(Eq, @debug.Debug)
 
 pub(all) struct ClassDecl {
@@ -258,6 +305,7 @@ pub(all) struct FunctionDecl {
   return_type_name : String?
   body : Expr?
   annotations : Array[Annotation]
+  is_const : Bool
   is_abstract : Bool
 } derive(Eq, @debug.Debug)
 

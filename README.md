@@ -6,11 +6,29 @@ Pure MoonBit parser, typechecker, and evaluator for Apple's [Pkl](https://pkl-la
 
 ## Install
 
-CLI (native + js only — the wasm / wasm-gc targets ship a stub `main` that points users at the library):
+Native / JS CLI (files, imports, packages, and resource IO):
 
 ```bash
 moon install mizchi/pkl/cmd/mpkl
 ```
+
+[MoonBit Skills Marketplace](https://skills.mooncakes.io/) Wasm command
+for local files or source snippets:
+
+```bash
+moon runwasm mizchi/pkl/cmd/mpkl -- check config.pkl
+moon runwasm mizchi/pkl/cmd/mpkl -- eval --format json config.pkl
+moon runwasm mizchi/pkl/cmd/mpkl -- eval --source 'answer = 6 * 7'
+```
+
+The Wasm entry accepts `parse`, `check`, `eval`, and `format`. File mode loads
+relative imports and `extends` / `amends` parents recursively, including
+`package://` modules from an already extracted package cache. Pass a custom
+root with the repeatable `--package-cache <dir>` option; without it, the Wasm
+entry uses the same environment/default cache roots as the native CLI. Cache
+misses are not downloaded on Wasm. See
+[`cmd/mpkl/SKILL.md`](cmd/mpkl/SKILL.md) for supported output formats, current
+IO limits, and a deny-by-default Moonrun policy example.
 
 Library — builds clean on all four MoonBit targets (`native`, `js`, `wasm`, `wasm-gc`); the `@pkl` surface is pure (no IO, no async), so an embedder running in a wasm sandbox can depend on it directly:
 
