@@ -613,7 +613,7 @@ class Test {
   /// to a `Scenario.id` declared in `Spec.pkl` (typically across a
   /// boundary — the spec lives in one module, the implementing test
   /// in another). `pkspec spec` cross-links id → verifying tests in the
-  /// generated SPEC.md, and `pkspec spec --check` reports declared
+  /// generated SPEC.md, and `pkspec check` reports declared
   /// specs that no active test references.
   ///
   /// Auto-populated by `Spec.pkl` when a Scenario carries an `id`:
@@ -1010,7 +1010,7 @@ class RenderedDecision {
 }
 
 /// A Scenario rendered for the Go runner. Carries every
-/// metadata field needed by `pkspec spec --check / --coverage /
+/// metadata field needed by `pkspec check / coverage /
 /// --graph / --decisions / --goals / --next`. Test-execution
 /// semantics live on `RenderedTest`; `RenderedScenario` is the
 /// spec-side counterpart and is only consulted by spec tooling.
@@ -1039,7 +1039,7 @@ class RenderedScenario {
   /// How the scenario is verified — "test" (a Test.pkl with
   /// matching specRef), "code" (framework-internal Go behaviour
   /// pointed at by `implementedAt`), or "doc" (prose guarantee
-  /// pointed at by `implementedAt`). `pkspec spec --check` accepts
+  /// pointed at by `implementedAt`). `pkspec check` accepts
   /// `code` / `doc` entries whose `implementedAt` is non-null.
   implementedBy: String // "test" | "code" | "doc"
   /// Free-form pointer to the implementing artefact —

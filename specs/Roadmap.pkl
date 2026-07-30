@@ -1,6 +1,6 @@
 /// Forward-looking roadmap of pkspec scenarios.
 ///
-/// Every entry here is `reviewStatus = "draft"`, so `pkspec spec --check`
+/// Every entry here is `reviewStatus = "draft"`, so `pkspec check`
 /// ignores them — they exist as a structured TODO list, NOT as a binding
 /// commitment. Promote to `specs/Spec.pkl` (and flip `reviewStatus` to
 /// `"approved"`) when starting the slice.
@@ -882,7 +882,7 @@ entries: Listing<Spec.Scenario> = new {
 // ── DEFERRED ───────────────────────────────────────────────────────────────
 // Slices intentionally parked on 2026-05-16. Spec.pkl does not import
 // `deferredEntries`, so these stay out of the rendered SPEC.md and out
-// of `pkspec spec --check`'s view; lifting any of them back into
+// of `pkspec check`'s view; lifting any of them back into
 // `entries` is a one-line move when a concrete consumer surfaces.
 
 local pklRepl: Spec.Scenario = new {

@@ -479,6 +479,7 @@ local cliPackageUriOffline = new Test {
   cmd =
     "moon run cmd/mpkl --target native -- eval package://invalid.example.test/owner/pkg@9.9.9#/file.pkl"
   workdir = ".."
+  expectExitCode = 1
   expectStdoutContains {
     "metadata fetch failed: https://invalid.example.test/owner/pkg@9.9.9"
     "failed to resolve package URI `package://invalid.example.test/owner/pkg@9.9.9#/file.pkl`"
@@ -695,6 +696,7 @@ local cliInheritanceHardening = new Test {
   specRef { "PKL-117" }
   cmd = "moon run cmd/mpkl --target native -- check fixtures/cli_inheritance_hardening.pkl"
   workdir = ".."
+  expectExitCode = 1
   expectStdoutContains {
     "Class `Sparrow` does not implement abstract method `chirp` inherited from `Bird`."
     "Method `Mammal.name` return type `Int` is not a subtype of `Animal.name` return type `String`."
@@ -710,6 +712,7 @@ local cliDiagnosticUpstream = new Test {
   specRef { "PKL-108" }
   cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_diagnostic_upstream.pkl"
   workdir = ".."
+  expectExitCode = 1
   expectStdoutContains {
     "Cannot find property `missing_property`."
     "Cannot find property `nonexistent` in object of type `Listing`."
@@ -736,11 +739,12 @@ local cliSandboxFlags = new Test {
 local cliLintFindings = new Test {
   name = "cli lint findings"
   description =
-    "The native CLI's `analyze` subcommand runs lint checks over the parsed module and prints one `path: rule: message` line per finding. The fixture intentionally exercises all four rules: an unused `local` binding, an unused import, an unused property on an unreferenced class, and a binding name that shadows an import. (Exit-code propagation through `moon run` is lossy, so the contract pins on stdout output rather than on the exit code; running the binary directly produces a non-zero exit when any finding surfaces.)"
+    "The native CLI's `analyze` subcommand runs lint checks over the parsed module and prints one `path: rule: message` line per finding. The fixture intentionally exercises all four rules: an unused `local` binding, an unused import, an unused property on an unreferenced class, and a binding name that shadows an import. Findings produce exit code 1 so scripts can fail fast."
   tags { "moonbit"; "cli"; "lint"; "analyze"; "contract" }
   specRef { "PKL-102" }
   cmd = "moon run cmd/mpkl --target native -- analyze fixtures/cli_lint_findings.pkl"
   workdir = ".."
+  expectExitCode = 1
   expectStdoutContains {
     "unused-local-binding: local binding `unusedLocal` is never referenced"
     "unused-import: import `Helper` (from \"cli_lint_helper.pkl\") is never referenced"
@@ -962,6 +966,7 @@ local cliDiagnosticPosition = new Test {
   specRef { "PKL-107" }
   cmd = "moon run cmd/mpkl --target native -- parse fixtures/error_cases/diagnostic_position.pkl"
   workdir = ".."
+  expectExitCode = 1
   expectStdoutContains {
     "fixtures/error_cases/diagnostic_position.pkl:11:"
     "expected ), got eq"
@@ -1032,7 +1037,7 @@ local cliStdlibModifiers = new Test {
 local cliHttpsImports = new Test {
   name = "cli https URI import"
   description =
-    "The native CLI evaluates a fixture whose `import` declaration points at a raw GitHub URL of another fixture in this repo. The HTTP fetch goes through `mizchi/x/http.get` under a `moonbitlang/async` event loop, and the imported module's bindings become available in the importing module's typecheck / evaluation pipeline."
+    "The native CLI evaluates a fixture whose `import` declaration points at the jsDelivr mirror of another fixture in this repo. The HTTP fetch goes through `mizchi/x/http.get` under a `moonbitlang/async` event loop, and the imported module's bindings become available in the importing module's typecheck / evaluation pipeline."
   tags { "moonbit"; "cli"; "imports"; "pkf-pkspec"; "contract" }
   specRef { "PKL-129" }
   cmd = "moon run cmd/mpkl --target native -- eval fixtures/cli_https_import.pkl"
@@ -1166,6 +1171,7 @@ local cliTestExamplesFail = new Test {
   specRef { "PKL-100" }
   cmd = "moon run cmd/mpkl --target native -- test fixtures/cli_test_examples_fail.pkl"
   workdir = ".."
+  expectExitCode = 1
   expectStdoutContains {
     "FAIL examples diff against fixtures/cli_test_examples_fail.pkl-expected.pcf"
   }
@@ -1263,6 +1269,7 @@ local cliTestFail = new Test {
   specRef { "PKL-095" }
   cmd = "moon run cmd/mpkl --target native -- test fixtures/cli_test_fail.pkl"
   workdir = ".."
+  expectExitCode = 1
   expectStdoutContains {
     "PASS addition (1 assertions)"
     "FAIL broken: assertion #1 of 1 did not evaluate to true"
