@@ -194,7 +194,7 @@
   - body: _not yet implemented_
 
 - [ ] **String unicode and codepoint methods** (minor) — verifies: PKL-122 — tags: stdlib, string, unicode
-  > Surrogate-pair aware String access. `String.length` keeps the existing UTF-16 code-unit semantics (so the fixture baseline stays byte-identical), but three new properties surface the Unicode code-point view: `String.codePointCount: Int` (count of full code points), `String.codePoints: Listing<Int>` (code-point integers), `String.chars: Listing<String>` (single-character Strings split on code-point boundaries). `String.codePointAt(i: Int): Int` indexes the code-point stream; out-of-range pushes a diagnostic. All three iterate via MoonBit's `String::iter` which already yields full code-point `Char` values, so supplementary-plane characters (`🍣`, U+1F363) collapse to a single element instead of leaking the surrogate pair.
+  > Surrogate-pair aware String access. `String.length` keeps the existing UTF-16 code-unit semantics (so the fixture baseline stays byte-identical), but three new properties surface the Unicode code-point view: `String.codePointCount: Int` (count of full code points), `String.codePoints: Listing<Int>` (code-point integers), `String.chars: Listing<String>` (single-character Strings split on code-point boundaries). `String.codePointAt(i: Int): Int` indexes the code-point stream; out-of-range pushes a diagnostic. All three iterate via MoonBit's `String::iter` which already yields full code-point `Char` values, so supplementary-plane characters (`🍣`, U+1F363) collapse to a single element instead of leaking the surrogate pair
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-077
   - decisions: 2 entry(ies)
@@ -987,7 +987,7 @@
   - body: _not yet implemented_
 
 - [ ] **protobuf text renderer** — verifies: PKL-126c — tags: renderer, protobuf, textproto, cli
-  > The protobuf renderer emits Protocol Buffers text format (`textproto`), matching Apple Pkl's current experimental `pkl:protobuf.Renderer` surface. The CLI accepts `-f textproto`, and `output { renderer = new protobuf.Renderer { ... } }` is detected from the AST like the JSON / YAML / plist / XML renderer drivers. Scalar properties render as `name: value`; nested typed objects render as `name: { ... }`; Listing / List / Set values become repeated fields; Mapping / Map values become repeated `{ key: ..., value: ... }` messages; Duration projects to `{ seconds: ..., nanos: ... }`; `RenderDirective` values write their text verbatim; `indent` controls nested indentation. `protobuf.Property { name = ... }` is handled through the convert-property pass so field rename annotations survive before text rendering. Type annotations drive oneof wrapper names, subtype rejection, map-key diagnostics, and top-level invalid-type diagnostics for direct `renderValue` calls. The upstream `api/protobuf` and `api/protobuf2` PCF fixtures now byte-match their gold files and are pinned by `scripts/upstream-smoke.sh`'s normal fixture list; `api/protobuf3.txtpb` byte-matches its `.txtpb` gold file and is pinned by `TEXTPROTO_GOLD_FIXTURES`. Remaining protobuf work is outside the current upstream LanguageSnippetTests surface, mainly binary protobuf output if upstream exposes it.
+  > The protobuf renderer emits Protocol Buffers text format (`textproto`), matching Apple Pkl's current experimental `pkl:protobuf.Renderer` surface. The CLI accepts `-f textproto`, and `output { renderer = new protobuf.Renderer { ... } }` is detected from the AST like the JSON / YAML / plist / XML renderer drivers. Scalar properties render as `name: value`; nested typed objects render as `name: { ... }`; Listing / List / Set values become repeated fields; Mapping / Map values become repeated `{ key: ..., value: ... }` messages; Duration projects to `{ seconds: ..., nanos: ... }`; `RenderDirective` values write their text verbatim; `indent` controls nested indentation. `protobuf.Property { name = ... }` is handled through the convert-property pass so field rename annotations survive before text rendering. The upstream `api/protobuf3.txtpb` fixture now byte-matches its `.txtpb` gold file and is pinned by `scripts/upstream-smoke.sh`'s `TEXTPROTO_GOLD_FIXTURES` list. Remaining protobuf parity gaps are type-annotation-driven oneof/subtype field naming, top-level invalid-type diagnostics, unsupported DataSize / Bytes diagnostics, and binary protobuf output if upstream ever exposes it.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-124, PKL-126a, PKL-126b, PKL-153
   - decisions: 2 entry(ies)
@@ -1000,7 +1000,7 @@
   - body: _not yet implemented_
 
 - [ ] **raw string interpolation plus raw escape decoding plus unicode escape plus heredoc backslash** (minor) — verifies: PKL-148ao — tags: parser, lexer, strings, renderer, upstream, compat
-  > Apple Pkl's raw string literal supports an `\<N #>(expr)` interpolation marker — the same `\(...)` shape as a non-raw string but prefixed with `N` `#`s, where `N` matches the leading hash count of the raw delimiter. Inside a raw string the same N-hash escape re-enables every standard escape: `\#t` → tab, `\##n` → newline, `\#u{1F920}` → 🤠. PKL-148an landed the delimiter strip + verbatim text path; this slice closes the interpolation + escape loop. Four coupled changes. (1) Lexer learns to skip an entire `\<N #>(...)` argument when scanning for the close delimiter — without it a `"##` inside a nested raw string (e.g. `#"a\#(##"b"##)c"#`) mis-terminates the outer literal. `is_raw_interp_marker` + `skip_raw_interp_arg` + `skip_nested_string_at` walk balanced `(...)` while recognising every nested string shape (single-line / heredoc, raw / non-raw, arbitrary hash count). (2) Parser's `assemble_string_parts` is parameterised on `hash_count`: 0 routes to the non-raw walker (looks for `\(`, runs `decode_string_escapes` on literal segments), > 0 routes to the raw walker (looks for `\<N #>(`, keeps literal segments verbatim, but decodes `\<N #>X` inline by feeding the equivalent non-raw escape through `decode_string_escapes`). (3) `decode_string_escapes` gains a `\u{HHHH}` arm — hex digits up to the matching `}`, emitted as a single code point. This was missing entirely (`\u` fell through to the catch-all that wrote `u` literally), so non-raw `"\u{1F920}"` and raw `"\#u{1F920}"` both gain support in one place. (4) PCF heredoc render now escapes each content line via `escape_string_heredoc` (`\` → `\\`, `\t` → literal `\t`, `\r` → literal `\r`); previously a heredoc string containing a literal `\` round-tripped as a single backslash and broke gold-match for any multi-line value with escape-significant chars. +2 fixtures (basic/rawString, basic/stringMultiline — the latter benefits from the unicode escape arm), 145 → 147; basic category 57.0% → 59.3%.
+  > Apple Pkl's raw string literal supports an `\<N #>(expr)` interpolation marker — the same `\(...)` shape as a non-raw string but prefixed with `N` `#`s, where `N` matches the leading hash count of the raw delimiter. Inside a raw string the same N-hash escape re-enables every standard escape: `\#t` → tab, `\##n` → newline, `\#u{1F920}` → 🤠. PKL-148an landed the delimiter strip + verbatim text path; this slice closes the interpolation + escape loop. Four coupled changes. (1) Lexer learns to skip an entire `\<N #>(...)` argument when scanning for the close delimiter — without it a `"##` inside a nested raw string (e.g. `#"a\#(##"b"##)c"#`) mis-terminates the outer literal. `is_raw_interp_marker` + `skip_raw_interp_arg` + `skip_nested_string_at` walk balanced `(...)` while recognising every nested string shape (single-line / heredoc, raw / non-raw, arbitrary hash count). (2) Parser's `assemble_string_parts` is parameterised on `hash_count`: 0 routes to the non-raw walker (looks for `\(`, runs `decode_string_escapes` on literal segments), > 0 routes to the raw walker (looks for `\<N #>(`, keeps literal segments verbatim, but decodes `\<N #>X` inline by feeding the equivalent non-raw escape through `decode_string_escapes`). (3) `decode_string_escapes` gains a `\u{HHHH}` arm — hex digits up to the matching `}`, emitted as a single code point. This was missing entirely (`\u` fell through to the catch-all that wrote `u` literally), so non-raw `"\u{1F920}"` and raw `"\#u{1F920}"` both gain support in one place. (4) PCF heredoc render now escapes each content line via `escape_string_heredoc` (`\` → `\\`, `\t` → literal `\t`, `\r` → literal `\r`); previously a heredoc string containing a literal `\` round-tripped as a single backslash and broke gold-match for any multi-line value with escape-significant chars. +2 fixtures (basic/rawString, basic/stringMultiline — the latter benefits from the unicode escape arm), 145 → 147; basic category 57.0% → 59.3%
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-148an
   - decisions: 4 entry(ies)
@@ -1433,11 +1433,11 @@
 
 - [x] **cli diagnostic position** — verifies: PKL-107 — tags: moonbit, cli, diagnostics, position, contract
   > The native CLI parses a fixture with a deliberate syntax error and the output carries a `path:line:column: message` prefix. The diagnostic's byte offset is projected onto a line:column pair so editors can jump to the failing token. The broken fixture lives under `fixtures/error_cases/` so the project formatter doesn't try to round-trip it.
-  - body: `cmd` (exit 0 expected)
+  - body: `cmd` (exit 1 expected)
 
 - [x] **cli diagnostic upstream alignment** — verifies: PKL-108 — tags: moonbit, cli, diagnostics, upstream, contract
   > The native CLI prints first-line diagnostic messages that match Apple Pkl's wording verbatim. The fixture is a module with intentional property and method misses; `pkl eval` surfaces them as `Cannot find property \`<name>\`.` and `Cannot find property \`<name>\` in object of type \`Listing\`.`. Source-position arrows and value-trace blocks stay deferred — pinning the first line is enough for a future upstream-`errors`-fixture sweep to diff against without false positives from prose differences.
-  - body: `cmd` (exit 0 expected)
+  - body: `cmd` (exit 1 expected)
 
 - [x] **cli equality type match** — verifies: PKL-113 — tags: moonbit, cli, typechecker, equality, contract
   > The native CLI evaluates a fixture that exercises `==` and `!=` against compatible operand types — Int vs Int, Int vs Float (Apple Pkl admits this), Float vs Float, Bool vs Bool, and a nullable binding against `null`. The evaluation produces the expected booleans without raising a typecheck diagnostic, demonstrating that PKL-113 leaves valid programs untouched.
@@ -1504,12 +1504,12 @@
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli https URI import** — verifies: PKL-129 — tags: moonbit, cli, imports, pkf-pkspec, contract
-  > The native CLI evaluates a fixture whose `import` declaration points at a raw GitHub URL of another fixture in this repo. The HTTP fetch goes through `mizchi/x/http.get` under a `moonbitlang/async` event loop, and the imported module's bindings become available in the importing module's typecheck / evaluation pipeline.
+  > The native CLI evaluates a fixture whose `import` declaration points at the jsDelivr mirror of another fixture in this repo. The HTTP fetch goes through `mizchi/x/http.get` under a `moonbitlang/async` event loop, and the imported module's bindings become available in the importing module's typecheck / evaluation pipeline.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli inheritance hardening** — verifies: PKL-117 — tags: moonbit, cli, typechecker, inheritance, contract
   > The native CLI's `check` subcommand surfaces the typechecker's PKL-117 diagnostics for a fixture that trips both rules: `Sparrow extends Bird` without overriding `Bird`'s `abstract function chirp`, and `Mammal.name` overrides `Animal.name` with a return type (`Int`) that is not a subtype of the parent's return type (`String`). The fixture intentionally contains both faults so a single scenario exercises the abstract-method coverage and the return-type covariance checks together.
-  - body: `cmd` (exit 0 expected)
+  - body: `cmd` (exit 1 expected)
 
 - [x] **cli int seq value** — verifies: PKL-119b — tags: moonbit, cli, evaluator, typechecker, stdlib, contract
   > The native CLI evaluates a fixture exercising the dedicated `IntSeqValue` variant: `IntSeq(1, 5)` construction, bare `.start` / `.end` / `.step` property reads, `.toList()` materialization, `.map((x) -> x * 2)` projection, `.fold(0, (acc, x) -> acc + x)` reduction, `.step(2)` to change the step, `.step(-1)` for descending iteration, empty IntSeq materialization, and `IntSeq` annotation participating in typecheck. PCF renders `IntSeq(s, e)` (default step 1) or `IntSeq(s, e).step(n)` (custom step) so the eval output is parser-readable.
@@ -1520,15 +1520,15 @@
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli lint findings** — verifies: PKL-102 — tags: moonbit, cli, lint, analyze, contract
-  > The native CLI's `analyze` subcommand runs lint checks over the parsed module and prints one `path: rule: message` line per finding. The fixture intentionally exercises all four rules: an unused `local` binding, an unused import, an unused property on an unreferenced class, and a binding name that shadows an import. (Exit-code propagation through `moon run` is lossy, so the contract pins on stdout output rather than on the exit code; running the binary directly produces a non-zero exit when any finding surfaces.)
-  - body: `cmd` (exit 0 expected)
+  > The native CLI's `analyze` subcommand runs lint checks over the parsed module and prints one `path: rule: message` line per finding. The fixture intentionally exercises all four rules: an unused `local` binding, an unused import, an unused property on an unreferenced class, and a binding name that shadows an import. Findings produce exit code 1 so scripts can fail fast.
+  - body: `cmd` (exit 1 expected)
 
 - [x] **cli listing mapping functional** — verifies: PKL-135 — tags: moonbit, cli, stdlib, pkf-pkspec, contract
   > The native CLI evaluates a fixture that exercises `Listing.flatMap` / `count` / `every` / `any` / `none` / `find` / `findLast` / `findOrNull`, plus `Mapping.every` / `any` / `none` / `count`. Each method routes through `apply_function_value` per element and returns the value Apple Pkl produces for the equivalent call.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli listing mapping stdlib** — verifies: PKL-134 — tags: moonbit, cli, stdlib, pkf-pkspec, contract
-  > The native CLI evaluates a fixture that exercises Listing.toList / length / isEmpty, Mapping.toMap / length / keys / values, and the `List<T>` type annotation. Mapping.keys renders as Set<K>, Mapping.values renders as Listing<V>, and the rendered PCF matches the equivalent literal.
+  > The native CLI evaluates a fixture that exercises Listing.toList / length / isEmpty, Mapping.toMap / length / keys / values, and the `List<T>` type annotation. Mapping.keys renders as Set<K>, Mapping.values renders as Listing<V>, and `Mapping.toMap()` projects to Map<K,V> rendered inline via `Map("a", 1, ...)`.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli map value** — verifies: PKL-119d — tags: moonbit, cli, evaluator, typechecker, stdlib, contract
@@ -1553,7 +1553,7 @@
 
 - [x] **cli package uri offline diagnostic** — verifies: PKL-129b1 — tags: moonbit, cli, imports, sandbox, contract
   > The native CLI parses a `package://` URI structurally and attempts the registry metadata fetch. The fixture uses an unresolvable authority `invalid.example.test` so the metadata fetch fails predictably; the diagnostic names the failed metadata URL and the original package URI instead of falling through to filesystem lookup.
-  - body: `cmd` (exit 0 expected)
+  - body: `cmd` (exit 1 expected)
 
 - [x] **cli pair value** — verifies: PKL-119a — tags: moonbit, cli, evaluator, typechecker, stdlib, contract
   > The native CLI evaluates a fixture exercising the dedicated `PairValue` variant: top-level `Pair("alpha", 42)`, `.first` / `.second` member access (Pkl scalars), nested `Pair(Pair(...), Pair(...))` (deep member access via `.first.second`), and `Pair<String, Int>` annotated bindings whose typed `.first: String` / `.second: Int` lookups participate in typecheck. PCF renders each Pair through Apple Pkl's `Pair(a, b)` constructor form rather than the previous PKL-139 `new Listing { a; b }` stop-gap.
@@ -1576,7 +1576,7 @@
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli reflect minimal stub** — verifies: PKL-080 — tags: moonbit, cli, pkl-reflect, stdlib, contract
-  > The native CLI evaluates a fixture that imports `pkl:reflect` and reads mirror constants plus the `Class` factory `reflectee` field, exercising the minimal stub registered in `builtin_stdlib_source`.
+  > The native CLI evaluates a fixture that imports `pkl:reflect` and reads mirror constants plus the `Class` factory `reflectee` field. The original stub returned flat "pkl.base#Int" strings; the current full reflect surface returns Class mirrors with `name` / `typeArguments` / `referent` slots, so the assertions check the mirror block shape and the reflectee pass-through.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli renderer converters** — verifies: PKL-105 — tags: moonbit, cli, renderer, converter, contract
@@ -1620,7 +1620,7 @@
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli string unicode** — verifies: PKL-122 — tags: moonbit, cli, stdlib, string, unicode, contract
-  > The native CLI evaluates a fixture that observes a String whose last glyph is a supplementary-plane code point (`🍣`, U+1F363). `length` keeps the existing UTF-16 code-unit count (5) for byte-identity with prior fixtures, while `codePointCount` reports the Unicode code-point count (4), `codePoints` and `chars` walk the code-point stream, and `codePointAt(3)` returns the supplementary code point as an Int.
+  > The native CLI evaluates a fixture that observes a String whose last glyph is a supplementary-plane code point (`🍣`, U+1F363). Apple Pkl's `String.length` is the code-point count (the upstream `api/stringUnicode` fixture asserts `"😀😈😍😎😡🤢🤣".length == 7`), so `length` and `codePointCount` both report `4` for `"abc🍣"`. `codePoints` and `chars` walk the code-point stream, and `codePointAt(3)` returns the supplementary code point a
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli super method call** — verifies: PKL-117a — tags: moonbit, cli, evaluator, inheritance, contract
@@ -1629,7 +1629,7 @@
 
 - [x] **cli test examples diff fail** — verifies: PKL-100 — tags: moonbit, cli, pkl-test, examples, contract
   > When the rendered `examples` envelope diverges from the `<file>-expected.pcf` golden the runner emits `FAIL examples diff against <path>` and contributes to the non-zero exit.
-  - body: `cmd` (exit 0 expected)
+  - body: `cmd` (exit 1 expected)
 
 - [x] **cli test examples gold match** — verifies: PKL-100 — tags: moonbit, cli, pkl-test, examples, contract
   > The native CLI `test` subcommand walks the `examples` member alongside `facts` and reports `PASS examples (N examples)` when the rendered envelope matches the `<file>-expected.pcf` golden byte-for-byte.
@@ -1637,7 +1637,7 @@
 
 - [x] **cli test failing facts** — verifies: PKL-095 — tags: moonbit, cli, pkl-test, contract
   > The native CLI `test` subcommand reports a FAIL line for any fact whose Listing contains a non-true value, naming the offending assertion index, and prints the pass / fail summary.
-  - body: `cmd` (exit 0 expected)
+  - body: `cmd` (exit 1 expected)
 
 - [x] **cli test passing facts** — verifies: PKL-095 — tags: moonbit, cli, pkl-test, contract
   > The native CLI `test` subcommand walks a `facts: Mapping<String, Listing<Boolean>>` member, reports a PASS line per fact, and ends with the pass / fail summary.

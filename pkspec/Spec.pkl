@@ -178,12 +178,12 @@ class Scenario {
   // ── Lifecycle ────────────────────────────────────────────────
 
   /// Authoring lifecycle. "draft" = sketched, not yet reviewed —
-  /// `pkspec spec --check` ignores draft specs (no failure even when
+  /// `pkspec check` ignores draft specs (no failure even when
   /// unimplemented). "review" = under stakeholder review.
   /// "approved" = signed off, must be implemented before merging.
   reviewStatus: ("draft" | "review" | "approved") = "draft"
 
-  /// Marks the spec as retired. `pkspec spec --check` skips deprecated
+  /// Marks the spec as retired. `pkspec check` skips deprecated
   /// specs, but they remain in `pkspec spec --decisions` / `--graph`
   /// so the design history is preserved.
   deprecated: Boolean = false
@@ -197,14 +197,14 @@ class Scenario {
   replacedBy: String? = null
 
   /// Severity for failure-impact classification. Affects how
-  /// `pkspec spec --check` weighs unimplemented specs — `critical`
+  /// `pkspec check` weighs unimplemented specs — `critical`
   /// triggers failure, `major` warns, `minor` is silent. Default
   /// `major` so most specs land in the middle bucket.
   severity: ("critical" | "major" | "minor") = "major"
 
   /// How this scenario is verified.
   ///   - "test" (default): a Test.pkl module declares
-  ///     `specRef { id }`. `pkspec spec --check` requires the link.
+  ///     `specRef { id }`. `pkspec check` requires the link.
   ///   - "code": the guarantee lives in Go (or other) source
   ///     that no Pkl Test can naturally reach. Set `implementedAt`
   ///     to point at the file / function; `--check` accepts it.
@@ -399,7 +399,7 @@ tests: Listing<base.Test> = new {
 }
 
 /// Inject scenario-side metadata into the rendered Plan so
-/// `pkspec spec --check / --coverage / --graph / --decisions` can
+/// `pkspec check / coverage / decisions` can
 /// read it via the Go side. Keyed by Scenario.name since names
 /// are unique within a module; the id (if any) lives inside.
 renderedScenarios: Mapping<String, base.RenderedScenario> = new {

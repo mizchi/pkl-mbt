@@ -30,4 +30,4 @@ Known gaps for embedded callers:
 
 ## Versioning
 
-This is `0.3.3`. Pre-1.0 minor bumps may break the public surface — semver promises kick in at `1.0.0`.
+This is `0.3.4`. Pre-1.0 minor bumps may break the public surface — semver promises kick in at `1.0.0`.

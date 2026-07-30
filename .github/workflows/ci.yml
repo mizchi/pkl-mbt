@@ -44,11 +44,11 @@ jobs:
       - name: moon check --deny-warn (wasm-gc)
         run: moon check --deny-warn --target wasm-gc
 
-      - name: moon test (native)
-        run: moon test --target native
+      - name: moon test --deny-warn (native)
+        run: moon test --target native --deny-warn
 
-      - name: moon test (js)
-        run: moon test --target js
+      - name: moon test --deny-warn (js)
+        run: moon test --target js --deny-warn
 
       - name: Release build (native)
         run: moon build --target native --release
@@ -85,11 +85,11 @@ jobs:
         uses: mizchi/pkfire@74b22e14db6f166738a4a4f9b2962c94209a5603
 
       - name: Set up pkspec
-        # v0.2.1; SHA-pinned for the same reason consistency.
-        uses: mizchi/pkspec@b1261d5ab553c190e26adc2a3610fca9ea6f9ac0
+        # pkspec@0.4.2; SHA-pinned for the same reason consistency.
+        uses: mizchi/pkspec@0d4540b29bfd9bd8eb1b3a9635e5d7306d2116e3
 
-      - name: pkspec spec --check
-        run: pkspec spec --check specs/Spec.pkl specs/Test.pkl
+      - name: pkspec check
+        run: pkspec check specs/Spec.pkl specs/Test.pkl
 
       - name: pkspec contracts
         run: pkspec exec -f specs/Test.pkl

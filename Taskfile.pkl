@@ -38,8 +38,8 @@ local upstreamFixtureSources: Listing<String> = new {
 }
 
 local commonTools: Mapping<String, String> = new {
-  ["moon"] = "0.1.20260713"
-  ["pkspec"] = "0.1.6"
+  ["moon"] = "0.1.20260724"
+  ["pkspec"] = "0.4.2"
 }
 
 local fmt: Task = new {
@@ -121,16 +121,16 @@ local checkWasmGc: Task = new {
 
 local test: Task = new {
   name = "test"
-  description = "Run MoonBit tests on the default JS target"
-  cmd = "moon test --target js"
+  description = "Run MoonBit tests on the default JS target with warnings denied"
+  cmd = "moon test --target js --deny-warn"
   inputs = moonSources
   tools = commonTools
 }
 
 local testNative: Task = new {
   name = "test-native"
-  description = "Run MoonBit tests on the native target"
-  cmd = "moon test --target native"
+  description = "Run MoonBit tests on the native target with warnings denied"
+  cmd = "moon test --target native --deny-warn"
   inputs = moonSources
   tools = commonTools
 }
@@ -169,7 +169,7 @@ local spec: Task = new {
 local specCheck: Task = new {
   name = "spec-check"
   description = "Verify approved pkspec scenarios are implemented"
-  cmd = "pkspec spec --check specs/Spec.pkl specs/Test.pkl"
+  cmd = "pkspec check specs/Spec.pkl specs/Test.pkl"
   inputs = specSources
   tools = commonTools
 }
