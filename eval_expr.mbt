@@ -6414,7 +6414,7 @@ fn eval_expr_with_bindings(
             )
           MemberAccess(target_expr, method_name) =>
             if class_method_call_available(
-                target_expr, method_name, bindings, class_env,
+                target_expr, method_name, bindings, env, cache, class_env,
               ) {
               eval_class_method_call(
                 target_expr, method_name, arguments, false, bindings, env, class_env,
@@ -6706,36 +6706,33 @@ fn eval_expr_with_bindings(
                             let complex_rewritten = yaml_v12_rewrite_complex_keys(
                               yaml_source,
                             )
-                            let prepared_source = if yaml_mode == "1.2" {
-                              yaml_v12_rewrite_tags(
-                                yaml_v12_source_rewrite(complex_rewritten),
-                              )
-                            } else {
-                              complex_rewritten
-                            }
+                            let prepared_source = yaml_v12_rewrite_tags(
+                              yaml_parser_source_rewrite(
+                                complex_rewritten, yaml_mode,
+                              ),
+                            )
                             let raw_docs = @yaml.Yaml::load_from_string(
                               prepared_source[:],
                             )
-                            let docs = if yaml_mode == "1.2" {
-                              let promoted : Array[@yaml.Yaml] = []
-                              let strip_trailing = yaml_v12_source_ends_in_block_scalar(
-                                prepared_source,
-                              )
-                              for doc in raw_docs {
-                                let promoted_doc = yaml_v12_promote_null(doc)
-                                if strip_trailing {
-                                  promoted.push(
-                                    yaml_v12_strip_trailing_block_newline(
-                                      promoted_doc,
-                                    ),
-                                  )
-                                } else {
-                                  promoted.push(promoted_doc)
-                                }
+                            let docs : Array[@yaml.Yaml] = []
+                            let strip_trailing = yaml_v12_source_ends_in_block_scalar(
+                              prepared_source,
+                            )
+                            for doc in raw_docs {
+                              let promoted_doc = if yaml_mode == "1.2" {
+                                yaml_v12_promote_null(doc)
+                              } else {
+                                doc
                               }
-                              promoted
-                            } else {
-                              raw_docs
+                              if strip_trailing {
+                                docs.push(
+                                  yaml_v12_strip_trailing_block_newline(
+                                    promoted_doc,
+                                  ),
+                                )
+                              } else {
+                                docs.push(promoted_doc)
+                              }
                             }
                             let alias_refs = yaml_alias_refs_for_documents(docs)
                             let max_aliases = parser_max_collection_aliases(
@@ -7121,7 +7118,7 @@ fn eval_expr_with_bindings(
             }
           SafeMemberAccess(target_expr, method_name) =>
             if class_method_call_available(
-                target_expr, method_name, bindings, class_env,
+                target_expr, method_name, bindings, env, cache, class_env,
               ) {
               eval_class_method_call(
                 target_expr, method_name, arguments, true, bindings, env, class_env,
@@ -9351,6 +9348,205 @@ fn reeval_class_defaults_after_constructor_overrides(
     }
   }
   current
+}
+
+///|
+/// Re-evaluates inherited defaults that call a method overridden by the
+/// concrete class. Class defaults are first materialized one inheritance
+/// layer at a time, so without this virtual-dispatch pass a Foo default that
+/// calls `speak()` remains bound to Foo even on `new Bar {}`.
+fn reeval_class_defaults_after_method_overrides(
+  type_name : String,
+  merged : Array[ValueMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Array[ValueMember] {
+  let class_binding = match lookup_class_binding(class_env, type_name) {
+    Some(binding) => binding
+    None => return merged
+  }
+  let parent_name = match class_binding.parent_name {
+    Some(name) => {
+      let aliases = eval_type_alias_bindings(declarations)
+      eval_resolved_type_alias(name, aliases)
+    }
+    None => return merged
+  }
+  let source = match lookup_value(cache, "@__module_source") {
+    Some(StringValue(text)) => Some(text)
+    _ => None
+  }
+  let overridden_method_names : Array[String] = []
+  for method_decl in class_binding.methods {
+    let derived_is_local = match
+      reflect_class_member_decl_line_from_source(
+        source,
+        type_name,
+        method_decl.name,
+        "function",
+      ) {
+      Some(line) => reflect_line_has_decl_modifier(line, "local")
+      None => false
+    }
+    let parent_declaring_class = class_method_declaring_class_name(
+      class_env,
+      parent_name,
+      method_decl.name,
+      declarations,
+    )
+    let parent_is_local = match parent_declaring_class {
+      Some(class_name) =>
+        match
+          reflect_class_member_decl_line_from_source(
+            source,
+            class_name,
+            method_decl.name,
+            "function",
+          ) {
+          Some(line) => reflect_line_has_decl_modifier(line, "local")
+          None => false
+        }
+      None => false
+    }
+    if parent_declaring_class is Some(_) &&
+      !derived_is_local &&
+      !parent_is_local {
+      overridden_method_names.push(method_decl.name)
+    }
+  }
+  if overridden_method_names.length() == 0 {
+    return merged
+  }
+  let inherited_properties : Array[ClassProperty] = []
+  collect_class_default_properties_in_order(
+    inherited_properties, parent_name, class_env, declarations,
+  )
+  let current = copy_value_members(merged)
+  for property in inherited_properties {
+    let raw_source = match property.value {
+      Some(expr) => expr
+      None => continue
+    }
+    let mut calls_overridden_method = false
+    for method_name in overridden_method_names {
+      if expr_references(raw_source, method_name) {
+        calls_overridden_method = true
+        break
+      }
+    }
+    if !calls_overridden_method {
+      continue
+    }
+    let effective_property_type = match property.type_name {
+      Some(_) => property.type_name
+      None =>
+        class_property_type_annotation_from_class_env(
+          type_name,
+          property.name,
+          class_env,
+        )
+    }
+    let source = match (raw_source, effective_property_type) {
+      (ObjectLiteral(members), Some(annotation)) =>
+        match
+          instantiable_class_name_for_type_annotation(annotation, class_env) {
+          Some(class_name) => TypedObjectLiteral(class_name, members)
+          None =>
+            collection_literal_expr_for_type_annotation(
+              ObjectLiteral(members),
+              Some(annotation),
+            )
+        }
+      _ => raw_source
+    }
+    let local_env = copy_value_bindings(env)
+    push_current_members_as_env(local_env, current)
+    let reeval_cache = copy_value_bindings(cache)
+    reeval_cache.push({ name: "this", value: ObjectValue(current) })
+    reeval_cache.push({
+      name: "outer",
+      value: module_object_value_from_scope(
+        bindings,
+        env,
+        cache,
+        stack,
+        const_context=true,
+      ),
+    })
+    reeval_cache.push({
+      name: "@__constructing_class",
+      value: StringValue(type_name),
+    })
+    reeval_cache.push({ name: "@__class_default_scope", value: BoolValue(true) })
+    push_super_dispatch_marker(reeval_cache, type_name)
+    push_sibling_class_methods(
+      reeval_cache, type_name, class_env, local_env, reeval_cache,
+    )
+    match
+      eval_expr_with_bindings(
+        source,
+        bindings,
+        local_env,
+        class_env,
+        cache_for_nested_object_value(source, reeval_cache, current),
+        stack,
+        declarations,
+        diagnostics,
+        resolve_import,
+      ) {
+      Some(raw_value) => {
+        let value = coerce_value_to_annotated_type(
+          raw_value, effective_property_type,
+        )
+        let value = apply_collection_default_for_type(
+          value, effective_property_type, bindings, local_env, class_env, reeval_cache,
+          stack, declarations, diagnostics, resolve_import,
+        )
+        if replace_member_value_by_bare_name(current, property.name, value) {
+          remove_pending_error_member_by_bare_name(current, property.name)
+        }
+      }
+      None => ()
+    }
+  }
+  current
+}
+
+///|
+fn class_method_declaring_class_name(
+  class_env : Array[ClassBinding],
+  start_name : String,
+  method_name : String,
+  declarations : Array[Declaration],
+) -> String? {
+  let aliases = eval_type_alias_bindings(declarations)
+  let seen : Array[String] = []
+  let mut current : String? = Some(start_name)
+  while current is Some(class_name) {
+    if contains_string(seen, class_name) {
+      return None
+    }
+    seen.push(class_name)
+    match lookup_class_binding(class_env, class_name) {
+      Some(binding) => {
+        if lookup_function_decl(binding.methods, method_name) is Some(_) {
+          return Some(class_name)
+        }
+        current = match binding.parent_name {
+          Some(parent) => Some(eval_resolved_type_alias(parent, aliases))
+          None => None
+        }
+      }
+      None => return None
+    }
+  }
+  None
 }
 
 ///|

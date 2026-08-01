@@ -932,19 +932,49 @@ fn yaml_is_reserved_keyword(s : String) -> Bool {
 ///|
 fn yaml_looks_like_number(s : String) -> Bool {
   let mode = yaml_render_mode_current()
-  if yaml_looks_like_number_v12(s) {
-    return true
-  }
   if mode == "1.2" {
-    return yaml_looks_like_special_float_v12(s)
+    return yaml_looks_like_number_v12(s) || yaml_looks_like_special_float_v12(s)
   }
-  // compat / 1.1 mode: also catch 1.1-only numeric forms so the
-  // renderer quotes them and a downstream parser doesn't
-  // re-interpret the string as a number.
-  if yaml_looks_like_special_float_v12(s) {
-    return true
+  // YAML 1.1 does not recognise the 1.2 `0o` spelling, nor an exponent
+  // without an explicit sign. Compat is deliberately the union of both
+  // schemas, while strict 1.1 must leave those spellings plain.
+  if mode == "1.1" &&
+    (yaml_is_v12_octal_spelling(s) || yaml_is_v12_unsigned_exponent_spelling(s)) {
+    return false
   }
+  yaml_looks_like_number_v12(s) ||
+  yaml_looks_like_special_float_v12(s) ||
   yaml_looks_like_v11_only_number(s)
+}
+
+///|
+fn yaml_is_v12_octal_spelling(s : String) -> Bool {
+  let len = s.length()
+  if len == 0 {
+    return false
+  }
+  let idx = if s[0] == '+' || s[0] == '-' { 1 } else { 0 }
+  idx + 1 < len && s[idx] == '0' && (s[idx + 1] == 'o' || s[idx + 1] == 'O')
+}
+
+///|
+fn yaml_is_v12_unsigned_exponent_spelling(s : String) -> Bool {
+  let len = s.length()
+  if len == 0 {
+    return false
+  }
+  let prefix = if s[0] == '+' || s[0] == '-' { 1 } else { 0 }
+  if prefix + 1 < len &&
+    s[prefix] == '0' &&
+    (s[prefix + 1] == 'x' || s[prefix + 1] == 'X') {
+    return false
+  }
+  for i in 0..<(len - 1) {
+    if (s[i] == 'e' || s[i] == 'E') && s[i + 1] is ('0'..='9') {
+      return true
+    }
+  }
+  false
 }
 
 ///|
@@ -1052,6 +1082,20 @@ fn yaml_looks_like_v11_only_number(s : String) -> Bool {
   let len = s.length()
   if len == 0 {
     return false
+  }
+  // YAML 1.1 treats a bare dot, optionally followed only by numeric
+  // separators, as zero. Quote it so a rendered String round-trips.
+  if s[0] == '.' {
+    let mut zero_float = true
+    for i in 1..<len {
+      if s[i] != '_' {
+        zero_float = false
+        break
+      }
+    }
+    if zero_float {
+      return true
+    }
   }
   // Underscored numerics.
   let mut has_underscore = false

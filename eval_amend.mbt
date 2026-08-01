@@ -2428,6 +2428,10 @@ fn eval_class_default_members_seen(
       defer_property_errors=true,
     ),
   )
+  let method_bound_defaults = reeval_class_defaults_after_method_overrides(
+    type_name, merged_defaults, bindings, env, class_env, cache, stack, declarations,
+    diagnostics, resolve_import,
+  )
   // PKL-159: late-bind inherited defaults against this class's overrides.
   // When `class Derived extends Base` overrides a field that a Base-
   // declared default reads (`Base.argv = new { for (p in include) { p }
@@ -2443,11 +2447,11 @@ fn eval_class_default_members_seen(
   // { … }` instances runs the same pass for constructor-set fields.)
   let combined = if defaults.length() > 0 {
     reeval_class_defaults_after_constructor_overrides(
-      type_name, defaults, merged_defaults, bindings, env, class_env, cache, stack,
-      declarations, diagnostics, resolve_import,
+      type_name, defaults, method_bound_defaults, bindings, env, class_env, cache,
+      stack, declarations, diagnostics, resolve_import,
     )
   } else {
-    merged_defaults
+    method_bound_defaults
   }
   // Strip the captured `source` from each class-default slot. The body
   // that amends a `new Foo { ... }` instance never reads class defaults

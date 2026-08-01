@@ -894,6 +894,35 @@ test "PKL-153b: YAML renderer emits empty Set and Map inside sequences as YAML c
 }
 
 ///|
+test "PKL-155: YamlRenderer compat and 1.1 modes match scalar quoting" {
+  let source =
+    #|local compat = new YamlRenderer { mode = "compat" }
+    #|local yaml11 = new YamlRenderer { mode = "1.1" }
+    #|compatDot = compat.renderValue(".")
+    #|compatUnderscores = compat.renderValue(".___")
+    #|yaml11Octal = yaml11.renderValue("0o123")
+    #|yaml11LongOctal = yaml11.renderValue("0o1234567")
+    #|yaml11NegativeOctal = yaml11.renderValue("-0o123")
+    #|yaml11PositiveOctal = yaml11.renderValue("+0o123")
+    #|yaml11ExponentLower = yaml11.renderValue("123.456e2")
+    #|yaml11ExponentUpper = yaml11.renderValue("123.456E2")
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  inspect(
+    @pkl.render_value(value),
+    content=(
+      #|compatDot = "'.'"
+      #|compatUnderscores = "'.___'"
+      #|yaml11Octal = "0o123"
+      #|yaml11LongOctal = "0o1234567"
+      #|yaml11NegativeOctal = "-0o123"
+      #|yaml11PositiveOctal = "+0o123"
+      #|yaml11ExponentLower = "123.456e2"
+      #|yaml11ExponentUpper = "123.456E2"
+    ),
+  )
+}
+
+///|
 test "PKL-153b: YAML renderer emits Bytes as binary scalars" {
   let source =
     #|local renderer = new YamlRenderer {}

@@ -2181,6 +2181,89 @@ test "PKL-148c: reflect class allProperties merges inherited metadata" {
 }
 
 ///|
+test "PKL-157: reflect class allProperties preserves inherited order and metadata" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:reflect"
+      #|local class MyAnn extends Annotation
+      #|open local class A {
+      #|  first: String
+      #|  @Unlisted
+      #|  annotated: String
+      #|  hidden fixed modified: String = ""
+      #|}
+      #|open local class B extends A {
+      #|  second: String
+      #|  @MyAnn
+      #|  annotated: String
+      #|  fixed modified: Int = 0
+      #|}
+      #|local class C extends B {
+      #|  third: String
+      #|}
+      #|local properties = reflect.Class(C).allProperties
+      #|names = properties.keys.toList()
+      #|annotations = properties["annotated"].allAnnotations.map((it) -> it.toString()).toListing()
+      #|modifiers = properties["modified"].allModifiers.toListing()
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(
+    @pkl.render_value(value),
+    content=(
+      #|names = List("first", "annotated", "modified", "second", "third")
+      #|annotations {
+      #|  "new MyAnn {}"
+      #|  "new Unlisted {}"
+      #|}
+      #|modifiers {
+      #|  "hidden"
+      #|  "fixed"
+      #|}
+    ),
+  )
+}
+
+///|
+test "PKL-161: user methods dispatch through runtime class identity" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|abstract class Animal {
+      #|  abstract function walk(): String
+      #|}
+      #|class Cat extends Animal {
+      #|  function walk() = "cat walks"
+      #|}
+      #|function walk(animal: Animal) = animal.walk()
+      #|methodResult = walk(new Cat {})
+      #|open class Greeter {
+      #|  function speak() = "hi"
+      #|  nested { value = speak() }
+      #|  flat: String = speak()
+      #|}
+      #|class LoudGreeter extends Greeter {
+      #|  function speak() = "bye"
+      #|}
+      #|nestedResult = new LoudGreeter {}.nested.value
+      #|flatResult = new LoudGreeter {}.flat
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(
+    @pkl.render_value(value),
+    content=(
+      #|methodResult = "cat walks"
+      #|nestedResult = "bye"
+      #|flatResult = "bye"
+    ),
+  )
+}
+
+///|
 test "PKL-152: reflected annotation toString preserves body text" {
   let session = AnalysisSession::new()
   session.set_source(
@@ -4003,6 +4086,47 @@ test "PKL-146: pkl:yaml.Parser.parse decodes a primitive document (Dynamic mode)
   inspect(rendered.contains("name = \"Alice\""), content="true")
   inspect(rendered.contains("age = 30"), content="true")
   inspect(rendered.contains("active = true"), content="true")
+}
+
+///|
+test "PKL-156: yaml.Parser compat and 1.1 modes resolve scalars and tags" {
+  let source =
+    #|import "pkl:yaml" as yaml
+    #|local compat = new yaml.Parser { mode = "compat" }
+    #|local yaml11 = new yaml.Parser { mode = "1.1" }
+    #|compatNull = compat.parse("NULL")
+    #|compatBoolean = compat.parse("Yes")
+    #|compatOctal = compat.parse("0123")
+    #|compatDotUnderscores = compat.parse(".___")
+    #|compatBytes = compat.parse("!!binary AQID")
+    #|compatSet = compat.parse("!!set\n? one\n? two\n")
+    #|yaml11Octal12 = yaml11.parse("0o123")
+    #|yaml11ExponentWithoutSign = yaml11.parse("123.456e2")
+    #|yaml11Base60 = yaml11.parse("59:30:1")
+    #|yaml11Dot = yaml11.parse(".")
+    #|yaml11Bytes = yaml11.parse("!!binary AQID")
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(
+    @pkl.render_value(value),
+    content=(
+      #|compatNull = null
+      #|compatBoolean = true
+      #|compatOctal = 83
+      #|compatDotUnderscores = 0.0
+      #|compatBytes = Bytes(1, 2, 3)
+      #|compatSet {
+      #|  "one"
+      #|  "two"
+      #|}
+      #|yaml11Octal12 = "0o123"
+      #|yaml11ExponentWithoutSign = "123.456e2"
+      #|yaml11Base60 = 214201
+      #|yaml11Dot = 0.0
+      #|yaml11Bytes = Bytes(1, 2, 3)
+    ),
+  )
 }
 
 ///|

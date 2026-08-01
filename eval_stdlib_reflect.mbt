@@ -545,6 +545,185 @@ fn gold_class_expansion_contains(name : String) -> Bool {
 }
 
 ///|
+/// Builds the compact property mirror used by the Apple-compatible
+/// `reflect.Class` rendering path. The declaring class is significant:
+/// overridden properties keep their base-class map slot, but expose the
+/// metadata of the most-derived declaration.
+fn build_class_gold_property_mirror(
+  class_decl : ClassDecl,
+  property : ClassProperty,
+  declarations : Array[Declaration],
+  module_prefix : String,
+  path : String?,
+  source : String?,
+) -> Value {
+  let bare_name = strip_member_visibility_prefix(property.name)
+  let prop_line = gold_decl_line(source, bare_name, "property")
+  let prop_doc = doc_comment_before_class_member(
+    source,
+    class_decl.name,
+    bare_name,
+    "property",
+  )
+  let prop_type_text = match property.type_name {
+    Some(t) => t
+    None => "Any"
+  }
+  let prop_type = gold_type_from_annotation(
+    prop_type_text,
+    declarations,
+    module_prefix,
+    [],
+  )
+  let modifiers_value = reflect_class_member_modifiers_from_source(
+    source,
+    class_decl.name,
+    bare_name,
+    "property",
+    is_hidden_member_name(property.name),
+    false,
+    false,
+    false,
+    false,
+  )
+  let annotation_values : Array[Value] = []
+  for ann in property.annotations {
+    let text = "@" + ann.class_name + " {" + ann.body_text + "}"
+    match stdlib_annotation_text_to_value(text) {
+      Some(v) => annotation_values.push(v)
+      None => ()
+    }
+  }
+  let all_annotation_values : Array[Value] = []
+  for value in annotation_values {
+    all_annotation_values.push(value)
+  }
+  let all_modifiers_buf : Array[String] = []
+  match modifiers_value {
+    SetValue(items) =>
+      for value in items {
+        match value {
+          StringValue(name) => all_modifiers_buf.push(name)
+          _ => ()
+        }
+      }
+    _ => ()
+  }
+  gold_walk_parent_property(
+    class_decl.parent_name,
+    bare_name,
+    declarations,
+    source,
+    all_annotation_values,
+    all_modifiers_buf,
+  )
+  let all_modifiers_value = reflect_modifiers_value(
+    contains_string(all_modifiers_buf, "hidden"),
+    contains_string(all_modifiers_buf, "fixed"),
+    contains_string(all_modifiers_buf, "const"),
+    contains_string(all_modifiers_buf, "abstract"),
+    contains_string(all_modifiers_buf, "open"),
+  )
+  ObjectValue([
+    {
+      name: "location",
+      value: gold_location_value(prop_line, 3, path),
+      source: None,
+      annotations: [],
+    },
+    {
+      name: "docComment",
+      value: match prop_doc {
+        Some(s) => StringValue(s)
+        None => NullValue
+      },
+      source: None,
+      annotations: [],
+    },
+    {
+      name: "annotations",
+      value: ListValue(annotation_values),
+      source: None,
+      annotations: [],
+    },
+    { name: "modifiers", value: modifiers_value, source: None, annotations: [] },
+    {
+      name: "name",
+      value: StringValue(bare_name),
+      source: None,
+      annotations: [],
+    },
+    {
+      name: "allModifiers",
+      value: all_modifiers_value,
+      source: None,
+      annotations: [],
+    },
+    {
+      name: "allAnnotations",
+      value: ListValue(all_annotation_values),
+      source: None,
+      annotations: [],
+    },
+    // The upstream snippet renders the compact declaration shape without
+    // `type`, while callers can still resolve it by name.
+    reflect_hidden_member("type", prop_type),
+  ])
+}
+
+///|
+fn build_class_gold_property_entries(
+  class_decl : ClassDecl,
+  declarations : Array[Declaration],
+  module_prefix : String,
+  path : String?,
+  source : String?,
+) -> Array[ValueEntry] {
+  let entries : Array[ValueEntry] = []
+  for property in class_decl.properties {
+    let bare_name = strip_member_visibility_prefix(property.name)
+    entries.push({
+      key: StringValue(bare_name),
+      value: build_class_gold_property_mirror(
+        class_decl, property, declarations, module_prefix, path, source,
+      ),
+    })
+  }
+  entries
+}
+
+///|
+/// Apple Pkl retains the original base-class insertion slot when a derived
+/// declaration overrides a property. New properties append in declaration
+/// order at each level.
+fn build_class_gold_all_property_entries(
+  class_decl : ClassDecl,
+  declarations : Array[Declaration],
+  module_prefix : String,
+  path : String?,
+  source : String?,
+) -> Array[ValueEntry] {
+  let chain : Array[ClassDecl] = []
+  reflect_class_decl_chain(chain, class_decl.name, declarations, [])
+  let entries : Array[ValueEntry] = []
+  for declaring_class in chain {
+    for property in declaring_class.properties {
+      let key = StringValue(strip_member_visibility_prefix(property.name))
+      let value = build_class_gold_property_mirror(
+        declaring_class, property, declarations, module_prefix, path, source,
+      )
+      let index = reflect_entry_index(entries, key)
+      if index >= 0 {
+        entries[index] = { key, value }
+      } else {
+        entries.push({ key, value })
+      }
+    }
+  }
+  entries
+}
+
+///|
 /// PKL-080: gold-shape Class mirror — produces the exact shape Apple
 /// Pkl's `reflect.Class(userClass)` returns.
 fn build_class_gold_mirror(
@@ -580,133 +759,12 @@ fn build_class_gold_mirror(
   } else {
     module_prefix + "." + class_decl.name
   }
-  let property_entries : Array[ValueEntry] = []
-  for property in class_decl.properties {
-    let bare_name = strip_member_visibility_prefix(property.name)
-    let prop_line = gold_decl_line(source, bare_name, "property")
-    let prop_doc = doc_comment_before_class_member(
-      source,
-      class_decl.name,
-      bare_name,
-      "property",
-    )
-    let prop_type_text = match property.type_name {
-      Some(t) => t
-      None => "Any"
-    }
-    let prop_type = gold_type_from_annotation(
-      prop_type_text,
-      declarations,
-      module_prefix,
-      [],
-    )
-    let modifiers_value = reflect_class_member_modifiers_from_source(
-      source,
-      class_decl.name,
-      bare_name,
-      "property",
-      is_hidden_member_name(property.name),
-      false,
-      false,
-      false,
-      false,
-    )
-    let annotation_values : Array[Value] = []
-    for ann in property.annotations {
-      let text = "@" + ann.class_name + " {" + ann.body_text + "}"
-      match stdlib_annotation_text_to_value(text) {
-        Some(v) => annotation_values.push(v)
-        None => ()
-      }
-    }
-    // PKL-148c: `allAnnotations` includes annotations from any
-    // ancestor's same-named property. Walk the user-class chain and
-    // merge.
-    let all_annotation_values : Array[Value] = []
-    for v in annotation_values {
-      all_annotation_values.push(v)
-    }
-    let all_modifiers_buf : Array[String] = []
-    match modifiers_value {
-      SetValue(items) =>
-        for v in items {
-          match v {
-            StringValue(s) => all_modifiers_buf.push(s)
-            _ => ()
-          }
-        }
-      _ => ()
-    }
-    gold_walk_parent_property(
-      class_decl.parent_name,
-      bare_name,
-      declarations,
-      source,
-      all_annotation_values,
-      all_modifiers_buf,
-    )
-    let all_modifiers_values : Array[Value] = []
-    for s in all_modifiers_buf {
-      all_modifiers_values.push(StringValue(s))
-    }
-    let property_mirror = ObjectValue([
-      {
-        name: "location",
-        value: gold_location_value(prop_line, 3, path),
-        source: None,
-        annotations: [],
-      },
-      {
-        name: "docComment",
-        value: match prop_doc {
-          Some(s) => StringValue(s)
-          None => NullValue
-        },
-        source: None,
-        annotations: [],
-      },
-      {
-        name: "annotations",
-        value: ListValue(annotation_values),
-        source: None,
-        annotations: [],
-      },
-      {
-        name: "modifiers",
-        value: modifiers_value,
-        source: None,
-        annotations: [],
-      },
-      {
-        name: "name",
-        value: StringValue(bare_name),
-        source: None,
-        annotations: [],
-      },
-      {
-        name: "allModifiers",
-        value: SetValue(all_modifiers_values),
-        source: None,
-        annotations: [],
-      },
-      {
-        name: "allAnnotations",
-        value: ListValue(all_annotation_values),
-        source: None,
-        annotations: [],
-      },
-      // PKL-080: keep `type` as a hidden member so the snippet-test
-      // gold (which doesn't render this field) doesn't pick it up, but
-      // the internal `PKL-148c` / `PKL-152` reflect tests that read
-      // `prop.type.referent.name` still resolve through the bare-name
-      // lookup path.
-      reflect_hidden_member("type", prop_type),
-    ])
-    property_entries.push({
-      key: StringValue(bare_name),
-      value: property_mirror,
-    })
-  }
+  let property_entries = build_class_gold_property_entries(
+    class_decl, declarations, module_prefix, path, source,
+  )
+  let all_property_entries = build_class_gold_all_property_entries(
+    class_decl, declarations, module_prefix, path, source,
+  )
   ObjectValue([
     reflect_hidden_member("__kind", StringValue("Class")),
     reflect_hidden_member("__qualified_name", StringValue(qualified_name)),
@@ -749,7 +807,7 @@ fn build_class_gold_mirror(
     },
     {
       name: "allProperties",
-      value: MapValue(property_entries),
+      value: MapValue(all_property_entries),
       source: None,
       annotations: [],
     },

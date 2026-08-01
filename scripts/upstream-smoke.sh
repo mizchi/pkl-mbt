@@ -60,10 +60,15 @@ GOLD_FIXTURES=(
   "api/xmlRendererValidation11"
   "api/yamlRenderer2b"
   "api/reflect1"
+  "api/reflect4"
   "api/reflectedDeclaration"
   "api/renderDirective"
   "api/renderDirective2"
+  "api/yamlParser1Compat"
+  "api/yamlParser1Yaml11"
   "api/yamlParser1Yaml12"
+  "api/yamlRendererStringsCompat"
+  "api/yamlRendererStringsYaml11"
   "api/yamlParser2"
   "api/yamlParser3"
   "api/yamlParser4"
@@ -320,6 +325,7 @@ GOLD_FIXTURES=(
   "basic/as"
   "basic/as2"
   "basic/as3"
+  "internal/polymorphicCallSite"
 )
 
 # PKL-097: list of upstream fixtures whose `eval -f json` output

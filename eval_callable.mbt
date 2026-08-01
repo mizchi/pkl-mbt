@@ -1516,8 +1516,15 @@ fn eval_class_method_call(
         diagnostics.push(diag("method call expects Object"))
         None
       }
-    Some(ObjectValue(receiver_members)) =>
-      match typed_object_class_name_for_expr(target_expr, bindings, []) {
+    Some(ObjectValue(receiver_members)) => {
+      // User-class calls are virtual. Prefer the concrete runtime tag over
+      // the expression's declared type so `animal: Animal` still dispatches
+      // `walk()` to Cat/Dog/etc.
+      let dispatch_class_name = match find_object_class_tag(receiver_members) {
+        None => typed_object_class_name_for_expr(target_expr, bindings, [])
+        concrete => concrete
+      }
+      match dispatch_class_name {
         Some(type_name) =>
           match lookup_class_method(class_env, type_name, method_name) {
             Some(function_decl) => {
@@ -1651,6 +1658,7 @@ fn eval_class_method_call(
           None
         }
       }
+    }
     Some(_) => {
       diagnostics.push(diag("method call expects Object"))
       None
@@ -1845,9 +1853,28 @@ fn class_method_call_available(
   target_expr : Expr,
   method_name : String,
   bindings : Array[Binding],
+  env : Array[ValueBinding],
+  cache : Array[ValueBinding],
   class_env : Array[ClassBinding],
 ) -> Bool {
-  match typed_object_class_name_for_expr(target_expr, bindings, []) {
+  let runtime_class_name : String? = match target_expr {
+    Identifier(name) => {
+      let value = match lookup_value(env, name) {
+        Some(value) => Some(value)
+        None => lookup_value(cache, name)
+      }
+      match value {
+        Some(ObjectValue(members)) => find_object_class_tag(members)
+        _ => None
+      }
+    }
+    _ => None
+  }
+  let dispatch_class_name = match runtime_class_name {
+    Some(name) => Some(name)
+    None => typed_object_class_name_for_expr(target_expr, bindings, [])
+  }
+  match dispatch_class_name {
     Some(type_name) =>
       lookup_class_method(class_env, type_name, method_name) is Some(_)
     None => false
