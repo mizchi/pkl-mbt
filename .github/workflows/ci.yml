@@ -14,7 +14,7 @@ jobs:
     name: build & test (MoonBit-only)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           # `moon test` runs the cmd/mpkl whitebox tests that `read()`
           # apple-pkl fixture files under third_party/apple-pkl, so the
@@ -63,7 +63,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           # third_party/apple-pkl submodule is required for
           # `upstream apple pkl fixture smoke` and
@@ -79,14 +79,12 @@ jobs:
         run: moon update
 
       - name: Set up pkfire (`pkf`)
-        # No floating major tag upstream and the explicit
-        # `pkfire@0.10.0` form contains an `@` that the `uses:`
-        # parser refuses — pin to the resolved commit SHA instead.
-        uses: mizchi/pkfire@74b22e14db6f166738a4a4f9b2962c94209a5603
+        uses: mizchi/pkfire@v0.14.1
 
       - name: Set up pkspec
-        # pkspec@0.4.2; SHA-pinned for the same reason consistency.
-        uses: mizchi/pkspec@0d4540b29bfd9bd8eb1b3a9635e5d7306d2116e3
+        uses: mizchi/pkspec@v0.4.2
+        with:
+          pkl-version: "0.32.1"
 
       - name: pkspec check
         run: pkspec check specs/Spec.pkl specs/Test.pkl

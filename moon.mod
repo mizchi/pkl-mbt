@@ -1,6 +1,6 @@
 name = "mizchi/pkl"
 
-version = "0.3.4"
+version = "0.3.5"
 
 import {
   "mizchi/cst@0.1.7",
@@ -9,7 +9,7 @@ import {
   "mizchi/zlib@0.4.8",
   "moonbitlang/async@0.20.3",
   "moonbitlang/regexp@0.3.5",
-  "moonbitlang/x@0.4.46",
+  "moonbitlang/x@0.4.47",
   "moonbit-community/yaml@0.0.6",
 }
 

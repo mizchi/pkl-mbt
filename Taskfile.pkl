@@ -1,11 +1,11 @@
-amends "package://pkg.pkl-lang.org/github.com/mizchi/pkfire/pkfire@0.6.0#/Taskfile.pkl"
+amends "package://pkg.pkl-lang.org/github.com/mizchi/pkfire/pkfire@0.14.1#/Taskfile.pkl"
 
 local moonSources: Listing<String> = new {
   "*.mbt"
   "moon.pkg"
   "moon.mod"
-  "cmd/**/*.mbt"
-  "cmd/**/moon.pkg"
+  "cmd/mpkl/*.mbt"
+  "cmd/mpkl/moon.pkg"
   "README.mbt.md"
 }
 
