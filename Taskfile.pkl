@@ -5,6 +5,7 @@ local moonSources: Listing<String> = new {
   "moon.pkg"
   "moon.mod"
   "cmd/mpkl/*.mbt"
+  "cmd/mpkl/*.c"
   "cmd/mpkl/moon.pkg"
   "README.mbt.md"
 }
@@ -35,6 +36,11 @@ local upstreamFixtureSources: Listing<String> = new {
   "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/modules/filename with spaces 2.pkl"
   "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/modules/filename with spaces.pkl"
   "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/modules/objects.pkl"
+}
+
+local upstreamStdlibSources: Listing<String> = new {
+  ".gitmodules"
+  "third_party/apple-pkl/stdlib/*.pkl"
 }
 
 local commonTools: Mapping<String, String> = new {
@@ -153,6 +159,7 @@ local pkspecExec: Task = new {
     ...specSources
     ...supportScripts
     ...upstreamFixtureSources
+    ...upstreamStdlibSources
   }
   tools = commonTools
 }
@@ -195,6 +202,18 @@ local coverage: Task = new {
   tools = commonTools
 }
 
+local stdlibSymbols: Task = new {
+  name = "stdlib-symbols"
+  description =
+    "Verify every public top-level symbol in the Apple Pkl 0.32.1 standard library resolves through its pkl: module"
+  cmd = "moon run cmd/mpkl --target native -- stdlib-symbols third_party/apple-pkl/stdlib/*.pkl"
+  inputs = new {
+    ...moonSources
+    ...upstreamStdlibSources
+  }
+  tools = commonTools
+}
+
 local nextTasks: Task = new {
   name = "next-tasks"
   description =
@@ -209,7 +228,7 @@ local ci: Task = new {
   name = "ci"
   description = "Local CI gate for the default target"
   cmd = "true"
-  deps { fmtCheck; infoCheck; check; test; pkspecExec; specCheck }
+  deps { fmtCheck; infoCheck; check; test; pkspecExec; specCheck; stdlibSymbols }
   tools = commonTools
   cache = false
 }
@@ -259,6 +278,7 @@ tasks {
   specCheck
   specNext
   coverage
+  stdlibSymbols
   nextTasks
   ci
   releaseCheck

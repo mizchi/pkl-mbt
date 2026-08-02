@@ -2,7 +2,7 @@
 
 Pure MoonBit parser, typechecker, and evaluator for Apple's [Pkl](https://pkl-lang.org/) language. Ships as both a CLI (`mpkl`) and a library (`mizchi/pkl`).
 
-**Compatibility policy**: behaviour follows [Apple Pkl](https://pkl-lang.org/). The current release gate passes the upstream test surface outside the intentionally postponed Jsonnet renderer fixtures. Divergent output or a crash where Apple Pkl returns a value is a bug; please file an issue with the source snippet and Apple Pkl's output for comparison.
+**Compatibility policy**: behaviour follows [Apple Pkl](https://pkl-lang.org/). The current release gate targets Apple Pkl 0.32.1 and byte-matches every LanguageSnippetTests fixture that ships reference output. Divergent output or a crash where Apple Pkl returns a value is a bug; please file an issue with the source snippet and Apple Pkl's output for comparison.
 
 ## Install
 
@@ -66,7 +66,16 @@ These don't exist in Apple Pkl:
 
 ## Status
 
-The parser, evaluator, typechecker, package/project loading, and advertised renderers (PCF, JSON, YAML, properties, plist, textproto, XML, and Jsonnet) are passing the current release test gate. The remaining Jsonnet fixtures (`jsonnetRenderer7` — Mixin / Function rendering diagnostic, `jsonnetRenderer8` — `convertPropertyTransformers`) are tracked as follow-ups; see [TODO.md](TODO.md) for the full upstream fixture inventory and release notes.
+The Apple Pkl 0.32.1 fixture gate currently reports 416/416 byte-matches for fixtures with gold output and 960/960 parser acceptance/diagnostic classifications without exclusions. The stdlib API inventory resolves 324/324 public top-level declarations across the 23 public `pkl:` modules.
+
+These numbers do not mean full Pkl compatibility yet:
+
+- `mpkl` only partially implements the upstream CLI. Multiple-module/stdin/output-path/expression flows and `repl`, `server`, `project`, `download-package`, `run`, and `shell-completion` are missing.
+- 324/324 stdlib resolution checks declarations, not every method's behavior. VM-backed modules still contain deterministic stubs or partial implementations.
+- Object property failures are isolated until the affected property is read, but successful property right-hand sides are still computed eagerly rather than stored as memoized thunks.
+- The external-reader subprocess protocol is not implemented; embedded callers use the in-process callback API.
+
+See [TODO.md](TODO.md) for the detailed inventory and release notes.
 
 ### 0.2.2 highlights
 

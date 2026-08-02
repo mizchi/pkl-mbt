@@ -1080,11 +1080,20 @@ fn rewrite_implicit_this_in_expr(
     UnaryExpr(op, inner) =>
       UnaryExpr(op, rewrite_implicit_this_in_expr(inner, bindings, env, cache))
     BinaryExpr(op, l, r) =>
-      BinaryExpr(
-        op,
-        rewrite_implicit_this_in_expr(l, bindings, env, cache),
-        rewrite_implicit_this_in_expr(r, bindings, env, cache),
-      )
+      match op {
+        Is | As =>
+          BinaryExpr(
+            op,
+            rewrite_implicit_this_in_expr(l, bindings, env, cache),
+            r,
+          )
+        _ =>
+          BinaryExpr(
+            op,
+            rewrite_implicit_this_in_expr(l, bindings, env, cache),
+            rewrite_implicit_this_in_expr(r, bindings, env, cache),
+          )
+      }
     NonNullExpr(inner) =>
       NonNullExpr(rewrite_implicit_this_in_expr(inner, bindings, env, cache))
     ConditionalExpr(c, t, e) =>
@@ -1772,6 +1781,9 @@ fn eval_class_property_type_rejection_message(
     eval_class_property_annotation(declarations, class_name, property_name) {
     Some(source_name) => {
       if eval_type_name_is_type_parameter(source_name, declarations) {
+        return None
+      }
+      if reference_value_satisfies_annotation(source_name, value, declarations) {
         return None
       }
       // PKL-148bb: arity mismatch on a function-typed property (`f:

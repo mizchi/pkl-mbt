@@ -112,9 +112,9 @@ fn Parser::parse_and_expr(self : Parser) -> Expr {
 fn Parser::parse_equality_expr(self : Parser) -> Expr {
   self.parse_binary_loop(fn() { self.parse_comparison_expr() }, fn() {
     self.skip_whitespace()
-    if self.at(equal_equal()) {
+    if self.at_infix_across_newline(equal_equal()) {
       Some(Equal)
-    } else if self.at(not_equal()) {
+    } else if self.at_infix_across_newline(not_equal()) {
       Some(NotEqual)
     } else {
       None

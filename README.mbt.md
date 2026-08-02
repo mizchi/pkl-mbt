@@ -21,11 +21,13 @@ Sandbox configuration (`configure_sandbox_*` / `register_*`): module allowlist, 
 
 ## Status
 
-The release gate passes Apple Pkl's upstream LanguageSnippetTests across the advertised renderers (PCF, JSON, YAML, properties, plist, textproto, XML, Jsonnet). Coverage of the Apple Pkl test surface is 98.5% by gold-match; see the repository's `TODO.md` for the remaining fixture inventory.
+The release gate byte-matches all Apple Pkl 0.32.1 LanguageSnippetTests that ship reference output (416/416). The remaining 544 fixtures have no gold file; all 960 are still covered by the exclusion-free parser/diagnostic differential. The embedded standard-library type facade resolves all 324 public top-level declarations from the 23 public `pkl:` modules.
 
 Known gaps for embedded callers:
 
-- **Eager property evaluation.** mpkl evaluates every property of a `new T { ... }` object eagerly; Apple Pkl is lazy. Object bodies that contain a slot whose body errors on a code path the caller never reads (`new Result { cases = cases.length; ... }` where `cases.length` would fail but the caller only reads `result.passed`) still error in mpkl. Tracked as a follow-up.
+- **CLI surface is partial.** `eval`, `test`, `format`, and `analyze` exist, but multiple-module/stdin/output-path/expression flows and the upstream `repl`, `server`, `project`, `download-package`, `run`, and `shell-completion` commands are not implemented. Most upstream common CLI options are also absent.
+- **Standard-library behavior is not complete.** The 324/324 check proves import/type-name resolution, not method-level semantic parity. Several modules use deterministic stubs or partial implementations where Apple Pkl delegates to VM internals.
+- **Property computation is not fully lazy.** Typed and Dynamic object property failures are now isolated and raised when that property is read, so a failing slot no longer rejects an unrelated sibling access. Successful right-hand sides are still computed eagerly because `Value` does not yet carry memoized property thunks; this remains observable in performance/resource usage even though Pkl expressions are otherwise pure.
 - **External-reader subprocess protocol.** Apple Pkl's `--external-resource-reader=<scheme>=<bin>` ships a MessagePack-framed IPC; mpkl's in-process callback hook is the embedded substitute. A subprocess-side adapter would need MoonBit's `core` / `x` packages to ship a subprocess runtime first.
 
 ## Versioning

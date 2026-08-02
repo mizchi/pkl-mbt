@@ -47,7 +47,7 @@ fn Parser::new(source : String) -> Parser {
     pos: 0,
     byte_offset: 0,
     builder: @cst.GreenNodeBuilder::new(),
-    diagnostics: [],
+    diagnostics: validate_parser_syntax(source, tokens),
     unsupported_syntax: [],
     pending_annotations: [],
     pending_modifiers: [],

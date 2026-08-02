@@ -34,7 +34,7 @@ pub fn AnalysisSession::new() -> AnalysisSession {
   }
   let parses : @ripple.Query[String, ParseResult?] = db.query(fn(rt, path) {
     counters.parse_count = counters.parse_count + 1
-    match get_module_source(sources, rt, path) {
+    match get_module_type_source(sources, rt, path) {
       Some(source) => Some(parse_source(source))
       None => None
     }
@@ -329,6 +329,15 @@ fn builtin_stdlib_source(uri : String) -> String? {
       // hosts. A future slice can swap in host-detected values via
       // intrinsics without breaking the existing API shape.
       let source =
+        #|class OperatingSystem {
+        #|  name: String
+        #|  version: String = "0.0.0"
+        #|}
+        #|class Language { version: String }
+        #|class Runtime { name: String; version: String }
+        #|class VirtualMachine { name: String; version: String }
+        #|class Processor { architecture: String }
+        #|
         #|current = new {
         #|  operatingSystem = new {
         #|    name = "stub-os"
@@ -484,7 +493,7 @@ fn builtin_stdlib_source(uri : String) -> String? {
         #|class Http {
         #|  proxy: Proxy? = null
         #|  rewrites: Mapping<String, String>? = null
-        #|  headers: Mapping? = null
+        #|  headers: Mapping<String(isGlobPattern), HttpHeaders>? = null
         #|}
         #|
         #|class Proxy {
@@ -495,7 +504,40 @@ fn builtin_stdlib_source(uri : String) -> String? {
         #|class ExternalReader {
         #|  executable: String
         #|  arguments: Listing<String>? = null
+        #|  workingDir: String? = null
         #|}
+        #|
+        #|local const isNotReservedHeaderName = (header: String) ->
+        #|  header.toLowerCase() != "connection" &&
+        #|  header.toLowerCase() != "content-length" &&
+        #|  header.toLowerCase() != "expect" &&
+        #|  header.toLowerCase() != "host" &&
+        #|  header.toLowerCase() != "keep-alive" &&
+        #|  header.toLowerCase() != "te" &&
+        #|  header.toLowerCase() != "trailer" &&
+        #|  header.toLowerCase() != "transfer-encoding" &&
+        #|  header.toLowerCase() != "upgrade"
+        #|local const doesNotStartWithReservedPrefix = (header: String) ->
+        #|  !header.toLowerCase().startsWith("proxy-") &&
+        #|  !header.toLowerCase().startsWith("sec-")
+        #|local const hasValidHeaderNameSyntax = (header: String) ->
+        #|  header.matches(Regex(#"[a-zA-Z0-9!#$%&'*+-.^_`|~]+"#))
+        #|
+        #|typealias HttpHeaderName = String(
+        #|  isNotReservedHeaderName,
+        #|  doesNotStartWithReservedPrefix,
+        #|  hasValidHeaderNameSyntax,
+        #|  isNotBlank,
+        #|)
+        #|typealias HttpHeaderValue =
+        #|  String(matches(Regex(#"[\t\u0020-\u007E\u0080-\u00FF]*"#)), length < 4096)
+        #|typealias HttpHeaders =
+        #|  Mapping<HttpHeaderName, *Listing<HttpHeaderValue> | HttpHeaderValue>
+        #|
+        #|function resolveForOs(enclosingUri: String, os: Dynamic): Dynamic =
+        #|  _pkl_evaluator_settings_resolve(this, enclosingUri, os.name == "Windows")
+        #|function resolve(enclosingUri: String): Dynamic =
+        #|  _pkl_evaluator_settings_resolve(this, enclosingUri, false)
       Some(source)
     }
     "pkl:Project" => {
@@ -833,6 +875,27 @@ fn builtin_stdlib_source(uri : String) -> String? {
         #|}
       Some(source)
     }
+    "pkl:ref" => {
+      let source =
+        #|abstract class Domain {
+        #|  abstract function renderReference(reference: Reference): String
+        #|}
+        #|
+        #|class Access {
+        #|  fixed isProperty: Boolean
+        #|  fixed isSubscript: Boolean
+        #|  property: String?
+        #|  key: Any
+        #|}
+        #|
+        #|class Reference<out D, out T> {
+        #|  function getDomain(): Dynamic = _pkl_ref_get_domain(this)
+        #|  function getData(): Any = _pkl_ref_get_data(this)
+        #|  function getPath(): List<Access> = _pkl_ref_get_path(this)
+        #|  function toString(): String = _pkl_ref_to_string(this)
+        #|}
+      Some(source)
+    }
     "pkl:reflect" => {
       // PKL-080 minimal slice. Apple's `pkl:reflect` is ~460 lines and built
       // around `external` declarations that bind directly to VM internals
@@ -898,6 +961,210 @@ fn builtin_stdlib_source(uri : String) -> String? {
       Some(source)
     }
     _ => None
+  }
+}
+
+///|
+fn builtin_stdlib_type_supplement(uri : String) -> String? {
+  match uri {
+    "pkl:Benchmark" =>
+      Some(
+        (
+          #|abstract class Benchmark {}
+          #|class BenchmarkResult {}
+          #|class BenchmarkReport {}
+        ),
+      )
+    "pkl:DocPackageInfo" =>
+      Some(
+        (
+          #|typealias PackageName = String
+          #|typealias PackageVersion = String
+        ),
+      )
+    "pkl:EvaluatorSettings" => Some("typealias HttpRewrite = String")
+    "pkl:Project" =>
+      Some(
+        (
+          #|typealias PackageUri = String
+          #|typealias EmailAddress = String
+          #|typealias EvaluatorSettings = Any
+          #|typealias CommonSpdxLicenseIdentifier = String
+        ),
+      )
+    "pkl:base" =>
+      Some(
+        (
+          #|abstract class Any {}
+          #|class Null extends Any {}
+          #|typealias NonNull = Any
+          #|class Class {}
+          #|class TypeAlias {}
+          #|class Module {}
+          #|class Annotation {}
+          #|class Since extends Annotation {}
+          #|class Deprecated extends Annotation {}
+          #|class AlsoKnownAs extends Annotation {}
+          #|class Unlisted extends Annotation {}
+          #|class DocExample extends Annotation {}
+          #|class SourceCode extends Annotation {}
+          #|class ModuleInfo extends Annotation {}
+          #|class FileOutput {}
+          #|class ModuleOutput extends FileOutput {}
+          #|class BaseValueRenderer {}
+          #|class ConvertProperty {}
+          #|class ValueRenderer extends BaseValueRenderer {}
+          #|class BytesRenderer {}
+          #|class PcfRenderer extends ValueRenderer {}
+          #|class RenderDirective {}
+          #|class PcfRenderDirective extends RenderDirective {}
+          #|class JsonRenderer extends ValueRenderer {}
+          #|class YamlRenderer extends ValueRenderer {}
+          #|class PListRenderer extends ValueRenderer {}
+          #|class PropertiesRenderer extends ValueRenderer {}
+          #|class Resource {}
+          #|abstract class Number {}
+          #|class Int extends Number {}
+          #|typealias Int8 = Int
+          #|typealias Int16 = Int
+          #|typealias Int32 = Int
+          #|typealias UInt8 = Int
+          #|typealias UInt16 = Int
+          #|typealias UInt32 = Int
+          #|typealias UInt = Int
+          #|typealias Comparable = Any
+          #|class Float extends Number {}
+          #|NaN = 0.0
+          #|Infinity = 0.0
+          #|class Boolean {}
+          #|typealias Char = String
+          #|class String {}
+          #|typealias Charset = String
+          #|typealias Uri = String
+          #|Regex = (_pattern) -> new { pattern = _pattern }
+          #|class Regex {}
+          #|class RegexMatch {}
+          #|typealias DurationUnit = String
+          #|class Duration {}
+          #|typealias DataSizeUnit = String
+          #|class DataSize {}
+          #|class Object {}
+          #|class Typed extends Object {}
+          #|class Dynamic extends Object {}
+          #|class Listing extends Object {}
+          #|class Mapping extends Object {}
+          #|class Function {}
+          #|class Function0 extends Function {}
+          #|class Function1 extends Function {}
+          #|class Function2 extends Function {}
+          #|class Function3 extends Function {}
+          #|class Function4 extends Function {}
+          #|class Function5 extends Function {}
+          #|typealias Mixin = Function1
+          #|Undefined = () -> throw("Undefined")
+          #|TODO = () -> throw("TODO")
+          #|Null = (_default) -> null
+          #|Pair = (_first, _second) -> new { first = _first; second = _second }
+          #|class Pair {}
+          #|abstract class Collection {}
+          #|IntSeq = (_start, _end) -> new { start = _start; end = _end; step = 1 }
+          #|class IntSeq extends Collection {}
+          #|class VarArgs extends Collection {}
+          #|List = (_element) -> new Listing { _element }
+          #|class List extends Collection {}
+          #|Set = (_element) -> new Listing { _element }
+          #|class Set extends Collection {}
+          #|Map = (_key, _value) -> new Mapping { [_key] = _value }
+          #|class Map extends Collection {}
+          #|Bytes = (_value) -> new Listing { _value }
+          #|class Bytes extends Collection {}
+        ),
+      )
+    "pkl:json" | "pkl:yaml" => Some("typealias Value = Any")
+    "pkl:jsonnet" =>
+      Some(
+        (
+          #|class Property {}
+          #|class ImportStr {}
+          #|class ExtVar {}
+        ),
+      )
+    "pkl:math" => Some("minPositiveFloat = 4.9E-324")
+    "pkl:platform" => Some("class Platform {}")
+    "pkl:reflect" =>
+      Some(
+        (
+          #|abstract class Declaration {}
+          #|class Module extends Declaration {}
+          #|abstract class TypeDeclaration extends Declaration {}
+          #|class Class extends TypeDeclaration {}
+          #|class TypeAlias extends TypeDeclaration {}
+          #|class MethodParameter {}
+          #|class TypeParameter {}
+          #|typealias Modifier = String
+          #|typealias Variance = String
+          #|class DeclaredType extends Type {}
+          #|class StringLiteralType extends Type {}
+          #|class UnionType extends Type {}
+          #|class NullableType extends Type {}
+          #|class FunctionType extends Type {}
+          #|class ModuleType extends Type {}
+          #|class UnknownType extends Type {}
+          #|class NothingType extends Type {}
+          #|class TypeVariable extends Type {}
+          #|class SourceLocation {}
+        ),
+      )
+    "pkl:release" =>
+      Some(
+        (
+          #|class Release {}
+          #|class SourceCode {}
+          #|class Documentation {}
+          #|class StandardLibrary {}
+        ),
+      )
+    "pkl:semver" =>
+      Some(
+        (
+          #|class Version {}
+          #|isValid = (s) -> _pkl_semver_parse_or_null(s) != null
+        ),
+      )
+    "pkl:test" =>
+      Some(
+        (
+          #|facts = null
+          #|examples = null
+          #|catchOrNull = (fun) -> _pkl_test_catch_or_null(fun)
+        ),
+      )
+    "pkl:xml" =>
+      Some(
+        (
+          #|Element = (_name) -> new { name = _name; isBlockFormat = true }
+          #|Inline = (_value) -> new { value = _value }
+          #|Comment = (_text) -> new { text = _text }
+          #|CData = (_text) -> new { text = _text }
+        ),
+      )
+    _ => None
+  }
+}
+
+///|
+fn get_module_type_source(
+  sources : @ripple.Input[String, String],
+  rt : @ripple.Runtime,
+  path : String,
+) -> String? {
+  match builtin_stdlib_source(path) {
+    Some(runtime_source) =>
+      match builtin_stdlib_type_supplement(path) {
+        Some(supplement) => Some(runtime_source + "\n" + supplement)
+        None => Some(runtime_source)
+      }
+    None => sources.get(rt, path)
   }
 }
 

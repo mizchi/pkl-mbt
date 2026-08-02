@@ -293,7 +293,9 @@ fn Parser::parse_type_text(
       if s.length() > 0 && text.length() > 0 {
         let last = s[s.length() - 1].to_int().unsafe_to_char()
         let first = text[0].to_int().unsafe_to_char()
-        if is_ident_char(last) && is_ident_char(first) {
+        if tok.kind() == is_kw() ||
+          tok.kind() == as_kw() ||
+          (is_ident_char(last) && is_ident_char(first)) {
           buf.write_char(' ')
         }
       }

@@ -239,6 +239,42 @@ fn checked_int64_mul(a : Int64, b : Int64) -> Int64? {
 }
 
 ///|
+fn checked_int64_add(a : Int64, b : Int64) -> Int64? {
+  let max = 9223372036854775807L
+  let min = 0L - 9223372036854775807L - 1L
+  let ok = if b > 0L {
+    a <= max - b
+  } else if b < 0L {
+    a >= min - b
+  } else {
+    true
+  }
+  if ok {
+    Some(a + b)
+  } else {
+    None
+  }
+}
+
+///|
+fn checked_int64_sub(a : Int64, b : Int64) -> Int64? {
+  let max = 9223372036854775807L
+  let min = 0L - 9223372036854775807L - 1L
+  let ok = if b > 0L {
+    a >= min + b
+  } else if b < 0L {
+    a <= max + b
+  } else {
+    true
+  }
+  if ok {
+    Some(a - b)
+  } else {
+    None
+  }
+}
+
+///|
 fn binding_collection_host_constraint_rejection_message(
   type_name : String?,
   value : Value,

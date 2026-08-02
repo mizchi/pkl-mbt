@@ -649,6 +649,11 @@ fn object_values_equal(
   xs : Array[ValueMember],
   ys : Array[ValueMember],
 ) -> Bool {
+  if is_reference_value_members(xs) || is_reference_value_members(ys) {
+    return is_reference_value_members(xs) &&
+      is_reference_value_members(ys) &&
+      reference_values_equal(xs, ys)
+  }
   match (reflect_kind(xs), reflect_kind(ys)) {
     (Some("Class"), Some("Class")) | (Some("TypeAlias"), Some("TypeAlias")) => {
       let x_name = match
@@ -706,7 +711,10 @@ fn object_values_equal(
     Some(s) => s
     None => "Dynamic"
   }
-  if class_xs != class_ys {
+  // Imported aliases and the declaring module can spell the same class
+  // differently (`BaseModule.MyAnn` vs `MyAnn`). Class-tag matching is
+  // already used by `is` and annotation dispatch for this reason.
+  if !name_matches_class_tag(class_xs, class_ys) {
     return false
   }
   let visible_xs = visible_members(xs)

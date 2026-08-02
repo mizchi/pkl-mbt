@@ -531,6 +531,16 @@ fn eval_value_matches_generic_type_annotation(
   class_env : Array[ClassBinding],
   declarations : Array[Declaration],
 ) -> Bool? {
+  match generic_argument_text(type_name, "ref.Reference") {
+    Some(_) =>
+      return Some(
+        match value {
+          ObjectValue(members) => is_reference_value_members(members)
+          _ => false
+        },
+      )
+    None => ()
+  }
   match generic_argument_text(type_name, "List") {
     Some(element_type) =>
       return match value {
@@ -711,6 +721,11 @@ fn eval_value_matches_bare_type(
     "Mapping" =>
       value is MappingValue(_) || value is DefaultedMappingValue(_, _, _)
     "Pair" => value is PairValue(_, _)
+    "ref.Reference" | "Reference" =>
+      match value {
+        ObjectValue(members) => is_reference_value_members(members)
+        _ => false
+      }
     "IntSeq" => value is IntSeqValue(_, _, _)
     "Mixin" =>
       match value {

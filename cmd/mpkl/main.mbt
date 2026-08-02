@@ -1,16 +1,30 @@
 ///|
 fn usage() -> Unit {
+  println("Usage: mpkl [<options>] <command> [<args>]...")
+  println("")
+  println("Options:")
+  println("  -v, --version  Show the version and exit")
+  println("  -h, --help     Show this message and exit")
+  println("")
+  println("Pkl-compatible commands:")
+  println("  eval       Render one Pkl module")
+  println("  test       Run tests within one Pkl module")
+  println("  format     Format one Pkl file")
+  println("  analyze    Run static analysis on one Pkl module")
+  println("")
+  println("pkl-mbt extensions:")
+  println("  parse, check, codegen, stdlib")
+  println("  parse-many, parse-many-expect-errors, stdlib-symbols")
   println(
-    "usage: pkl <parse|check|eval|test|format|analyze|codegen|stdlib> [args]",
+    "       mpkl eval [-f|--format pcf|json|yaml|properties|plist|textproto|xml] <file.pkl>",
   )
-  println(
-    "       pkl eval [-f|--format pcf|json|yaml|properties|plist|textproto|xml] <file.pkl>",
-  )
-  println("       pkl test <file.pkl>")
-  println("       pkl format <file.pkl>")
-  println("       pkl analyze <file.pkl>")
-  println("       pkl codegen [-t|--target moonbit] <file.pkl>")
-  println("       pkl parse-many <file.pkl>...")
+  println("       mpkl test <file.pkl>")
+  println("       mpkl format <file.pkl>")
+  println("       mpkl analyze <file.pkl>")
+  println("       mpkl codegen [-t|--target moonbit] <file.pkl>")
+  println("       mpkl parse-many <file.pkl>...")
+  println("       mpkl parse-many-expect-errors <file.pkl>...")
+  println("       mpkl stdlib-symbols <stdlib-file.pkl>...")
   println(
     "  sandbox flags: --allowed-modules <pipe-separated-prefixes> --module-path <dir> -p NAME=VALUE",
   )
@@ -337,19 +351,40 @@ fn resolve_at_prefix_dep(from : String, uri : String) -> String? {
                         if entry_type == "local" {
                           match path_str {
                             Some(path) => {
-                              let dep_dir = if path.has_suffix("/") {
+                              let dep_root_raw = if path.has_prefix("/") {
+                                path
+                              } else if current == "" {
                                 path
                               } else {
-                                path + "/"
+                                current + "/" + path
                               }
-                              let joined = if dep_dir.has_prefix("/") {
-                                dep_dir + rest
-                              } else if current == "" {
-                                dep_dir + rest
+                              let dep_root = normalize_path_segments(
+                                dep_root_raw,
+                              )
+                              // Pkl 0.32.1 clamps `..` at a project
+                              // dependency's root. Resolve the import fragment
+                              // as if it were absolute, then attach the
+                              // resulting root-relative path to the local
+                              // dependency directory.
+                              let rooted_rest = normalize_path_segments(
+                                "/" + rest,
+                              )
+                              let safe_rest = if rooted_rest.has_prefix("/") {
+                                String::unsafe_substring(
+                                  rooted_rest,
+                                  start=1,
+                                  end=rooted_rest.length(),
+                                )
                               } else {
-                                current + "/" + dep_dir + rest
+                                rooted_rest
                               }
-                              return Some(joined)
+                              return Some(
+                                if safe_rest == "" {
+                                  dep_root
+                                } else {
+                                  dep_root + "/" + safe_rest
+                                },
+                              )
                             }
                             None => ()
                           }
@@ -1548,7 +1583,48 @@ fn directory_listing_text(path : String) -> String {
 }
 
 ///|
+fn local_project_directory_listing_text(path : String) -> String {
+  let names = sort_strings(@fs.read_dir(path) catch { _ => [] })
+  let buf = StringBuilder::new()
+  // Apple Pkl's local-project dependency reader exposes package resources
+  // before its project metadata files. Keep each partition sorted so the
+  // result is stable across host filesystems.
+  for name in names {
+    if name != "PklProject" && name != "PklProject.deps.json" {
+      buf.write_string(name)
+      buf.write_char('\n')
+    }
+  }
+  for name in names {
+    if name == "PklProject" || name == "PklProject.deps.json" {
+      buf.write_string(name)
+      buf.write_char('\n')
+    }
+  }
+  buf.to_string()
+}
+
+///|
+fn string_is_safe_os_path_candidate(text : String) -> Bool {
+  for i = 0; i < text.length(); i = i + 1 {
+    let code = text[i].to_int()
+    if code < 0x20 || (code >= 0xD800 && code <= 0xDFFF) {
+      return false
+    }
+  }
+  true
+}
+
+///|
 fn read_resource_from(from : String, uri : String) -> @pkl.SandboxResource? {
+  // PKL 0.32.1 string fixtures intentionally contain lone UTF-16
+  // surrogates. `register_expr_io` sees every StringLiteral so dynamic
+  // `read(uri)` wrappers can be preloaded, but such values are not valid OS
+  // paths and moonbitlang/x/fs aborts while converting them. Reject them at
+  // the host boundary before any filesystem call.
+  if !string_is_safe_os_path_candidate(uri) {
+    return None
+  }
   let resolved = resolve_import_path(from, uri)
   if is_package_uri_like(resolved) {
     match resolve_package_uri_to_cache(resolved, "") {
@@ -1575,7 +1651,11 @@ fn read_resource_from(from : String, uri : String) -> @pkl.SandboxResource? {
     return Some({
       uri,
       resource_uri: resource_uri_for_visible_path(resolved, uri),
-      text: directory_listing_text(resolved),
+      text: if uri.has_prefix("@") {
+        local_project_directory_listing_text(resolved)
+      } else {
+        directory_listing_text(resolved)
+      },
     })
   }
   let body = @fs.read_file_to_string(resolved) catch { _ => "" }
@@ -1984,6 +2064,9 @@ fn register_read_glob_if_file_pattern(from : String, pattern : String) -> Unit {
 
 ///|
 fn register_read_literal_io(from : String, uri : String) -> Unit {
+  if !string_is_safe_os_path_candidate(uri) {
+    return
+  }
   register_read_resource_if_file(from, uri)
   register_read_glob_if_file_pattern(from, uri)
 }
@@ -2666,8 +2749,37 @@ fn parse_file(path : String) -> Bool {
 }
 
 ///|
+fn parse_file_has_diagnostics(path : String) -> Bool {
+  let source = @fs.read_file_to_string(path) catch {
+    _ => {
+      println("failed to read \{path}")
+      return false
+    }
+  }
+  let parsed = @pkl.parse_source(source)
+  if parsed.diagnostics.length() == 0 {
+    println("expected parser diagnostic: \{path}")
+    false
+  } else {
+    true
+  }
+}
+
+///|
 async fn main {
   let args = @sys.get_cli_args()
+  if args.length() == 1 ||
+    (
+      args.length() == 2 &&
+      (args[1] == "--help" || args[1] == "-h" || args[1] == "help")
+    ) {
+    usage()
+    return
+  }
+  if args.length() == 2 && (args[1] == "--version" || args[1] == "-v") {
+    println("Pkl 0.32.1 compatible surface (pkl-mbt 0.4.0)")
+    return
+  }
   // PKL-080: register the bundled stdlib `base.pkl` source so the
   // library-side reflect machinery can build full Class mirrors for
   // stdlib types (`api/reflectedDeclaration` etc.). The candidate
@@ -2725,6 +2837,27 @@ async fn main {
       @sys.exit(1)
     }
     println("ok \{passed}")
+    return
+  }
+  if command == "parse-many-expect-errors" {
+    let mut passed = 0
+    let mut failed = 0
+    for i = 2; i < args.length(); i = i + 1 {
+      if parse_file_has_diagnostics(args[i]) {
+        passed += 1
+      } else {
+        failed += 1
+      }
+    }
+    if failed > 0 {
+      println("failed \{failed} of \{passed + failed} expected diagnostics")
+      @sys.exit(1)
+    }
+    println("ok \{passed} diagnostics")
+    return
+  }
+  if command == "stdlib-symbols" {
+    run_stdlib_symbol_check(args, 2)
     return
   }
   // Pull out optional flags after the command. `eval` understands

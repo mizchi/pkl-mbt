@@ -575,7 +575,15 @@ fn decode_string_escapes(text : String) -> String {
           j = j + 1
         }
         if j < text.length() && text[j].to_int().unsafe_to_char() == '}' {
-          buf.write_char(code.unsafe_to_char())
+          // Apple Pkl accepts a lone UTF-16 surrogate escape but
+          // normalizes it to `?`. Passing D800-DFFF to MoonBit's
+          // `unsafe_to_char` creates an invalid String and later
+          // operations such as `char_length` abort.
+          if code >= 0xd800 && code <= 0xdfff {
+            buf.write_char('?')
+          } else {
+            buf.write_char(code.unsafe_to_char())
+          }
           i = j + 1
           continue
         }

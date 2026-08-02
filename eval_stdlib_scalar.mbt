@@ -24,6 +24,7 @@ fn is_string_property_name(name : String) -> Bool {
     | "isBase64"
     | "lastIndex"
     | "isRegex"
+    | "isGlobPattern"
     | "base64Decoded"
     | "base64DecodedBytes" => true
     _ => false
@@ -110,6 +111,7 @@ fn is_string_method_name(name : String) -> Bool {
     | "isBase64"
     | "lastIndex"
     | "isRegex"
+    | "isGlobPattern"
     | "base64Decoded"
     | "base64DecodedBytes" => true
     _ => false
@@ -1815,11 +1817,13 @@ fn int_to_string_radix(n : Int64, radix : Int) -> String {
   }
   let digits = "0123456789abcdefghijklmnopqrstuvwxyz"
   let negative = n < 0L
-  let mut value = if negative { 0L - n } else { n }
+  // Keep the working value non-positive. `abs(minInt)` is not
+  // representable as Int64, whereas negating every non-negative value is.
+  let mut value = if negative { n } else { 0L - n }
   let radix64 = radix.to_int64()
   let chars : Array[Char] = []
-  while value > 0L {
-    let d = (value % radix64).to_int()
+  while value < 0L {
+    let d = (0L - value % radix64).to_int()
     chars.push(digits.unsafe_get(d).to_int().unsafe_to_char())
     value = value / radix64
   }

@@ -1945,7 +1945,18 @@ fn eval_program(
                 }
                 None => true
               }
-            None => true
+            None =>
+              match value {
+                ObjectValue(_) =>
+                  match first_rendered_deferred_error_message(value) {
+                    Some(message) => {
+                      binding_diagnostics.push(diag(message))
+                      false
+                    }
+                    None => true
+                  }
+                _ => true
+              }
           }
           if no_deferred_error &&
             eval_constrained_type_annotation_value_is_valid(

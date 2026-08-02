@@ -19,6 +19,7 @@ import {
 pkgtype(kind: "executable")
 
 options(
+  "native-stub": [ "macos_posix_spawn_compat.c" ],
   targets: {
     "main.mbt": [ "native", "js" ],
     "main_wbtest.mbt": [ "native", "js" ],

@@ -143,6 +143,9 @@ fn eval_resolved_annotation_structural_rejection_message(
   value : Value,
   declarations : Array[Declaration],
 ) -> String? {
+  if reference_value_satisfies_annotation(annotation, value, declarations) {
+    return None
+  }
   let value = coerce_value_to_annotated_type(value, Some(annotation))
   if eval_type_name_is_type_parameter(annotation, declarations) {
     return None
@@ -2400,8 +2403,11 @@ fn eval_class_default_members_seen(
     value: module_object_value_from_scope(
       bindings,
       env,
+      class_env,
       cache,
       stack,
+      declarations,
+      resolve_import,
       const_context=true,
     ),
   })

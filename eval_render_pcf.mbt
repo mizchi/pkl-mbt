@@ -94,15 +94,10 @@ fn render_value_as_pcf_fragment_with_custom_string_delimiters(
     None => ()
   }
   let buf = StringBuilder::new()
-  match value {
-    ObjectValue(_)
-    | ListingValue(_)
-    | DefaultedListingValue(_, _, _)
-    | MappingValue(_)
-    | DefaultedMappingValue(_, _, _)
-    | DeferredImportValue(_) =>
-      render_pcf_block_body(value, 0, use_custom_string_delimiters, buf)
-    _ => render_pcf_inline(value, 0, use_custom_string_delimiters, buf)
+  if pcf_is_block_value(value) {
+    render_pcf_block_body(value, 0, use_custom_string_delimiters, buf)
+  } else {
+    render_pcf_inline(value, 0, use_custom_string_delimiters, buf)
   }
   buf.to_string()
 }
@@ -187,6 +182,9 @@ fn pcf_is_block_value(value : Value) -> Bool {
     return false
   }
   if deferred_error_message(value) is Some(_) {
+    return false
+  }
+  if value is ObjectValue(members) && is_reference_value_members(members) {
     return false
   }
   match value {
@@ -548,8 +546,11 @@ fn render_pcf_scalar_with_indent(
       }
       buf.write_char(')')
     }
-    ObjectValue(_)
-    | ListingValue(_)
+    ObjectValue(members) =>
+      if !render_reference_constructor(members, buf) {
+        render_pcf_inline(value, 0, use_custom_string_delimiters, buf)
+      }
+    ListingValue(_)
     | DefaultedListingValue(_, _, _)
     | MappingValue(_)
     | DefaultedMappingValue(_, _, _) =>

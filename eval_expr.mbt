@@ -379,8 +379,11 @@ fn module_snapshot_member_name(
 fn module_object_value_from_scope(
   bindings : Array[Binding],
   env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
   cache : Array[ValueBinding],
   stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
   const_context~ : Bool,
 ) -> Value {
   let module_members : Array[ValueMember] = []
@@ -412,6 +415,47 @@ fn module_object_value_from_scope(
     Some(StringValue(path)) => reflect_display_uri(Some(path))
     _ => ""
   }
+  let module_path = match lookup_value(cache, "@__module_path") {
+    Some(StringValue(path)) => Some(path)
+    _ => None
+  }
+  let module_source = match lookup_value(cache, "@__module_source") {
+    Some(StringValue(source)) => Some(source)
+    _ => None
+  }
+  let module_name = match lookup_value(cache, "@__module_name") {
+    Some(StringValue(name)) => Some(name)
+    _ => None
+  }
+  let module_prefix = reflect_module_short_name(module_path, module_name)
+  let module_properties = if lookup_value(cache, "@__reflect_annotation_eval")
+    is Some(_) {
+    MapValue([])
+  } else {
+    MapValue(
+      reflect_module_property_entries(
+        bindings,
+        module_members,
+        declarations,
+        module_prefix,
+        None,
+        module_path,
+        module_source,
+        env,
+        class_env,
+        cache,
+        resolve_import,
+      ),
+    )
+  }
+  let module_class = match synth_class_mirror_for_name("Module") {
+    ObjectValue(class_members) => {
+      class_members.push(reflect_member("properties", module_properties))
+      class_members.push(reflect_member("allProperties", module_properties))
+      ObjectValue(class_members)
+    }
+    value => value
+  }
   module_members.push({
     name: hidden_member_name(reflect_module_metadata_name()),
     value: ObjectValue([
@@ -428,7 +472,7 @@ fn module_object_value_from_scope(
       reflect_member("supermodule", supermodule),
       reflect_member("isAmend", BoolValue(is_amend)),
       reflect_member("modifiers", SetValue([])),
-      reflect_member("moduleClass", synth_class_mirror_for_name("Module")),
+      reflect_member("moduleClass", module_class),
     ]),
     source: None,
     annotations: [],
@@ -1484,6 +1528,95 @@ fn first_deferred_error_message(value : Value) -> String? {
 }
 
 ///|
+fn first_rendered_deferred_error_message(value : Value) -> String? {
+  match value {
+    ObjectValue(members) => {
+      for field in members {
+        if is_error_member_name(field.name) {
+          let target = String::unsafe_substring(
+            field.name,
+            start=error_member_prefix.length(),
+            end=field.name.length(),
+          )
+          if !is_local_member_name(target) {
+            match field.value {
+              StringValue(message) => return Some(message)
+              _ => ()
+            }
+          }
+        }
+      }
+      for field in members {
+        if !is_invisible_member_name(field.name) {
+          match first_rendered_deferred_error_message(field.value) {
+            Some(message) => return Some(message)
+            None => ()
+          }
+        }
+      } nobreak {
+        None
+      }
+    }
+    ListingValue(elements) | ListValue(elements) | SetValue(elements) =>
+      for element in elements {
+        match first_rendered_deferred_error_message(element) {
+          Some(message) => return Some(message)
+          None => ()
+        }
+      } nobreak {
+        None
+      }
+    DefaultedListingValue(raw, elements, _) => {
+      for element in raw {
+        match first_rendered_deferred_error_message(element) {
+          Some(message) => return Some(message)
+          None => ()
+        }
+      }
+      for element in elements {
+        match first_rendered_deferred_error_message(element) {
+          Some(message) => return Some(message)
+          None => ()
+        }
+      } nobreak {
+        None
+      }
+    }
+    MappingValue(entries) | MapValue(entries) =>
+      first_rendered_deferred_error_message_in_entries(entries)
+    DefaultedMappingValue(raw, entries, _) =>
+      match first_rendered_deferred_error_message_in_entries(raw) {
+        Some(message) => Some(message)
+        None => first_rendered_deferred_error_message_in_entries(entries)
+      }
+    PairValue(first, second) =>
+      match first_rendered_deferred_error_message(first) {
+        Some(message) => Some(message)
+        None => first_rendered_deferred_error_message(second)
+      }
+    _ => deferred_error_message(value)
+  }
+}
+
+///|
+fn first_rendered_deferred_error_message_in_entries(
+  entries : Array[ValueEntry],
+) -> String? {
+  for entry in entries {
+    match first_rendered_deferred_error_message(entry.key) {
+      Some(message) => return Some(message)
+      None => ()
+    }
+    match first_rendered_deferred_error_message(entry.value) {
+      Some(message) => return Some(message)
+      None => ()
+    }
+  } nobreak {
+    None
+  }
+}
+
+///|
 fn first_deferred_error_message_in_entries(
   entries : Array[ValueEntry],
 ) -> String? {
@@ -2057,6 +2190,51 @@ fn apply_mixin_pipe_value(
 }
 
 ///|
+fn mixin_body_function_member_name() -> String {
+  "@hidden$__mixinBodyFunction"
+}
+
+///|
+fn materialize_mixin_members_for_target(
+  mixin_members : Array[ValueMember],
+  target : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Array[ValueMember]? {
+  match lookup_member(mixin_members, mixin_body_function_member_name()) {
+    Some(function_value) =>
+      match
+        apply_function_value(
+          "Mixin.apply",
+          function_value,
+          [target],
+          bindings,
+          env,
+          class_env,
+          cache,
+          stack,
+          declarations,
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(ObjectValue(materialized)) => Some(materialized)
+        Some(_) => {
+          diagnostics.push(diag("Mixin body must evaluate to an object."))
+          None
+        }
+        None => None
+      }
+    None => Some(mixin_members)
+  }
+}
+
+///|
 fn object_members_are_mixin_body(members : Array[ValueMember]) -> Bool {
   let mut has_visible = false
   for value_member in members {
@@ -2372,31 +2550,97 @@ fn type_annotation_has_collection_union(
 }
 
 ///|
-fn type_annotation_is_unsubstituted_parameterized_alias(
+fn type_alias_identifier_char(c : Char) -> Bool {
+  (c >= 'a' && c <= 'z') ||
+  (c >= 'A' && c <= 'Z') ||
+  (c >= '0' && c <= '9') ||
+  c == '_'
+}
+
+///|
+fn substitute_type_alias_parameter(
+  source : String,
+  parameter : String,
+  argument : String,
+) -> String {
+  if parameter == "" {
+    return source
+  }
+  let buf = StringBuilder::new()
+  let mut i = 0
+  while i < source.length() {
+    let matches = i + parameter.length() <= source.length() &&
+      String::unsafe_substring(source, start=i, end=i + parameter.length()) ==
+      parameter
+    let left_ok = i == 0 ||
+      !type_alias_identifier_char(source[i - 1].to_int().unsafe_to_char())
+    let right_index = i + parameter.length()
+    let right_ok = right_index >= source.length() ||
+      !type_alias_identifier_char(source[right_index].to_int().unsafe_to_char())
+    if matches && left_ok && right_ok {
+      buf.write_string(argument)
+      i = right_index
+    } else {
+      buf.write_char(source[i].to_int().unsafe_to_char())
+      i = i + 1
+    }
+  }
+  buf.to_string()
+}
+
+///|
+fn resolve_parameterized_type_alias(
   type_name : String,
   declarations : Array[Declaration],
-) -> Bool {
+) -> String? {
   let normalized = strip_balanced_outer_type_parens(
     pkl_strip_default_type_marker(pkl_constraint_trim(type_name)),
   )
-  let base = match pkl_constrained_type_base_name(normalized) {
-    Some(b) => b
-    None => normalized
-  }
-  let head = match base.find("<") {
-    Some(idx) => String::unsafe_substring(base, start=0, end=idx)
-    None => return false
-  }
   for declaration in declarations {
     match declaration {
       TypeAliasDeclaration(type_alias) =>
-        if type_alias.name == head && type_alias.type_parameters.length() > 0 {
-          return true
+        match generic_argument_text(normalized, type_alias.name) {
+          Some(inner) => {
+            let arguments = split_top_level_generic_arguments(inner)
+            if arguments.length() != type_alias.type_parameters.length() {
+              return None
+            }
+            let mut result = type_alias.target
+            for i = 0; i < arguments.length(); i = i + 1 {
+              result = substitute_type_alias_parameter(
+                result,
+                type_alias.type_parameters[i],
+                arguments[i],
+              )
+            }
+            return Some(result)
+          }
+          None => ()
         }
       ClassDeclaration(_) | FunctionDeclaration(_) => ()
     }
   }
-  false
+  None
+}
+
+///|
+fn parameterized_type_alias_source(
+  type_name : String,
+  declarations : Array[Declaration],
+) -> String? {
+  let normalized = strip_balanced_outer_type_parens(
+    pkl_strip_default_type_marker(pkl_constraint_trim(type_name)),
+  )
+  for declaration in declarations {
+    match declaration {
+      TypeAliasDeclaration(type_alias) =>
+        if generic_argument_text(normalized, type_alias.name) is Some(_) {
+          return Some(type_alias.target)
+        }
+      ClassDeclaration(_) | FunctionDeclaration(_) => ()
+    }
+  }
+  None
 }
 
 ///|
@@ -3154,6 +3398,7 @@ fn cast_value_to_single_type_annotation(
   match
     eval_callable_runtime_constraint_message(
       Some(resolved_type),
+      parameterized_type_alias_source(display_type, declarations),
       value,
       bindings,
       class_env,
@@ -3335,10 +3580,18 @@ fn cast_value_to_type_annotation(
   declarations : Array[Declaration],
   resolve_import : (String) -> EvalResult?,
 ) -> TypeCastResult {
+  if reference_value_satisfies_annotation(display_type, value, declarations) {
+    return TypeCastOk(value)
+  }
   let aliases = eval_type_alias_bindings(declarations)
-  let resolved = strip_balanced_outer_type_parens(
-    eval_resolved_type_alias(display_type, aliases),
-  )
+  let resolved = match
+    resolve_parameterized_type_alias(display_type, declarations) {
+    Some(value) => strip_balanced_outer_type_parens(value)
+    None =>
+      strip_balanced_outer_type_parens(
+        eval_resolved_type_alias(display_type, aliases),
+      )
+  }
   if resolved == display_type && type_annotation_has_top_level_dot(display_type) {
     match value {
       ListingValue(_)
@@ -3352,12 +3605,6 @@ fn cast_value_to_type_annotation(
       | ObjectValue(_) => return TypeCastOk(value)
       _ => ()
     }
-  }
-  if resolved == display_type &&
-    type_annotation_is_unsubstituted_parameterized_alias(
-      display_type, declarations,
-    ) {
-    return TypeCastOk(value)
   }
   let choices = split_top_level_union_choices(resolved)
   if choices.length() > 1 {
@@ -3647,9 +3894,17 @@ fn eval_expr_with_bindings(
       })
       Some(
         ObjectValue(
-          eval_object_members(
-            members, bindings, env, class_env, body_cache, stack, declarations, diagnostics,
+          eval_object_members_with_options(
+            members,
+            bindings,
+            env,
+            class_env,
+            body_cache,
+            stack,
+            declarations,
+            diagnostics,
             resolve_import,
+            defer_property_errors=true,
           ),
         ),
       )
@@ -3811,6 +4066,39 @@ fn eval_expr_with_bindings(
         )
         return None
       }
+      // Pkl 0.32.1: an object-parameter Mixin (`new Mixin { it -> ... }`)
+      // is a closure over its body. Its members must be evaluated only when
+      // the mixin is applied, with the target object bound to `it`.
+      if type_name == "Mixin" || type_name.has_prefix("Mixin<") {
+        match collection_default_parameters(members) {
+          Some(parameters) => {
+            let captured = capture_value_bindings(env, cache)
+            let deferred_body = FunctionValue(
+              parameters,
+              ObjectLiteral(function_amend_regular_members(members)),
+              None,
+              captured,
+              fresh_function_id(),
+            )
+            return Some(
+              ObjectValue(
+                tag_object_with_class(
+                  [
+                    {
+                      name: mixin_body_function_member_name(),
+                      value: deferred_body,
+                      source: None,
+                      annotations: [],
+                    },
+                  ],
+                  type_name,
+                ),
+              ),
+            )
+          }
+          None => ()
+        }
+      }
       if type_name == "Listing" {
         for m in members {
           let bare = strip_member_visibility_prefix(m.name)
@@ -3843,27 +4131,19 @@ fn eval_expr_with_bindings(
       if type_name != "Listing" &&
         type_name != "List" &&
         type_name != "Dynamic" &&
-        type_name != "Object" {
+        type_name != "Object" &&
+        type_name != "Mixin" {
         let mut element_seen = false
-        let mut when_seen = false
         for m in members {
           if m.name.has_prefix("@element$") {
             element_seen = true
-          } else if m.name == "@when" {
-            when_seen = true
           }
         }
         if element_seen {
           let label = if type_name == "Mapping" {
-            if when_seen {
-              "new Mapping {}"
-            } else {
-              "Mapping"
-            }
+            "Mapping"
           } else if is_stdlib_class_name(type_name) {
             type_name
-          } else if when_seen {
-            "new \{type_name} {}"
           } else {
             let module_name = match lookup_value(cache, "@__module_name") {
               Some(StringValue(s)) => s
@@ -3890,7 +4170,8 @@ fn eval_expr_with_bindings(
         type_name != "Mapping" &&
         type_name != "Map" &&
         type_name != "Dynamic" &&
-        type_name != "Object" {
+        type_name != "Object" &&
+        type_name != "Mixin" {
         let mut entry_seen = false
         let mut when_seen = false
         for m in members {
@@ -3959,6 +4240,14 @@ fn eval_expr_with_bindings(
         name: "@__constructing_class",
         value: StringValue(type_name),
       })
+      // PKL-160: constructor bodies isolate expression failures per
+      // property, but class constraints keep their established forcing
+      // point in the constructor validation loop below. Class-default
+      // evaluation does not set this marker and continues to defer both.
+      body_cache.push({
+        name: "@__defer_expression_errors_only",
+        value: BoolValue(true),
+      })
       let merged = reeval_class_defaults_after_constructor_overrides(
         type_name,
         members,
@@ -3966,9 +4255,17 @@ fn eval_expr_with_bindings(
           merge_value_members(
             class_defaults,
             rename_overrides_for_hidden_class_properties(
-              eval_object_members(
-                members, body_bindings, env, class_env, body_cache, stack, declarations,
-                diagnostics, resolve_import,
+              eval_object_members_with_options(
+                members,
+                body_bindings,
+                env,
+                class_env,
+                body_cache,
+                stack,
+                declarations,
+                diagnostics,
+                resolve_import,
+                defer_property_errors=true,
               ),
               type_name,
               class_env,
@@ -3994,8 +4291,26 @@ fn eval_expr_with_bindings(
       // binding pass re-runs the check.
       let mut violation_emitted = false
       for field in members {
+        // PKL-160: an expression-level failure captured by the lazy
+        // object-member evaluator belongs to this property. Do not turn
+        // its Null placeholder into an eager constructor type error; the
+        // `@error$<name>` sentinel is forced by member access instead.
+        if lookup_pending_error_message(merged, field.name) is Some(_) {
+          match lookup_value_member(merged, field.name) {
+            Some(value_member) if value_member.source is None => continue
+            _ => ()
+          }
+        }
         match lookup_member(merged, field.name) {
-          Some(member_value) => {
+          Some(raw_member_value) => {
+            let member_value = coerce_value_to_annotated_type(
+              raw_member_value,
+              class_property_type_annotation_from_class_env(
+                type_name,
+                strip_member_visibility_prefix(field.name),
+                class_env,
+              ),
+            )
             // PKL-148i: enforce the declared type annotation first so
             // `new Person { name = 42 }` rejects with "Expected value
             // of type `String`, but got type `Int`. Value: 42" instead
@@ -4269,7 +4584,6 @@ fn eval_expr_with_bindings(
       // element (`new Mapping { "pigeon" }`) carries an `@element$`
       // sentinel key. Raise Apple Pkl's "cannot have an element"
       // wording before the entries get rendered.
-      let mut mapping_when_seen = false
       for entry in entries {
         if collection_local_binding_from_expr(entry.key) is Some(_) {
           continue
@@ -4278,16 +4592,11 @@ fn eval_expr_with_bindings(
           continue
         }
         match entry.key {
-          WhenSpread(_) => mapping_when_seen = true
+          WhenSpread(_) => ()
           Identifier(name) =>
             if name.has_prefix("@element$") {
-              let label = if mapping_when_seen {
-                "new Mapping {}"
-              } else {
-                "Mapping"
-              }
               diagnostics.push(
-                diag("Object of type `\{label}` cannot have an element."),
+                diag("Object of type `Mapping` cannot have an element."),
               )
               return None
             }
@@ -4767,6 +5076,11 @@ fn eval_expr_with_bindings(
                                         _ => None
                                       },
                                       [],
+                                      bindings,
+                                      env,
+                                      class_env,
+                                      cache,
+                                      resolve_import,
                                     ),
                                   ),
                                 )
@@ -4830,7 +5144,22 @@ fn eval_expr_with_bindings(
                     // member with the actual (type-invalid) value is left
                     // in place for equality / iteration but is unreachable
                     // through this lookup path.
-                    if object_class_tag_matches(members, "Resource") &&
+                    if member_name == "$" {
+                      match lookup_member(members, member_name) {
+                        Some(reference) =>
+                          Some(
+                            reference_rebind_data(
+                              reference,
+                              ObjectValue(members),
+                            ),
+                          )
+                        None => None
+                      }
+                    } else if is_reference_value_members(members) {
+                      eval_reference_property_access(
+                        members, member_name, class_env, declarations, cache,
+                      )
+                    } else if object_class_tag_matches(members, "Resource") &&
                       resource_property_name(member_name) {
                       eval_resource_property(members, member_name, diagnostics)
                     } else if member_name == "output" {
@@ -5364,21 +5693,29 @@ fn eval_expr_with_bindings(
           None
         }
         (Some(ObjectValue(members)), Some(key_value)) =>
-          match
-            dynamic_object_subscript_value(members, key_value, diagnostics) {
-            Some(value) =>
-              match deferred_error_message(value) {
-                Some(message) => {
-                  diagnostics.push(diag(message))
-                  None
+          if is_reference_value_members(members) {
+            eval_reference_subscript_access(
+              members, key_value, class_env, declarations, cache,
+            )
+          } else {
+            match
+              dynamic_object_subscript_value(members, key_value, diagnostics) {
+              Some(value) =>
+                match deferred_error_message(value) {
+                  Some(message) => {
+                    diagnostics.push(diag(message))
+                    None
+                  }
+                  None => Some(value)
                 }
-                None => Some(value)
+              None => {
+                diagnostics.push(
+                  diag(
+                    "Cannot find key `\{render_pcf_value_inline(key_value)}`.",
+                  ),
+                )
+                None
               }
-            None => {
-              diagnostics.push(
-                diag("Cannot find key `\{render_pcf_value_inline(key_value)}`."),
-              )
-              None
             }
           }
         (Some(MappingValue(entries)), Some(key_value))
@@ -5780,8 +6117,11 @@ fn eval_expr_with_bindings(
           module_object_value_from_scope(
             bindings,
             env,
+            class_env,
             cache,
             stack,
+            declarations,
+            resolve_import,
             const_context=false,
           ),
         )
@@ -5849,6 +6189,11 @@ fn eval_expr_with_bindings(
         )
         is Some(xml_value) {
         Some(xml_value)
+      } else if is_pkl_ref_constructor_call(callee, env, cache) {
+        eval_pkl_ref_constructor(
+          arguments, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
+        )
       } else if callee is Identifier("@__typed_listing") &&
         arguments.length() == 2 {
         match arguments[0] {
@@ -6528,6 +6873,18 @@ fn eval_expr_with_bindings(
           callee, arguments, bindings, env, class_env, cache, stack, declarations,
           diagnostics, resolve_import,
         )
+      } else if is_pkl_evaluator_settings_intrinsic_call(
+          callee, bindings, stack,
+        ) {
+        eval_pkl_evaluator_settings_intrinsic(
+          callee, arguments, bindings, env, class_env, cache, stack, declarations,
+          diagnostics, resolve_import,
+        )
+      } else if is_pkl_ref_intrinsic_call(callee, bindings, stack) {
+        eval_pkl_ref_intrinsic(
+          callee, arguments, bindings, env, class_env, cache, stack, declarations,
+          diagnostics, resolve_import,
+        )
       } else if callee is Identifier("Regex") &&
         !stack_contains_binding(stack, "Regex") &&
         find_binding(bindings, "Regex") is None {
@@ -6588,6 +6945,11 @@ fn eval_expr_with_bindings(
               eval_class_method_call(
                 target_expr, method_name, arguments, false, bindings, env, class_env,
                 cache, stack, declarations, diagnostics, resolve_import,
+              )
+            } else if method_name == "resolveForOs" || method_name == "resolve" {
+              eval_evaluator_settings_method_call(
+                target_expr, method_name, arguments, bindings, env, class_env, cache,
+                stack, declarations, diagnostics, resolve_import,
               )
             } else if method_name == "getClass" && arguments.length() == 0 {
               // PKL-148: `value.getClass()` returns a `pkl:reflect.Class`
@@ -7890,9 +8252,17 @@ fn eval_expr_with_bindings(
                     )
                     match left_value {
                       Some(left_val) =>
-                        return apply_mixin_pipe_value(
-                          left_val, mixin_members, diagnostics,
-                        )
+                        match
+                          materialize_mixin_members_for_target(
+                            mixin_members, left_val, bindings, env, class_env, cache,
+                            stack, declarations, diagnostics, resolve_import,
+                          ) {
+                          Some(materialized) =>
+                            return apply_mixin_pipe_value(
+                              left_val, materialized, diagnostics,
+                            )
+                          None => return None
+                        }
                       None => return None
                     }
                   }
@@ -7943,9 +8313,30 @@ fn eval_expr_with_bindings(
       match (left, right) {
         (Some(IntValue(a)), Some(IntValue(b))) =>
           match op {
-            Add => Some(IntValue(a + b))
-            Subtract => Some(IntValue(a - b))
-            Multiply => Some(IntValue(a * b))
+            Add =>
+              match checked_int64_add(a, b) {
+                Some(value) => Some(IntValue(value))
+                None => {
+                  diagnostics.push(diag("Integer overflow."))
+                  None
+                }
+              }
+            Subtract =>
+              match checked_int64_sub(a, b) {
+                Some(value) => Some(IntValue(value))
+                None => {
+                  diagnostics.push(diag("Integer overflow."))
+                  None
+                }
+              }
+            Multiply =>
+              match checked_int64_mul(a, b) {
+                Some(value) => Some(IntValue(value))
+                None => {
+                  diagnostics.push(diag("Integer overflow."))
+                  None
+                }
+              }
             Divide =>
               // PKL-092: `/` widens to Float when both operands are Int,
               // mirroring Apple Pkl's `Int.div` semantics (`5 / 2 = 2.5`).
@@ -9527,8 +9918,11 @@ fn reeval_class_defaults_after_constructor_overrides(
       value: module_object_value_from_scope(
         bindings,
         env,
+        class_env,
         cache,
         stack,
+        declarations,
+        resolve_import,
         const_context=true,
       ),
     })
@@ -9700,8 +10094,11 @@ fn reeval_class_defaults_after_method_overrides(
       value: module_object_value_from_scope(
         bindings,
         env,
+        class_env,
         cache,
         stack,
+        declarations,
+        resolve_import,
         const_context=true,
       ),
     })
@@ -10631,6 +11028,142 @@ fn renderer_write_subscript_member_value(
 }
 
 ///|
+fn evaluator_settings_http_header_name_error(name : String) -> String? {
+  let lower = name.to_lower()
+  match lower {
+    "connection"
+    | "content-length"
+    | "expect"
+    | "host"
+    | "keep-alive"
+    | "te"
+    | "trailer"
+    | "transfer-encoding"
+    | "upgrade" =>
+      return Some(
+        "Type constraint `isNotReservedHeaderName` violated. Value: \{render_pcf_value_inline(StringValue(name))}",
+      )
+    _ => ()
+  }
+  if lower.has_prefix("proxy-") || lower.has_prefix("sec-") {
+    return Some(
+      "Type constraint `doesNotStartWithReservedPrefix` violated. Value: \{render_pcf_value_inline(StringValue(name))}",
+    )
+  }
+  let mut valid = name.length() > 0
+  for c in name.iter() {
+    let alpha = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+    let digit = c >= '0' && c <= '9'
+    let punctuation = match c {
+      '!'
+      | '#'
+      | '$'
+      | '%'
+      | '&'
+      | '\''
+      | '*'
+      | '+'
+      | '-'
+      | '.'
+      | '^'
+      | '_'
+      | '`'
+      | '|'
+      | '~' => true
+      _ => false
+    }
+    if !alpha && !digit && !punctuation {
+      valid = false
+      break
+    }
+  }
+  if !valid {
+    Some(
+      "Type constraint `hasValidHeaderNameSyntax` violated. Value: \{render_pcf_value_inline(StringValue(name))}",
+    )
+  } else {
+    None
+  }
+}
+
+///|
+fn evaluator_settings_http_header_value_valid(value : String) -> Bool {
+  if value.char_length() >= 4096 {
+    return false
+  }
+  for c in value.iter() {
+    let code = c.to_int()
+    if code != 0x09 &&
+      !(code >= 0x20 && code <= 0x7e) &&
+      !(code >= 0x80 && code <= 0xff) {
+      return false
+    }
+  }
+  true
+}
+
+///|
+fn evaluator_settings_http_validation_error(value : Value) -> String? {
+  let members = match value {
+    ObjectValue(members) if object_class_tag_matches(members, "Http") => members
+    _ => return None
+  }
+  let outer_entries = match lookup_member(members, "headers") {
+    Some(MappingValue(entries)) | Some(DefaultedMappingValue(_, entries, _)) =>
+      entries
+    _ => return None
+  }
+  for outer_entry in outer_entries {
+    match outer_entry.key {
+      StringValue(pattern) =>
+        if !is_valid_pkl_glob_pattern(pattern) {
+          return Some(
+            "Type constraint `isGlobPattern` violated. Value: \{render_pcf_value_inline(StringValue(pattern))}",
+          )
+        }
+      _ => ()
+    }
+    let header_entries = match outer_entry.value {
+      MappingValue(entries) | DefaultedMappingValue(_, entries, _) => entries
+      _ => continue
+    }
+    for header_entry in header_entries {
+      match header_entry.key {
+        StringValue(name) =>
+          match evaluator_settings_http_header_name_error(name) {
+            Some(message) => return Some(message)
+            None => ()
+          }
+        _ => ()
+      }
+      let valid_value = match header_entry.value {
+        StringValue(text) => evaluator_settings_http_header_value_valid(text)
+        ListingValue(values) | DefaultedListingValue(_, values, _) => {
+          let mut valid = true
+          for item in values {
+            match item {
+              StringValue(text) =>
+                if !evaluator_settings_http_header_value_valid(text) {
+                  valid = false
+                }
+              _ => valid = false
+            }
+          }
+          valid
+        }
+        _ => false
+      }
+      if !valid_value {
+        return Some(
+          "Expected value of type `*Listing<HttpHeaderValue> | HttpHeaderValue`, but got a different `\{eval_value_type_name(header_entry.value)}`. Value: \{render_pcf_value_inline(header_entry.value)}",
+        )
+      }
+    }
+  }
+  None
+}
+
+///|
 fn eval_value_renderer_method(
   format : String,
   renderer_members : Array[ValueMember],
@@ -10666,6 +11199,13 @@ fn eval_value_renderer_method(
       resolve_import,
     ) {
     Some(value) => {
+      match evaluator_settings_http_validation_error(value) {
+        Some(message) => {
+          diagnostics.push(diag(message))
+          return None
+        }
+        None => ()
+      }
       let diagnostics_before_converters = diagnostics.length()
       let rendered_value = apply_value_renderer_converters(
         value, renderer_members, bindings, env, class_env, cache, declarations, diagnostics,
@@ -12330,8 +12870,11 @@ fn resolve_object_super_member_value(
           module_object_value_from_scope(
             bindings,
             env,
+            class_env,
             cache,
             stack,
+            declarations,
+            resolve_import,
             const_context=false,
           ) {
           ObjectValue(owner_members) =>
@@ -12692,7 +13235,12 @@ fn eval_object_members_with_implicit_env(
     // ordinary object bodies opt in only for `local` members so an
     // unused typed local does not reject the whole object, while a
     // later bare-name reference still surfaces the stored diagnostic.
-    let defer_field_errors = defer_property_errors ||
+    let defer_field_errors = (
+        defer_property_errors &&
+        field.name != "@when" &&
+        field.name != "@for" &&
+        field.name != "@spread"
+      ) ||
       is_local_member_name(field.name)
     let property_diagnostics : Array[Diagnostic] = if defer_field_errors {
       []
@@ -12994,7 +13542,8 @@ fn eval_object_members_with_implicit_env(
                   value,
                   property_diagnostics,
                 ) {
-                let runtime_reject = if defer_property_errors {
+                let runtime_reject = if defer_property_errors &&
+                  lookup_value(cache, "@__defer_expression_errors_only") is None {
                   match lookup_value(cache, "@__constructing_class") {
                     Some(StringValue(class_name)) => {
                       let enclosing_members : Array[ValueMember] = []
