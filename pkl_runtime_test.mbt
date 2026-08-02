@@ -3508,6 +3508,31 @@ test "PKL-148: module.getClass exposes reflect property doc comments" {
 }
 
 ///|
+test "PKL-154: reflected module class retains its module-specific reflectee" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "BaseModule.pkl",
+    (
+      #|open module BaseModule
+      #|
+      #|value = 1
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:reflect"
+      #|import "BaseModule.pkl" as BaseModule
+      #|
+      #|local reflected = reflect.Module(BaseModule)
+      #|sameClass = reflected.moduleClass.reflectee == BaseModule.getClass()
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(@pkl.render_value(value), content="sameClass = true")
+}
+
+///|
 test "PKL-148: typed empty new {} expands class defaults" {
   let session = AnalysisSession::new()
   session.set_source(

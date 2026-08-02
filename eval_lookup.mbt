@@ -2227,6 +2227,21 @@ fn reflect_module_class_mirror(
     path,
     source,
   )
+  let module_class_name = match module_members_name(module_members) {
+    Some(name) => name
+    None => module_prefix
+  }
+  let module_class_uri = match module_members_path(module_members) {
+    Some(uri) => uri
+    None =>
+      match path {
+        Some(uri) => uri
+        None => ""
+      }
+  }
+  let module_class_reflectee = synth_module_class_mirror(
+    module_class_name, module_class_uri,
+  )
   let superclass = synth_class_mirror_for_name("Module")
   let superclass_with_reflectee = ObjectValue([
     reflect_hidden_member("__kind", StringValue("Class")),
@@ -2239,7 +2254,7 @@ fn reflect_module_class_mirror(
   ObjectValue([
     reflect_hidden_member("__kind", StringValue("Class")),
     reflect_hidden_member("reflectee", StringValue("Module")),
-    reflect_member("reflectee", synth_class_mirror_for_name("Module")),
+    reflect_member("reflectee", module_class_reflectee),
     reflect_member("location", reflect_location_value(path)),
     reflect_member(
       "docComment",
