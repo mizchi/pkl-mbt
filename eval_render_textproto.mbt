@@ -32,6 +32,8 @@ pub fn render_value_as_protobuf_fragment(
   indent_text : String,
 ) -> String {
   match value {
+    ThunkValue(_) =>
+      render_value_as_protobuf_fragment(force_eval_thunk(value), indent_text)
     DurationValue(_, _) => {
       let buf = StringBuilder::new()
       buf.write_string("{\n")
@@ -334,6 +336,7 @@ fn render_textproto_scalar(value : Value, buf : StringBuilder) -> Unit {
     None => ()
   }
   match value {
+    ThunkValue(_) => render_textproto_scalar(force_eval_thunk(value), buf)
     IntValue(n) => buf.write_string(n.to_string())
     FloatValue(d) => buf.write_string(render_float_text(d))
     BoolValue(true) => buf.write_string("true")

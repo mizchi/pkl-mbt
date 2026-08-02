@@ -8,6 +8,10 @@ fn render_value_with_custom_string_delimiters(
   value : Value,
   use_custom_string_delimiters : Bool,
 ) -> String {
+  // Preserve the document-vs-fragment contract after forcing an output
+  // thunk. Dispatching on the handle itself would route an ObjectValue
+  // through `render_pcf_inline` and incorrectly add a top-level `new {}`.
+  let value = force_eval_thunk(value)
   let buf = StringBuilder::new()
   if deferred_error_message(value) is Some(_) {
     return "?"
@@ -178,6 +182,7 @@ fn escape_string(value : String) -> String {
 
 ///|
 fn pcf_is_block_value(value : Value) -> Bool {
+  let value = force_eval_thunk(value)
   if render_directive_text(value) is Some(_) {
     return false
   }
@@ -430,6 +435,13 @@ fn render_pcf_scalar_with_indent(
     return
   }
   match value {
+    ThunkValue(_) =>
+      render_pcf_scalar_with_indent(
+        force_eval_thunk(value),
+        indent,
+        use_custom_string_delimiters,
+        buf,
+      )
     IntValue(n) => buf.write_string("\{n}")
     FloatValue(d) => buf.write_string(render_float_text(d))
     BoolValue(true) => buf.write_string("true")
@@ -1140,7 +1152,7 @@ fn value_member_is_output_configuration(field : ValueMember) -> Bool {
   if strip_member_visibility_prefix(field.name) != "output" {
     return false
   }
-  match field.value {
+  match force_eval_thunk(field.value) {
     ObjectValue(output_members) =>
       lookup_member(output_members, "value") is Some(_) ||
       lookup_member(output_members, "text") is Some(_) ||
@@ -1157,13 +1169,19 @@ fn visible_members(members : Array[ValueMember]) -> Array[ValueMember] {
   // prefixed entry, so omitting members here doesn't break runtime access.
   let result : Array[ValueMember] = []
   for field in members {
+    let forced_value = force_eval_thunk(field.value)
     let omitted_reflect_default = field.name == "defaultValue" &&
-      field.value is NullValue
+      forced_value is NullValue
     let omitted_module_output = value_member_is_output_configuration(field)
     if !is_invisible_member_name(field.name) &&
       !omitted_reflect_default &&
       !omitted_module_output {
-      result.push(field)
+      result.push({
+        name: field.name,
+        value: forced_value,
+        source: field.source,
+        annotations: field.annotations,
+      })
     }
   }
   result

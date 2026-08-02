@@ -72,7 +72,7 @@ These numbers do not mean full Pkl compatibility yet:
 
 - `mpkl` only partially implements the upstream CLI. Multiple-module/stdin/output-path/expression flows and `repl`, `server`, `project`, `download-package`, `run`, and `shell-completion` are missing.
 - 324/324 stdlib resolution checks declarations, not every method's behavior. VM-backed modules still contain deterministic stubs or partial implementations.
-- Object property failures are isolated until the affected property is read, but successful property right-hand sides are still computed eagerly rather than stored as memoized thunks.
+- Object properties created from local or exported bindings use self-contained memoized thunk cells for both successful values and failures, including typed constructors, recursive-force detection, and force-time type/constraint checks. Settled cells release their computation closures, and separate analysis sessions do not share cell state. Member lookup, output projection/rendering, converters, and amends force only the values they consume; class defaults keep their separate declaration-scoped memo/materialization guard. `eval_source` remains an eager compatibility projection, while runtime-metadata consumers can call `force_value` explicitly.
 - The external-reader subprocess protocol is not implemented; embedded callers use the in-process callback API.
 
 See [TODO.md](TODO.md) for the detailed inventory and release notes.

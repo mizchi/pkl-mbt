@@ -8,7 +8,7 @@ fn lookup_value(env : Array[ValueBinding], name : String) -> Value? {
   while i >= 0 {
     let binding = env[i]
     if binding.name == name {
-      return Some(binding.value)
+      return Some(force_eval_thunk(binding.value))
     }
     i = i - 1
   }
@@ -3087,7 +3087,7 @@ fn lookup_member(members : Array[ValueMember], name : String) -> Value? {
     if field.name == name ||
       field.name == hidden_prefixed ||
       field.name == local_prefixed {
-      return Some(field.value)
+      return Some(force_eval_thunk(field.value))
     }
     i = i - 1
   }
@@ -3129,7 +3129,7 @@ fn lookup_visible_member(members : Array[ValueMember], name : String) -> Value? 
   for field in members {
     if (field.name == name || field.name == hidden_prefixed) &&
       !is_local_member_name(field.name) {
-      found = Some(field.value)
+      found = Some(force_eval_thunk(field.value))
     }
   }
   found
@@ -3440,7 +3440,7 @@ fn lookup_class_method(
 fn lookup_entry(entries : Array[ValueEntry], key : Value) -> Value? {
   let mut found : Value? = None
   for entry in entries {
-    if entry.key == key {
+    if values_equal(entry.key, key) {
       found = Some(entry.value)
     }
   }
@@ -3705,6 +3705,11 @@ fn deep_merge_amend_member_value(
   replacement : Value,
   source : Expr?,
 ) -> Value {
+  // An amend selects both sides of the member it merges. Resolve their
+  // shared memo cells before shape dispatch so a thunk-backed object is
+  // deep-merged instead of being mistaken for a scalar replacement.
+  let base = force_eval_thunk(base)
+  let replacement = force_eval_thunk(replacement)
   match (base, replacement) {
     (ObjectValue(base_members), ObjectValue(over_members)) =>
       ObjectValue(merge_value_members(base_members, over_members))

@@ -1655,6 +1655,28 @@ local cliLazyProperty = new Test {
   timeoutSec = 120
 }
 
+local cliMemoizedPropertyThunk = new Test {
+  name = "cli memoized property thunk"
+  description =
+    "A self-contained property thunk memoizes values and failures, reports cycles, and supports the QuickCheck callback workload through the public CLI."
+  tags { "moonbit"; "cli"; "evaluator"; "lazy"; "quickcheck"; "compatibility"; "contract" }
+  specRef { "PKL-161" }
+  cmd = "moon run cmd/mpkl --target native -- eval fixtures/memoized_property_thunk.pkl"
+  workdir = ".."
+  expectStdoutContains {
+    "memoizedFunctionIdentity = true"
+    "callbackResult = 42"
+    "firstFailure = \"Cannot find property `missing` in object of type `String`.\""
+    "secondFailure = \"Cannot find property `missing` in object of type `String`.\""
+    "cycleFailure = \"cyclic property reference left\""
+    "quickCheckPassed = true"
+    "quickCheckCases = 16"
+    "quickCheckNoFailure = true"
+    "quickCheckSummary = \"PASS nonnegative cases=16\""
+  }
+  timeoutSec = 120
+}
+
 tests {
   moonUnit
   cliEval
@@ -1726,4 +1748,5 @@ tests {
   cliRootHelp
   cliRootVersion
   cliLazyProperty
+  cliMemoizedPropertyThunk
 }

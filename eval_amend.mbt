@@ -755,7 +755,7 @@ fn dynamic_mapping_entries_from_members(
     if !value_member.name.has_prefix("@subscript$") {
       return None
     }
-    match value_member.value {
+    match force_eval_thunk(value_member.value) {
       ObjectValue(pair_members) =>
         match
           (
@@ -2397,6 +2397,15 @@ fn eval_class_default_members_seen(
   // any inherited methods in the lexical scope (defaults_cache is
   // built fresh per class layer).
   let defaults_cache = copy_value_bindings(cache)
+  // Class defaults already have their own declaration-scoped memo and
+  // materialization cycle guard. Do not inherit an enclosing object's
+  // property-thunk policy here: delaying a `Listing<Self>` default until
+  // after the materializing marker is cleared recreates an infinite cycle.
+  // Constructor/body overrides are evaluated later with the caller policy.
+  defaults_cache.push({
+    name: "@__retain_property_thunks",
+    value: BoolValue(false),
+  })
   defaults_cache.push({ name: "@__class_default_scope", value: BoolValue(true) })
   defaults_cache.push({
     name: "outer",

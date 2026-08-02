@@ -58,6 +58,17 @@ fn render_xml_named_element(
     return
   }
   match value {
+    // Force before deciding whether this is a regular named node or an XML
+    // helper object. Treating a thunk as inline content discards both the
+    // requested element name and the resolved value's structural markers.
+    ThunkValue(_) =>
+      render_xml_named_element(
+        name,
+        force_eval_thunk(value),
+        level,
+        indent_text,
+        buf,
+      )
     ObjectValue(members) =>
       match xml_object_kind(members) {
         Some("Inline") =>
@@ -548,6 +559,7 @@ fn render_xml_inline_content(value : Value, buf : StringBuilder) -> Unit {
     None => ()
   }
   match value {
+    ThunkValue(_) => render_xml_inline_content(force_eval_thunk(value), buf)
     IntValue(n) => buf.write_string("\{n}")
     FloatValue(d) => buf.write_string(render_float_text(d))
     BoolValue(true) => buf.write_string("true")

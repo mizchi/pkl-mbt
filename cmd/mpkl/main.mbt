@@ -3789,14 +3789,18 @@ fn extract_xml_renderer_options(
     @pkl.ObjectValue(members) =>
       for entry in members {
         if entry.name == "output" {
-          match entry.value {
+          match @pkl.force_value(entry.value) {
             @pkl.ObjectValue(output_members) =>
               for output_member in output_members {
                 if output_member.name == "renderer" {
-                  match output_member.value {
+                  match @pkl.force_value(output_member.value) {
                     @pkl.ObjectValue(renderer_members) =>
                       for renderer_member in renderer_members {
-                        match (renderer_member.name, renderer_member.value) {
+                        match
+                          (
+                            renderer_member.name,
+                            @pkl.force_value(renderer_member.value),
+                          ) {
                           ("rootElementName", @pkl.StringValue(s)) =>
                             root_name = s
                           ("indent", @pkl.StringValue(s)) => indent_text = s
@@ -3828,14 +3832,18 @@ fn extract_yaml_renderer_options(value : @pkl.Value) -> (Int, Bool, Bool) {
     @pkl.ObjectValue(members) =>
       for entry in members {
         if entry.name == "output" {
-          match entry.value {
+          match @pkl.force_value(entry.value) {
             @pkl.ObjectValue(output_members) =>
               for output_member in output_members {
                 if output_member.name == "renderer" {
-                  match output_member.value {
+                  match @pkl.force_value(output_member.value) {
                     @pkl.ObjectValue(renderer_members) =>
                       for renderer_member in renderer_members {
-                        match (renderer_member.name, renderer_member.value) {
+                        match
+                          (
+                            renderer_member.name,
+                            @pkl.force_value(renderer_member.value),
+                          ) {
                           ("indentWidth", @pkl.IntValue(n)) =>
                             indent_width = n.to_int()
                           ("isStream", @pkl.BoolValue(b)) => is_stream = b
@@ -3867,7 +3875,7 @@ fn extract_output_value(value : @pkl.Value) -> @pkl.Value {
       for entry in members {
         if entry.name == "output" {
           has_output = true
-          match entry.value {
+          match @pkl.force_value(entry.value) {
             @pkl.ObjectValue(sub_members) =>
               for sub in sub_members {
                 if sub.name == "value" {
@@ -3878,11 +3886,11 @@ fn extract_output_value(value : @pkl.Value) -> @pkl.Value {
                 // module-body level — snippetTest's inherited renderer
                 // sets this to true.
                 if sub.name == "renderer" {
-                  match sub.value {
+                  match @pkl.force_value(sub.value) {
                     @pkl.ObjectValue(renderer_members) =>
                       for r in renderer_members {
                         if r.name == "omitNullProperties" {
-                          match r.value {
+                          match @pkl.force_value(r.value) {
                             @pkl.BoolValue(b) => omit_null = b
                             _ => ()
                           }
@@ -3940,16 +3948,18 @@ fn extract_output_value(value : @pkl.Value) -> @pkl.Value {
 /// elements are not touched — Apple Pkl's `omitNullProperties` only
 /// affects object properties.
 fn strip_null_object_properties(value : @pkl.Value) -> @pkl.Value {
+  let value = @pkl.force_value(value)
   match value {
     @pkl.ObjectValue(members) => {
       let kept : Array[@pkl.ValueMember] = []
       for entry in members {
-        if entry.value is @pkl.NullValue {
+        let entry_value = @pkl.force_value(entry.value)
+        if entry_value is @pkl.NullValue {
           continue
         }
         let mut omit_dynamic_entry = false
         if entry.name.has_prefix("@subscript$") {
-          match entry.value {
+          match entry_value {
             @pkl.ObjectValue(pair_members) =>
               for pair_member in pair_members {
                 if pair_member.name == "@value" &&
@@ -3965,7 +3975,7 @@ fn strip_null_object_properties(value : @pkl.Value) -> @pkl.Value {
         }
         kept.push({
           name: entry.name,
-          value: strip_null_object_properties(entry.value),
+          value: strip_null_object_properties(entry_value),
           source: None,
           annotations: entry.annotations,
         })
@@ -4122,7 +4132,7 @@ fn extract_output_text(value : @pkl.Value) -> String? {
             @pkl.ObjectValue(sub_members) =>
               for sub in sub_members {
                 if sub.name == "text" {
-                  match sub.value {
+                  match @pkl.force_value(sub.value) {
                     @pkl.StringValue(text) => return Some(text)
                     _ => ()
                   }
@@ -4145,11 +4155,11 @@ fn extract_output_bytes(value : @pkl.Value) -> Bytes? {
     @pkl.ObjectValue(members) =>
       for entry in members {
         if entry.name == "output" {
-          match entry.value {
+          match @pkl.force_value(entry.value) {
             @pkl.ObjectValue(sub_members) =>
               for sub in sub_members {
                 if sub.name == "bytes" {
-                  match sub.value {
+                  match @pkl.force_value(sub.value) {
                     @pkl.BytesValue(bytes) => return Some(bytes)
                     _ => ()
                   }
@@ -4182,7 +4192,7 @@ fn extract_output_renderer_format(value : @pkl.Value) -> String? {
                       }
                     None => ()
                   }
-                  match output_member.value {
+                  match @pkl.force_value(output_member.value) {
                     @pkl.ObjectValue(renderer_members) =>
                       for renderer_member in renderer_members {
                         if renderer_member.name == "__rendererFormat" ||

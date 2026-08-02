@@ -2026,8 +2026,12 @@ fn eval_expr_class_property_constraints_are_valid(
     (TypedObjectLiteral(class_name, members), ObjectValue(values)) => {
       let mut ok = true
       for field in members {
-        match lookup_member(values, field.name) {
-          Some(member_value) => {
+        match lookup_value_member(values, field.name) {
+          // Property thunks own their type and class-constraint checks.
+          // Keeping the handle unresolved here preserves lazy object
+          // construction; the same checks run exactly once on first force.
+          Some({ value: ThunkValue(_), .. }) => ()
+          Some({ value: member_value, .. }) => {
             match
               eval_class_property_constraint_value_rejection_message(
                 class_name,
@@ -2063,8 +2067,11 @@ fn eval_expr_class_property_constraints_are_valid(
     (ObjectLiteral(members), ObjectValue(values)) => {
       let mut ok = true
       for field in members {
-        match lookup_member(values, field.name) {
-          Some(member_value) =>
+        match lookup_value_member(values, field.name) {
+          // Alias validation for a pending property is likewise deferred to
+          // the thunk's annotated-type validation path.
+          Some({ value: ThunkValue(_), .. }) => ()
+          Some({ value: member_value, .. }) =>
             if !eval_expr_class_property_constraints_are_valid(
                 field.value,
                 member_value,
@@ -2091,8 +2098,9 @@ fn eval_object_member_alias_constraints_are_valid(
 ) -> Bool {
   let mut ok = true
   for object_member in members {
-    match lookup_member(values, object_member.name) {
-      Some(value) => {
+    match lookup_value_member(values, object_member.name) {
+      Some({ value: ThunkValue(_), .. }) => ()
+      Some({ value, .. }) => {
         if !eval_constrained_type_annotation_value_is_valid(
             object_member.type_name,
             value,

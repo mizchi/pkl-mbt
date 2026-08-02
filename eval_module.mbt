@@ -2232,7 +2232,10 @@ fn eval_program(
       let renderer_value = collect_output_renderer(finalized_value)
       let mut current = finalized_value
       if property_transformers.length() > 0 ||
-        value_has_member_annotations(current) {
+        // With an explicit `output.value`, only that projection is part of
+        // the rendered tree. Inspecting the raw module would force unrelated
+        // exported property thunks merely to look for annotations.
+        value_has_member_annotations(extract_output_value(current)) {
         current = apply_convert_property_transformers(
           current, renderer_value, property_transformers, bindings, env, class_env,
           cache, declarations, diagnostics, resolve_import,
@@ -2262,7 +2265,7 @@ fn eval_program(
 
 ///|
 fn value_has_member_annotations(value : Value) -> Bool {
-  match value {
+  match force_eval_thunk(value) {
     ObjectValue(members) => {
       for field in members {
         if field.annotations.length() > 0 ||
@@ -2309,15 +2312,15 @@ fn value_has_member_annotations(value : Value) -> Bool {
 /// carry an object's source class yet.
 fn collect_path_converters(value : Value) -> Array[(String, Value)] {
   let converters : Array[(String, Value)] = []
-  match value {
+  match force_eval_thunk(value) {
     ObjectValue(members) =>
       for entry in members {
         if entry.name == "output" {
-          match entry.value {
+          match force_eval_thunk(entry.value) {
             ObjectValue(output_members) =>
               for output_member in output_members {
                 if output_member.name == "renderer" {
-                  match output_member.value {
+                  match force_eval_thunk(output_member.value) {
                     ObjectValue(renderer_members) =>
                       append_path_converters_from_renderer_members(
                         converters, renderer_members,
@@ -2342,7 +2345,10 @@ fn append_path_converters_from_renderer_members(
 ) -> Unit {
   for renderer_member in renderer_members {
     if renderer_member.name == "converters" {
-      append_path_converters_from_value(out, renderer_member.value)
+      append_path_converters_from_value(
+        out,
+        force_eval_thunk(renderer_member.value),
+      )
     }
   }
 }
@@ -2352,7 +2358,7 @@ fn append_path_converters_from_value(
   out : Array[(String, Value)],
   value : Value,
 ) -> Unit {
-  match value {
+  match force_eval_thunk(value) {
     MappingValue(entries)
     | DefaultedMappingValue(_, entries, _)
     | MapValue(entries) =>
@@ -2426,15 +2432,15 @@ fn apply_path_converters(
 /// name (`"anyConverter#Dog"` / `"Any"`) with the callback.
 fn collect_class_converters(value : Value) -> Array[(String, Value)] {
   let converters : Array[(String, Value)] = []
-  match value {
+  match force_eval_thunk(value) {
     ObjectValue(members) =>
       for entry in members {
         if entry.name == "output" {
-          match entry.value {
+          match force_eval_thunk(entry.value) {
             ObjectValue(output_members) =>
               for output_member in output_members {
                 if output_member.name == "renderer" {
-                  match output_member.value {
+                  match force_eval_thunk(output_member.value) {
                     ObjectValue(renderer_members) =>
                       append_class_converters_from_renderer_members(
                         converters, renderer_members,
@@ -2459,7 +2465,10 @@ fn append_class_converters_from_renderer_members(
 ) -> Unit {
   for renderer_member in renderer_members {
     if renderer_member.name == "converters" {
-      append_class_converters_from_value(out, renderer_member.value)
+      append_class_converters_from_value(
+        out,
+        force_eval_thunk(renderer_member.value),
+      )
     }
   }
 }
@@ -2469,7 +2478,7 @@ fn append_class_converters_from_value(
   out : Array[(String, Value)],
   value : Value,
 ) -> Unit {
-  match value {
+  match force_eval_thunk(value) {
     MappingValue(entries)
     | DefaultedMappingValue(_, entries, _)
     | MapValue(entries) =>
@@ -2501,7 +2510,7 @@ fn converter_entry_from_subscript_member(
   if !field.name.has_prefix("@subscript$") {
     return None
   }
-  match field.value {
+  match force_eval_thunk(field.value) {
     ObjectValue(pair_members) =>
       match
         (
@@ -2597,15 +2606,15 @@ pub fn extract_output_value(value : Value) -> Value {
 
 ///|
 fn collect_output_renderer(value : Value) -> Value? {
-  match value {
+  match force_eval_thunk(value) {
     ObjectValue(members) =>
       for entry in members {
         if entry.name == "output" {
-          match entry.value {
+          match force_eval_thunk(entry.value) {
             ObjectValue(output_members) =>
               for output_member in output_members {
                 if output_member.name == "renderer" {
-                  return Some(output_member.value)
+                  return Some(force_eval_thunk(output_member.value))
                 }
               }
             _ => ()
@@ -2629,19 +2638,19 @@ fn collect_convert_property_transformers(
   resolve_import : (String) -> EvalResult?,
 ) -> Array[ConvertPropertyTransformer] {
   let transformers : Array[ConvertPropertyTransformer] = []
-  match value {
+  match force_eval_thunk(value) {
     ObjectValue(members) =>
       for entry in members {
         if entry.name == "output" {
-          match entry.value {
+          match force_eval_thunk(entry.value) {
             ObjectValue(output_members) =>
               for output_member in output_members {
                 if output_member.name == "renderer" {
-                  match output_member.value {
+                  match force_eval_thunk(output_member.value) {
                     ObjectValue(renderer_members) =>
                       for renderer_member in renderer_members {
                         if renderer_member.name == "convertPropertyTransformers" {
-                          match renderer_member.value {
+                          match force_eval_thunk(renderer_member.value) {
                             MappingValue(entries) =>
                               for entry in entries {
                                 match class_name_from_mirror_value(entry.key) {
@@ -2791,7 +2800,7 @@ fn transform_convert_property_value(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value {
-  match value {
+  match force_eval_thunk(value) {
     ObjectValue(members) => {
       let next : Array[ValueMember] = []
       for field in members {
@@ -3570,6 +3579,7 @@ fn rewrite_walk_anywhere_children(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value {
+  let value = force_eval_thunk(value)
   match value {
     ObjectValue(members) => {
       let next : Array[ValueMember] = []
@@ -3737,6 +3747,7 @@ fn walk_parser_class_converter(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value {
+  let value = force_eval_thunk(value)
   let children_converted = walk_parser_class_converter_children(
     value, converters, convert_keys, bindings, env, class_env, cache, declarations,
     diagnostics, resolve_import,
@@ -3808,6 +3819,7 @@ fn walk_parser_class_converter_children(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value {
+  let value = force_eval_thunk(value)
   match value {
     ObjectValue(members) => {
       let next : Array[ValueMember] = []
@@ -4035,7 +4047,7 @@ fn walk_output_member_class_converters(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> ValueMember {
-  match field.value {
+  match force_eval_thunk(field.value) {
     ObjectValue(output_members) => {
       let next : Array[ValueMember] = []
       for output_member in output_members {
@@ -4083,6 +4095,7 @@ fn walk_class_converter(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value {
+  let value = force_eval_thunk(value)
   let converted = match pick_class_converter(value, converters, class_env) {
     Some(callback) =>
       match
@@ -4122,6 +4135,7 @@ fn walk_class_converter_children(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value {
+  let value = force_eval_thunk(value)
   match value {
     ObjectValue(members) if object_class_tag_matches(members, "RenderDirective") =>
       value
@@ -4486,6 +4500,7 @@ fn rewrite_walk(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value {
+  let value = force_eval_thunk(value)
   if idx >= segments.length() {
     match
       apply_function_value(
@@ -4850,6 +4865,7 @@ fn rewrite_collection_items(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value {
+  let value = force_eval_thunk(value)
   match value {
     ListingValue(elements) => {
       let next : Array[Value] = []
@@ -4984,6 +5000,7 @@ fn rewrite_collection_key(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value {
+  let value = force_eval_thunk(value)
   match value {
     MappingValue(entries) => {
       let next : Array[ValueEntry] = []
@@ -5075,6 +5092,7 @@ fn rewrite_dynamic_subscript_any_value(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value {
+  let value = force_eval_thunk(value)
   match value {
     ObjectValue(members) => {
       let next : Array[ValueMember] = []
@@ -5123,6 +5141,7 @@ fn rewrite_dynamic_subscript_value(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value {
+  let value = force_eval_thunk(value)
   match value {
     ObjectValue(members) =>
       match lookup_member(members, "@key") {

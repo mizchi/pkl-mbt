@@ -5629,6 +5629,38 @@ local yamlRenderer = new Scenario {
   }
 }
 
+local pklMemoizedPropertyThunkScenario = new Scenario {
+  id = "PKL-161"
+  name = "memoized demand-driven object property evaluation"
+  description =
+    "Object properties produced while evaluating local or exported bindings retain their RHS as an opaque `ThunkValue` cell. Each cell moves monotonically through Pending, Evaluating, and either Resolved or Rejected; first access evaluates the RHS and its type/constraint checks, repeated access reuses the settled result, and re-entry while Evaluating produces the cyclic-property diagnostic. Lookup, output projection/rendering, converters, and amend operations force only the values they consume. The cell owns its computation and releases that closure after settlement, so returned runtime Values do not depend on a process-global registry and separate AnalysisSession instances cannot mutate each other's thunk state. Class defaults keep their independent declaration-scoped memo/materialization guard, and `eval_source` remains an eager compatibility projection."
+  contributes { "GOAL-PKL-PURE" }
+  dependsOn { "PKL-148u" }
+  tags { "evaluator"; "lazy"; "memoize"; "runtime"; "compat" }
+  reviewStatus = "approved"
+  severity = "critical"
+  decisions {
+    new Decision {
+      date = "2026-08-02"
+      summary = "Store an opaque self-contained thunk cell in Value"
+      rationale =
+        "A process-global integer-handle registry retains every computation closure and its captured module cache for the lifetime of the process, and couples otherwise independent AnalysisSession instances through shared mutable state. Carrying an opaque EvalThunkCell directly in ThunkValue gives the cell the same lifetime as the runtime Value graph. A global monotonic number remains only for stable identity/equality; it retains no cells or captures."
+    }
+    new Decision {
+      date = "2026-08-02"
+      summary = "Memoize both success and failure and clear the computation closure"
+      rationale =
+        "Apple Pkl properties are call-by-need: a rejected RHS must raise the same diagnostic without recomputation just as a successful RHS must preserve object identity. Recording Resolved(Value) or Rejected(String) in the same state machine satisfies both contracts. Clearing the computation slot on settlement promptly releases its lexical captures and breaks the common cell-to-closure-to-object-to-cell retention cycle."
+    }
+    new Decision {
+      date = "2026-08-02"
+      summary = "Force at consumer boundaries instead of recursively materializing objects"
+      rationale =
+        "Deep materialization during construction would recreate eager evaluation and make an unused invalid sibling reject the whole object. Member lookup, output selection, format renderers, converter walkers, and amend merge points already know which value shape they need, so forcing immediately before each structural dispatch preserves demand-driven behavior while keeping the rest of the evaluator representation unchanged."
+    }
+  }
+}
+
 scenarios {
   parseArithmetic
   evalArithmetic
@@ -5829,5 +5861,6 @@ scenarios {
   pklAsIsCompoundTypeOperandsScenario
   pklBinaryContinuationAcrossSeparatorsScenario
   pklMappingAmendAndForwardLocalRefsScenario
+  pklMemoizedPropertyThunkScenario
   ...roadmap.entries
 }

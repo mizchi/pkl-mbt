@@ -607,6 +607,8 @@ fn intseq_length(start : Int64, end_v : Int64, step : Int64) -> Int64 {
 /// comparisons. MoonBit's derived equality is fine for scalars, but
 /// containers need Apple Pkl's visible-member / order-insensitive rules.
 fn values_equal(a : Value, b : Value) -> Bool {
+  let a = force_eval_thunk(a)
+  let b = force_eval_thunk(b)
   match (a, b) {
     (ObjectValue(xs), ObjectValue(ys)) => object_values_equal(xs, ys)
     (MapValue(xs), MapValue(ys)) => map_entries_equal(xs, ys)
@@ -624,6 +626,13 @@ fn values_equal(a : Value, b : Value) -> Bool {
     (ListValue(xs), ListValue(ys)) => value_arrays_equal(xs, ys)
     (IntSeqValue(s1, e1, st1), IntSeqValue(s2, e2, st2)) =>
       intseq_value_equal(s1, e1, st1, s2, e2, st2)
+    // Function equality is identity equality. Comparing the complete
+    // FunctionValue payload structurally walks its captured environment;
+    // a memoized property thunk can legitimately make that environment
+    // cyclic (function -> env -> thunk -> computation -> env). The stable
+    // function id is both Pkl's observable contract and the cycle-safe key.
+    (FunctionValue(_, _, _, _, left_id), FunctionValue(_, _, _, _, right_id)) =>
+      left_id == right_id
     _ => a == b
   }
 }
