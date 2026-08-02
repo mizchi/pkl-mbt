@@ -1,6 +1,6 @@
 # Release TODO
 
-Current version: `0.4.0` (see `moon.mod`).
+Current version: `0.5.0` (see `moon.mod`).
 Current coverage: 416 / 416 fixtures with gold output (100.0%).
 Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-08-02.
 
