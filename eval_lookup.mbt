@@ -2227,6 +2227,21 @@ fn reflect_module_class_mirror(
     path,
     source,
   )
+  let module_class_name = match module_members_name(module_members) {
+    Some(name) => name
+    None => module_prefix
+  }
+  let module_class_uri = match module_members_path(module_members) {
+    Some(uri) => uri
+    None =>
+      match path {
+        Some(uri) => uri
+        None => ""
+      }
+  }
+  let module_class_reflectee = synth_module_class_mirror(
+    module_class_name, module_class_uri,
+  )
   let superclass = synth_class_mirror_for_name("Module")
   let superclass_with_reflectee = ObjectValue([
     reflect_hidden_member("__kind", StringValue("Class")),
@@ -2239,7 +2254,7 @@ fn reflect_module_class_mirror(
   ObjectValue([
     reflect_hidden_member("__kind", StringValue("Class")),
     reflect_hidden_member("reflectee", StringValue("Module")),
-    reflect_member("reflectee", synth_class_mirror_for_name("Module")),
+    reflect_member("reflectee", module_class_reflectee),
     reflect_member("location", reflect_location_value(path)),
     reflect_member(
       "docComment",
@@ -3383,6 +3398,40 @@ fn concat_amend_collection_value(base : Value, replacement : Value) -> Value? {
 }
 
 ///|
+/// Module-level Listing shorthand is evaluated against `super` before the
+/// parent/current member merge. In that path the replacement already starts
+/// with every parent element, so concatenating again would duplicate the
+/// inherited prefix when the module is imported.
+fn listing_replacement_contains_base(base : Value, replacement : Value) -> Bool {
+  let base_elements = match base {
+    ListingValue(elements) | DefaultedListingValue(_, elements, _) =>
+      Some(elements)
+    ListValue(elements) => Some(elements)
+    _ => None
+  }
+  let replacement_elements = match replacement {
+    ListingValue(elements) | DefaultedListingValue(_, elements, _) =>
+      Some(elements)
+    ListValue(elements) => Some(elements)
+    _ => None
+  }
+  match (base_elements, replacement_elements) {
+    (Some(parent), Some(current)) => {
+      if current.length() < parent.length() {
+        return false
+      }
+      for i = 0; i < parent.length(); i = i + 1 {
+        if !values_equal(parent[i], current[i]) {
+          return false
+        }
+      }
+      true
+    }
+    _ => false
+  }
+}
+
+///|
 fn deep_merge_amend_member_value(
   base : Value,
   replacement : Value,
@@ -3393,9 +3442,13 @@ fn deep_merge_amend_member_value(
       ObjectValue(merge_value_members(base_members, over_members))
     _ =>
       if amend_source_is_collection_body(source) {
-        match concat_amend_collection_value(base, replacement) {
-          Some(value) => value
-          None => replacement
+        if listing_replacement_contains_base(base, replacement) {
+          replacement
+        } else {
+          match concat_amend_collection_value(base, replacement) {
+            Some(value) => value
+            None => replacement
+          }
         }
       } else {
         replacement
@@ -3421,10 +3474,13 @@ fn find_binding(bindings : Array[Binding], name : String) -> Binding? {
   // Reverse-walk + early-break: preserves "last shadowing binding
   // wins" semantics without the full O(N) overwrite scan.
   let hidden = hidden_member_name(name)
+  let local_name = local_member_name(name)
   let mut i = bindings.length() - 1
   while i >= 0 {
     let binding = bindings[i]
-    if binding.name == name || binding.name == hidden {
+    if binding.name == name ||
+      binding.name == hidden ||
+      binding.name == local_name {
       return Some(binding)
     }
     i = i - 1

@@ -496,32 +496,64 @@ fn synthesize_default_for_type_seen(
 
 ///|
 fn coerce_value_to_annotated_type(value : Value, type_name : String?) -> Value {
-  match (value, type_name) {
-    (ObjectValue(members), Some(name)) if members.length() == 0 => {
+  let head = match type_name {
+    Some(name) => {
       let stripped = strip_lazy_collection_annotation_marker(name)
       let trimmed = pkl_strip_default_type_marker(pkl_constraint_trim(stripped))
-      let base = match pkl_constrained_type_base_name(trimmed) {
+      let mut base = match pkl_constrained_type_base_name(trimmed) {
         Some(base) => base
         None => trimmed
       }
-      let head = match string_index_of_char(base, '<') {
-        idx if idx >= 0 => String::unsafe_substring(base, start=0, end=idx)
-        _ => base
+      while base.has_suffix("?") {
+        base = trim_spaces(
+          String::unsafe_substring(base, start=0, end=base.length() - 1),
+        )
       }
-      if head == "Listing" || head == "List" {
-        ListingValue([])
-      } else if head == "Mapping" {
-        MappingValue([])
-      } else if head == "Set" {
-        // PKL-119 will introduce SetValue; until then collapse to
-        // ListingValue (matches how Listing/List share a variant today).
-        ListingValue([])
-      } else {
-        value
+      match string_index_of_char(base, '<') {
+        idx if idx >= 0 =>
+          Some(String::unsafe_substring(base, start=0, end=idx))
+        _ => Some(base)
       }
     }
+    None => None
+  }
+  match (value, head) {
+    (ObjectValue(members), Some("Listing" | "List")) if members.length() == 0 =>
+      ListingValue([])
+    (ObjectValue(members), Some("Mapping")) if members.length() == 0 =>
+      MappingValue([])
+    (ObjectValue(members), Some("Set")) if members.length() == 0 => SetValue([])
+    (MappingValue(entries), Some("Dynamic"))
+    | (DefaultedMappingValue(_, entries, _), Some("Dynamic")) =>
+      dynamic_from_mapping_entries(entries)
+    (ListingValue(elements), Some("Dynamic"))
+    | (DefaultedListingValue(_, elements, _), Some("Dynamic"))
+    | (ListValue(elements), Some("Dynamic"))
+    | (SetValue(elements), Some("Dynamic")) => dynamic_from_elements(elements)
     _ => value
   }
+}
+
+///|
+fn dynamic_from_mapping_entries(entries : Array[ValueEntry]) -> Value {
+  let members : Array[ValueMember] = []
+  for i = 0; i < entries.length(); i = i + 1 {
+    members.push({
+      name: "@subscript$\{i}",
+      value: ObjectValue([
+        { name: "@key", value: entries[i].key, source: None, annotations: [] },
+        {
+          name: "@value",
+          value: entries[i].value,
+          source: None,
+          annotations: [],
+        },
+      ]),
+      source: None,
+      annotations: [],
+    })
+  }
+  ObjectValue(tag_object_with_class(members, "Dynamic"))
 }
 
 ///|

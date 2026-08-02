@@ -715,6 +715,40 @@ fn pklproject_alias_to_uri_from_file(
 }
 
 ///|
+// Apple Pkl's bare `...` module URI means the nearest ancestor module with
+// the same filename. Start in the importing file's directory, skip the file
+// itself, and walk upward until a sibling basename exists.
+fn resolve_bare_triple_dot_file(from : String) -> String? {
+  if is_package_uri_like(from) {
+    return None
+  }
+  let file_name = basename(from)
+  if file_name == "" {
+    return None
+  }
+  let normalized_from = normalize_path_segments(from)
+  let mut current = module_parent_dir(from)
+  let mut keep_walking = true
+  while keep_walking {
+    let candidate = normalize_path_segments(current + "/" + file_name)
+    if candidate != normalized_from && @fs.path_exists(candidate) {
+      return Some(candidate)
+    }
+    if current == "." || current == "" || current == "/" {
+      keep_walking = false
+    } else {
+      let parent = module_parent_dir(current)
+      if parent == current {
+        keep_walking = false
+      } else {
+        current = parent
+      }
+    }
+  }
+  None
+}
+
+///|
 fn resolve_import_path(from : String, uri : String) -> String {
   // PKL-148ad: project-dependency import (`import "@<dep>/<rest>"`).
   // The PklProject.deps.json file in an ancestor directory carries
@@ -738,6 +772,13 @@ fn resolve_import_path(from : String, uri : String) -> String {
       }
       None => ()
     }
+    match resolve_bare_triple_dot_file(from) {
+      Some(resolved) => {
+        @pkl.register_triple_dot_resolution(from, uri, resolved)
+        return resolved
+      }
+      None => ()
+    }
   }
   // PKL-148r: triple-dot import (`import ".../X/Y.pkl"`). Walk the
   // ancestor directories of `from` looking for the first one that
@@ -749,6 +790,13 @@ fn resolve_import_path(from : String, uri : String) -> String {
   // the original triple-dot URI.
   if uri.has_prefix(".../") {
     let remainder = String::unsafe_substring(uri, start=4, end=uri.length())
+    match package_uri_triple_dot_path(from, remainder) {
+      Some(resolved) => {
+        @pkl.register_triple_dot_resolution(from, uri, resolved)
+        return resolved
+      }
+      None => ()
+    }
     let mut current = match from.rev_find("/") {
       Some(idx) => String::unsafe_substring(from, start=0, end=idx)
       None => ""
@@ -843,6 +891,40 @@ fn package_uri_triple_dot_module(from : String) -> String? {
   } else {
     Some(base + "#/" + basename)
   }
+}
+
+///|
+fn package_uri_triple_dot_path(from : String, remainder : String) -> String? {
+  if !is_package_uri_like(from) || remainder == "" {
+    return None
+  }
+  let hash = match from.find("#") {
+    Some(idx) => idx
+    None => return None
+  }
+  let base = String::unsafe_substring(from, start=0, end=hash)
+  let fragment = trim_fragment_slash(
+    String::unsafe_substring(from, start=hash + 1, end=from.length()),
+  )
+  let mut current = module_parent_dir(fragment)
+  let mut keep_walking = true
+  while keep_walking {
+    let candidate_fragment = if current == "." || current == "" {
+      remainder
+    } else {
+      current + "/" + remainder
+    }
+    let candidate = base + "#/" + normalize_path_segments(candidate_fragment)
+    if resolve_package_uri_to_cache(candidate, "") is Some(_) {
+      return Some(candidate)
+    }
+    if current == "." || current == "" || current == "/" {
+      keep_walking = false
+    } else {
+      current = module_parent_dir(current)
+    }
+  }
+  None
 }
 
 ///|
@@ -2604,6 +2686,17 @@ async fn main {
     }
     None
   })
+  @pkl.configure_pklbinary_module_uri_normalizer(fn(uri) {
+    if uri.has_prefix("pkl:") ||
+      uri.has_prefix("package:") ||
+      uri.has_prefix("http:") ||
+      uri.has_prefix("https:") ||
+      uri.has_prefix("file:") {
+      uri
+    } else {
+      file_uri_for_path(uri)
+    }
+  })
   // PKL-132x: `mpkl stdlib` takes no positional file argument — it
   // runs the in-process stdlib probe table and exits with the result.
   // Dispatch it before the standard `<cmd> <file>` argc check so a
@@ -2830,14 +2923,19 @@ async fn main {
       for seed in analyze_seeds {
         load_path(session, seed, [], analyze_loaded)
       }
-      match session.eval_path(path) {
+      match session.eval_path_with_runtime_metadata(path) {
         EvalOk(raw) => {
           // PKL-147: `output { text = "..." }` short-circuits the
           // renderer entirely — Apple Pkl writes the string verbatim.
           // Detect the slot before extract_output_value so the bypass
           // beats both the format dispatch and the renderer-class
           // auto-detection.
-          match extract_output_text(raw) {
+          let output_text_value = if format_explicit {
+            @pkl.finalize_output_super_text_for_format(raw, format)
+          } else {
+            raw
+          }
+          match extract_output_text(output_text_value) {
             Some(text) => {
               // PKL-148q: Apple Pkl writes `output.text` verbatim — the
               // string itself decides whether a trailing newline is
@@ -2853,6 +2951,57 @@ async fn main {
               return
             }
             None => ()
+          }
+          // PKL-154: BytesRenderer-backed modules expose their payload
+          // through `output.bytes`. Keep this path binary-safe: converting
+          // through String would corrupt arbitrary MessagePack bytes and
+          // appending a newline would change the document.
+          if !format_explicit {
+            match extract_output_bytes(raw) {
+              Some(bytes) => {
+                @fs.write_bytes_to_file("/dev/stdout", bytes) catch {
+                  _ => fail("failed to write output.bytes")
+                }
+                return
+              }
+              None => ()
+            }
+            // Class defaults such as FileOutput.bytes are lazy and do not
+            // necessarily appear in the materialized ObjectValue. Detect a
+            // BytesRenderer from the runtime output object and render the
+            // projected value explicitly, preserving its module metadata.
+            if extract_output_renderer_format(raw) == Some("pklbinary") {
+              let module_name = match
+                extract_module_metadata_string(raw, "__module_name") {
+                Some(name) => name
+                None => module_name_for_source_or_path(source, path)
+              }
+              let module_uri = if path.has_prefix("pkl:") ||
+                path.has_prefix("package:") ||
+                path.has_prefix("http:") ||
+                path.has_prefix("https:") ||
+                path.has_prefix("file:") {
+                path
+              } else {
+                file_uri_for_path(path)
+              }
+              let bytes = if output_value_is_module_projection(raw) {
+                @pkl.render_module_as_pklbinary(
+                  module_body_without_output(raw),
+                  module_name,
+                  module_uri,
+                )
+              } else {
+                let output_value = extract_output_value(raw)
+                @pkl.render_value_as_pklbinary_with_module(
+                  output_value, module_name, module_uri,
+                )
+              }
+              @fs.write_bytes_to_file("/dev/stdout", bytes) catch {
+                _ => fail("failed to write pklbinary output")
+              }
+              return
+            }
           }
           // PKL-097: Apple Pkl uses a module-level `output { value =
           // ...; renderer = ... }` block to drive what `pkl eval`
@@ -2889,7 +3038,7 @@ async fn main {
               // newline so `println` does not double-up at end-of-stream.
               let (indent_width, is_stream, omit_null_entries) = yaml_options
               let yaml_value = if omit_null_entries {
-                strip_null_mapping_entries(value)
+                strip_null_mapping_entries(strip_null_object_properties(value))
               } else {
                 value
               }
@@ -3486,6 +3635,8 @@ fn renderer_format_from_class(class_name : String) -> String? {
         Some("textproto")
       } else if raw == "jsonnet.Renderer" {
         Some("jsonnet")
+      } else if raw == "pklbinary.Renderer" {
+        Some("pklbinary")
       } else {
         None
       }
@@ -3539,7 +3690,7 @@ fn extract_xml_renderer_options(
 fn extract_yaml_renderer_options(value : @pkl.Value) -> (Int, Bool, Bool) {
   let mut indent_width = 2
   let mut is_stream = false
-  let mut omit_null_properties = false
+  let mut omit_null_properties = true
   match value {
     @pkl.ObjectValue(members) =>
       for entry in members {
@@ -3661,6 +3812,22 @@ fn strip_null_object_properties(value : @pkl.Value) -> @pkl.Value {
       let kept : Array[@pkl.ValueMember] = []
       for entry in members {
         if entry.value is @pkl.NullValue {
+          continue
+        }
+        let mut omit_dynamic_entry = false
+        if entry.name.has_prefix("@subscript$") {
+          match entry.value {
+            @pkl.ObjectValue(pair_members) =>
+              for pair_member in pair_members {
+                if pair_member.name == "@value" &&
+                  pair_member.value is @pkl.NullValue {
+                  omit_dynamic_entry = true
+                }
+              }
+            _ => ()
+          }
+        }
+        if omit_dynamic_entry {
           continue
         }
         kept.push({
@@ -3835,4 +4002,176 @@ fn extract_output_text(value : @pkl.Value) -> String? {
     _ => ()
   }
   None
+}
+
+///|
+/// PKL-154: extract `output.bytes` if set. The caller must write the bytes
+/// directly; rendering or UTF-8 conversion is intentionally forbidden.
+fn extract_output_bytes(value : @pkl.Value) -> Bytes? {
+  match value {
+    @pkl.ObjectValue(members) =>
+      for entry in members {
+        if entry.name == "output" {
+          match entry.value {
+            @pkl.ObjectValue(sub_members) =>
+              for sub in sub_members {
+                if sub.name == "bytes" {
+                  match sub.value {
+                    @pkl.BytesValue(bytes) => return Some(bytes)
+                    _ => ()
+                  }
+                }
+              }
+            _ => ()
+          }
+        }
+      }
+    _ => ()
+  }
+  None
+}
+
+///|
+fn extract_output_renderer_format(value : @pkl.Value) -> String? {
+  match value {
+    @pkl.ObjectValue(members) =>
+      for entry in members {
+        if entry.name == "output" {
+          match entry.value {
+            @pkl.ObjectValue(output_members) =>
+              for output_member in output_members {
+                if output_member.name == "renderer" {
+                  match output_member.source {
+                    Some(source) =>
+                      match renderer_format_from_expr(source) {
+                        Some(format) => return Some(format)
+                        None => ()
+                      }
+                    None => ()
+                  }
+                  match output_member.value {
+                    @pkl.ObjectValue(renderer_members) =>
+                      for renderer_member in renderer_members {
+                        if renderer_member.name == "__rendererFormat" ||
+                          renderer_member.name == "@hidden$__rendererFormat" {
+                          match renderer_member.value {
+                            @pkl.StringValue(format) => return Some(format)
+                            _ => ()
+                          }
+                        }
+                        if renderer_member.name == "@hidden$__class" {
+                          match renderer_member.value {
+                            @pkl.StringValue(class_name) =>
+                              match renderer_format_from_class(class_name) {
+                                Some(format) => return Some(format)
+                                None => ()
+                              }
+                            _ => ()
+                          }
+                        }
+                      }
+                    _ => ()
+                  }
+                }
+              }
+            _ => ()
+          }
+        }
+      }
+    _ => ()
+  }
+  None
+}
+
+///|
+fn expr_is_module_projection(expr : @pkl.Expr) -> Bool {
+  match expr {
+    Identifier("module") => true
+    ConditionalExpr(_, then_expr, else_expr) =>
+      expr_is_module_projection(then_expr) ||
+      expr_is_module_projection(else_expr)
+    NonNullExpr(inner) => expr_is_module_projection(inner)
+    _ => false
+  }
+}
+
+///|
+fn output_value_is_module_projection(value : @pkl.Value) -> Bool {
+  match value {
+    @pkl.ObjectValue(members) =>
+      for entry in members {
+        if entry.name == "output" {
+          match entry.value {
+            @pkl.ObjectValue(output_members) =>
+              for output_member in output_members {
+                if output_member.name == "value" {
+                  match output_member.source {
+                    Some(source) if expr_is_module_projection(source) =>
+                      return true
+                    _ => ()
+                  }
+                }
+              }
+            _ => ()
+          }
+        }
+      }
+    _ => ()
+  }
+  false
+}
+
+///|
+fn module_body_without_output(value : @pkl.Value) -> @pkl.Value {
+  match value {
+    @pkl.ObjectValue(members) => {
+      let kept : Array[@pkl.ValueMember] = []
+      for entry in members {
+        if entry.name != "output" {
+          kept.push(entry)
+        }
+      }
+      @pkl.ObjectValue(kept)
+    }
+    other => other
+  }
+}
+
+///|
+fn extract_module_metadata_string(value : @pkl.Value, name : String) -> String? {
+  match value {
+    @pkl.ObjectValue(members) =>
+      for entry in members {
+        if entry.name == name || entry.name == "@hidden$" + name {
+          match entry.value {
+            @pkl.StringValue(text) => return Some(text)
+            _ => ()
+          }
+        }
+      }
+    _ => ()
+  }
+  None
+}
+
+///|
+fn module_name_for_path(path : String) -> String {
+  let basename = match path.rev_find("/") {
+    Some(index) =>
+      String::unsafe_substring(path, start=index + 1, end=path.length())
+    None => path
+  }
+  if basename.has_suffix(".pkl") {
+    String::unsafe_substring(basename, start=0, end=basename.length() - 4)
+  } else {
+    basename
+  }
+}
+
+///|
+fn module_name_for_source_or_path(source : String, path : String) -> String {
+  match @pkl.parse_source(source).program.module_name {
+    Some(name) => name
+    None => module_name_for_path(path)
+  }
 }

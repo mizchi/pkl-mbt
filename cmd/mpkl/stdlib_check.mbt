@@ -297,6 +297,81 @@ let stdlib_probes : Array[StdlibProbe] = [
     source: "import \"pkl:protobuf\" as proto\nr = new proto.Renderer {}\nv = r.indent",
     expect: "v = \"  \"",
   },
+  // Remaining public Pkl 0.32 modules — at least one executable contract
+  // per URI so adding a synthetic source without a usable surface cannot
+  // accidentally count as stdlib coverage.
+  {
+    group: "pkl:release",
+    name: "current version metadata",
+    source: "import \"pkl:release\" as release\nv = release.current.version.major",
+    expect: "v = 0",
+  },
+  {
+    group: "pkl:Benchmark",
+    name: "Microbenchmark result shape",
+    source: "import \"pkl:Benchmark\" as Benchmark\nv = (new Benchmark.Microbenchmark { expression = 1 }).run().mean",
+    expect: "v = 1.ms",
+  },
+  {
+    group: "pkl:analyze",
+    name: "Import record class",
+    source: "import \"pkl:analyze\" as analyze\nv = new analyze.Import { uri = \"main.pkl\" }.uri",
+    expect: "v = \"main.pkl\"",
+  },
+  {
+    group: "pkl:jsonnet",
+    name: "Renderer class surface",
+    source: "import \"pkl:jsonnet\" as jsonnet\nv = new jsonnet.Renderer {}.indent",
+    expect: "v = \"  \"",
+  },
+  {
+    group: "pkl:shell",
+    name: "single quote escaping",
+    source: "import \"pkl:shell\" as shell\nv = shell.escapeWithSingleQuotes(\"it's\")",
+    expect: "v = \"'it'\\\\''s'\"",
+  },
+  {
+    group: "pkl:EvaluatorSettings",
+    name: "Proxy configuration class",
+    source: "import \"pkl:EvaluatorSettings\" as s\nv = new s.Proxy { address = \"http://localhost:8080\" }.address",
+    expect: "v = \"http://localhost:8080\"",
+  },
+  {
+    group: "pkl:Project",
+    name: "Project module amendment",
+    source: "import \"pkl:Project\" as Project\nlocal p = (Project) { tests { \"test.pkl\" } }\nv = p.tests.length",
+    expect: "v = 1",
+  },
+  {
+    group: "pkl:pklbinary",
+    name: "MessagePack byte renderer",
+    source: "import \"pkl:pklbinary\" as binary\nv = new binary.Renderer {}.renderValue(Pair(1, \"x\")).base64",
+    expect: "v = \"kwkBoXg=\"",
+  },
+  {
+    group: "pkl:Command",
+    name: "Flag annotation class",
+    source: "import \"pkl:Command\" as Command\nv = new Command.Flag { shortName = \"v\" }.shortName",
+    expect: "v = \"v\"",
+  },
+  {
+    group: "pkl:DocPackageInfo",
+    name: "PackageDependency class",
+    source: "import \"pkl:DocPackageInfo\" as Doc\nv = new Doc.PackageDependency { name = \"birds\"; version = \"1.0.0\"; sourceCode = \"https://example.com/\" }.name",
+    expect: "v = \"birds\"",
+  },
+  {
+    group: "pkl:DocsiteInfo",
+    name: "descriptor module is amendable",
+    source: "import \"pkl:DocsiteInfo\" as Doc\nlocal site = (Doc) { title = \"Example\" }\nv = site.title",
+    expect: "v = \"Example\"",
+  },
+  {
+    group: "pkl:settings",
+    name: "Editor configuration class",
+    source: "import \"pkl:settings\" as settings\nv = new settings.Editor { urlScheme = \"editor://%{path}\" }.urlScheme",
+    expect: "v = \"editor://%{path}\"",
+  },
 ]
 
 ///|

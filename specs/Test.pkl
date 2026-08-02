@@ -412,7 +412,7 @@ local cliReflectIntrospection = new Test {
 local cliStdlibCheck = new Test {
   name = "cli stdlib coverage probe"
   description =
-    "The native CLI's `stdlib` subcommand evaluates one minimal probe per documented stdlib surface area (pkl:base value-variant ops + Renderer classes, pkl:math constants / Int + Float helpers, pkl:semver parse + compare, pkl:platform stub, pkl:test catch, pkl:reflect mirror constants + factories, pkl:json / pkl:yaml Parser shells, pkl:xml / pkl:protobuf Renderer shells) and prints `[PASS]` / `[FAIL]` per probe. The contract pins the trailing `stdlib: N / N passed` summary so a regression to any probe breaks CI."
+    "The native CLI's `stdlib` subcommand evaluates one minimal probe per documented stdlib surface area, including the Pkl 0.32 Project, settings, Command, documentation, and pklbinary modules, and prints `[PASS]` / `[FAIL]` per probe. The contract pins the trailing `stdlib: N / N passed` summary so a regression to any probe breaks CI."
   tags { "moonbit"; "cli"; "stdlib"; "contract" }
   specRef { "PKL-141" }
   cmd = "moon run cmd/mpkl --target native -- stdlib"
@@ -437,7 +437,7 @@ local cliStdlibCheck = new Test {
     "[PASS] Parser.parse decodes primitives (Dynamic mode)"
     "[PASS] Parser.parse honors useMapping"
     "[PASS] Parser.parse handles nested arrays + maps"
-    "stdlib: 43 / 43 passed"
+    "stdlib: 55 / 55 passed"
   }
   timeoutSec = 180
 }

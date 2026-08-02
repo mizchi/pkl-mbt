@@ -578,6 +578,10 @@ fn eval_typed_method_dispatch(
         return None
       }
       let entries : Array[ValueEntry] = []
+      let is_module = match find_object_class_tag(receiver_members) {
+        Some("Module") => true
+        _ => false
+      }
       for m in receiver_members {
         if m.name.has_prefix("@subscript$") {
           match m.value {
@@ -595,7 +599,13 @@ fn eval_typed_method_dispatch(
           }
         } else if m.name.has_prefix("@element$") {
           continue
-        } else if !is_invisible_member_name(m.name) {
+        } else if !is_invisible_member_name(m.name) &&
+          !(is_module &&
+          (
+            m.name == "imports" ||
+            m.name == "output" ||
+            m.value is FunctionValue(_, _, _, _, _)
+          )) {
           entries.push({ key: StringValue(m.name), value: m.value })
         }
       }

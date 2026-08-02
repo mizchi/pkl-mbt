@@ -2,7 +2,8 @@
 fn is_reflect_metadata_type_annotation(type_name : String) -> Bool {
   type_name == "reflect.Type" ||
   type_name == "reflect.Property" ||
-  type_name == "reflect.Method"
+  type_name == "reflect.Method" ||
+  type_name == "reflect.Module"
 }
 
 ///|
@@ -111,9 +112,16 @@ fn eval_value_accepts_type_annotation(
     )
     return value is StringValue(s) && s == literal
   }
-  if type_name == "BaseValueRenderer" || type_name == "ValueRenderer" {
+  if type_name == "BaseValueRenderer" ||
+    type_name == "ValueRenderer" ||
+    type_name == "BytesRenderer" {
     return match value {
-      ObjectValue(members) => renderer_format_from_members(members) is Some(_)
+      ObjectValue(members) =>
+        match renderer_format_from_members(members) {
+          Some("pklbinary") => type_name != "ValueRenderer"
+          Some(_) => type_name != "BytesRenderer"
+          None => false
+        }
       _ => false
     }
   }
@@ -147,9 +155,15 @@ fn eval_value_accepts_type_annotation(
     ("Boolean", BoolValue(_)) | ("Bool", BoolValue(_)) => true
     ("Null", NullValue) => true
     ("Object", ObjectValue(_)) => true
+    ("Dynamic", ObjectValue(_)) => true
     // PKL-148bh: `module` is the type of the enclosing module — any
     // ObjectValue satisfies it structurally (types/currentModuleType*).
     ("module", ObjectValue(_)) => true
+    ("Module", ObjectValue(members)) =>
+      object_class_tag_matches(members, "Module")
+    ("Class", ObjectValue(members)) => reflect_kind(members) is Some("Class")
+    ("TypeAlias", ObjectValue(members)) =>
+      reflect_kind(members) is Some("TypeAlias")
     // PKL-148bh: `unknown` is Apple Pkl's wildcard return type;
     // accept every runtime value (basic/newInAmendingModuleMethod).
     ("unknown", _) => true
@@ -464,6 +478,7 @@ fn push_module_metadata_from_cache(
   for
     name in [
       "@__module_name", "@__module_path", "@__module_source", "@__module_imports",
+      "@__module_is_amend",
     ] {
     if lookup_value(call_cache, name) is None {
       match lookup_value(caller_cache, name) {

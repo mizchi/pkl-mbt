@@ -780,8 +780,10 @@ test "amended module satisfies an imported parent module type" {
       #|}
     ),
   )
-  guard session.eval_path("birds/catalog/Ostrich.pkl") is EvalOk(amended) else {
-    panic()
+  let amended = match session.eval_path("birds/catalog/Ostrich.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
   }
   inspect(
     render_value(amended),

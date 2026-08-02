@@ -703,6 +703,8 @@ test "PKL-152: pkl:release exposes current release metadata shape" {
       #|sourceOk = release.current.sourceCode.homepage.startsWith("https://")
       #|docsOk = release.current.documentation.homepage.endsWith("/")
       #|hasBase = release.current.standardLibrary.modules.contains("pkl:base")
+      #|moduleCount = release.current.standardLibrary.modules.length
+      #|versionText = "\(release.current.version)"
     ),
   )
   guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
@@ -713,6 +715,8 @@ test "PKL-152: pkl:release exposes current release metadata shape" {
   inspect(rendered.contains("sourceOk = true"), content="true")
   inspect(rendered.contains("docsOk = true"), content="true")
   inspect(rendered.contains("hasBase = true"), content="true")
+  inspect(rendered.contains("moduleCount = 22"), content="true")
+  inspect(rendered.contains("versionText = \"0.30.0\""), content="true")
 }
 
 ///|
@@ -1783,7 +1787,11 @@ test "PKL-148d: local method body late-binds amended sibling property" {
     #|  y = 2
     #|}
   session.set_source("main.pkl", source)
-  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let value = match session.eval_path("main.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
+  }
   inspect(@pkl.render_value(value), content=expected)
 }
 
@@ -2133,8 +2141,303 @@ test "PKL-148c: reflect module surface handles modules without imports" {
     #|docNull = true
     #|isAmend = false
     #|selfImports = Map("reflect", "pkl:reflect")
-  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let value = match session.eval_path("main.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
+  }
   inspect(@pkl.render_value(value), content=expected)
+}
+
+///|
+test "PKL-148c: reflect.Module is valid in callable annotations" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:reflect"
+      #|function isAmend(mod: reflect.Module): Boolean = mod.isAmend
+      #|function reflectee(mod: reflect.Module): Module = mod.reflectee
+      #|result = isAmend(reflect.Module(reflectee(reflect.Module(module))))
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(@pkl.render_value(value), content="result = false")
+}
+
+///|
+test "PKL-148c: reflect.Module preserves the amend chain for relativePathTo" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "base.pkl",
+    (
+      #|open module Base
+      #|import "pkl:reflect"
+      #|hidden path = findRootModule(reflect.Module(module)).relativePathTo(module)
+      #|hidden team = path[0]
+      #|hidden env = path[2]
+      #|output { value = if (isLeafModule()) module.path else List() }
+      #|local function isLeafModule(): Boolean =
+      #|  (path.length == 3 && env != "pr") || (path.length == 4 && env == "pr")
+      #|local function findRootModule(mod: reflect.Module): Module =
+      #|  let (supermodule = mod.supermodule)
+      #|    if (supermodule == null || !supermodule.isAmend) mod.reflectee
+      #|    else findRootModule(supermodule)
+    ),
+  )
+  session.set_source("vars.pkl", "module Vars\nextends \"base.pkl\"")
+  session.set_source("defaults.pkl", "amends \"vars.pkl\"")
+  session.set_source("team/overrides.pkl", "amends \"...\"")
+  session.set_source("team/app/overrides.pkl", "amends \"...\"")
+  session.set_source("team/app/prod/overrides.pkl", "amends \"...\"")
+  register_triple_dot_resolution("team/overrides.pkl", "...", "defaults.pkl")
+  register_triple_dot_resolution(
+    "team/app/overrides.pkl", "...", "team/overrides.pkl",
+  )
+  register_triple_dot_resolution(
+    "team/app/prod/overrides.pkl", "...", "team/app/overrides.pkl",
+  )
+  let value = match session.eval_path("team/app/prod/overrides.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
+  }
+  inspect(@pkl.render_value(value), content="")
+  inspect(
+    @pkl.render_value(@pkl.extract_output_value(value)),
+    content="List(\"team\", \"app\", \"prod\")",
+  )
+}
+
+///|
+test "PKL-148c: module Mapping values can be flattened through toMap" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|first = new Mapping {
+      #|  ["one"] = new Dynamic { name = "one" }
+      #|}
+      #|second = new Mapping {
+      #|  ["two"] = new Dynamic { name = "two" }
+      #|}
+      #|output {
+      #|  value = module.toMap().values.flatMap((it) -> it.toMap().values)
+      #|}
+    ),
+  )
+  let value = match session.eval_path("main.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
+  }
+  inspect(
+    @pkl.render_value(@pkl.extract_output_value(value)),
+    content=(
+      #|List(new {
+      #|  name = "one"
+      #|}, new {
+      #|  name = "two"
+      #|})
+    ),
+  )
+}
+
+///|
+test "PKL-148c: imported module types reject unrelated Dynamic values" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "ConfigMap.pkl",
+    (
+      #|open module ConfigMap
+      #|data: Mapping<String, String> = new {}
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "ConfigMap.pkl"
+      #|dynamicMatch = new Dynamic {} is ConfigMap
+      #|moduleMatch = ConfigMap is ConfigMap
+    ),
+  )
+  let value = match session.eval_path("main.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
+  }
+  inspect(
+    @pkl.render_value(value),
+    content=(
+      #|dynamicMatch = false
+      #|moduleMatch = true
+    ),
+  )
+}
+
+///|
+test "PKL-148c: imported module types distinguish amended module instances" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "ConfigMap.pkl",
+    (
+      #|open module ConfigMap
+      #|data: Mapping<String, String>? = null
+    ),
+  )
+  session.set_source(
+    "Service.pkl",
+    (
+      #|open module Service
+      #|port: Int? = null
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "ConfigMap.pkl"
+      #|import "Service.pkl"
+      #|local config = (ConfigMap) {}
+      #|local service = (Service) {}
+      #|configMatch = config is ConfigMap
+      #|serviceMatch = service is ConfigMap
+    ),
+  )
+  let value = match session.eval_path("main.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
+  }
+  inspect(
+    @pkl.render_value(value),
+    content=(
+      #|configMatch = true
+      #|serviceMatch = false
+    ),
+  )
+}
+
+///|
+test "PKL-148c: inherited module toMap materializes visible properties" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "base.pkl",
+    (
+      #|open module Base
+      #|first: Mapping<String, Dynamic> = new Mapping {
+      #|  default = (key) -> new Dynamic { name = key }
+      #|}
+      #|second: Mapping<String, Dynamic> = new Mapping {
+      #|  default = (key) -> new Dynamic { name = key }
+      #|}
+      #|hidden label = "base"
+      #|output {
+      #|  value = module.toMap().values.flatMap((it) -> it.toMap().values)
+      #|}
+    ),
+  )
+  session.set_source(
+    "leaf.pkl",
+    (
+      #|module Leaf
+      #|extends "base.pkl"
+      #|first { ["one"] = new Dynamic { name = "one" } }
+      #|second { ["two"] = new Dynamic { name = "two" } }
+      #|label = "leaf"
+    ),
+  )
+  let value = match session.eval_path("leaf.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
+  }
+  inspect(
+    @pkl.render_value(@pkl.extract_output_value(value)),
+    content=(
+      #|List(new {
+      #|  name = "one"
+      #|}, new {
+      #|  name = "two"
+      #|})
+    ),
+  )
+}
+
+///|
+test "PKL-148c: inherited module toMap excludes a false Mapping when body" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "base.pkl",
+    (
+      #|open module Base
+      #|resources: Mapping<String, Dynamic> = new Mapping {
+      #|  default = (key) -> new Dynamic { name = key }
+      #|}
+      #|hidden names: Listing<String> = new Listing {}
+      #|hidden enabled = false
+      #|hidden leaf = false
+      #|output {
+      #|  renderer = new Dynamic {
+      #|    isStream = true
+      #|    converters = new Mapping {}
+      #|  }
+      #|  value = if (isLeaf())
+      #|    module.toMap().values.flatMap((it) -> it.toMap().values)
+      #|  else List()
+      #|}
+      #|local function isLeaf(): Boolean = leaf
+    ),
+  )
+  session.set_source(
+    "defaults.pkl",
+    (
+      #|amends "base.pkl"
+      #|resources { default { label = "default" } }
+    ),
+  )
+  session.set_source(
+    "root.pkl",
+    (
+      #|amends "defaults.pkl"
+      #|resources {
+      #|  for (name in names) { [name] {} }
+      #|  when (enabled) { ["bad"] {} }
+      #|}
+    ),
+  )
+  session.set_source("team.pkl", "amends \"root.pkl\"")
+  session.set_source(
+    "app.pkl",
+    (
+      #|amends "team.pkl"
+      #|names { "one" }
+    ),
+  )
+  session.set_source(
+    "leaf.pkl",
+    (
+      #|amends "app.pkl"
+      #|names { "two" }
+      #|leaf = true
+    ),
+  )
+  let value = match session.eval_path("leaf.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
+  }
+  inspect(
+    @pkl.render_value(@pkl.extract_output_value(value)),
+    content=(
+      #|List(new {
+      #|  name = "one"
+      #|  label = "default"
+      #|}, new {
+      #|  name = "two"
+      #|  label = "default"
+      #|})
+    ),
+  )
 }
 
 ///|
@@ -3202,6 +3505,31 @@ test "PKL-148: module.getClass exposes reflect property doc comments" {
     }
   }
   inspect(comment, content="doc comment\ndoc continuation")
+}
+
+///|
+test "PKL-154: reflected module class retains its module-specific reflectee" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "BaseModule.pkl",
+    (
+      #|open module BaseModule
+      #|
+      #|value = 1
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:reflect"
+      #|import "BaseModule.pkl" as BaseModule
+      #|
+      #|local reflected = reflect.Module(BaseModule)
+      #|sameClass = reflected.moduleClass.reflectee == BaseModule.getClass()
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(@pkl.render_value(value), content="sameClass = true")
 }
 
 ///|

@@ -49,7 +49,16 @@ fn render_json_value(
     DeferredImportValue(_) => buf.write_string("null")
     StringValue(s) => render_json_string(s, buf)
     ObjectValue(members) =>
-      render_json_object_from_members(members, indent, indent_text, buf)
+      match dynamic_listing_elements_from_members(members) {
+        Some(elements) => render_json_array(elements, indent, indent_text, buf)
+        None =>
+          match dynamic_mapping_entries_from_members(members) {
+            Some(entries) =>
+              render_json_object_from_entries(entries, indent, indent_text, buf)
+            None =>
+              render_json_object_from_members(members, indent, indent_text, buf)
+          }
+      }
     MappingValue(entries) | DefaultedMappingValue(_, entries, _) =>
       render_json_object_from_entries(entries, indent, indent_text, buf)
     ListingValue(elements)
@@ -92,6 +101,27 @@ fn render_json_value(
     // non-string keys the same way `json_coerce_key` already does.
     MapValue(entries) =>
       render_json_object_from_entries(entries, indent, indent_text, buf)
+  }
+}
+
+///|
+fn dynamic_listing_elements_from_members(
+  members : Array[ValueMember],
+) -> Array[Value]? {
+  let elements : Array[Value] = []
+  for field in members {
+    if is_invisible_member_name(field.name) {
+      continue
+    }
+    if !field.name.has_prefix("@element$") {
+      return None
+    }
+    elements.push(field.value)
+  }
+  if elements.length() > 0 {
+    Some(elements)
+  } else {
+    None
   }
 }
 

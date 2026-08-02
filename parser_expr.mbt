@@ -60,9 +60,10 @@ fn Parser::parse_null_coalesce_expr(self : Parser) -> Expr {
   let checkpoint = self.builder.checkpoint()
   let left = self.parse_pipe_expr()
   self.skip_whitespace()
-  if self.at(coalesce()) {
+  if self.at_infix_across_newline(coalesce()) {
     self.builder.start_node_at(checkpoint, binary_expr())
     ignore(self.bump())
+    self.skip_trivia_and_semicolons()
     let right = self.parse_null_coalesce_expr()
     self.builder.finish_node()
     BinaryExpr(NullCoalesce, left, right)
@@ -302,7 +303,7 @@ fn Parser::parse_cast_expr(self : Parser) -> Expr {
   let mut left = self.parse_unary_expr()
   while ({
           self.skip_whitespace()
-          self.at(as_kw())
+          self.at_infix_across_newline(as_kw())
         }) {
     self.builder.start_node_at(checkpoint, binary_expr())
     ignore(self.bump())
@@ -735,7 +736,9 @@ fn Parser::parse_let_expr(self : Parser) -> Expr {
   ignore(self.expect(let_kw(), "let"))
   self.skip_whitespace()
   ignore(self.expect(lparen(), "("))
-  self.skip_whitespace()
+  // Inside the binding parens, newlines are soft whitespace. This is the
+  // shape emitted by the official formatter for long binding values.
+  self.skip_trivia()
   let name = match self.expect(identifier(), "identifier") {
     Some(tok) => tok.text()
     None => ""
@@ -744,7 +747,7 @@ fn Parser::parse_let_expr(self : Parser) -> Expr {
   self.skip_whitespace()
   ignore(self.expect(eq(), "="))
   let value = self.parse_expr()
-  self.skip_whitespace()
+  self.skip_trivia()
   ignore(self.expect(rparen(), ")"))
   let body = self.parse_expr()
   self.builder.finish_node()
@@ -760,6 +763,9 @@ fn Parser::parse_if_expr(self : Parser) -> Expr {
   ignore(self.expect(if_kw(), "if"))
   ignore(self.expect(lparen(), "("))
   let condition = self.parse_expr()
+  // A formatted multiline condition leaves the cursor on the newline
+  // immediately before `)`, which is unambiguously trivia here.
+  self.skip_trivia()
   ignore(self.expect(rparen(), ")"))
   let then_expr = self.parse_expr()
   self.skip_trivia()

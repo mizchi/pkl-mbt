@@ -63,6 +63,10 @@ priv struct SandboxConfig {
   // result (even None) so subsequent calls are O(1).
   mut stdlib_base_resolved : Bool
   mut stdlib_base_loader : (() -> String?)?
+  // Host-specific URI canonicalization for pklbinary metadata. Embedded
+  // sessions keep their logical path strings; the CLI installs a file-URI
+  // normalizer so its bytes match Apple Pkl's command-line output.
+  mut pklbinary_module_uri_normalizer : ((String) -> String)?
   // PKL-153: dynamic resource readers registered by embedded callers.
   // Keyed by scheme (no trailing `:`), the closure is invoked when
   // `read("scheme:path")` is evaluated and the static
@@ -99,7 +103,23 @@ let sandbox_config : SandboxConfig = {
   stdlib_base_source: None,
   stdlib_base_resolved: false,
   stdlib_base_loader: None,
+  pklbinary_module_uri_normalizer: None,
   resource_readers: Map([], capacity=4),
+}
+
+///|
+pub fn configure_pklbinary_module_uri_normalizer(
+  normalizer : (String) -> String,
+) -> Unit {
+  sandbox_config.pklbinary_module_uri_normalizer = Some(normalizer)
+}
+
+///|
+fn normalize_pklbinary_module_uri(uri : String) -> String {
+  match sandbox_config.pklbinary_module_uri_normalizer {
+    Some(normalizer) => normalizer(uri)
+    None => uri
+  }
 }
 
 ///|

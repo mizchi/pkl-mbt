@@ -2018,3 +2018,286 @@ test "PKL-106: read prop returns configured value" {
 }
 
 ///|
+test "PKL-154: pkl:EvaluatorSettings supports nested evaluator configuration" {
+  let session = AnalysisSession::new()
+  let source =
+    #|import "pkl:EvaluatorSettings" as EvaluatorSettings
+    #|
+    #|local settings = (EvaluatorSettings) {
+    #|  color = "always"
+    #|  env = new Mapping { ["MODE"] = "test" }
+    #|  http = new EvaluatorSettings.Http {
+    #|    proxy = new EvaluatorSettings.Proxy {
+    #|      address = "http://proxy.example.com:5080"
+    #|      noProxy = new Listing { "localhost" }
+    #|    }
+    #|  }
+    #|}
+    #|color = settings.color
+    #|mode = settings.env["MODE"]
+    #|proxyAddress = settings.http.proxy.address
+    #|noProxyCount = settings.http.proxy.noProxy.length
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(
+    render_value(value),
+    content=(
+      #|color = "always"
+      #|mode = "test"
+      #|proxyAddress = "http://proxy.example.com:5080"
+      #|noProxyCount = 1
+    ),
+  )
+}
+
+///|
+test "PKL-154: pkl:Project evaluates a practical PklProject manifest" {
+  let session = AnalysisSession::new()
+  let source =
+    #|amends "pkl:Project"
+    #|
+    #|package {
+    #|  name = "example"
+    #|  baseUri = "package://example.com/example"
+    #|  version = "1.2.3"
+    #|  packageZipUrl = "https://example.com/example@1.2.3.zip"
+    #|  authors { "Maintainer <maintainer@example.com>" }
+    #|  license = "MIT"
+    #|}
+    #|tests { "tests/unit.pkl" }
+    #|dependencies {
+    #|  ["birds"] {
+    #|    uri = "package://example.com/birds@1.0.0"
+    #|    checksums { sha256 = "0123456789abcdef" }
+    #|  }
+    #|}
+    #|evaluatorSettings {
+    #|  color = "always"
+    #|  env { ["MODE"] = "test" }
+    #|}
+  session.set_source("PklProject", source)
+  let value = match session.eval_path("PklProject") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
+  }
+  let rendered = render_value(value)
+  inspect(rendered.contains("name = \"example\""), content="true")
+  inspect(
+    rendered.contains("baseUri = \"package://example.com/example\""),
+    content="true",
+  )
+  inspect(
+    rendered.contains("uri = \"package://example.com/birds@1.0.0\""),
+    content="true",
+  )
+  inspect(rendered.contains("color = \"always\""), content="true")
+  inspect(rendered.contains("[\"MODE\"] = \"test\""), content="true")
+}
+
+///|
+test "PKL-154: pkl:pklbinary renders representative values as MessagePack bytes" {
+  let session = AnalysisSession::new()
+  let source =
+    #|import "pkl:pklbinary" as pklbinary
+    #|
+    #|class Bird { name: String }
+    #|
+    #|local renderer = new pklbinary.Renderer {}
+    #|hidden typedBird: Bird = new { name = "owl" }
+    #|isBytesRenderer = renderer is BytesRenderer
+    #|isValueRenderer = renderer is ValueRenderer
+    #|list = renderer.renderValue(List(1, "two", true, null)).base64
+    #|pair = renderer.renderDocument(Pair(1, "x")).base64
+    #|duration = renderer.renderValue(2.5.s).base64
+    #|bytes = renderer.renderValue(Bytes(1, 2, 3)).base64
+    #|mapping = renderer.renderValue(new Mapping { ["x"] = 1 }).base64
+    #|bird = renderer.renderValue(typedBird).base64
+    #|dynamic = renderer.renderValue(new Dynamic {
+    #|  name = "owl"
+    #|  ["key"] = 2
+    #|  "element"
+    #|  "tail"
+    #|}).base64
+  session.set_source("main.pkl", source)
+  let value = match session.eval_path("main.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
+  }
+  inspect(
+    render_value(value),
+    content=(
+      #|isBytesRenderer = true
+      #|isValueRenderer = false
+      #|list = "kgSUAaN0d2/DwA=="
+      #|pair = "kwkBoXg="
+      #|duration = "kwfLQAQAAAAAAAChcw=="
+      #|bytes = "kg/EAwECAw=="
+      #|mapping = "kgOBoXgB"
+      #|bird = "lAGpbWFpbiNCaXJkqG1haW4ucGtskZMQpG5hbWWjb3ds"
+      #|dynamic = "lAGnRHluYW1pY6hwa2w6YmFzZZSTEKRuYW1lo293bJMRo2tleQKTEgCnZWxlbWVudJMSAaR0YWls"
+    ),
+  )
+}
+
+///|
+test "PKL-154: pkl:pklbinary preserves upstream declaration metadata and renderer defaults" {
+  let session = AnalysisSession::new()
+  let source =
+    #|open module encoding1
+    #|
+    #|import "pkl:pklbinary" as pklbinary
+    #|import "pkl:base" as base
+    #|
+    #|local renderer = new pklbinary.Renderer {}
+    #|moduleClass = renderer.renderValue(module.getClass()).base64
+    #|baseModuleClass = renderer.renderValue(base.getClass()).base64
+    #|pklbinaryModuleClass = renderer.renderValue(pklbinary.getClass()).base64
+    #|stdlibTypealias = renderer.renderValue(UInt).base64
+    #|pcfRenderer = renderer.renderValue(new PcfRenderer {}).base64
+  session.set_source("main.pkl", source)
+  let value = match session.eval_path("main.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
+  }
+  inspect(
+    render_value(value),
+    content=(
+      #|moduleClass = "kwypZW5jb2RpbmcxqG1haW4ucGts"
+      #|baseModuleClass = "kwyrTW9kdWxlQ2xhc3OocGtsOmJhc2U="
+      #|pklbinaryModuleClass = "kwytcGtsLnBrbGJpbmFyea1wa2w6cGtsYmluYXJ5"
+      #|stdlibTypealias = "kw2kVUludKhwa2w6YmFzZQ=="
+      #|pcfRenderer = "lAGrUGNmUmVuZGVyZXKocGtsOmJhc2WWkxCqY29udmVydGVyc5IDgJMQu2NvbnZlcnRQcm9wZXJ0eVRyYW5zZm9ybWVyc5IDgJMQqWV4dGVuc2lvbqNwY2aTEKZpbmRlbnSiICCTELJvbWl0TnVsbFByb3BlcnRpZXPCkxC5dXNlQ3VzdG9tU3RyaW5nRGVsaW1pdGVyc8I="
+    ),
+  )
+}
+
+///|
+test "PKL-154: pkl:settings evaluates editor and HTTP overrides" {
+  let session = AnalysisSession::new()
+  let source =
+    #|amends "pkl:settings"
+    #|
+    #|editor { urlScheme = "my-editor://%{path}:%{line}" }
+    #|http {
+    #|  proxy {
+    #|    address = "http://proxy.example.com:8080"
+    #|    noProxy { "localhost" }
+    #|  }
+    #|}
+  session.set_source("settings.pkl", source)
+  let value = match session.eval_path("settings.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
+  }
+  let rendered = render_value(value)
+  inspect(
+    rendered.contains("urlScheme = \"my-editor://%{path}:%{line}\""),
+    content="true",
+  )
+  inspect(
+    rendered.contains("address = \"http://proxy.example.com:8080\""),
+    content="true",
+  )
+  inspect(rendered.contains("\"localhost\""), content="true")
+}
+
+///|
+test "PKL-154: pkl:DocPackageInfo evaluates a package descriptor" {
+  let session = AnalysisSession::new()
+  let source =
+    #|/// Example package documentation.
+    #|amends "pkl:DocPackageInfo"
+    #|
+    #|name = "com.example.birds"
+    #|version = "1.2.3"
+    #|importUri = "https://example.com/birds/"
+    #|authors { "Maintainer <maintainer@example.com>" }
+    #|sourceCode = "https://github.com/example/birds"
+    #|issueTracker = "https://github.com/example/birds/issues"
+    #|dependencies {
+    #|  new {
+    #|    name = "com.example.wings"
+    #|    version = "2.0.0"
+    #|    sourceCode = "https://github.com/example/wings/"
+    #|  }
+    #|}
+    #|extraAttributes { ["tier"] = "stable" }
+  session.set_source("doc-package-info.pkl", source)
+  let value = match session.eval_path("doc-package-info.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
+  }
+  let rendered = render_value(value)
+  inspect(rendered.contains("name = \"com.example.birds\""), content="true")
+  inspect(rendered.contains("version = \"1.2.3\""), content="true")
+  inspect(rendered.contains("name = \"com.example.wings\""), content="true")
+  inspect(rendered.contains("[\"tier\"] = \"stable\""), content="true")
+}
+
+///|
+test "PKL-154: pkl:DocsiteInfo evaluates a site descriptor" {
+  let session = AnalysisSession::new()
+  let source =
+    #|/// Documentation for the example site.
+    #|amends "pkl:DocsiteInfo"
+    #|title = "Example API"
+  session.set_source("docsite-info.pkl", source)
+  let value = match session.eval_path("docsite-info.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
+  }
+  inspect(
+    render_value(value).contains("title = \"Example API\""),
+    content="true",
+  )
+}
+
+///|
+test "PKL-154: pkl:Command supports an executable command module" {
+  let session = AnalysisSession::new()
+  let source =
+    #|extends "pkl:Command"
+    #|
+    #|command {
+    #|  name = "greet"
+    #|  description = "Print a greeting"
+    #|}
+    #|options: Options = new { name = "world" }
+    #|
+    #|class Options {
+    #|  @Flag { shortName = "n" }
+    #|  name: String
+    #|}
+    #|
+    #|output { text = "hello, \(options.name)" }
+  session.set_source("greet.pkl", source)
+  let value = match session.eval_path("greet.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
+  }
+  guard value is ObjectValue(members) else { panic() }
+  let mut output : Value? = None
+  for field in members {
+    if field.name == "output" {
+      output = Some(field.value)
+    }
+  }
+  guard output is Some(ObjectValue(output_members)) else { panic() }
+  let mut text : String? = None
+  for field in output_members {
+    if field.name == "text" && field.value is StringValue(value) {
+      text = Some(value)
+    }
+  }
+  guard text is Some(rendered_text) else { panic() }
+  inspect(rendered_text, content="hello, world")
+}
+
+///|

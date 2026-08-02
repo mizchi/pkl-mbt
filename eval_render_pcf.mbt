@@ -1135,6 +1135,20 @@ fn render_pcf_mapping_entry(
 }
 
 ///|
+fn value_member_is_output_configuration(field : ValueMember) -> Bool {
+  if strip_member_visibility_prefix(field.name) != "output" {
+    return false
+  }
+  match field.value {
+    ObjectValue(output_members) =>
+      lookup_member(output_members, "value") is Some(_) ||
+      lookup_member(output_members, "text") is Some(_) ||
+      lookup_member(output_members, "renderer") is Some(_)
+    _ => false
+  }
+}
+
+///|
 fn visible_members(members : Array[ValueMember]) -> Array[ValueMember] {
   // Hidden / local members carry the `hidden_member_prefix` marker; every
   // renderer projects through this filter so the prefix never reaches the
@@ -1144,7 +1158,10 @@ fn visible_members(members : Array[ValueMember]) -> Array[ValueMember] {
   for field in members {
     let omitted_reflect_default = field.name == "defaultValue" &&
       field.value is NullValue
-    if !is_invisible_member_name(field.name) && !omitted_reflect_default {
+    let omitted_module_output = value_member_is_output_configuration(field)
+    if !is_invisible_member_name(field.name) &&
+      !omitted_reflect_default &&
+      !omitted_module_output {
       result.push(field)
     }
   }

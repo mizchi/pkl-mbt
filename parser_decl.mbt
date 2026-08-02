@@ -197,6 +197,7 @@ fn Parser::parse_type_annotation(self : Parser) -> String? {
 
 ///|
 fn Parser::at_type_expression_boundary(self : Parser) -> Bool {
+  self.at(else_kw()) ||
   self.at(or_or()) ||
   self.at(and_and()) ||
   self.at(coalesce()) ||
@@ -248,7 +249,10 @@ fn Parser::parse_type_text(
         // (`typealias A = Int\n typealias B = Float` etc.) and we
         // stop here.
         let next_kind = self.peek_non_trivia_kind(self.pos + 1)
-        if next_kind == pipe() {
+        // Qualified type names may also wrap between the module alias and
+        // member (`new very_long_module\n  .Type {}`). A leading dot cannot
+        // start another type declaration, so the continuation is unambiguous.
+        if next_kind == pipe() || next_kind == dot() {
           self.skip_trivia()
           continue
         }
