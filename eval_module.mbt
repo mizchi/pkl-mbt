@@ -204,9 +204,22 @@ fn module_metadata_path_name() -> String {
 }
 
 ///|
+fn module_metadata_defer_errors_name() -> String {
+  "__module_defer_errors"
+}
+
+///|
 fn module_members_name(members : Array[ValueMember]) -> String? {
   match lookup_member(members, module_metadata_name()) {
     Some(StringValue(name)) => Some(name)
+    _ => None
+  }
+}
+
+///|
+fn module_members_path(members : Array[ValueMember]) -> String? {
+  match lookup_member(members, module_metadata_path_name()) {
+    Some(StringValue(path)) => Some(path)
     _ => None
   }
 }
@@ -249,11 +262,23 @@ fn module_super_members_from_cache(
 }
 
 ///|
+fn module_receiver_super_members_from_cache(
+  cache : Array[ValueBinding],
+) -> Array[ValueMember]? {
+  match lookup_value(cache, "@__module_super") {
+    Some(ObjectValue(members)) => Some(members)
+    _ => module_super_members_from_cache(cache)
+  }
+}
+
+///|
 fn is_module_runtime_metadata_name(name : String) -> Bool {
   let bare = strip_member_visibility_prefix(name)
   bare == module_metadata_name() ||
   bare == module_metadata_super_name() ||
   bare == module_metadata_imports_name() ||
+  bare == module_metadata_path_name() ||
+  bare == module_metadata_defer_errors_name() ||
   bare == reflect_module_metadata_name() ||
   bare == "__class" ||
   bare == "__kind" ||
@@ -506,6 +531,36 @@ fn module_parent_reeval_bindings(
 }
 
 ///|
+/// An inherited member keeps the source expression from the module that
+/// originally amended it. Empty modules in between add new `super` links,
+/// but must not change which value that source amends. Walk through members
+/// carrying the same source until reaching its declaring layer.
+fn module_member_source_owner(
+  members : Array[ValueMember],
+  member_name : String,
+  source : Expr,
+) -> Array[ValueMember] {
+  let mut owner = members
+  let mut searching = true
+  while searching {
+    match module_members_super(owner) {
+      Some(super_members) =>
+        match lookup_value_member(super_members, member_name) {
+          Some(super_member) =>
+            match super_member.source {
+              Some(super_source) if super_source == source =>
+                owner = super_members
+              _ => searching = false
+            }
+          None => searching = false
+        }
+      None => searching = false
+    }
+  }
+  owner
+}
+
+///|
 fn resolve_module_parent_member_value(
   member_name : String,
   parent_members : Array[ValueMember],
@@ -529,21 +584,67 @@ fn resolve_module_parent_member_value(
         _ =>
           match value_member.source {
             Some(source) =>
-              if parent_member_source_needs_reeval(
+              if deferred_error_message(value_member.value) is Some(_) ||
+                parent_member_source_needs_reeval(
                   source, parent_members, parent_bindings,
                 ) {
+                let source_owner = module_member_source_owner(
+                  parent_members, member_name, source,
+                )
                 let reeval_bindings = module_parent_reeval_bindings(
                   parent_bindings, bindings,
                 )
+                let reeval_source = match source {
+                  ObjectLiteral(members) =>
+                    match module_members_super(source_owner) {
+                      Some(super_members) =>
+                        match lookup_value_member(super_members, member_name) {
+                          Some(_) =>
+                            AmendExpr(
+                              MemberAccess(Identifier("super"), member_name),
+                              members,
+                            )
+                          None => source
+                        }
+                      None => source
+                    }
+                  MappingLiteral(entries) =>
+                    match module_members_super(source_owner) {
+                      Some(super_members) =>
+                        match lookup_value_member(super_members, member_name) {
+                          Some(_) =>
+                            AmendExpr(
+                              MemberAccess(Identifier("super"), member_name),
+                              mapping_literal_amend_members(entries),
+                            )
+                          None => source
+                        }
+                      None => source
+                    }
+                  ListingLiteral(elements) =>
+                    match module_members_super(source_owner) {
+                      Some(super_members) =>
+                        match lookup_value_member(super_members, member_name) {
+                          Some(_) =>
+                            AmendExpr(
+                              MemberAccess(Identifier("super"), member_name),
+                              listing_literal_amend_members(elements),
+                            )
+                          None => source
+                        }
+                      None => source
+                    }
+                  _ => source
+                }
                 eval_expr_with_bindings(
-                  source,
+                  reeval_source,
                   reeval_bindings,
                   module_parent_reeval_env(
                     parent_members, parent_bindings, reeval_bindings, env, cache,
                   ),
                   class_env,
                   module_parent_reeval_cache(
-                    parent_members, parent_bindings, cache,
+                    source_owner, parent_bindings, cache,
                   ),
                   stack,
                   declarations,
@@ -561,6 +662,75 @@ fn resolve_module_parent_member_value(
 }
 
 ///|
+fn mapping_literal_amend_members(
+  entries : Array[MappingEntry],
+) -> Array[ObjectMember] {
+  let members : Array[ObjectMember] = []
+  for i = 0; i < entries.length(); i = i + 1 {
+    let entry = entries[i]
+    match entry.key {
+      Identifier(name) if name == collection_default_marker_name() =>
+        members.push({
+          name: "default",
+          type_name: None,
+          value: entry.value,
+          annotations: [],
+        })
+      WhenSpread(inner) =>
+        members.push({
+          name: "@when",
+          type_name: None,
+          value: inner,
+          annotations: [],
+        })
+      _ =>
+        members.push({
+          name: "@subscript$reeval\{i}",
+          type_name: None,
+          value: CallExpr(Identifier("@__index_entry"), [entry.key, entry.value]),
+          annotations: [],
+        })
+    }
+  }
+  members
+}
+
+///|
+fn listing_literal_amend_members(elements : Array[Expr]) -> Array[ObjectMember] {
+  let members : Array[ObjectMember] = []
+  for i = 0; i < elements.length(); i = i + 1 {
+    let element = elements[i]
+    match collection_default_expr_from_listing_element(element) {
+      Some(default_expr) =>
+        members.push({
+          name: "default",
+          type_name: None,
+          value: default_expr,
+          annotations: [],
+        })
+      None =>
+        match element {
+          WhenSpread(inner) =>
+            members.push({
+              name: "@when",
+              type_name: None,
+              value: inner,
+              annotations: [],
+            })
+          _ =>
+            members.push({
+              name: "@element$reeval\{i}",
+              type_name: None,
+              value: element,
+              annotations: [],
+            })
+        }
+    }
+  }
+  members
+}
+
+///|
 fn late_bind_module_parent_members(
   parent_members : Array[ValueMember],
   parent_bindings : Array[Binding],
@@ -571,41 +741,159 @@ fn late_bind_module_parent_members(
   declarations : Array[Declaration],
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
+  defer_errors : Bool,
 ) -> Array[ValueMember] {
   if !is_module_member_set(parent_members) {
     return parent_members
   }
-  let rebound : Array[ValueMember] = []
+  let rebound = copy_value_members(parent_members)
+  let rebound_cache = copy_value_bindings(cache)
+  // Hidden/local module state often appears after visible resources in
+  // source order (TeamAppEnv declares its Mapping slots before `path`,
+  // `app`, and `env`). Resolve that state first so visible Mapping
+  // amends see the leaf values rather than an intermediate template's
+  // deferred or empty defaults. Keep the returned member order stable.
+  for phase = 0; phase < 2; phase = phase + 1 {
+    for i = 0; i < parent_members.length(); i = i + 1 {
+      let value_member = parent_members[i]
+      if is_module_runtime_metadata_name(value_member.name) {
+        continue
+      }
+      let invisible = is_invisible_member_name(value_member.name)
+      if (phase == 0) != invisible {
+        continue
+      }
+      let member_diagnostics = if defer_errors || invisible {
+        []
+      } else {
+        diagnostics
+      }
+      let value = match
+        resolve_module_parent_member_value(
+          strip_member_visibility_prefix(value_member.name),
+          parent_members,
+          parent_bindings,
+          bindings,
+          env,
+          class_env,
+          rebound_cache,
+          [],
+          declarations,
+          member_diagnostics,
+          resolve_import,
+        ) {
+        Some(v) => v
+        None => value_member.value
+      }
+      let rebound_member : ValueMember = {
+        name: value_member.name,
+        value,
+        source: value_member.source,
+        annotations: value_member.annotations,
+      }
+      rebound[i] = rebound_member
+      let bare_name = strip_member_visibility_prefix(rebound_member.name)
+      if invisible {
+        if find_binding(bindings, bare_name) is None {
+          rebound_cache.push({ name: bare_name, value: rebound_member.value })
+        }
+      } else if find_binding(bindings, bare_name) is None {
+        // A later inherited property (for example `output.value`) should
+        // observe this already rebound collection, including its amended
+        // default, rather than resolve the raw source binding again.
+        rebound_cache.push({ name: bare_name, value: rebound_member.value })
+      }
+    }
+  }
+  rebound
+}
+
+///|
+/// Current-module hidden amendments can depend on inherited hidden state
+/// whose value changes with the concrete module (for example a relative
+/// module path-derived `env`). Seed those inherited hidden values before
+/// evaluating the current bindings. Parent locals remain confined to the
+/// parent re-evaluation environment and are deliberately not exported here.
+fn seed_late_bound_parent_hidden_cache(
+  parent_members : Array[ValueMember],
+  parent_bindings : Array[Binding],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
+) -> Unit {
+  if !is_module_member_set(parent_members) {
+    return
+  }
+  let rebound_cache = copy_value_bindings(cache)
   for value_member in parent_members {
-    if is_module_runtime_metadata_name(value_member.name) {
-      rebound.push(value_member)
+    if !is_hidden_member_name(value_member.name) ||
+      is_module_runtime_metadata_name(value_member.name) {
+      continue
+    }
+    let bare_name = strip_member_visibility_prefix(value_member.name)
+    if find_binding(bindings, bare_name) is Some(_) {
       continue
     }
     let value = match
       resolve_module_parent_member_value(
-        strip_member_visibility_prefix(value_member.name),
+        bare_name,
         parent_members,
         parent_bindings,
         bindings,
         env,
         class_env,
-        cache,
+        rebound_cache,
         [],
         declarations,
-        diagnostics,
+        [],
         resolve_import,
       ) {
-      Some(v) => v
+      Some(resolved) => resolved
       None => value_member.value
     }
-    rebound.push({
-      name: value_member.name,
-      value,
-      source: value_member.source,
-      annotations: value_member.annotations,
-    })
+    cache.push({ name: bare_name, value })
+    rebound_cache.push({ name: bare_name, value })
   }
-  rebound
+}
+
+///|
+fn merge_module_members_preserving_override_sources(
+  base : Array[ValueMember],
+  overrides : Array[ValueMember],
+) -> Array[ValueMember] {
+  let merged = merge_value_members(base, overrides)
+  for i = 0; i < merged.length(); i = i + 1 {
+    let merged_member = merged[i]
+    if is_module_runtime_metadata_name(merged_member.name) {
+      match find_value_member_exact(overrides, merged_member.name) {
+        Some(current_metadata) => merged[i] = current_metadata
+        None => ()
+      }
+      continue
+    }
+    let override_member = match
+      find_value_member_exact(overrides, merged_member.name) {
+      Some(value_member) => Some(value_member)
+      None =>
+        if is_hidden_member_name(merged_member.name) {
+          find_value_member_exact(
+            overrides,
+            strip_member_visibility_prefix(merged_member.name),
+          )
+        } else {
+          None
+        }
+    }
+    match override_member {
+      Some(value_member) if value_member.source is Some(_) =>
+        merged[i] = { ..merged_member, source: value_member.source }
+      _ => ()
+    }
+  }
+  merged
 }
 
 ///|
@@ -1140,6 +1428,20 @@ fn add_current_module_class_binding(
 }
 
 ///|
+fn module_binding_is_referenced_by_sibling(
+  binding_name : String,
+  bindings : Array[Binding],
+) -> Bool {
+  let bare_name = strip_member_visibility_prefix(binding_name)
+  for sibling in bindings {
+    if sibling.name != binding_name && expr_references(sibling.value, bare_name) {
+      return true
+    }
+  }
+  false
+}
+
+///|
 fn eval_program(
   program : Program,
   current_module_path : String?,
@@ -1150,6 +1452,12 @@ fn eval_program(
   resolve_import_bindings : (String) -> Array[Binding]?,
 ) -> Value? {
   let env : Array[ValueBinding] = []
+  let is_open_module = match
+    reflect_decl_line_from_source(current_module_source, "", "module") {
+    Some(line) => reflect_line_has_decl_modifier(line, "open")
+    None => false
+  }
+  let mut defer_module_errors = is_open_module
   // pkspec Spec-layer gap: fold the `amends`/`extends` parent chain's
   // class declarations into the declaration set used for type
   // resolution. Parent classes are listed first so a child re-declaring
@@ -1231,6 +1539,9 @@ fn eval_program(
   let module_parent_members : Array[ValueMember] = []
   let bindings = all_eval_bindings(program)
   add_current_module_class_binding(class_env, program.bindings)
+  if is_open_module {
+    cache.push({ name: "@__open_module", value: BoolValue(true) })
+  }
   eval_imports(
     program.imports,
     current_module_path,
@@ -1267,6 +1578,14 @@ fn eval_program(
       cache.push({ name: "@__module_source", value: StringValue(source) })
     None => ()
   }
+  let current_module_is_amend = match program.module_relation {
+    Some(relation) => relation.kind is ModuleAmends
+    None => false
+  }
+  cache.push({
+    name: "@__module_is_amend",
+    value: BoolValue(current_module_is_amend),
+  })
   // PKL-148bh: stash the declared module name (`module Foo` header)
   // so reflect mirrors can build the `<module>#<simple>` qualified
   // form Apple Pkl uses for Class.toString / TypeAlias.toString.
@@ -1320,6 +1639,10 @@ fn eval_program(
       for parent_member in parent_members {
         module_parent_members.push(parent_member)
       }
+      match lookup_member(parent_members, module_metadata_defer_errors_name()) {
+        Some(BoolValue(true)) => defer_module_errors = true
+        _ => ()
+      }
       // Parent module type annotations and default bodies retain access to
       // the imports declared by that parent. Keep those values as hidden
       // module metadata, then inherit only aliases the child did not
@@ -1336,6 +1659,15 @@ fn eval_program(
       }
       if parent_members.length() > 0 {
         cache.push({ name: "super", value: ObjectValue(parent_members) })
+        // Keep the module receiver separate from the ordinary `super`
+        // slot. Evaluating `output { ... }` and other object amends pushes
+        // their amended object under `super`; `module.toMap()` inside that
+        // body must still project the enclosing module and its inherited
+        // public properties.
+        cache.push({
+          name: "@__module_super",
+          value: ObjectValue(parent_members),
+        })
       }
       // PKL-153: pull the parent's raw bindings (including locals).
       // `late_bind_module_parent_members` re-evaluates parent member
@@ -1380,6 +1712,10 @@ fn eval_program(
       i = i + 1
     }
   }
+  seed_late_bound_parent_hidden_cache(
+    module_parent_members, module_parent_bindings, bindings, env, class_env, cache,
+    declarations, resolve_import,
+  )
   for binding in program.bindings {
     // Hidden top-level properties are not part of the rendered module
     // surface, but they are still reachable through `super.x` /
@@ -1526,11 +1862,29 @@ fn eval_program(
             source: None,
             annotations: binding.annotations,
           })
-        None => ()
+        None =>
+          if is_open_module &&
+            module_binding_is_referenced_by_sibling(binding.name, bindings) {
+            let value = deferred_error_value(
+              "Property `\{strip_member_visibility_prefix(binding.name)}` has no value.",
+            )
+            cache.push({ name: binding.name, value })
+            members.push({
+              name: binding.name,
+              value,
+              source: Some(binding.value),
+              annotations: binding.annotations,
+            })
+          }
       }
       continue
     }
     if binding.exported {
+      let binding_diagnostics = if defer_module_errors {
+        []
+      } else {
+        diagnostics
+      }
       let resolved_value = match
         eval_pkl_test_catch_binding_value(
           binding.value,
@@ -1555,7 +1909,7 @@ fn eval_program(
             cache,
             [],
             declarations,
-            diagnostics,
+            binding_diagnostics,
             resolve_import,
           )
       }
@@ -1579,14 +1933,14 @@ fn eval_program(
             class_env,
             cache,
             declarations,
-            diagnostics,
+            binding_diagnostics,
             resolve_import,
           )
           let no_deferred_error = match binding.type_name {
             Some(_) =>
               match first_deferred_error_message(value) {
                 Some(message) => {
-                  diagnostics.push(diag(message))
+                  binding_diagnostics.push(diag(message))
                   false
                 }
                 None => true
@@ -1598,25 +1952,25 @@ fn eval_program(
               binding.type_name,
               value,
               type_aliases,
-              diagnostics,
+              binding_diagnostics,
             ) &&
             eval_user_defined_constrained_type_annotation_value_is_valid(
               binding.type_name,
               value,
               declarations,
-              diagnostics,
+              binding_diagnostics,
             ) &&
             eval_expr_class_property_constraints_are_valid(
               binding.value,
               value,
               declarations,
-              diagnostics,
+              binding_diagnostics,
             ) &&
             eval_expr_alias_constraints_are_valid(
               binding.value,
               value,
               type_aliases,
-              diagnostics,
+              binding_diagnostics,
             ) {
             members.push({
               name: binding.name,
@@ -1627,6 +1981,14 @@ fn eval_program(
           }
         }
         None => ()
+      }
+      if defer_module_errors && binding_diagnostics.length() > 0 {
+        members.push({
+          name: binding.name,
+          value: deferred_error_value(binding_diagnostics[0].message),
+          source: Some(binding.value),
+          annotations: binding.annotations,
+        })
       }
     }
   }
@@ -1788,6 +2150,12 @@ fn eval_program(
     None => ()
   }
   members.push({
+    name: hidden_member_name(module_metadata_defer_errors_name()),
+    value: BoolValue(defer_module_errors),
+    source: None,
+    annotations: [],
+  })
+  members.push({
     name: hidden_member_name("__class"),
     value: StringValue("Module"),
     source: None,
@@ -1818,10 +2186,10 @@ fn eval_program(
     None if program.module_relation is Some(_) =>
       Some(
         ObjectValue(
-          merge_value_members(
+          merge_module_members_preserving_override_sources(
             late_bind_module_parent_members(
               module_parent_members, module_parent_bindings, bindings, env, class_env,
-              cache, declarations, diagnostics, resolve_import,
+              cache, declarations, diagnostics, resolve_import, defer_module_errors,
             ),
             members,
           ),

@@ -17,7 +17,7 @@ pub async fn fetch_uri(url : String) -> String? {
   while remaining > 0 {
     try {
       let (resp, body) = @http.get(current)
-      if resp.code >= 300 && resp.code < 400 {
+      if is_http_redirect(resp.code) {
         match resp.headers.get("location") {
           Some(next) => {
             current = next
@@ -63,7 +63,7 @@ pub async fn fetch_uri_bytes(url : String) -> Bytes? {
   while remaining > 0 {
     try {
       let (resp, body) = @http.get(current)
-      if resp.code >= 300 && resp.code < 400 {
+      if is_http_redirect(resp.code) {
         match resp.headers.get("location") {
           Some(next) => {
             current = next

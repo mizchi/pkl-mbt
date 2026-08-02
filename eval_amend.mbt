@@ -713,6 +713,34 @@ fn replace_mapping_amend_state_from_value(
 }
 
 ///|
+/// A collection `default { ... }` amends an inherited default function;
+/// it does not replace that function with the body object. Keeping the
+/// function also keeps its key parameter and lets the amendment capture the
+/// leaf module environment during deferred module re-evaluation.
+fn eval_amended_collection_default_expr(
+  expr : Expr,
+  current_default : Value?,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  match (expr, current_default) {
+    (ObjectLiteral(members), Some(FunctionValue(_, _, _, _, _) as base)) =>
+      Some(build_function_amend_value(base, members, env, cache))
+    _ =>
+      eval_collection_default_expr(
+        expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      )
+  }
+}
+
+///|
 fn dynamic_mapping_entries_from_members(
   members : Array[ValueMember],
 ) -> Array[ValueEntry]? {
@@ -1048,8 +1076,9 @@ fn eval_listing_subscript_amend(
     let bare_field_name = strip_member_visibility_prefix(field.name)
     if bare_field_name == "default" {
       match
-        eval_collection_default_expr(
+        eval_amended_collection_default_expr(
           field.value,
+          current_default,
           bindings,
           eval_env,
           class_env,
@@ -1580,8 +1609,9 @@ fn eval_mapping_amend(
     let bare_field_name = strip_member_visibility_prefix(field.name)
     if bare_field_name == "default" {
       match
-        eval_collection_default_expr(
+        eval_amended_collection_default_expr(
           field.value,
+          current_default,
           bindings,
           eval_env,
           class_env,
@@ -1865,16 +1895,18 @@ fn eval_mapping_amend(
     match field.value {
       CallExpr(Identifier("@__index_entry"), args) =>
         if args.length() == 2 {
-          let key_value = eval_expr_with_bindings(
-            args[0],
-            bindings,
-            eval_env,
-            class_env,
-            eval_cache,
-            stack,
-            declarations,
-            diagnostics,
-            resolve_import,
+          let key_value = concrete_collection_key(
+            eval_expr_with_bindings(
+              args[0],
+              bindings,
+              eval_env,
+              class_env,
+              eval_cache,
+              stack,
+              declarations,
+              diagnostics,
+              resolve_import,
+            ),
           )
           let val_expr = args[1]
           match key_value {

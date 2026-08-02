@@ -369,12 +369,12 @@ fn build_listing_body(items : Array[ListingBodyItem]) -> Expr {
 /// selected branch's elements into the parent listing.
 fn Parser::parse_listing_when(self : Parser) -> Expr {
   ignore(self.expect(when_kw(), "when"))
-  self.skip_whitespace()
+  self.skip_trivia()
   ignore(self.expect(lparen(), "("))
   let condition = self.parse_expr()
-  self.skip_whitespace()
+  self.skip_trivia()
   ignore(self.expect(rparen(), ")"))
-  self.skip_whitespace()
+  self.skip_trivia()
   let then_branch = self.parse_listing_body()
   self.consume_separators()
   let else_branch : Expr = if self.at(else_kw()) {
@@ -525,12 +525,12 @@ fn Parser::parse_mapping_body(self : Parser) -> Expr {
 /// then_mapping, else_mapping))`.
 fn Parser::parse_mapping_when(self : Parser) -> Expr {
   ignore(self.expect(when_kw(), "when"))
-  self.skip_whitespace()
+  self.skip_trivia()
   ignore(self.expect(lparen(), "("))
   let condition = self.parse_expr()
-  self.skip_whitespace()
+  self.skip_trivia()
   ignore(self.expect(rparen(), ")"))
-  self.skip_whitespace()
+  self.skip_trivia()
   let then_branch = self.parse_mapping_body()
   self.consume_separators()
   let else_branch : Expr = if self.at(else_kw()) {
@@ -1233,12 +1233,12 @@ fn strip_member_visibility_prefix(name : String) -> String {
 fn Parser::parse_when_member(self : Parser) -> ObjectMember? {
   self.builder.start_node(object_member())
   ignore(self.expect(when_kw(), "when"))
-  self.skip_whitespace()
+  self.skip_trivia()
   ignore(self.expect(lparen(), "("))
   let condition = self.parse_expr()
-  self.skip_whitespace()
+  self.skip_trivia()
   ignore(self.expect(rparen(), ")"))
-  self.skip_whitespace()
+  self.skip_trivia()
   let then_members = self.parse_object_body_members()
   self.consume_separators()
   let else_members : Array[ObjectMember] = if self.at(else_kw()) {

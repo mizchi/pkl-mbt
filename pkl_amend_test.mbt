@@ -1,4 +1,46 @@
 ///|
+test "nullable typed properties use their inner type as an amend base" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "base.pkl",
+    (
+      #|open module Base
+      #|class Metadata {
+      #|  label: String
+      #|  flags: Mapping<String, String>? = null
+      #|}
+      #|metadata: Metadata? = null
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|amends "base.pkl"
+      #|metadata {
+      #|  label = "example"
+      #|  flags { ["mode"] = "test" }
+      #|}
+    ),
+  )
+  let value = match session.eval_path("main.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
+  }
+  inspect(
+    @pkl.render_value(value),
+    content=(
+      #|metadata {
+      #|  label = "example"
+      #|  flags {
+      #|    ["mode"] = "test"
+      #|  }
+      #|}
+    ),
+  )
+}
+
+///|
 test "Properties renderer escapes special characters in scalar values" {
   let value : Value = ObjectValue([
     ValueMember::{
@@ -2090,6 +2132,428 @@ test "PKL-159: cross-module inherited collection default late-binds and finalize
   // cfg.entries late-binds to the overridden key and finalizes as a Mapping.
   assert_true(json.contains("\"web\": \"on\""))
   assert_false(json.contains("@element$"))
+}
+
+///|
+test "inherited Dynamic and Mapping properties keep their declared body shape" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "base.pkl",
+    (
+      #|module base
+      #|Metadata: Dynamic?
+      #|Parameters: Mapping<String, Dynamic>?
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|amends "base.pkl"
+      #|Metadata { ["Foo"] = "bar" }
+      #|Parameters {
+      #|  ["Name"] { Type = "String"; Default = "baz" }
+      #|}
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(
+    render_value_as_json(value),
+    content=(
+      #|{
+      #|  "Metadata": {
+      #|    "Foo": "bar"
+      #|  },
+      #|  "Parameters": {
+      #|    "Name": {
+      #|      "Type": "String",
+      #|      "Default": "baz"
+      #|    }
+      #|  }
+      #|}
+    ),
+  )
+}
+
+///|
+test "an Any-typed inherited class property keeps an inferred Mapping body" {
+  let source =
+    #|open class Resource {
+    #|  Properties: Any?
+    #|}
+    #|class Bucket extends Resource {
+    #|  Properties { ["BucketName"] = "demo" }
+    #|}
+    #|result = new Bucket {}
+  guard eval_source(source) is EvalOk(value) else { panic() }
+  inspect(
+    render_value_as_json(value),
+    content=(
+      #|{
+      #|  "result": {
+      #|    "Properties": {
+      #|      "BucketName": "demo"
+      #|    }
+      #|  }
+      #|}
+    ),
+  )
+}
+
+///|
+test "constructing an imported module omits its output configuration" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "base.pkl",
+    (
+      #|open module base
+      #|name = "demo"
+      #|output { renderer = new YamlRenderer {} }
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "base.pkl" as Base
+      #|result = new Base {}
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(
+    render_value_as_json(value),
+    content=(
+      #|{
+      #|  "result": {
+      #|    "name": "demo"
+      #|  }
+      #|}
+    ),
+  )
+}
+
+///|
+test "module mapping preserves an imported class entry's overridden property" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "DockerImage.pkl",
+    (
+      #|open module DockerImage
+      #|image: String
+      #|imageName = image.split(":")[0]
+    ),
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "DockerImage.pkl"
+      #|hidden app = "demo"
+      #|hidden images: Mapping = new Mapping {
+      #|  [module.app] = new DockerImage { image = "repo:v1" }
+      #|}
+      #|result = module.images[module.app].image
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(@pkl.render_value(value), content="result = \"repo:v1\"")
+}
+
+///|
+test "a grandparent hidden property remains visible inside a module amend body" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "base.pkl", "open module Base\nitems: Mapping = new Mapping {}",
+  )
+  session.set_source(
+    "vars.pkl", "open module Vars\nextends \"base.pkl\"\nhidden enabled: Boolean = false",
+  )
+  session.set_source("defaults.pkl", "amends \"vars.pkl\"")
+  session.set_source(
+    "main.pkl",
+    (
+      #|amends "defaults.pkl"
+      #|items {
+      #|  when (enabled) { ["enabled"] = true }
+      #|}
+      #|result = enabled
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(
+    @pkl.render_value(value),
+    content=(
+      #|items {}
+      #|result = false
+    ),
+  )
+}
+
+///|
+test "an inherited property stays lazy until a leaf supplies its dependency" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "base.pkl",
+    (
+      #|open module Base
+      #|hidden prefix: String = missingPrefix
+      #|label = prefix + "!"
+    ),
+  )
+  session.set_source("defaults.pkl", "amends \"base.pkl\"")
+  session.set_source(
+    "main.pkl",
+    (
+      #|amends "defaults.pkl"
+      #|prefix = "ready"
+      #|result = label
+    ),
+  )
+  let value = match session.eval_path("main.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
+  }
+  inspect(
+    @pkl.render_value(value),
+    content=(
+      #|label = "ready!"
+      #|result = "ready!"
+    ),
+  )
+}
+
+///|
+test "a grandparent local remains available during leaf re-evaluation" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "base.pkl",
+    (
+      #|open module Base
+      #|hidden seed: String = missingSeed
+      #|local _env = seed
+      #|hidden env = _env
+      #|result = env
+    ),
+  )
+  session.set_source("defaults.pkl", "amends \"base.pkl\"")
+  session.set_source("middle.pkl", "amends \"defaults.pkl\"")
+  session.set_source(
+    "leaf.pkl",
+    (
+      #|amends "middle.pkl"
+      #|seed = "prod"
+    ),
+  )
+  let value = match session.eval_path("leaf.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
+  }
+  inspect(@pkl.render_value(value), content="result = \"prod\"")
+}
+
+///|
+test "a deferred Mapping amend re-evaluates its module-key at the leaf" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "base.pkl",
+    (
+      #|open module Base
+      #|items: Mapping<String, Dynamic> = new Mapping {
+      #|  default = (name) -> new Dynamic { name = name }
+      #|}
+      #|hidden key: String = missingKey
+      #|hidden option: Boolean = false
+      #|result = items.length
+    ),
+  )
+  session.set_source("defaults.pkl", "amends \"base.pkl\"")
+  session.set_source(
+    "root.pkl",
+    (
+      #|amends "defaults.pkl"
+      #|items { [module.key] {} }
+    ),
+  )
+  session.set_source(
+    "leaf.pkl",
+    (
+      #|amends "app.pkl"
+      #|key = "leaf"
+    ),
+  )
+  session.set_source(
+    "team.pkl",
+    (
+      #|amends "root.pkl"
+      #|option = true
+    ),
+  )
+  session.set_source("app.pkl", "amends \"team.pkl\"")
+  let value = match session.eval_path("leaf.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
+  }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered,
+    content=(
+      #|items {
+      #|  ["leaf"] {
+      #|    name = "leaf"
+      #|  }
+      #|}
+      #|result = 1
+    ),
+  )
+}
+
+///|
+test "a deferred Mapping preserves an amended default and when entry" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "base.pkl",
+    (
+      #|open module Base
+      #|items: Mapping<String, Dynamic> = new Mapping {
+      #|  default = (keyName) -> new Dynamic {
+      #|    name = keyName
+      #|    source = "base"
+      #|  }
+      #|}
+      #|hidden seed: String = "root"
+      #|hidden enabled: Boolean = false
+      #|hidden key: String = seed
+      #|result = items.toMap()
+      #|count = items.length
+    ),
+  )
+  session.set_source(
+    "defaults.pkl",
+    (
+      #|amends "base.pkl"
+      #|items {
+      #|  default {
+      #|    source = "defaults"
+      #|    selected = module.seed
+      #|  }
+      #|}
+    ),
+  )
+  session.set_source(
+    "root.pkl",
+    (
+      #|amends "defaults.pkl"
+      #|items {
+      #|  when (module.enabled) {
+      #|    [module.key] {}
+      #|  }
+      #|}
+    ),
+  )
+  session.set_source(
+    "leaf.pkl",
+    (
+      #|amends "root.pkl"
+      #|seed = "leaf"
+      #|enabled = true
+    ),
+  )
+  let value = match session.eval_path("leaf.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
+  }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered,
+    content=(
+      #|items {
+      #|  ["leaf"] {
+      #|    name = "leaf"
+      #|    source = "defaults"
+      #|    selected = "leaf"
+      #|  }
+      #|}
+      #|result = Map("leaf", new {
+      #|  name = "leaf"
+      #|  source = "defaults"
+      #|  selected = "leaf"
+      #|})
+      #|count = 1
+    ),
+  )
+}
+
+///|
+test "Listing amendments accumulate across an empty module chain" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "Entry.pkl",
+    (
+      #|open module Entry
+      #|name: String(isValid)
+      #|path: String
+      #|enabled: Boolean = true
+      #|local isValid = (value: String) -> value.length > 0
+    ),
+  )
+  session.set_source(
+    "base.pkl",
+    (
+      #|open module Base
+      #|import "Entry.pkl"
+      #|hidden env: String = missingEnv
+      #|hidden entries: Listing<Entry> = new Listing<Entry> {}
+      #|count = entries.length
+      #|names = entries.map((it) -> it.name).toList()
+    ),
+  )
+  session.set_source(
+    "root.pkl",
+    (
+      #|amends "base.pkl"
+      #|entries {}
+    ),
+  )
+  session.set_source(
+    "app.pkl",
+    (
+      #|amends "root.pkl"
+      #|entries {
+      #|  new { name = "one-" + module.env; path = "1" }
+      #|  new { name = "two-" + module.env; path = "2" }
+      #|  new { name = "three"; path = "3" }
+      #|}
+    ),
+  )
+  session.set_source(
+    "leaf.pkl",
+    (
+      #|amends "app.pkl"
+      #|env = "prod"
+      #|entries { new { name = "four"; path = "4" } }
+    ),
+  )
+  session.set_source(
+    "consumer.pkl",
+    (
+      #|import "leaf.pkl" as Leaf
+      #|count = Leaf.entries.length
+      #|names = Leaf.entries.map((it) -> it.name).toList()
+    ),
+  )
+  let value = match session.eval_path("consumer.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got error: \{diagnostics[0].message}")
+  }
+  inspect(
+    @pkl.render_value(value),
+    content=(
+      #|count = 4
+      #|names = List("one-prod", "two-prod", "three", "four")
+    ),
+  )
 }
 
 ///|

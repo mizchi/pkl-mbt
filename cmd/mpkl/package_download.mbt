@@ -19,6 +19,11 @@ struct ZipEntry {
 }
 
 ///|
+fn is_http_redirect(code : Int) -> Bool {
+  code == 301 || code == 302 || code == 303 || code == 307 || code == 308
+}
+
+///|
 fn package_download_error(message : String) -> Unit raise PackageDownloadError {
   raise PackageDownloadError::PackageDownloadError(message)
 }
@@ -207,6 +212,12 @@ fn read_zip_entries(data : Bytes) -> Array[ZipEntry] raise {
 
 ///|
 fn zip_entry_path_is_safe(path : String) -> Bool {
+  // Packages produced by the official Pkl tooling commonly contain a
+  // directory marker named exactly `/`. It maps to the extraction root and
+  // carries no payload, so accepting it does not permit an absolute file.
+  if path == "/" {
+    return true
+  }
   if path == "" || path.has_prefix("/") || path.find("\\") is Some(_) {
     return false
   }

@@ -25,6 +25,123 @@ test "PKL-pkspec-C: newline before closing paren parses" {
 }
 
 ///|
+// Real-world parser corpus: pkl-pantry and Apple stdlib format long let
+// bindings with the first binding on the line after `let (`.
+test "real-world: multiline let binding parses" {
+  let parsed = parse_source(
+    (
+      #|value =
+      #|  let (
+      #|    x = 1
+      #|  )
+      #|    x
+    ),
+  )
+  inspect(parsed.diagnostics.length(), content="0")
+}
+
+///|
+// Real-world parser corpus: formatted conditions put the closing paren on
+// its own line after the final operand.
+test "real-world: if condition accepts newline before closing paren" {
+  let parsed = parse_source(
+    (
+      #|value =
+      #|  if (
+      #|    true
+      #|  )
+      #|    1
+      #|  else
+      #|    0
+    ),
+  )
+  inspect(parsed.diagnostics.length(), content="0")
+}
+
+///|
+// Real-world parser corpus: pkl.experimental.structuredRead wraps a cast
+// and lets `as` lead the continuation line.
+test "real-world: cast operator continues across newline" {
+  let parsed = parse_source(
+    (
+      #|value =
+      #|  (
+      #|    1
+      #|      as Int
+      #|  )
+    ),
+  )
+  inspect(parsed.diagnostics.length(), content="0")
+}
+
+///|
+// Real-world parser corpus: long imported class names are wrapped between
+// the module alias and the class segment.
+test "real-world: new qualified type continues across newline" {
+  let parsed = parse_source(
+    (
+      #|value = new shared_resources_for_deploy_pipelines
+      #|  .TerraformApplyStep {}
+    ),
+  )
+  inspect(parsed.diagnostics.length(), content="0")
+}
+
+///|
+test "real-world: when condition accepts newline before closing paren" {
+  let parsed = parse_source(
+    (
+      #|value = new {
+      #|  when (
+      #|    true
+      #|  ) {
+      #|    enabled = true
+      #|  }
+      #|}
+    ),
+  )
+  inspect(parsed.diagnostics.length(), content="0")
+}
+
+///|
+test "real-world: null coalesce continues across newline" {
+  assert_true(
+    eval_source("null\n  ?? \"fallback\"") == EvalOk(StringValue("fallback")),
+  )
+}
+
+///|
+test "real-world: is type operand stops before inline else" {
+  let parsed = parse_source("value = if (true) 1 is Int else false")
+  inspect(parsed.diagnostics.length(), content="0")
+}
+
+///|
+test "real-world: dollar-prefixed identifiers parse" {
+  let parsed = parse_source(
+    (
+      #|class Schema {
+      #|  $ref: String? = "one"
+      #|  hidden $$refUri: String? = "two"
+      #|}
+      #|schema = new Schema {}
+      #|first = schema.$ref
+      #|second = schema.$$refUri
+    ),
+  )
+  inspect(parsed.diagnostics.length(), content="0")
+  inspect(parsed.unsupported_syntax.length(), content="0")
+  guard parsed.program.bindings[1].value is MemberAccess(_, property_name) else {
+    fail("expected dollar-prefixed property to parse as member access")
+  }
+  inspect(property_name, content="$ref")
+  guard parsed.program.bindings[2].value is MemberAccess(_, hidden_name) else {
+    fail("expected double-dollar property to parse as member access")
+  }
+  inspect(hidden_name, content="$$refUri")
+}
+
+///|
 test "evaluate let binding" {
   assert_true(eval_source("let x = 41\nx + 1") == EvalOk(IntValue(42)))
 }

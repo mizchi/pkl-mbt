@@ -174,14 +174,27 @@ fn render_yaml_root(
     None => ()
   }
   match value {
-    ObjectValue(members) => {
-      let visible = visible_members(members)
-      if visible.length() == 0 {
-        buf.write_string(" {}\n")
-      } else {
-        render_yaml_mapping_members(visible, 0, indent_width, buf)
+    ObjectValue(members) =>
+      match dynamic_listing_elements_from_members(members) {
+        Some(elements) => render_yaml_sequence(elements, 0, indent_width, buf)
+        None =>
+          match dynamic_mapping_entries_from_members(members) {
+            Some(entries) =>
+              if entries.length() == 0 {
+                buf.write_string(" {}\n")
+              } else {
+                render_yaml_mapping_entries(entries, 0, indent_width, buf)
+              }
+            None => {
+              let visible = visible_members(members)
+              if visible.length() == 0 {
+                buf.write_string(" {}\n")
+              } else {
+                render_yaml_mapping_members(visible, 0, indent_width, buf)
+              }
+            }
+          }
       }
-    }
     MappingValue(entries)
     | DefaultedMappingValue(_, entries, _)
     | MapValue(entries) =>
@@ -289,20 +302,42 @@ fn render_yaml_block_value(
     None => ()
   }
   match value {
-    ObjectValue(members) => {
-      let visible = visible_members(members)
-      if visible.length() == 0 {
-        buf.write_string(" {}\n")
-      } else {
-        buf.write_char('\n')
-        render_yaml_mapping_members(
-          visible,
-          indent + indent_width,
-          indent_width,
-          buf,
-        )
+    ObjectValue(members) =>
+      match dynamic_listing_elements_from_members(members) {
+        Some(elements) => {
+          buf.write_char('\n')
+          render_yaml_sequence(elements, indent, indent_width, buf)
+        }
+        None =>
+          match dynamic_mapping_entries_from_members(members) {
+            Some(entries) =>
+              if entries.length() == 0 {
+                buf.write_string(" {}\n")
+              } else {
+                buf.write_char('\n')
+                render_yaml_mapping_entries(
+                  entries,
+                  indent + indent_width,
+                  indent_width,
+                  buf,
+                )
+              }
+            None => {
+              let visible = visible_members(members)
+              if visible.length() == 0 {
+                buf.write_string(" {}\n")
+              } else {
+                buf.write_char('\n')
+                render_yaml_mapping_members(
+                  visible,
+                  indent + indent_width,
+                  indent_width,
+                  buf,
+                )
+              }
+            }
+          }
       }
-    }
     MappingValue(entries) | DefaultedMappingValue(_, entries, _) =>
       if entries.length() == 0 {
         buf.write_string(" {}\n")

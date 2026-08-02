@@ -117,6 +117,136 @@ test "zip reader inflates deflated entries" {
 }
 
 ///|
+test "package zip accepts a root directory marker but rejects absolute files" {
+  inspect(zip_entry_path_is_safe("/"), content="true")
+  inspect(zip_entry_path_is_safe("/evil.pkl"), content="false")
+}
+
+///|
+test "package fetch follows only HTTP redirect status codes" {
+  inspect(is_http_redirect(200), content="false")
+  inspect(is_http_redirect(301), content="true")
+  inspect(is_http_redirect(302), content="true")
+  inspect(is_http_redirect(303), content="true")
+  inspect(is_http_redirect(307), content="true")
+  inspect(is_http_redirect(308), content="true")
+  inspect(is_http_redirect(304), content="false")
+}
+
+///|
+test "YAML CLI defaults to omitting null properties and honors override" {
+  let (_, _, default_omit_null) = extract_yaml_renderer_options(
+    @pkl.ObjectValue([]),
+  )
+  inspect(default_omit_null, content="true")
+  let (_, _, explicit_omit_null) = extract_yaml_renderer_options(
+    @pkl.ObjectValue([
+      {
+        name: "output",
+        value: @pkl.ObjectValue([
+          {
+            name: "renderer",
+            value: @pkl.ObjectValue([
+              {
+                name: "omitNullProperties",
+                value: @pkl.BoolValue(false),
+                source: None,
+                annotations: [],
+              },
+            ]),
+            source: None,
+            annotations: [],
+          },
+        ]),
+        source: None,
+        annotations: [],
+      },
+    ]),
+  )
+  inspect(explicit_omit_null, content="false")
+}
+
+///|
+test "YAML null projection drops object and Dynamic entry nulls" {
+  let dynamic_entries = @pkl.ObjectValue([
+    {
+      name: "@subscript$0",
+      value: @pkl.ObjectValue([
+        {
+          name: "@key",
+          value: @pkl.StringValue("Drop"),
+          source: None,
+          annotations: [],
+        },
+        { name: "@value", value: @pkl.NullValue, source: None, annotations: [] },
+      ]),
+      source: None,
+      annotations: [],
+    },
+    {
+      name: "@subscript$1",
+      value: @pkl.ObjectValue([
+        {
+          name: "@key",
+          value: @pkl.StringValue("Foo"),
+          source: None,
+          annotations: [],
+        },
+        {
+          name: "@value",
+          value: @pkl.StringValue("bar"),
+          source: None,
+          annotations: [],
+        },
+      ]),
+      source: None,
+      annotations: [],
+    },
+  ])
+  let projected = strip_null_object_properties(
+    @pkl.ObjectValue([
+      { name: "Unused", value: @pkl.NullValue, source: None, annotations: [] },
+      {
+        name: "Metadata",
+        value: dynamic_entries,
+        source: None,
+        annotations: [],
+      },
+    ]),
+  )
+  inspect(
+    @pkl.render_value_as_yaml(projected),
+    content=(
+      #|Metadata:
+      #|  Foo: bar
+      #|
+    ),
+  )
+}
+
+///|
+test "bare triple-dot resolves the nearest ancestor module with the same name" {
+  let resolved = resolve_import_path(
+    "cmd/mpkl/testdata/ellipsis/team/app/acc/overrides.pkl", "...",
+  )
+  inspect(resolved, content="cmd/mpkl/testdata/ellipsis/team/app/overrides.pkl")
+}
+
+///|
+test "triple-dot path resolves from a package fragment ancestor" {
+  @pkl.configure_sandbox_package_caches(["cmd/mpkl/testdata/wasm/package-cache"])
+  let resolved = resolve_import_path(
+    "projectpackage://pkg.pkl-lang.org/github.com/mizchi/pkfire/pkfire@0.6.0#/tasks/build/Taskfile.pkl",
+    ".../lib.pkl",
+  )
+  inspect(
+    resolved,
+    content="projectpackage://pkg.pkl-lang.org/github.com/mizchi/pkfire/pkfire@0.6.0#/lib.pkl",
+  )
+  @pkl.configure_sandbox_package_caches([])
+}
+
+///|
 test "read glob scanner supports recursive globstar" {
   let resources = glob_resources_from(
     "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/basic/readGlob.pkl",

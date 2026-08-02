@@ -128,6 +128,8 @@ fn capture_value_bindings(
     if binding.name == "@__module_name" ||
       binding.name == "@__module_path" ||
       binding.name == "@__module_source" ||
+      binding.name == "@__module_is_amend" ||
+      binding.name == "@__open_module" ||
       binding.name == "@__class_default_scope" ||
       binding.name == "@__class_default_call_scope" {
       continue
@@ -262,11 +264,22 @@ fn binding_collection_host_constraint_rejection_message(
 }
 
 ///|
+fn mapping_literal_declares_default(entries : Array[MappingEntry]) -> Bool {
+  for entry in entries {
+    if collection_default_expr_from_mapping_entry(entry) is Some(_) {
+      return true
+    }
+  }
+  false
+}
+
+///|
 fn inherited_module_object_amend_expr(
   binding_name : String,
   expr : Expr,
   type_name : String?,
   cache : Array[ValueBinding],
+  class_env : Array[ClassBinding],
 ) -> Expr {
   // PKL-148bv: `output { ... }` and any module-level `name { body }`
   // whose parent slot was declared `hidden` (e.g. `hidden parser:
@@ -277,16 +290,72 @@ fn inherited_module_object_amend_expr(
   // promoting them to `AmendExpr` would re-route closure / module
   // references in `foo { m = module.a }` style amends through the
   // amend cache and drop them (basic/moduleRef2).
+  // A nullable typed slot uses null only as its absence marker. A body such
+  // as `package { ... }` over `package: Package? = null` must instantiate
+  // the nullable inner type, not amend the literal Null value. Returning the
+  // original expression lets the typed-literal promotion below do that.
   match (expr, type_name) {
+    (ListingLiteral(elements), _) =>
+      match module_super_members_from_cache(cache) {
+        Some(parent_members) =>
+          match lookup_value_member(parent_members, binding_name) {
+            Some(parent_member) =>
+              if parent_member.value is NullValue {
+                expr
+              } else {
+                AmendExpr(
+                  MemberAccess(Identifier("super"), binding_name),
+                  listing_literal_amend_members(elements),
+                )
+              }
+            None => expr
+          }
+        None => expr
+      }
+    (MappingLiteral(entries), _) if mapping_literal_declares_default(entries) =>
+      match module_super_members_from_cache(cache) {
+        Some(parent_members) =>
+          match lookup_value_member(parent_members, binding_name) {
+            Some(parent_member) =>
+              if parent_member.value is NullValue {
+                expr
+              } else {
+                AmendExpr(
+                  MemberAccess(Identifier("super"), binding_name),
+                  mapping_literal_amend_members(entries),
+                )
+              }
+            None => expr
+          }
+        None => expr
+      }
     (ObjectLiteral(members), Some(_)) =>
       match module_super_members_from_cache(cache) {
         Some(parent_members) =>
           match lookup_value_member(parent_members, binding_name) {
-            Some(_) =>
-              AmendExpr(
-                MemberAccess(Identifier("super"), binding_name),
-                members,
-              )
+            Some(parent_member) =>
+              if parent_member.value is NullValue {
+                expr
+              } else if parent_member.value is ObjectValue(parent_object) &&
+                instantiable_class_name_for_type_annotation(
+                  type_name.unwrap(),
+                  class_env,
+                )
+                is Some(expected_class) &&
+                find_object_class_tag(parent_object) is Some(_) &&
+                !object_class_tag_matches(parent_object, expected_class) {
+                // An explicit child annotation can replace a broad parent
+                // slot (`pkl:Command.options: Typed` -> user `Options`).
+                // In that case the new body constructs the child class;
+                // inheriting/amending the parent's Dynamic value would
+                // preserve the wrong runtime class tag.
+                expr
+              } else {
+                AmendExpr(
+                  MemberAccess(Identifier("super"), binding_name),
+                  members,
+                )
+              }
             None => expr
           }
         None => expr
@@ -367,7 +436,8 @@ fn resolve_binding_value(
     }
   }
   let binding_shadows_cache = match shadow_binding {
-    Some(binding) => binding.abstract_slot
+    Some(binding) =>
+      binding.abstract_slot && lookup_value(cache, "@__open_module") is None
     None => false
   }
   if !binding_shadows_cache {
@@ -488,26 +558,17 @@ fn resolve_binding_value(
           ),
           binding.type_name,
           cache,
+          class_env,
         )
         let rewritten_value : Expr = match
           (collection_rewritten_value, binding.type_name) {
           (ObjectLiteral(members), Some(class_name)) =>
-            match lookup_class_binding(class_env, class_name) {
-              Some(_) => TypedObjectLiteral(class_name, members)
+            match
+              instantiable_class_name_for_type_annotation(class_name, class_env) {
+              Some(instantiable_name) =>
+                TypedObjectLiteral(instantiable_name, members)
               None =>
-                if is_stdlib_class_name(class_name) {
-                  // PKL-153e: stdlib classes (YamlRenderer / PcfRenderer
-                  // / JsonRenderer / ...) aren't `class_env` bindings
-                  // but Apple Pkl still routes the typed annotation
-                  // through their class. Tag the literal so renderer
-                  // dispatch (`renderer_format_from_members`) and the
-                  // class-mirror surface see the right class identity
-                  // — without this, `hidden r: YamlRenderer = new { ...
-                  // }` leaves the value as a bare Dynamic and
-                  // `r.renderValue(...)` reports "Expected value of
-                  // type YamlRenderer".
-                  TypedObjectLiteral(class_name, members)
-                } else if class_name.contains(".") ||
+                if class_name.contains(".") ||
                   class_name.contains("<") ||
                   class_name.contains("(") ||
                   class_name.contains("?") {
@@ -817,6 +878,8 @@ fn renderer_format_for_class_name(class_name : String) -> String? {
     Some("textproto")
   } else if class_name == "jsonnet.Renderer" {
     Some("jsonnet")
+  } else if class_name == "pklbinary.Renderer" {
+    Some("pklbinary")
   } else {
     None
   }
@@ -824,9 +887,13 @@ fn renderer_format_for_class_name(class_name : String) -> String? {
 
 ///|
 fn renderer_format_from_members(members : Array[ValueMember]) -> String? {
-  match find_object_class_tag(members) {
-    Some(class_name) => renderer_format_for_class_name(class_name)
-    None => None
+  match lookup_member(members, "__rendererFormat") {
+    Some(StringValue(format)) => Some(format)
+    _ =>
+      match find_object_class_tag(members) {
+        Some(class_name) => renderer_format_for_class_name(class_name)
+        None => None
+      }
   }
 }
 
@@ -1050,6 +1117,87 @@ fn synth_class_mirror_for_qualified(
 }
 
 ///|
+/// Build the Class mirror returned by `someModule.getClass()`. Module
+/// classes use the module's declared name as their display name and retain
+/// their own URI; using the importing module's cache here would incorrectly
+/// attribute `pkl:base` and `pkl:pklbinary` to the caller.
+fn synth_module_class_mirror(name : String, uri : String) -> Value {
+  ObjectValue([
+    {
+      name: hidden_member_name("__kind"),
+      value: StringValue("Class"),
+      source: None,
+      annotations: [],
+    },
+    {
+      name: hidden_member_name("reflectee"),
+      // Keep the evaluator's module sentinel separate from the public
+      // display name. Reflect member lookup uses this marker to expand
+      // the current module's property/method metadata.
+      value: StringValue("module"),
+      source: None,
+      annotations: [],
+    },
+    {
+      name: "simpleName",
+      value: StringValue(name),
+      source: None,
+      annotations: [],
+    },
+    { name: "name", value: StringValue(name), source: None, annotations: [] },
+    {
+      name: hidden_member_name("__qualified_name"),
+      value: StringValue(name),
+      source: None,
+      annotations: [],
+    },
+    {
+      name: "moduleUri",
+      value: StringValue(uri),
+      source: None,
+      annotations: [],
+    },
+    { name: "modifiers", value: SetValue([]), source: None, annotations: [] },
+  ])
+}
+
+///|
+fn stdlib_module_class_display_name(uri : String) -> String? {
+  if uri == "pkl:base" {
+    Some("ModuleClass")
+  } else if uri.has_prefix("pkl:") {
+    Some("pkl." + uri[4:].to_owned())
+  } else {
+    None
+  }
+}
+
+///|
+/// Public aliases declared by `pkl:base`. These are values of runtime type
+/// `TypeAlias`, even when their constraints ultimately narrow `Int` or
+/// `String`.
+fn is_stdlib_type_alias_name(name : String) -> Bool {
+  match name {
+    "NonNull"
+    | "Int8"
+    | "Int16"
+    | "Int32"
+    | "UInt8"
+    | "UInt16"
+    | "UInt32"
+    | "UInt"
+    | "Comparable"
+    | "Char"
+    | "Charset"
+    | "Uri"
+    | "DurationUnit"
+    | "DataSizeUnit"
+    | "Mixin" => true
+    _ => false
+  }
+}
+
+///|
 /// PKL-148e: a stdlib type name (`Int` / `Float` / `String` / etc.)
 /// is usable as a class-as-value just like a user-declared `class Foo`.
 /// Apple Pkl exposes them through `pkl:base` so `Int == Int`,
@@ -1101,6 +1249,7 @@ fn is_stdlib_class_name(name : String) -> Bool {
     | "Function5"
     | "BaseValueRenderer"
     | "ValueRenderer"
+    | "BytesRenderer"
     | "PcfRenderer"
     | "JsonRenderer"
     | "YamlRenderer"

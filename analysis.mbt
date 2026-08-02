@@ -96,6 +96,17 @@ pub fn AnalysisSession::eval_path(
 }
 
 ///|
+/// Evaluate a module while retaining hidden runtime metadata such as class
+/// tags and reflection kinds. Renderers and CLI output projection need these
+/// markers; callers displaying ordinary Pkl values should use `eval_path`.
+pub fn AnalysisSession::eval_path_with_runtime_metadata(
+  self : AnalysisSession,
+  path : String,
+) -> EvalResult {
+  self.evals.fetch(self.db.runtime(), path)
+}
+
+///|
 pub fn AnalysisSession::reset_stats(self : AnalysisSession) -> Unit {
   self.counters.parse_count = 0
   self.counters.typecheck_count = 0
@@ -348,12 +359,9 @@ fn builtin_stdlib_source(uri : String) -> String? {
       // fixture only validates the public shape and simple predicates,
       // not the exact host build metadata.
       let source =
+        #|import "pkl:semver" as semver
         #|current = new {
-        #|  version = new {
-        #|    major = 0
-        #|    minor = 30
-        #|    patch = 0
-        #|  }
+        #|  version = semver.parse("0.30.0")
         #|  versionInfo = "Linux pkl-mbt"
         #|  commitId = "abcdef0"
         #|  sourceCode = new {
@@ -367,13 +375,21 @@ fn builtin_stdlib_source(uri : String) -> String? {
         #|      "pkl:analyze",
         #|      "pkl:base",
         #|      "pkl:Benchmark",
+        #|      "pkl:Command",
+        #|      "pkl:DocPackageInfo",
+        #|      "pkl:DocsiteInfo",
+        #|      "pkl:EvaluatorSettings",
         #|      "pkl:json",
+        #|      "pkl:jsonnet",
         #|      "pkl:math",
+        #|      "pkl:pklbinary",
         #|      "pkl:platform",
+        #|      "pkl:Project",
         #|      "pkl:protobuf",
         #|      "pkl:reflect",
         #|      "pkl:release",
         #|      "pkl:semver",
+        #|      "pkl:settings",
         #|      "pkl:shell",
         #|      "pkl:test",
         #|      "pkl:xml",
@@ -441,6 +457,199 @@ fn builtin_stdlib_source(uri : String) -> String? {
         #|    max = 1.ms
         #|    mean = 1.ms
         #|  }
+        #|}
+      Some(source)
+    }
+    "pkl:EvaluatorSettings" => {
+      // PKL-154 / #27: keep the evaluator-settings contract embedded so
+      // JS/Wasm consumers can load PklProject files without reaching into
+      // the vendored Apple Pkl checkout. These values are configuration
+      // data; applying them to the host evaluator remains the caller's job.
+      let source =
+        #|externalProperties: Mapping<String, String>? = null
+        #|env: Mapping<String, String>? = null
+        #|allowedModules: Listing<String>? = null
+        #|allowedResources: Listing<String>? = null
+        #|color: String? = null
+        #|noCache: Boolean? = null
+        #|modulePath: Listing<String>? = null
+        #|timeout: Duration? = null
+        #|moduleCacheDir: String? = null
+        #|rootDir: String? = null
+        #|http: Http? = null
+        #|externalModuleReaders: Mapping<String, ExternalReader>? = null
+        #|externalResourceReaders: Mapping<String, ExternalReader>? = null
+        #|traceMode: String? = null
+        #|
+        #|class Http {
+        #|  proxy: Proxy? = null
+        #|  rewrites: Mapping<String, String>? = null
+        #|  headers: Mapping? = null
+        #|}
+        #|
+        #|class Proxy {
+        #|  address: String? = null
+        #|  noProxy: Listing<String> = new Listing {}
+        #|}
+        #|
+        #|class ExternalReader {
+        #|  executable: String
+        #|  arguments: Listing<String>? = null
+        #|}
+      Some(source)
+    }
+    "pkl:Project" => {
+      // PKL-154 / #27: public PklProject data model. The standard module
+      // imports EvaluatorSettings through the regular module graph so an
+      // amended project keeps the same nested object semantics as Apple Pkl.
+      let source =
+        #|import "pkl:EvaluatorSettings" as EvaluatorSettingsModule
+        #|
+        #|package: Package? = null
+        #|tests: Listing<String> = new Listing {}
+        #|dependencies: Mapping<String, RemoteDependency> = new Mapping {}
+        #|evaluatorSettings: EvaluatorSettingsModule = (EvaluatorSettingsModule) {}
+        #|projectFileUri: String = "pkl:Project"
+        #|
+        #|class RemoteDependency {
+        #|  uri: String
+        #|  checksums: Checksums? = null
+        #|}
+        #|
+        #|class Checksums {
+        #|  sha256: String
+        #|}
+        #|
+        #|class Package {
+        #|  name: String
+        #|  baseUri: String
+        #|  version: String
+        #|  packageZipUrl: String
+        #|  description: String? = null
+        #|  authors: Listing<String> = new Listing {}
+        #|  website: String? = null
+        #|  documentation: String? = null
+        #|  sourceCode: String? = null
+        #|  sourceCodeUrlScheme: String? = null
+        #|  license: String? = null
+        #|  licenseText: String? = null
+        #|  issueTracker: String? = null
+        #|  apiTests: Listing<String> = new Listing {}
+        #|  exclude: Listing<String> = new Listing {
+        #|    "PklProject"
+        #|    "PklProject.deps.json"
+        #|    ".**"
+        #|  }
+        #|  uri: String = "\(baseUri)@\(version)"
+        #|}
+      Some(source)
+    }
+    "pkl:pklbinary" => {
+      // PKL-154 / #27: the public renderer surface is embedded here;
+      // MessagePack emission itself lives in eval_render_pklbinary.mbt.
+      let source =
+        #|class Renderer extends BytesRenderer {
+        #|  hidden __rendererFormat: String = "pklbinary"
+        #|  converters: Mapping = new Mapping {}
+        #|  convertPropertyTransformers: Mapping = new Mapping {}
+        #|}
+      Some(source)
+    }
+    "pkl:Command" => {
+      // PKL-154 / #27: command authoring contract. Parsing argv and
+      // injecting options are host responsibilities; this embedded module
+      // provides the module/class/annotation shapes command sources extend.
+      let source =
+        #|hidden command: CommandInfo = new {
+        #|  name = "Command"
+        #|}
+        #|hidden options: Typed = new Dynamic {}
+        #|hidden parent: Any? = null
+        #|hidden root: Any? = null
+        #|
+        #|class CommandInfo {
+        #|  name: String
+        #|  description: String? = null
+        #|  hide: Boolean = false
+        #|  noOp: Boolean = false
+        #|  subcommands: Listing = new Listing {}
+        #|}
+        #|
+        #|abstract class BaseFlag extends Annotation {
+        #|  shortName: String? = null
+        #|  hide: Boolean = false
+        #|}
+        #|
+        #|class Flag extends BaseFlag {
+        #|  metavar: String? = null
+        #|  convert: Any? = null
+        #|  multiple: Boolean? = null
+        #|  transformAll: Any? = null
+        #|  completionCandidates: Any = new Listing {}
+        #|}
+        #|
+        #|class BooleanFlag extends BaseFlag {}
+        #|class CountedFlag extends BaseFlag {}
+        #|
+        #|class Argument extends Annotation {
+        #|  convert: Any? = null
+        #|  multiple: Boolean? = null
+        #|  transformAll: Any? = null
+        #|  completionCandidates: Any = new Listing {}
+        #|}
+        #|
+        #|class Import {
+        #|  uri: String
+        #|  glob: Boolean = false
+        #|}
+      Some(source)
+    }
+    "pkl:DocPackageInfo" => {
+      // PKL-154 / #27: descriptor contract used by pkldoc. Reflection-
+      // derived overview metadata is nullable here; user-authored package
+      // fields and nested dependencies retain their standard shapes.
+      let source =
+        #|name: String
+        #|version: String
+        #|importUri: String
+        #|uri: String? = null
+        #|authors: Listing<String> = new Listing {}
+        #|sourceCode: String? = null
+        #|sourceCodeUrlScheme: String? = null
+        #|issueTracker: String
+        #|dependencies: Listing<PackageDependency> = new Listing {}
+        #|extraAttributes: Mapping<String, String> = new Mapping {}
+        #|overview: String? = null
+        #|overviewImports: Map = Map()
+        #|annotations: List = List()
+        #|
+        #|class PackageDependency {
+        #|  name: String
+        #|  version: String
+        #|  sourceCode: String
+        #|  sourceCodeUrlScheme: String? = null
+        #|  documentation: String? = null
+        #|}
+      Some(source)
+    }
+    "pkl:DocsiteInfo" => {
+      let source =
+        #|title: String? = null
+        #|overview: String? = null
+        #|overviewImports: Map = Map()
+      Some(source)
+    }
+    "pkl:settings" => {
+      let source =
+        #|import "pkl:EvaluatorSettings"
+        #|
+        #|editor: Editor = new Editor {
+        #|  urlScheme = "%{url}, line %{line}"
+        #|}
+        #|http: EvaluatorSettings.Http? = null
+        #|
+        #|class Editor {
+        #|  urlScheme: String
         #|}
       Some(source)
     }
@@ -770,8 +979,8 @@ fn eval_module_path(
     return EvalOk(ObjectValue([]))
   }
   match get_module_source(sources, rt, path) {
-    Some(source) =>
-      eval_source_with_import_details_named_at(
+    Some(source) => {
+      let evaluated = eval_source_with_import_details_named_at(
         source,
         derive_module_name_from_path(path),
         Some(path),
@@ -885,7 +1094,13 @@ fn eval_module_path(
                   keep_going = false
                 } else {
                   visited.push(current_path)
-                  chain.push(current_parsed.program.bindings)
+                  // Include function declarations as synthetic bindings as
+                  // well as properties. A grandparent `output.value` body
+                  // can call a local helper after several amend/extend
+                  // layers; re-evaluating that body at the leaf needs the
+                  // original function binding even when the hidden runtime
+                  // member was not retained by an intermediate module.
+                  chain.push(all_eval_bindings(current_parsed.program))
                   match current_parsed.program.module_relation {
                     Some(relation) => {
                       let parent_resolved = resolve_import_path(
@@ -920,6 +1135,8 @@ fn eval_module_path(
           }
         },
       )
+      evaluated
+    }
     None => EvalError([diag("Cannot find module `\{path}`.")])
   }
 }

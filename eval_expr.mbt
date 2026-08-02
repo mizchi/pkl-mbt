@@ -21,6 +21,23 @@ fn collection_default_expr_from_mapping_entry(entry : MappingEntry) -> Expr? {
 }
 
 ///|
+/// Open modules may evaluate a computed Mapping key before a leaf supplies
+/// all referenced properties. Such failures are represented as deferred
+/// values so the module itself remains loadable; they must not become real
+/// object-shaped keys. The original key expression remains on the member
+/// source and is evaluated again when the concrete leaf is rebound.
+fn concrete_collection_key(value : Value?) -> Value? {
+  match value {
+    Some(key) =>
+      match deferred_error_message(key) {
+        Some(_) => None
+        None => Some(key)
+      }
+    None => None
+  }
+}
+
+///|
 fn collection_default_parameters(
   members : Array[ObjectMember],
 ) -> Array[FunctionParameter]? {
@@ -289,10 +306,25 @@ fn push_module_snapshot_member(
   bindings : Array[Binding],
   const_context : Bool,
 ) -> Unit {
-  if name == "super" || name == "this" || name.has_prefix("@") {
+  if name == "super" ||
+    name == "this" ||
+    name == "outer" ||
+    name.has_prefix("@") ||
+    is_module_runtime_metadata_name(name) {
     return
   }
-  members.push({ name, value, source: None, annotations: [] })
+  let bare = strip_member_visibility_prefix(name)
+  let mut replaced = false
+  for i = 0; i < members.length(); i = i + 1 {
+    if strip_member_visibility_prefix(members[i].name) == bare {
+      members[i] = { name, value, source: None, annotations: [] }
+      replaced = true
+      break
+    }
+  }
+  if !replaced {
+    members.push({ name, value, source: None, annotations: [] })
+  }
   match module_snapshot_member_error(name, bindings, const_context) {
     Some(message) =>
       members.push({
@@ -302,6 +334,44 @@ fn push_module_snapshot_member(
         annotations: [],
       })
     None => ()
+  }
+}
+
+///|
+fn module_snapshot_member_name(
+  name : String,
+  bindings : Array[Binding],
+  cache : Array[ValueBinding],
+) -> String {
+  if is_invisible_member_name(name) {
+    return name
+  }
+  let inherited_hidden_name = hidden_member_name(name)
+  for binding in bindings {
+    // `hidden` is inherited by an amend that spells the bare property
+    // name. Prefer the ancestor's storage visibility over the leaf's
+    // syntactically bare override so `module.toMap()` cannot leak hidden
+    // configuration such as credentials, feature flags, or helper maps.
+    if binding.name == inherited_hidden_name {
+      return inherited_hidden_name
+    }
+  }
+  match module_receiver_super_members_from_cache(cache) {
+    Some(parent_members) => {
+      if find_value_member_exact(parent_members, inherited_hidden_name)
+        is Some(_) {
+        return inherited_hidden_name
+      }
+      let local_name = local_member_name(name)
+      if find_value_member_exact(parent_members, local_name) is Some(_) {
+        return local_name
+      }
+    }
+    None => ()
+  }
+  match find_binding(bindings, name) {
+    Some(binding) if is_invisible_member_name(binding.name) => binding.name
+    _ => name
   }
 }
 
@@ -319,16 +389,6 @@ fn module_object_value_from_scope(
   // Reserve to avoid the growth churn observed in the GC profile —
   // this function ran once per class-default layer.
   module_members.reserve_capacity(cache.length() + env.length() + 2)
-  match lookup_value(cache, "@__module_imports") {
-    Some(map_value) =>
-      module_members.push({
-        name: "imports",
-        value: map_value,
-        source: None,
-        annotations: [],
-      })
-    None => ()
-  }
   match lookup_value(cache, "@__module_path") {
     Some(StringValue(path)) =>
       module_members.push({
@@ -339,24 +399,78 @@ fn module_object_value_from_scope(
       })
     _ => ()
   }
+  let supermodule = match module_receiver_super_members_from_cache(cache) {
+    Some(parent_members) =>
+      reflect_module_factory_value(ObjectValue(parent_members))
+    None => NullValue
+  }
+  let is_amend = match lookup_value(cache, "@__module_is_amend") {
+    Some(BoolValue(value)) => value
+    _ => false
+  }
+  let uri = match lookup_value(cache, "@__module_path") {
+    Some(StringValue(path)) => reflect_display_uri(Some(path))
+    _ => ""
+  }
+  module_members.push({
+    name: hidden_member_name(reflect_module_metadata_name()),
+    value: ObjectValue([
+      reflect_member(
+        "imports",
+        match lookup_value(cache, "@__module_imports") {
+          Some(value) => value
+          None => MapValue([])
+        },
+      ),
+      reflect_member("annotations", ListValue([])),
+      reflect_member("docComment", NullValue),
+      reflect_member("uri", StringValue(uri)),
+      reflect_member("supermodule", supermodule),
+      reflect_member("isAmend", BoolValue(is_amend)),
+      reflect_member("modifiers", SetValue([])),
+      reflect_member("moduleClass", synth_class_mirror_for_name("Module")),
+    ]),
+    source: None,
+    annotations: [],
+  })
+  match module_receiver_super_members_from_cache(cache) {
+    Some(parent_members) =>
+      for parent_member in parent_members {
+        if !is_module_runtime_metadata_name(parent_member.name) {
+          push_module_snapshot_member(
+            module_members,
+            parent_member.name,
+            parent_member.value,
+            bindings,
+            const_context,
+          )
+        }
+      }
+    None => ()
+  }
   for value_binding in cache {
     push_module_snapshot_member(
       module_members,
-      value_binding.name,
+      module_snapshot_member_name(value_binding.name, bindings, cache),
       value_binding.value,
       bindings,
       const_context,
     )
   }
   for value_binding in env {
-    if find_binding(bindings, value_binding.name) is Some(_) {
-      push_module_snapshot_member(
-        module_members,
-        value_binding.name,
-        value_binding.value,
-        bindings,
-        const_context,
-      )
+    match find_binding(bindings, value_binding.name) {
+      // Object-literal siblings belong to the implicit receiver, not the
+      // enclosing module. In particular, `module` inside `output.value`
+      // must not expose the preceding `output.renderer` property.
+      Some(binding) if !binding.sibling_slot =>
+        push_module_snapshot_member(
+          module_members,
+          module_snapshot_member_name(value_binding.name, bindings, cache),
+          value_binding.value,
+          bindings,
+          const_context,
+        )
+      _ => ()
     }
   }
   if stack.length() > 0 {
@@ -364,12 +478,16 @@ fn module_object_value_from_scope(
     match lookup_value(env, inflight_name) {
       Some(value) =>
         push_module_snapshot_member(
-          module_members, inflight_name, value, bindings, const_context,
+          module_members,
+          module_snapshot_member_name(inflight_name, bindings, cache),
+          value,
+          bindings,
+          const_context,
         )
       None => ()
     }
   }
-  ObjectValue(module_members)
+  ObjectValue(tag_object_with_class(module_members, "Module"))
 }
 
 ///|
@@ -493,6 +611,19 @@ fn render_output_text_for_renderer(
 }
 
 ///|
+fn render_output_text_for_format(value : Value, format : String) -> String {
+  match format {
+    "json" => render_value_as_json(value)
+    "yaml" => render_value_as_yaml(value)
+    "properties" => render_value_as_properties(value)
+    "plist" => render_value_as_plist(value)
+    "textproto" => render_value_as_textproto(value)
+    "xml" => render_value_as_xml(value)
+    _ => render_value(value)
+  }
+}
+
+///|
 fn synthesize_output_text_member(
   owner_members : Array[ValueMember],
   output_members : Array[ValueMember],
@@ -519,12 +650,17 @@ fn synthesize_output_text_member(
 }
 
 ///|
-fn output_super_text_suffix(expr : Expr) -> String? {
+fn output_super_text_affixes(expr : Expr) -> (String, String)? {
   match expr {
-    MemberAccess(Identifier("super"), "text") => Some("")
+    MemberAccess(Identifier("super"), "text") => Some(("", ""))
     BinaryExpr(Add, left, StringLiteral(right)) =>
-      match output_super_text_suffix(left) {
-        Some(prefix) => Some(prefix + right)
+      match output_super_text_affixes(left) {
+        Some((prefix, suffix)) => Some((prefix, suffix + right))
+        None => None
+      }
+    BinaryExpr(Add, StringLiteral(left), right) =>
+      match output_super_text_affixes(right) {
+        Some((prefix, suffix)) => Some((left + prefix, suffix))
         None => None
       }
     _ => None
@@ -632,6 +768,22 @@ fn strip_null_object_properties_for_output(value : Value) -> Value {
 
 ///|
 fn finalize_output_super_text(value : Value) -> Value {
+  finalize_output_super_text_with_format(value, None)
+}
+
+///|
+pub fn finalize_output_super_text_for_format(
+  value : Value,
+  format : String,
+) -> Value {
+  finalize_output_super_text_with_format(value, Some(format))
+}
+
+///|
+fn finalize_output_super_text_with_format(
+  value : Value,
+  forced_format : String?,
+) -> Value {
   match value {
     ObjectValue(members) => {
       let finalized : Array[ValueMember] = []
@@ -645,31 +797,38 @@ fn finalize_output_super_text(value : Value) -> Value {
                 if output_member.name == "text" {
                   match output_member.source {
                     Some(source) =>
-                      match output_super_text_suffix(source) {
-                        Some(suffix) => {
+                      match output_super_text_affixes(source) {
+                        Some((prefix, suffix)) => {
                           let projected_value = output_projection_value(
                             members, output_members,
                           )
-                          let projected = if output_renderer_omit_null_properties(
+                          let omit_null = output_renderer_omit_null_properties(
                               output_members,
-                            ) {
+                            ) ||
+                            forced_format == Some("yaml")
+                          let projected = if omit_null {
                             strip_null_object_properties_for_output(
                               projected_value,
                             )
                           } else {
                             projected_value
                           }
-                          let base_text = render_output_text_for_renderer(
-                            projected,
-                            lookup_member(output_members, "renderer"),
-                          )
+                          let base_text = match forced_format {
+                            Some(format) =>
+                              render_output_text_for_format(projected, format)
+                            None =>
+                              render_output_text_for_renderer(
+                                projected,
+                                lookup_member(output_members, "renderer"),
+                              )
+                          }
                           let normalized_base = if base_text.length() > 0 &&
                             !base_text.has_suffix("\n") {
                             base_text + "\n"
                           } else {
                             base_text
                           }
-                          let text = normalized_base + suffix
+                          let text = prefix + normalized_base + suffix
                           rewritten_output.push({
                             name: output_member.name,
                             value: StringValue(text),
@@ -815,9 +974,14 @@ fn collection_literal_expr_for_type_annotation(
     Some(t) => trim_spaces(t)
     None => return expr
   }
-  let base_type = match pkl_constrained_type_base_name(raw_type) {
+  let mut base_type = match pkl_constrained_type_base_name(raw_type) {
     Some(base) => base
     None => raw_type
+  }
+  while base_type.has_suffix("?") {
+    base_type = trim_spaces(
+      String::unsafe_substring(base_type, start=0, end=base_type.length() - 1),
+    )
   }
   if base_type == "Listing" ||
     base_type == "List" ||
@@ -2863,6 +3027,7 @@ fn cast_value_to_single_type_annotation(
   }
   if head == "BaseValueRenderer" ||
     head == "ValueRenderer" ||
+    head == "BytesRenderer" ||
     head == "RenderDirective" ||
     renderer_format_for_class_name(head) is Some(_) {
     if !eval_value_accepts_type_annotation(head, value) {
@@ -4218,16 +4383,18 @@ fn eval_expr_with_bindings(
               stack,
               collection_this_mapping_value(raw_values, values, default_value),
             )
-            let key = eval_expr_with_bindings(
-              entry.key,
-              collection_bindings,
-              body_env,
-              class_env,
-              body_cache,
-              stack,
-              declarations,
-              diagnostics,
-              resolve_import,
+            let key = concrete_collection_key(
+              eval_expr_with_bindings(
+                entry.key,
+                collection_bindings,
+                body_env,
+                class_env,
+                body_cache,
+                stack,
+                declarations,
+                diagnostics,
+                resolve_import,
+              ),
             )
             match key {
               Some(k) => {
@@ -5646,7 +5813,9 @@ fn eval_expr_with_bindings(
                 // / ...) also project to a Class mirror so equality and
                 // comparison fixtures (`Int == Int`, `Int == 3.getClass()`)
                 // round-trip without a user class declaration.
-                if is_stdlib_class_name(name) {
+                if is_stdlib_type_alias_name(name) {
+                  Some(synth_type_alias_mirror_for_qualified(name, None))
+                } else if is_stdlib_class_name(name) {
                   Some(synth_class_mirror_for_name(name))
                 } else {
                   // PKL-148bb: a user-declared `typealias Bar = Foo`
@@ -6427,8 +6596,17 @@ fn eval_expr_with_bindings(
               // — Int, Float, Bool, String, Duration, DataSize, List,
               // Map, Listing, Mapping, Dynamic, Pair, Null.
               match target_expr {
-                Identifier("module") =>
-                  Some(synth_class_mirror_for_name("module"))
+                Identifier("module") => {
+                  let name = match lookup_value(cache, "@__module_name") {
+                    Some(StringValue(value)) if value.length() > 0 => value
+                    _ => "module"
+                  }
+                  let uri = match lookup_value(cache, "@__module_path") {
+                    Some(StringValue(value)) => value
+                    _ => ""
+                  }
+                  Some(synth_module_class_mirror(name, uri))
+                }
                 _ =>
                   match
                     eval_expr_with_bindings(
@@ -6443,7 +6621,21 @@ fn eval_expr_with_bindings(
                     // mirror when the class is non-stdlib.
                     Some(ObjectValue(value_members)) if module_getclass_uses_module_mirror(
                         value_members,
-                      ) => Some(synth_class_mirror_for_name("Module"))
+                      ) => {
+                      let uri = match module_members_path(value_members) {
+                        Some(value) => value
+                        None => ""
+                      }
+                      let name = match stdlib_module_class_display_name(uri) {
+                        Some(value) => value
+                        None =>
+                          match module_members_name(value_members) {
+                            Some(value) => value
+                            None => "Module"
+                          }
+                      }
+                      Some(synth_module_class_mirror(name, uri))
+                    }
                     Some(value) => {
                       let bare = eval_value_type_name(value)
                       let module_name = match
@@ -6466,7 +6658,10 @@ fn eval_expr_with_bindings(
                   }
               }
             } else if target_expr is Identifier(class_name) &&
-              !(class_name == "module" && method_name == "relativePathTo") &&
+              class_name != "module" &&
+              lookup_value(env, class_name) is None &&
+              lookup_value(cache, class_name) is None &&
+              find_binding(bindings, class_name) is None &&
               lookup_class_binding(class_env, class_name) is Some(_) {
               // PKL-148d: `Person.bar()` where `Person` is a class name
               // and `bar` isn't a static-callable method. Apple Pkl
@@ -7488,23 +7683,48 @@ fn eval_expr_with_bindings(
                     Some(b) => b
                     None => type_name
                   }
-                  let named_module_match = if value is ObjectValue(_) {
-                    if lookup_value(env, base_for_user_check)
-                      is Some(ObjectValue(_)) ||
-                      lookup_value(cache, base_for_user_check)
-                      is Some(ObjectValue(_)) {
-                      // PKL-148bh: `x is someModule` where `someModule`
-                      // is an imported module value — treat any
-                      // ObjectValue as matching, because module amends
-                      // can't currently carry per-instance class
-                      // identity beyond the structural shape
-                      // (types/moduleType).
-                      true
-                    } else {
-                      false
-                    }
-                  } else {
-                    false
+                  let imported_module = match
+                    lookup_value(env, base_for_user_check) {
+                    Some(ObjectValue(members)) => Some(members)
+                    _ =>
+                      match lookup_value(cache, base_for_user_check) {
+                        Some(ObjectValue(members)) => Some(members)
+                        _ => None
+                      }
+                  }
+                  let named_module_match = match (value, imported_module) {
+                    (ObjectValue(value_members), Some(type_members)) =>
+                      // Module amendments retain the declaring module's
+                      // hidden name/path metadata. Compare that identity
+                      // instead of accepting every `Module`-tagged object:
+                      // a Service value must not satisfy `is ConfigMap`.
+                      match find_object_class_tag(value_members) {
+                        Some("Module") =>
+                          match
+                            (
+                              module_members_name(value_members),
+                              module_members_name(type_members),
+                            ) {
+                            (Some(actual), Some(expected)) => actual == expected
+                            _ =>
+                              match
+                                (
+                                  module_members_path(value_members),
+                                  module_members_path(type_members),
+                                ) {
+                                (Some(actual), Some(expected)) =>
+                                  actual == expected
+                                // Keep structural compatibility for
+                                // synthetic module values without either
+                                // identity marker.
+                                _ => true
+                              }
+                          }
+                        Some(tag) =>
+                          name_matches_class_tag(base_for_user_check, tag)
+                        None => false
+                      }
+                    _ => false
                   }
                   // PKL-152: `o is module` — the runtime identity
                   // check is strict (only the actual current-module
@@ -8379,6 +8599,15 @@ fn dispatch_value_to_string(
   }
   match value {
     ObjectValue(members) => {
+      // Parsed semver values are intrinsic objects rather than ordinary
+      // class instances. Interpolation still dispatches Version.toString,
+      // just like an explicit `.toString()` call.
+      if is_semver_value_members(members) {
+        match semver_to_string(members) {
+          Some(text) => return text
+          None => ()
+        }
+      }
       // PKL-152: reflect Class / TypeAlias mirrors are projected
       // through their qualified name when stringified in interpolation
       // (api/anyConverter / api/reflect*). Without this branch the
@@ -8458,14 +8687,11 @@ fn module_path_from_members(members : Array[ValueMember]) -> String? {
 
 ///|
 fn module_getclass_uses_module_mirror(members : Array[ValueMember]) -> Bool {
-  if !object_class_tag_matches(members, "Module") ||
-    module_members_name(members) is None {
-    return false
-  }
-  match module_path_from_members(members) {
-    Some(path) => !path.has_prefix("pkl:")
-    None => true
-  }
+  object_class_tag_matches(members, "Module") &&
+  (
+    module_members_name(members) is Some(_) ||
+    module_path_from_members(members) is Some(_)
+  )
 }
 
 ///|
@@ -10646,6 +10872,12 @@ fn eval_value_renderer_method(
             )
           }
         }
+        "pklbinary" =>
+          Some(
+            BytesValue(
+              render_value_as_pklbinary_with_cache(rendered_value, cache),
+            ),
+          )
         _ => None
       }
     }
@@ -12025,6 +12257,12 @@ fn instantiable_class_name_for_type_annotation(
       String::unsafe_substring(name, start=0, end=name.length() - 1),
     )
   }
+  // `Any` / `NonNull` describe admissible values, not a concrete body
+  // shape. A brace body assigned through either annotation must keep the
+  // parser-inferred Listing / Mapping / Dynamic shape.
+  if name == "Any" || name == "NonNull" {
+    return None
+  }
   match lookup_class_binding(class_env, name) {
     Some(_) => Some(name)
     None =>
@@ -12534,13 +12772,18 @@ fn eval_object_members_with_implicit_env(
     let is_benchmark_lazy_expression = field.name == "expression" &&
       lookup_value(cache, "@__constructing_class") ==
       Some(StringValue("Benchmark.Microbenchmark"))
-    let collection_field_value = if is_benchmark_lazy_expression {
-      NullLiteral
-    } else {
-      collection_literal_expr_for_type_annotation(
-        field.value,
-        effective_type_name,
-      )
+    let collection_field_value = match output_super_text_affixes(field.value) {
+      Some((prefix, suffix)) if strip_member_visibility_prefix(field.name) ==
+        "text" => StringLiteral(prefix + suffix)
+      _ =>
+        if is_benchmark_lazy_expression {
+          NullLiteral
+        } else {
+          collection_literal_expr_for_type_annotation(
+            field.value,
+            effective_type_name,
+          )
+        }
     }
     let field_value : Expr = match collection_field_value {
       ObjectLiteral(inner_members) =>
