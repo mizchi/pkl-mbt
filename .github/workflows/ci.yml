@@ -44,12 +44,8 @@ jobs:
       - name: moon check --deny-warn (wasm-gc)
         run: moon check --deny-warn --target wasm-gc
 
-      # Executable-package native tests currently fail to link the
-      # moonbitlang/x/sys CLI-args host symbol on Linux. Keep native coverage
-      # on the library package; cmd/mpkl is covered by the JS suite and the
-      # native smoke commands below.
-      - name: moon test --deny-warn (native library)
-        run: moon test --target native --deny-warn --package mizchi/pkl
+      - name: moon test --deny-warn (native)
+        run: moon test --target native --deny-warn
 
       - name: moon test --deny-warn (js)
         run: moon test --target js --deny-warn

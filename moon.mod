@@ -9,7 +9,7 @@ import {
   "mizchi/zlib@0.4.8",
   "moonbitlang/async@0.20.3",
   "moonbitlang/regexp@0.3.5",
-  "moonbitlang/x@0.4.47",
+  "moonbitlang/x@0.4.50",
   "moonbit-community/yaml@0.0.6",
 }
 
