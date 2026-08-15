@@ -287,7 +287,7 @@ fn yaml_v12_strip_trailing_block_newline(y : @yaml.Yaml) -> @yaml.Yaml {
       @yaml.Yaml::Array(out)
     }
     @yaml.Yaml::Map(m) => {
-      let out : Map[String, @yaml.Yaml] = {}
+      let out : Map[String, @yaml.Yaml] = Map([])
       let mut last_key : String? = None
       for k, _ in m {
         last_key = Some(k)
@@ -327,7 +327,7 @@ fn yaml_v12_promote_null(y : @yaml.Yaml) -> @yaml.Yaml {
       @yaml.Yaml::Array(out)
     }
     @yaml.Yaml::Map(m) => {
-      let out : Map[String, @yaml.Yaml] = {}
+      let out : Map[String, @yaml.Yaml] = Map([])
       for k, v in m {
         out[k] = yaml_v12_promote_null(v)
       }
