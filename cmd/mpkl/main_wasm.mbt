@@ -656,7 +656,7 @@ fn keep_wasm_imports_linked() -> Unit {
 ///|
 fn main {
   keep_wasm_imports_linked()
-  let cli_args = @sys.get_cli_args()
+  let cli_args = @env.args()
   let args : Array[String] = []
   for i = 1; i < cli_args.length(); i = i + 1 {
     args.push(cli_args[i])

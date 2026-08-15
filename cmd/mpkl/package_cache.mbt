@@ -101,13 +101,13 @@ fn join_path(base : String, relative : String) -> String {
 
 ///|
 fn default_package_cache_root() -> String {
-  match @sys.get_env_var("PKL_MBT_PACKAGE_CACHE") {
+  match @env.get_env_var("PKL_MBT_PACKAGE_CACHE") {
     Some(root) if root != "" => root
     _ =>
-      match @sys.get_env_var("XDG_CACHE_HOME") {
+      match @env.get_env_var("XDG_CACHE_HOME") {
         Some(root) if root != "" => root + "/pkl-mbt/package-2"
         _ =>
-          match @sys.get_env_var("HOME") {
+          match @env.get_env_var("HOME") {
             Some(home) if home != "" => home + "/.cache/pkl-mbt/package-2"
             _ => ".pkl-mbt/package-2"
           }

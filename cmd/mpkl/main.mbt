@@ -2667,7 +2667,7 @@ fn parse_file(path : String) -> Bool {
 
 ///|
 async fn main {
-  let args = @sys.get_cli_args()
+  let args = cli_args()
   // PKL-080: register the bundled stdlib `base.pkl` source so the
   // library-side reflect machinery can build full Class mirrors for
   // stdlib types (`api/reflectedDeclaration` etc.). The candidate

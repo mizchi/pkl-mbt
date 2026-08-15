@@ -21,6 +21,8 @@ pkgtype(kind: "executable")
 options(
   targets: {
     "main.mbt": [ "native", "js" ],
+    "args_native.mbt": [ "native" ],
+    "args_js.mbt": [ "js" ],
     "main_wbtest.mbt": [ "native", "js" ],
     "stdlib_check.mbt": [ "native", "js" ],
     "fetch_native.mbt": [ "native" ],

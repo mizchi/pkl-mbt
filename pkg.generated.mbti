@@ -13,6 +13,8 @@ pub fn clear_sandbox_resource_readers() -> Unit
 
 pub fn codegen(Program, CodegenTarget) -> String
 
+pub fn configure_pklbinary_module_uri_normalizer((String) -> String) -> Unit
+
 pub fn configure_sandbox_allowed_modules(Array[String]) -> Unit
 
 pub fn configure_sandbox_env_vars(Map[String, String]) -> Unit
@@ -39,6 +41,8 @@ pub fn fdlibm_sin(Double) -> Double
 
 pub fn fdlibm_tan(Double) -> Double
 
+pub fn finalize_output_super_text_for_format(Value, String) -> Value
+
 pub fn lint_program(Program) -> Array[LintFinding]
 
 pub fn lookup_triple_dot_resolution(String, String) -> String?
@@ -58,6 +62,8 @@ pub fn register_read_glob(String, String, Array[SandboxResource]) -> Unit
 pub fn register_read_resource(String, String, String, String, String) -> Unit
 
 pub fn register_triple_dot_resolution(String, String, String) -> Unit
+
+pub fn render_module_as_pklbinary(Value, String, String) -> Bytes
 
 pub fn render_type(Type) -> String
 
@@ -94,6 +100,8 @@ pub fn render_value_as_pcf_fragment(Value) -> String
 pub fn render_value_as_pcf_fragment_with_indent(Value, String) -> String
 
 pub fn render_value_as_pcf_fragment_with_options(Value, String, Bool) -> String
+
+pub fn render_value_as_pklbinary_with_module(Value, String, String) -> Bytes
 
 pub fn render_value_as_plist(Value) -> String
 
@@ -162,6 +170,7 @@ pub struct AnalysisSession {
   // private fields
 }
 pub fn AnalysisSession::eval_path(Self, String) -> EvalResult
+pub fn AnalysisSession::eval_path_with_runtime_metadata(Self, String) -> EvalResult
 pub fn AnalysisSession::new() -> Self
 pub fn AnalysisSession::reset_stats(Self) -> Unit
 pub fn AnalysisSession::set_source(Self, String, String) -> Unit
@@ -477,4 +486,3 @@ pub(all) struct ValueMember {
 // Type aliases
 
 // Traits
-
