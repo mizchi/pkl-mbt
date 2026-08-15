@@ -3,7 +3,7 @@ name = "mizchi/pkl"
 version = "0.4.0"
 
 import {
-  "mizchi/cst@0.1.7",
+  "mizchi/cst@0.1.9",
   "mizchi/ripple@0.1.4",
   "mizchi/x@0.5.2",
   "mizchi/zlib@0.4.8",
