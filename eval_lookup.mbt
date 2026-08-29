@@ -474,7 +474,7 @@ fn strip_doc_comment_line(text : String) -> String {
 
 ///|
 fn join_doc_comment_lines(lines : Array[String]) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for i = 0; i < lines.length(); i = i + 1 {
     if i > 0 {
       buf.write_string("\n")

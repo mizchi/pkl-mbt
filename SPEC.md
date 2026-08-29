@@ -1608,7 +1608,7 @@
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli stdlib coverage probe** — verifies: PKL-141 — tags: moonbit, cli, stdlib, contract
-  > The native CLI's `stdlib` subcommand evaluates one minimal probe per documented stdlib surface area (pkl:base value-variant ops + Renderer classes, pkl:math constants / Int + Float helpers, pkl:semver parse + compare, pkl:platform stub, pkl:test catch, pkl:reflect mirror constants + factories, pkl:json / pkl:yaml Parser shells, pkl:xml / pkl:protobuf Renderer shells) and prints `[PASS]` / `[FAIL]` per probe. The contract pins the trailing `stdlib: N / N passed` summary so a regression to any probe breaks CI.
+  > The native CLI's `stdlib` subcommand evaluates one minimal probe per documented stdlib surface area, including the Pkl 0.32 Project, settings, Command, documentation, and pklbinary modules, and prints `[PASS]` / `[FAIL]` per probe. The contract pins the trailing `stdlib: N / N passed` summary so a regression to any probe breaks CI.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli stdlib modifiers** — verifies: PKL-140 — tags: moonbit, cli, parser, stdlib, contract

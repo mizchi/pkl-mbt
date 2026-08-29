@@ -1598,7 +1598,7 @@ local upstreamParserSuite = new Test {
   specRef { "PKL-015" }
   cmd = "./scripts/upstream-parse-suite.sh"
   workdir = ".."
-  expectStdoutContains { "ok 802" }
+  expectStdoutContains { "ok 865" }
   timeoutSec = 180
 }
 

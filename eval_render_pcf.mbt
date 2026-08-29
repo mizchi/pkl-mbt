@@ -8,7 +8,7 @@ fn render_value_with_custom_string_delimiters(
   value : Value,
   use_custom_string_delimiters : Bool,
 ) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   if deferred_error_message(value) is Some(_) {
     return "?"
   }
@@ -93,7 +93,7 @@ fn render_value_as_pcf_fragment_with_custom_string_delimiters(
     Some(text) => return text
     None => ()
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   match value {
     ObjectValue(_)
     | ListingValue(_)
@@ -134,7 +134,7 @@ fn pcf_apply_indent_text(text : String, indent_text : String) -> String {
   if indent_text == "  " {
     return text
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut i = 0
   let mut at_line_start = true
   while i < text.length() {
@@ -167,7 +167,7 @@ fn pcf_apply_indent_text(text : String, indent_text : String) -> String {
 
 ///|
 fn escape_string(value : String) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for c in value {
     match c {
       '\n' => buf.write_string("\\n")
@@ -293,7 +293,7 @@ fn normalize_scientific_float_text(s : String) -> String? {
         s[exp_start].to_int().unsafe_to_char() == '0' {
     exp_start = exp_start + 1
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string(mantissa)
   if mantissa.find(".") is None {
     buf.write_string(".0")
@@ -326,7 +326,7 @@ fn render_large_decimal_float_scientific(s : String) -> String? {
   if dot_idx < 9 {
     return None
   }
-  let digits_buf = StringBuilder::new()
+  let digits_buf = StringBuilder()
   for i = 0; i < body.length(); i = i + 1 {
     let c = body[i].to_int().unsafe_to_char()
     if c >= '0' && c <= '9' {
@@ -339,7 +339,7 @@ fn render_large_decimal_float_scientific(s : String) -> String? {
     end = end - 1
   }
   let digits = String::unsafe_substring(digits_raw, start=0, end~)
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   if negative {
     buf.write_char('-')
   }
@@ -391,7 +391,7 @@ fn render_small_decimal_float_scientific(s : String) -> String? {
     end = end - 1
   }
   let digits = String::unsafe_substring(significant, start=0, end~)
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   if negative {
     buf.write_char('-')
   }
@@ -791,7 +791,7 @@ fn render_pcf_string_heredoc(
 /// re-parses to the same value. `\n` is line-split before this fires,
 /// so it never appears here.
 fn escape_string_heredoc(value : String) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for c in value {
     match c {
       '\\' => buf.write_string("\\\\")
@@ -810,7 +810,7 @@ fn escape_string_heredoc(value : String) -> String {
 /// consecutive newlines).
 fn string_split_newline(s : String) -> Array[String] {
   let parts : Array[String] = []
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for i = 0; i < s.length(); i = i + 1 {
     let c = s[i].to_int().unsafe_to_char()
     if c == '\n' {

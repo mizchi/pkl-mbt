@@ -40,7 +40,7 @@ fn join_relative_segments(a : String, b : String, c : String) -> String {
     trim_leading_slashes(b),
     trim_leading_slashes(c),
   ]
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut needs_sep = false
   for segment in segments {
     if segment == "" {
@@ -139,7 +139,7 @@ fn cli_hex_value(c : UInt16) -> Int? {
 
 ///|
 fn percent_decode_uri_path(path : String) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut i = 0
   while i < path.length() {
     if path[i] == '%' && i + 2 < path.length() {

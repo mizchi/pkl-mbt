@@ -1281,7 +1281,7 @@ fn Parser::parse_for_binding_type_annotation(self : Parser) -> String? {
   // Consume tokens up to (but not including) the next `,` / `in` /
   // `)`, balancing parens / brackets / angles so generic types like
   // `Listing<Pair<Int, Int>>` don't trip over the inner `,`.
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut parens = 0
   let mut brackets = 0
   let mut angles = 0

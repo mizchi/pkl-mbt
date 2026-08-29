@@ -968,7 +968,7 @@ fn normalize_path_segments(path : String) -> String {
     }
     resolved.push(seg)
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string(head)
   if leading_slash {
     buf.write_char('/')
@@ -1290,7 +1290,7 @@ fn file_uri_for_path(path : String) -> String {
 
 ///|
 fn percent_encode_file_path(path : String) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for c in path.iter() {
     match c {
       ' ' => buf.write_string("%20")
@@ -1539,7 +1539,7 @@ fn collect_globstar_suffix_resources(
 ///|
 fn directory_listing_text(path : String) -> String {
   let names = @fs.read_dir(path) catch { _ => [] }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for name in sort_strings(names) {
     buf.write_string(name)
     buf.write_char('\n')
@@ -3507,7 +3507,7 @@ fn junit_suite_name(path : String) -> String {
 
 ///|
 fn xml_escape(text : String) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for i = 0; i < text.length(); i = i + 1 {
     let c = text[i].to_int()
     if c == '&'.to_int() {
@@ -3536,7 +3536,7 @@ fn render_junit_xml(suite_name : String, cases : Array[PklTestCase]) -> String {
     }
   }
   let total = cases.length()
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
   buf.write_string(
     "<testsuites name=\"\{xml_escape(suite_name)}\" tests=\"\{total}\" failures=\"\{failures}\">\n",

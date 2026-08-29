@@ -38,8 +38,8 @@
 
 ## 現在の開発状況
 
-- 現在 version は `0.4.0` (`moon.mod`)。
-- 上流の Apple Pkl LanguageSnippetTests に対する gold-match: **391 / 391 (100.0%)**。確認は `pkf run coverage` で。
+- 現在 version は `0.4.1` (`moon.mod`)。
+- 上流の Apple Pkl 0.32.1 LanguageSnippetTests に対する gold-match: **399 / 416 (95.9%)**。確認は `pkf run coverage` で。
 - カテゴリ別の内訳と最終更新は `README.md` / `TODO.md` が source of truth。
 - 0.2.0 で追加された embedded-API: `configure_sandbox_resource_reader(scheme, fn)`、 `extends` chain の base-local 解決、 cross-module recursive function、 `Listing<T>` 返り値推論、 `mpkl test --junit-reports <dir>`。 詳細は `README.md` の "0.2.0 highlights"。
 
@@ -51,7 +51,7 @@ GitHub Issues に「user impact 順」で並んでいる。次セッションは
 
 個別 issue / release backlog (impact 大きい順):
 
-- `TODO.md` Current DIFF Snapshot — with-gold fixture は全件一致。次は NOGOLD の診断契約または open issue を user impact 順に選ぶ。
+- `TODO.md` Current DIFF Snapshot — Apple Pkl 0.32.1 で追加・変更された DIFF 17 件を user impact 順に選ぶ。
 - [#1 Evaluate Apple Pkl stdlib modules](https://github.com/mizchi/pkl-mbt/issues/1) — `analyze` / `benchmark` / `release` module surface と長期 stdlib parity。
 - [#17 YAML Parser: support complex mapping keys](https://github.com/mizchi/pkl-mbt/issues/17) — `api/yamlParser6` 系。フル YAML parser parity を掲げるまでは非リリースブロッカー。
 - [#6 XML / Protobuf renderer bodies](https://github.com/mizchi/pkl-mbt/issues/6) — upstream XML / Protobuf text fixtures は通過済み。close/rescope 候補。

@@ -111,6 +111,11 @@ test "real-world: null coalesce continues across newline" {
 }
 
 ///|
+test "real-world: equality operator continues across newline" {
+  assert_true(eval_source("1\n  == 1") == EvalOk(BoolValue(true)))
+}
+
+///|
 test "real-world: is type operand stops before inline else" {
   let parsed = parse_source("value = if (true) 1 is Int else false")
   inspect(parsed.diagnostics.length(), content="0")
@@ -914,7 +919,7 @@ test "YAML renderer quotes Pkl and mapping keys like upstream" {
 
 ///|
 test "YAML renderer emits explicit mapping keys when required" {
-  let key_buf = StringBuilder::new()
+  let key_buf = StringBuilder()
   for _i = 0; _i < 1025; _i = _i + 1 {
     key_buf.write_char('a')
   }

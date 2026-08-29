@@ -8,7 +8,7 @@ pub fn render_value_as_textproto_with_indent(
   value : Value,
   indent_text : String,
 ) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   render_textproto_value(value, 0, indent_text, buf)
   if !buf.to_string().has_suffix("\n") {
     buf.write_char('\n')
@@ -21,7 +21,7 @@ pub fn render_value_as_textproto_fragment(
   value : Value,
   indent_text : String,
 ) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   render_textproto_value(value, 0, indent_text, buf)
   textproto_trim_trailing_newline(buf.to_string())
 }
@@ -33,7 +33,7 @@ pub fn render_value_as_protobuf_fragment(
 ) -> String {
   match value {
     DurationValue(_, _) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_string("{\n")
       render_textproto_duration_body(value, 1, indent_text, buf)
       buf.write_char('}')

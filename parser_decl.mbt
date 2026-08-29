@@ -4,7 +4,7 @@ fn Parser::parse_module_decl(self : Parser) -> ParsedModuleDecl? {
   // / `extends` keyword.
   let annotations = self.take_pending_annotations()
   self.builder.start_node(module_decl())
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   if self.at(module_kw()) {
     ignore(self.bump())
     match self.expect(identifier(), "module name") {
@@ -221,7 +221,7 @@ fn Parser::parse_type_text(
   stop_at_arrow~ : Bool,
   stop_at_expression_operator~ : Bool,
 ) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut parens = 0
   let mut brackets = 0
   let mut angles = 0

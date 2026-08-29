@@ -1,6 +1,6 @@
 ///|
 pub fn render_value_as_plist(value : Value) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
   buf.write_string(
     "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n",
@@ -14,7 +14,7 @@ pub fn render_value_as_plist(value : Value) -> String {
 
 ///|
 pub fn render_value_as_plist_fragment(value : Value) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   render_plist_value(value, 0, buf)
   buf.to_string()
 }
@@ -231,7 +231,7 @@ fn plist_coerce_key(value : Value) -> String {
     BoolValue(false) => "false"
     NullValue => "null"
     _ => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       render_pcf_inline(value, 0, false, buf)
       buf.to_string()
     }

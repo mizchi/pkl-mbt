@@ -876,7 +876,7 @@ fn eval_listing_method(
       }
       match arg_values[0] {
         StringValue(sep) => {
-          let buf = StringBuilder::new()
+          let buf = StringBuilder()
           for i = 0; i < elements.length(); i = i + 1 {
             if i > 0 {
               buf.write_string(sep)

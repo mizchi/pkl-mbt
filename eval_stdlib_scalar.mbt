@@ -945,7 +945,7 @@ fn duration_literal_text(magnitude : Double, unit : String) -> String {
 ///|
 fn left_pad_9_digits(value : Int64) -> String {
   let raw = value.to_string()
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut i = raw.length()
   while i < 9 {
     buf.write_char('0')
@@ -1009,7 +1009,7 @@ fn duration_iso_string(
   let after_hours = total_ns % ns_per_hour
   let minutes = after_hours / ns_per_minute
   let seconds_ns = after_hours % ns_per_minute
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   if negative {
     buf.write_char('-')
   }
@@ -1588,7 +1588,7 @@ fn regex_replace_first(
 ) -> String {
   match re.match_(input) {
     Some(m) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_string(m.before().to_owned())
       buf.write_string(replacement)
       buf.write_string(m.after().to_owned())
@@ -1604,7 +1604,7 @@ fn regex_replace_all(
   input : String,
   replacement : String,
 ) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut rest = input
   while rest.length() > 0 {
     match re.match_(rest) {
@@ -1823,7 +1823,7 @@ fn int_to_string_radix(n : Int64, radix : Int) -> String {
     chars.push(digits.unsafe_get(d).to_int().unsafe_to_char())
     value = value / radix64
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   if negative {
     buf.write_char('-')
   }
@@ -1911,7 +1911,7 @@ fn eval_int_method(
         )
         return None
       }
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_char(n.to_int().unsafe_to_char())
       Some(StringValue(buf.to_string()))
     }
@@ -2137,7 +2137,7 @@ fn eval_int_method(
 /// `decimals` digits after the dot. `decimals == 0` omits the dot
 /// entirely. Negative inputs get a leading "-".
 fn format_fixed_decimal(n : Int64, decimals : Int) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("\{n}")
   if decimals > 0 {
     buf.write_char('.')
@@ -2213,7 +2213,7 @@ fn increment_decimal_string(text : String) -> String {
     }
     i = i - 1
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   if carry > 0 {
     buf.write_char('1')
   }
@@ -2273,7 +2273,7 @@ fn format_fixed_decimal_text(
       whole = increment_decimal_string(whole)
     }
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string(whole)
   if decimals > 0 {
     buf.write_char('.')
@@ -2294,7 +2294,7 @@ fn format_fixed_float_slow(
   let abs_value = if negative { 0.0 - d } else { d }
   let rounded = (abs_value * scale + 0.5).floor() / scale
   let whole = rounded.floor()
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   if negative {
     buf.write_char('-')
   }
@@ -2339,7 +2339,7 @@ fn format_fixed_float(d : Double, decimals : Int) -> String {
   let scaled = (abs_value * scale.to_double() + 0.5).floor().to_int64()
   let whole = scaled / scale
   let fraction = scaled % scale
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   if negative {
     buf.write_char('-')
   }
@@ -2375,7 +2375,7 @@ fn format_int_with_commas(n : Int64) -> String {
   if raw.length() <= 3 {
     return if negative { "-\{raw}" } else { raw }
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let len = raw.length()
   let first_group = len % 3
   let mut i = 0

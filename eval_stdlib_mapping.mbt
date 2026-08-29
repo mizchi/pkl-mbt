@@ -110,7 +110,7 @@ fn value_to_string_for_join(v : Value) -> String {
         (lookup_member(members, "value"), lookup_member(members, "groups")) {
         (Some(StringValue(s)), Some(_)) => s
         _ => {
-          let buf = StringBuilder::new()
+          let buf = StringBuilder()
           let class_name = match find_object_class_tag(members) {
             Some(name) => name
             None => ""
@@ -178,7 +178,7 @@ fn value_to_string_for_join(v : Value) -> String {
         }
       }
     ListingValue(elements) | DefaultedListingValue(_, elements, _) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_string("new Listing")
       if elements.length() == 0 {
         buf.write_string(" {}")
@@ -195,7 +195,7 @@ fn value_to_string_for_join(v : Value) -> String {
       buf.to_string()
     }
     MappingValue(entries) | DefaultedMappingValue(_, entries, _) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_string("new Mapping")
       if entries.length() == 0 {
         buf.write_string(" {}")
@@ -219,7 +219,7 @@ fn value_to_string_for_join(v : Value) -> String {
     FunctionValue(parameters, _, _, _, _) =>
       "new Function\{parameters.length()} {}"
     _ => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       render_pcf_inline(v, 0, false, buf)
       buf.to_string()
     }
@@ -756,7 +756,7 @@ fn eval_set_method(
       }
       match arg_values[0] {
         StringValue(separator) => {
-          let buf = StringBuilder::new()
+          let buf = StringBuilder()
           for i = 0; i < elements.length(); i = i + 1 {
             if i > 0 {
               buf.write_string(separator)

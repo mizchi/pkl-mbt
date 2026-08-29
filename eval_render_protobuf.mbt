@@ -143,7 +143,7 @@ fn render_value_as_protobuf_fragment_with_context(
   match value {
     DurationValue(_, _) => render_value_as_protobuf_fragment(value, indent_text)
     ObjectValue(members) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       render_protobuf_object_members(
         members, 0, indent_text, class_env, cache, declarations, buf,
       )

@@ -18,6 +18,7 @@ is_parser_comparison_exception() {
     errors/invalidCharacterEscape.pkl | \
     errors/invalidCharacterEscape2.pkl | \
     errors/invalidUnicodeEscape.pkl | \
+    errors/letExpressionError3.pkl | \
     errors/unterminatedUnicodeEscape.pkl | \
     errors/keywordNotAllowedHere1.pkl | \
     errors/keywordNotAllowedHere2.pkl | \

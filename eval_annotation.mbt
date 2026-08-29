@@ -865,7 +865,7 @@ fn pretty_constraint_text(text : String) -> String {
   let trimmed = pkl_constraint_trim(text)
   let multi : Array[String] = [">=", "<=", "==", "!=", "&&", "||"]
   let single : Array[Char] = ['>', '<']
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let n = trimmed.length()
   let mut i = 0
   let mut depth = 0
@@ -993,7 +993,7 @@ fn ensure_trailing_space(buf : StringBuilder) -> Unit {
 
 ///|
 fn collapse_spaces(text : String) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut prev_space = false
   for i = 0; i < text.length(); i = i + 1 {
     let c = text[i].to_int().unsafe_to_char()

@@ -10,7 +10,7 @@ pub fn render_value_as_xml_with_options(
   indent_text : String,
   xml_version : String,
 ) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("<?xml version=\"")
   write_xml_escaped_attr(xml_version, buf)
   buf.write_string("\" encoding=\"UTF-8\"?>\n")
@@ -41,7 +41,7 @@ pub fn render_value_as_xml_fragment(
   value : Value,
   indent_text : String,
 ) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   render_xml_fragment_value(value, 0, indent_text, buf)
   buf.to_string()
 }
@@ -387,7 +387,7 @@ fn render_xml_member_to_string(
   level : Int,
   indent_text : String,
 ) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   render_xml_member(field, level, indent_text, buf)
   buf.to_string()
 }
@@ -421,7 +421,7 @@ fn xml_strip_leading_newline(rendered : String) -> String {
 
 ///|
 fn xml_indent_string(level : Int, indent_text : String) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   write_xml_indent(buf, level, indent_text)
   buf.to_string()
 }
@@ -914,7 +914,7 @@ fn xml_coerce_key(value : Value) -> String {
     BoolValue(false) => "false"
     NullValue => "null"
     _ => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       render_pcf_inline(value, 0, false, buf)
       buf.to_string()
     }
@@ -1076,7 +1076,7 @@ fn xml_unsupported_here_value_text(kind : String, value : Value) -> String {
 fn xml_placeholder_value_text(value : Value) -> String {
   match value {
     ObjectValue(members) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_string("{ ")
       let mut first = true
       for field in visible_members(members) {

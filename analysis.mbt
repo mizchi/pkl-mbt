@@ -246,7 +246,7 @@ fn normalize_path_segments(path : String) -> String {
     }
     resolved.push(seg)
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string(head)
   if leading_slash {
     buf.write_char('/')

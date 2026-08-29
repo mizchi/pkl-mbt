@@ -732,7 +732,7 @@ fn eval_callable_runtime_constraint_message(
 /// sites concise — the `Value: <text>` segment is a recurring shape
 /// in Apple Pkl's constraint / type-mismatch wording.
 fn render_pcf_value_inline(value : Value) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   match value {
     ObjectValue(members) =>
       // PKL-148bh: every typed ObjectValue now carries the
@@ -791,7 +791,7 @@ fn render_pcf_value_inline_compact(
   value : Value,
   class_hint : String?,
 ) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   match value {
     ObjectValue(members) => {
       buf.write_string("new ")

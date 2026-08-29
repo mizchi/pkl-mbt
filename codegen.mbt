@@ -35,7 +35,7 @@ pub fn codegen(program : Program, target : CodegenTarget) -> String {
 /// commented `// TODO: <pkl-type>` line above the field so the
 /// human-in-the-loop can decide the right shape.
 fn codegen_moonbit(program : Program) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let module_label = match program.module_name {
     Some(name) => name
     None => "<anonymous>"
@@ -265,7 +265,7 @@ fn split_codegen_generic(text : String) -> (String, Array[String])? {
     end=text.length() - 1,
   )
   let parts : Array[String] = []
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut depth_paren = 0
   let mut depth_bracket = 0
   let mut depth_angle = 0

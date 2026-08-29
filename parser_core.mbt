@@ -477,7 +477,7 @@ fn Parser::parse_annotation(self : Parser) -> Bool {
     return false
   }
   ignore(self.bump())
-  let name_buf = StringBuilder::new()
+  let name_buf = StringBuilder()
   while self.at(identifier()) || self.at(dot()) {
     name_buf.write_string(self.peek().text())
     ignore(self.bump())

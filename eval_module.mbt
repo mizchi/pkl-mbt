@@ -5213,7 +5213,7 @@ fn path_segment_exact_name(segment : String) -> String {
 ///|
 fn split_path(path : String) -> Array[String] {
   let segments : Array[String] = []
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let normalized = if path.has_prefix("^") {
     String::unsafe_substring(path, start=1, end=path.length())
   } else {

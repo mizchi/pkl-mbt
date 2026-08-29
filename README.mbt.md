@@ -21,7 +21,7 @@ Sandbox configuration (`configure_sandbox_*` / `register_*`): module allowlist, 
 
 ## Status
 
-The release gate passes Apple Pkl's upstream LanguageSnippetTests across the advertised renderers (PCF, JSON, YAML, properties, plist, textproto, XML, Jsonnet). Coverage of the Apple Pkl test surface is 98.5% by gold-match; see the repository's `TODO.md` for the remaining fixture inventory.
+The release gate passes its curated Apple Pkl 0.32.1 LanguageSnippetTests across the advertised renderers (PCF, JSON, YAML, properties, plist, textproto, XML, Jsonnet). Coverage of the broader PCF test surface is 399 / 416 (95.9%) by gold-match. The 17-fixture compatibility work is tracked in [#32](https://github.com/mizchi/pkl-mbt/issues/32); see the repository's `TODO.md` for the current DIFF inventory.
 
 Known gaps for embedded callers:
 
@@ -30,4 +30,4 @@ Known gaps for embedded callers:
 
 ## Versioning
 
-This is `0.4.0`. Pre-1.0 minor bumps may break the public surface — semver promises kick in at `1.0.0`.
+This is `0.4.1`. Pre-1.0 minor bumps may break the public surface — semver promises kick in at `1.0.0`.

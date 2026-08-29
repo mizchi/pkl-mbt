@@ -153,7 +153,7 @@ fn pkl_split_constraint_arguments(text : String) -> Array[String] {
     return [trim_spaces(text)]
   }
   let parts : Array[String] = []
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut parens = 0
   let mut brackets = 0
   let mut angles = 0

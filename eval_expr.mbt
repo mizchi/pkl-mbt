@@ -1650,7 +1650,7 @@ fn render_listing_union_rejection_value(elements : Array[Value]) -> String {
   if elements.length() == 0 {
     return "new Listing {}"
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("new Listing { ")
   let mut masked_tail = false
   for i = 0; i < elements.length(); i = i + 1 {
@@ -1672,7 +1672,7 @@ fn render_listing_union_rejection_value(elements : Array[Value]) -> String {
 
 ///|
 fn normalize_type_name_commas(type_name : String) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut skip_spaces_after_comma = false
   for ch in type_name {
     if skip_spaces_after_comma && ch == ' ' {
@@ -2074,7 +2074,7 @@ fn object_members_are_mixin_body(members : Array[ValueMember]) -> Bool {
 
 ///|
 fn render_bytes_value_inline(bytes : Bytes) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("Bytes(")
   for i = 0; i < bytes.length(); i = i + 1 {
     if i > 0 {
@@ -2478,7 +2478,7 @@ fn as_cast_compact_mapping_text(entries : Array[ValueEntry]) -> String {
   if entries.length() == 0 {
     return "new Mapping {}"
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("new Mapping { ")
   for i = 0; i < entries.length(); i = i + 1 {
     if i > 0 {
@@ -2498,7 +2498,7 @@ fn as_cast_compact_listing_text(elements : Array[Value]) -> String {
   if elements.length() == 0 {
     return "new Listing {}"
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("new Listing { ")
   for i = 0; i < elements.length(); i = i + 1 {
     if i > 0 {
@@ -2543,7 +2543,7 @@ fn as_cast_rejected_value_inline(value : Value) -> String {
 
 ///|
 fn render_unknown_listing_for_diag(elements : Array[Value]) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   if elements.length() == 0 {
     return "new Listing {}"
   }
@@ -2593,7 +2593,7 @@ fn render_collection_union_rejection_value(value : Value) -> String {
     ListingValue(elements) | DefaultedListingValue(_, elements, _) =>
       render_listing_union_rejection_value(elements)
     ListValue(elements) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_string("List(")
       for i = 0; i < elements.length(); i = i + 1 {
         if i > 0 {
@@ -2605,7 +2605,7 @@ fn render_collection_union_rejection_value(value : Value) -> String {
       buf.to_string()
     }
     SetValue(elements) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_string("Set(")
       for i = 0; i < elements.length(); i = i + 1 {
         if i > 0 {
@@ -2617,7 +2617,7 @@ fn render_collection_union_rejection_value(value : Value) -> String {
       buf.to_string()
     }
     MappingValue(entries) | DefaultedMappingValue(_, entries, _) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_string("new Mapping { ")
       for i = 0; i < entries.length(); i = i + 1 {
         if i > 0 {
@@ -3845,25 +3845,16 @@ fn eval_expr_with_bindings(
         type_name != "Dynamic" &&
         type_name != "Object" {
         let mut element_seen = false
-        let mut when_seen = false
         for m in members {
           if m.name.has_prefix("@element$") {
             element_seen = true
-          } else if m.name == "@when" {
-            when_seen = true
           }
         }
         if element_seen {
           let label = if type_name == "Mapping" {
-            if when_seen {
-              "new Mapping {}"
-            } else {
-              "Mapping"
-            }
+            "Mapping"
           } else if is_stdlib_class_name(type_name) {
             type_name
-          } else if when_seen {
-            "new \{type_name} {}"
           } else {
             let module_name = match lookup_value(cache, "@__module_name") {
               Some(StringValue(s)) => s
@@ -4269,7 +4260,6 @@ fn eval_expr_with_bindings(
       // element (`new Mapping { "pigeon" }`) carries an `@element$`
       // sentinel key. Raise Apple Pkl's "cannot have an element"
       // wording before the entries get rendered.
-      let mut mapping_when_seen = false
       for entry in entries {
         if collection_local_binding_from_expr(entry.key) is Some(_) {
           continue
@@ -4278,16 +4268,11 @@ fn eval_expr_with_bindings(
           continue
         }
         match entry.key {
-          WhenSpread(_) => mapping_when_seen = true
+          WhenSpread(_) => ()
           Identifier(name) =>
             if name.has_prefix("@element$") {
-              let label = if mapping_when_seen {
-                "new Mapping {}"
-              } else {
-                "Mapping"
-              }
               diagnostics.push(
-                diag("Object of type `\{label}` cannot have an element."),
+                diag("Object of type `Mapping` cannot have an element."),
               )
               return None
             }
@@ -5434,7 +5419,7 @@ fn eval_expr_with_bindings(
           if index64 >= 0L && index < code_points.length() {
             Some(StringValue(code_points[index]))
           } else {
-            let buf = StringBuilder::new()
+            let buf = StringBuilder()
             render_pcf_scalar(StringValue(s), buf)
             diagnostics.push(
               diag(
@@ -6360,7 +6345,7 @@ fn eval_expr_with_bindings(
           ) {
           Some(StringValue(s)) => {
             let pieces : Array[String] = []
-            let cur = StringBuilder::new()
+            let cur = StringBuilder()
             for c in s {
               if c == '\'' {
                 pieces.push(cur.to_string())
@@ -6370,7 +6355,7 @@ fn eval_expr_with_bindings(
               }
             }
             pieces.push(cur.to_string())
-            let out = StringBuilder::new()
+            let out = StringBuilder()
             for i = 0; i < pieces.length(); i = i + 1 {
               if i > 0 {
                 out.write_string("\\'")
@@ -8544,7 +8529,7 @@ fn eval_expr_with_bindings(
     // `value_to_string_for_join`, which already handles every Value
     // variant (used by `Listing.join`).
     InterpolatedString(parts) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       let mut ok = true
       for part in parts {
         match
@@ -10431,7 +10416,7 @@ fn renderer_full_listing_text(elements : Array[Value]) -> String {
   if elements.length() == 0 {
     return "new Listing {}"
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("new Listing { ")
   for i = 0; i < elements.length(); i = i + 1 {
     if i > 0 {
@@ -10464,7 +10449,7 @@ fn renderer_placeholder_listing_text(elements : Array[Value]) -> String {
   if elements.length() == 0 {
     return "new Listing {}"
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("new Listing { ")
   for i = 0; i < elements.length(); i = i + 1 {
     if i > 0 {
@@ -10481,7 +10466,7 @@ fn renderer_placeholder_mapping_text(entries : Array[ValueEntry]) -> String {
   if entries.length() == 0 {
     return "new Mapping {}"
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("new Mapping { ")
   for i = 0; i < entries.length(); i = i + 1 {
     if i > 0 {
@@ -10505,7 +10490,7 @@ fn renderer_placeholder_object_text(members : Array[ValueMember]) -> String {
   if visible.length() == 0 {
     return "new \{class_name} {}"
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("new ")
   buf.write_string(class_name)
   buf.write_string(" { ")
@@ -10579,7 +10564,7 @@ fn renderer_yaml_mixed_object_text(members : Array[ValueMember]) -> String {
     None => "Dynamic"
   }
   let visible = visible_members(members)
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("new ")
   buf.write_string(class_name)
   if visible.length() == 0 {

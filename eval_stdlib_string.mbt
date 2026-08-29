@@ -61,7 +61,7 @@ fn eval_string_property(
       for c in s.iter() {
         chars.push(c)
       }
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       let mut i = chars.length() - 1
       while i >= 0 {
         buf.write_char(chars[i])
@@ -153,7 +153,7 @@ fn pad_string(s : String, width : Int, pad : String, at_start : Bool) -> String 
   if current >= width || pad.char_length() == 0 {
     return s
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   if at_start {
     let mut remaining = width - current
     while remaining > 0 {
@@ -193,7 +193,7 @@ fn list_string_chars(s : String) -> Array[String] {
 
 ///|
 fn string_from_chars(chars : Array[String], start : Int, end : Int) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for i = start; i < end; i = i + 1 {
     buf.write_string(chars[i])
   }
@@ -1102,7 +1102,7 @@ fn eval_string_method(
             )
             return None
           }
-          let buf = StringBuilder::new()
+          let buf = StringBuilder()
           for _ in 0..<n.to_int() {
             buf.write_string(s)
           }
@@ -1625,7 +1625,7 @@ fn regex_expand_replacement(
   match_result : @regexp.MatchResult,
   diagnostics : Array[Diagnostic],
 ) -> String? {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let chars = list_string_chars(replacement)
   let mut i = 0
   while i < chars.length() {
@@ -1754,7 +1754,7 @@ fn regex_replace_with_groups(
       selected.push(m)
     }
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut pos = 0
   for item in selected {
     buf.write_string(String::unsafe_substring(input, start=pos, end=item.0))
@@ -1837,7 +1837,7 @@ fn string_replace_mapped(
       selected.push(m)
     }
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut pos = 0
   for item in selected {
     buf.write_string(String::unsafe_substring(input, start=pos, end=item.0))
@@ -1893,7 +1893,7 @@ fn regex_replace_mapped_collect(
   diagnostics : Array[Diagnostic],
   resolve_import : (String) -> EvalResult?,
 ) -> Value? {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut rest = input
   let pending : Array[(String, String)] = []
   while rest.length() > 0 {
@@ -2003,7 +2003,7 @@ fn parse_pkl_int(s : String) -> Int64? {
   if s.length() == 0 {
     return None
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for c in s.iter() {
     if c != '_' {
       buf.write_char(c)
@@ -2031,7 +2031,7 @@ fn parse_pkl_float(s : String) -> Double? {
   if s.length() == 0 {
     return None
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for c in s.iter() {
     if c != '_' {
       buf.write_char(c)

@@ -8,7 +8,7 @@ pub fn render_value_as_json_with_indent(
   value : Value,
   indent_text : String,
 ) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   render_json_value(value, 0, indent_text, buf)
   buf.to_string()
 }
@@ -154,7 +154,7 @@ fn render_json_string(value : String, buf : StringBuilder) -> Unit {
 ///|
 fn json_hex4(code : Int) -> String {
   let digits = "0123456789abcdef"
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut i = 12
   while i >= 0 {
     let nibble = (code >> i) & 0xF
@@ -181,7 +181,7 @@ fn json_coerce_key(value : Value) -> String {
     BoolValue(false) => "false"
     NullValue => "null"
     _ => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       render_pcf_inline(value, 0, false, buf)
       buf.to_string()
     }

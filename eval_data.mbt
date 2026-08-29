@@ -220,7 +220,7 @@ fn normalize_yaml_folded_block_chomping(source : String) -> String {
   // moonbit-community/yaml erases folded-vs-literal style in Yaml::String.
   // Apple Pkl's parser fixtures expect plain `>` to behave like `>-`, so
   // normalize the source before loading instead of post-processing every string.
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut first = true
   for line in source.split("\n") {
     if first {
@@ -243,7 +243,7 @@ fn rewrite_yaml_folded_block_indicator_line(line : String) -> String {
     if chars[i] == '>' &&
       yaml_is_folded_block_indicator_position(chars, i) &&
       !yaml_block_indicator_has_chomping(chars, i) {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       for j = 0; j < chars.length(); j = j + 1 {
         buf.write_char(chars[j])
         if j == i {
