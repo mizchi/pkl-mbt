@@ -73,7 +73,7 @@ pub fn render_value_as_yaml_with_options(
   indent_width : Int,
   is_stream : Bool,
 ) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let step = yaml_normalize_indent_width(indent_width)
   if is_stream {
     render_yaml_stream_root(value, step, buf)
@@ -1308,7 +1308,7 @@ fn yaml_coerce_key(value : Value) -> String {
     BoolValue(false) => "false"
     NullValue => "null"
     _ => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       render_pcf_inline(value, 0, false, buf)
       buf.to_string()
     }

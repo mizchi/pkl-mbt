@@ -32,7 +32,7 @@ pub fn render_value_as_jsonnet_with_options(
   indent_text : String,
   omit_null_properties : Bool,
 ) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let ctx : JsonnetCtx = {
     indent_text,
     omit_null_properties,
@@ -96,6 +96,8 @@ fn jsonnet_emit_value(
     None => ()
   }
   match value {
+    ThunkValue(_) =>
+      jsonnet_emit_value(force_eval_thunk(value), indent, ctx, buf)
     NullValue => buf.write_string("null")
     DeferredImportValue(_) => buf.write_string("null")
     BoolValue(true) => buf.write_string("true")
@@ -409,7 +411,7 @@ fn jsonnet_quoted_string(s : String) -> String {
   let has_single = string_contains_char(s, '\'')
   let has_double = string_contains_char(s, '"')
   let use_double = has_single && !has_double
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   if use_double {
     buf.write_char('"')
   } else {
@@ -461,7 +463,7 @@ fn jsonnet_write_escaped_char(
 ///|
 fn jsonnet_hex4(code : Int) -> String {
   let digits = "0123456789abcdef"
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_char(digits[(code >> 12) & 0xf].to_int().unsafe_to_char())
   buf.write_char(digits[(code >> 8) & 0xf].to_int().unsafe_to_char())
   buf.write_char(digits[(code >> 4) & 0xf].to_int().unsafe_to_char())

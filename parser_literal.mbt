@@ -68,7 +68,7 @@ fn parse_float_text(text : String) -> Double {
   // to the platform double parser. Hand-rolled `mantissa / 10^exp`
   // underflows the subnormal edge (`4.9E-324`) to zero; the native
   // parser keeps IEEE-754's minimum positive Double.
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for c in text.iter() {
     if c != '_' {
       buf.write_char(c)
@@ -273,7 +273,7 @@ fn assemble_string_parts(inner : String, hash_count : Int) -> Expr {
     }
   }
   let parts : Array[Expr] = []
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut buf_has_content = false
   let mut i = 0
   while i < inner.length() {
@@ -477,7 +477,7 @@ fn strip_heredoc_indent(body : String) -> String {
     }
   }
   // Walk each line, strip the indent prefix when present.
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut i = start
   let mut at_line_start = true
   while i < body_end {
@@ -539,7 +539,7 @@ fn unquote(text : String) -> String {
 
 ///|
 fn decode_string_escapes(text : String) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut i = 0
   while i < text.length() {
     let c = text[i].to_int().unsafe_to_char()
@@ -575,7 +575,15 @@ fn decode_string_escapes(text : String) -> String {
           j = j + 1
         }
         if j < text.length() && text[j].to_int().unsafe_to_char() == '}' {
-          buf.write_char(code.unsafe_to_char())
+          // Apple Pkl accepts a lone UTF-16 surrogate escape but
+          // normalizes it to `?`. Passing D800-DFFF to MoonBit's
+          // `unsafe_to_char` creates an invalid String and later
+          // operations such as `char_length` abort.
+          if code >= 0xd800 && code <= 0xdfff {
+            buf.write_char('?')
+          } else {
+            buf.write_char(code.unsafe_to_char())
+          }
           i = j + 1
           continue
         }

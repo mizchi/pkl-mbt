@@ -17,6 +17,216 @@ priv struct StdlibProbe {
 }
 
 ///|
+priv struct StdlibPublicSymbol {
+  kind : String
+  name : String
+}
+
+///|
+fn stdlib_symbol_name(token : String) -> String {
+  let buf = StringBuilder()
+  for c in token {
+    if c == ':' || c == '=' || c == '(' || c == '<' || c == '{' {
+      break
+    }
+    buf.write_char(c)
+  }
+  buf.to_string()
+}
+
+///|
+fn stdlib_decl_modifier(word : String) -> Bool {
+  word == "abstract" ||
+  word == "open" ||
+  word == "external" ||
+  word == "hidden" ||
+  word == "fixed" ||
+  word == "const"
+}
+
+///|
+fn stdlib_public_symbols(source : String) -> Array[StdlibPublicSymbol] {
+  let result : Array[StdlibPublicSymbol] = []
+  for raw_line in source.split("\n") {
+    let line = raw_line.to_owned()
+    if line == "" {
+      continue
+    }
+    let first_char = line[0].to_int().unsafe_to_char()
+    if first_char == ' ' ||
+      first_char == '\t' ||
+      first_char == '/' ||
+      first_char == '@' {
+      continue
+    }
+    let words = line.split(" ").collect()
+    let compact : Array[String] = []
+    let mut has_local_modifier = false
+    for raw_word in words {
+      let word = raw_word.to_owned()
+      if word == "" {
+        continue
+      }
+      if word == "local" {
+        has_local_modifier = true
+      }
+      compact.push(word)
+    }
+    if has_local_modifier || compact.length() == 0 {
+      continue
+    }
+    let mut index = 0
+    while index < compact.length() && stdlib_decl_modifier(compact[index]) {
+      index += 1
+    }
+    if index >= compact.length() {
+      continue
+    }
+    let head = compact[index]
+    if head == "class" || head == "function" || head == "typealias" {
+      if index + 1 < compact.length() {
+        let name = stdlib_symbol_name(compact[index + 1])
+        if name != "" {
+          result.push({ kind: head, name })
+        }
+      }
+      continue
+    }
+    if head == "module" ||
+      head == "import" ||
+      head == "amends" ||
+      head == "extends" {
+      continue
+    }
+    if line.find(":") is Some(_) || line.find("=") is Some(_) {
+      let name = stdlib_symbol_name(head)
+      if name != "" {
+        result.push({ kind: "property", name })
+      }
+    }
+  }
+  result
+}
+
+///|
+fn stdlib_uri_for_path(path : String) -> String? {
+  let parts = path.split("/").collect()
+  if parts.length() == 0 {
+    return None
+  }
+  let filename = parts[parts.length() - 1].to_owned()
+  if filename == "doc-package-info.pkl" || !filename.has_suffix(".pkl") {
+    return None
+  }
+  let name = String::unsafe_substring(
+    filename,
+    start=0,
+    end=filename.length() - 4,
+  )
+  Some("pkl:" + name)
+}
+
+///|
+fn stdlib_symbol_probe_source(
+  uri : String,
+  symbol : StdlibPublicSymbol,
+) -> String {
+  if symbol.kind == "class" || symbol.kind == "typealias" {
+    "import \"\{uri}\" as stdlib\nprobe: stdlib.\{symbol.name}? = null"
+  } else {
+    "import \"\{uri}\" as stdlib\nprobe = stdlib.\{symbol.name}"
+  }
+}
+
+///|
+fn stdlib_missing_symbol_diagnostic(
+  message : String,
+  symbol : StdlibPublicSymbol,
+) -> Bool {
+  if symbol.kind == "class" || symbol.kind == "typealias" {
+    message.has_prefix("Cannot find type `stdlib.") &&
+    message.find("stdlib.\{symbol.name}") is Some(_)
+  } else {
+    message == "Cannot find property `\{symbol.name}`."
+  }
+}
+
+///|
+test "stdlib symbol differential ignores unrelated imported diagnostics" {
+  let symbol : StdlibPublicSymbol = { kind: "property", name: "current" }
+  inspect(
+    stdlib_missing_symbol_diagnostic("Cannot find property `List`.", symbol),
+    content="false",
+  )
+  inspect(
+    stdlib_missing_symbol_diagnostic("Cannot find property `current`.", symbol),
+    content="true",
+  )
+  let class_symbol : StdlibPublicSymbol = { kind: "class", name: "Release" }
+  inspect(
+    stdlib_missing_symbol_diagnostic(
+      "Cannot find type `stdlib.Release?`.", class_symbol,
+    ),
+    content="true",
+  )
+}
+
+///|
+fn run_stdlib_symbol_check(args : Array[String], start : Int) -> Unit {
+  let mut total = 0
+  let mut failed = 0
+  for i = start; i < args.length(); i = i + 1 {
+    let path = args[i]
+    let uri = match stdlib_uri_for_path(path) {
+      Some(value) => value
+      None => continue
+    }
+    let source = @fs.read_file_to_string(path) catch {
+      _ => {
+        failed += 1
+        println("[FAIL] \{uri}: cannot read \{path}")
+        continue
+      }
+    }
+    let symbols = stdlib_public_symbols(source)
+    let mut module_failed = 0
+    for symbol in symbols {
+      total += 1
+      let session = @pkl.AnalysisSession::new()
+      session.set_source(
+        "__stdlib_symbol_probe__.pkl",
+        stdlib_symbol_probe_source(uri, symbol),
+      )
+      match session.typecheck_path("__stdlib_symbol_probe__.pkl") {
+        TypeOk(_) => ()
+        TypeError(diagnostics) => {
+          let missing = diagnostics.any(fn(diagnostic) {
+            stdlib_missing_symbol_diagnostic(diagnostic.message, symbol)
+          })
+          if missing {
+            failed += 1
+            module_failed += 1
+            println("[FAIL] \{uri} :: \{symbol.kind} \{symbol.name}")
+            for diagnostic in diagnostics {
+              if stdlib_missing_symbol_diagnostic(diagnostic.message, symbol) {
+                println("       diagnostic: \{diagnostic.message}")
+              }
+            }
+          }
+        }
+      }
+    }
+    if module_failed == 0 {
+      println("[PASS] \{uri}: \{symbols.length()} public symbols")
+    }
+  }
+  println("stdlib-symbols: \{total - failed} / \{total} resolved")
+  if failed > 0 {
+    @sys.exit(1)
+  }
+}
+
+///|
 let stdlib_probes : Array[StdlibProbe] = [
   // pkl:base — value-variant + builtin operations.
   {

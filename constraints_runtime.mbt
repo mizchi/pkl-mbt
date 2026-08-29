@@ -293,7 +293,7 @@ fn pkl_constrained_listing_rejection_message_from_source(
       if violated {
         // Render the rejected Listing using PCF inline form so the
         // user sees what was rejected.
-        let buf = StringBuilder::new()
+        let buf = StringBuilder()
         render_listing_for_diag(elements, buf)
         return Some(
           "Type constraint `\{trimmed}` violated. Value: \{buf.to_string()}",

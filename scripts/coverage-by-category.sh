@@ -22,7 +22,7 @@ cd "$ROOT"
 
 UPSTREAM="third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input"
 GOLD="third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/output"
-MPKL="_build/native/release/build/cmd/mpkl/mpkl.exe"
+MPKL="${PKL_MBT_COVERAGE_MPKL:-_build/native/release/build/cmd/mpkl/mpkl.exe}"
 # PKL-150 (#258): Apple ships pre-extracted packages under
 # `pkl-commons-test/src/main/files/packages/<name>@<version>/`, which
 # is exactly the layout `--package-cache` expects. Point at it so
@@ -35,7 +35,9 @@ PKG_CACHE="third_party/apple-pkl/pkl-commons-test/src/main/files/packages"
 # coverage` keys the task on MoonBit sources, but this script executes the
 # release artifact directly for speed; only checking for existence can reuse a
 # stale binary after source edits.
-moon build --target native --release >/dev/null 2>&1
+if [ -z "${PKL_MBT_COVERAGE_SKIP_BUILD:-}" ]; then
+  moon build --target native --release >/dev/null 2>&1
+fi
 
 PROBE="$(mktemp)"
 STATUS="$(mktemp)"
@@ -90,6 +92,12 @@ cd "$ROOT"
 
 xargs -I {} -P 8 "$PROBE" {} < "$STATUS.fixtures" > "$STATUS"
 rm -f "$STATUS.fixtures"
+
+if awk -F'|' '$2 == "DIFF" { found = 1 } END { exit !found }' "$STATUS"; then
+  printf 'DIFF fixtures:\n'
+  awk -F'|' '$2 == "DIFF" { printf "  %s\n", $1 }' "$STATUS" | sort
+  printf '\n'
+fi
 
 awk -F'|' '
 {

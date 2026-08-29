@@ -301,6 +301,9 @@ fn eval_callable_argument_type_rejection_message(
       if eval_type_name_is_type_parameter(source, declarations) {
         return None
       }
+      if reference_value_satisfies_annotation(source, value, declarations) {
+        return None
+      }
       let aliases = eval_type_alias_bindings(declarations)
       let resolved = eval_resolved_type_alias(source, aliases)
       // PKL-148t: alias resolution may produce a union shape
@@ -643,6 +646,7 @@ fn cast_callable_collection_annotation(
 /// fails to parse.
 fn eval_callable_runtime_constraint_message(
   type_name : String?,
+  diagnostic_type_name : String?,
   value : Value,
   bindings : Array[Binding],
   class_env : Array[ClassBinding],
@@ -660,7 +664,16 @@ fn eval_callable_runtime_constraint_message(
     None => return None
   }
   let parts = pkl_split_constraint_arguments(text)
-  for part in parts {
+  let diagnostic_parts = match diagnostic_type_name {
+    Some(display_source) =>
+      match pkl_constrained_type_constraint_text(display_source) {
+        Some(display_text) => pkl_split_constraint_arguments(display_text)
+        None => parts
+      }
+    None => parts
+  }
+  for part_index = 0; part_index < parts.length(); part_index = part_index + 1 {
+    let part = parts[part_index]
     let expr = match parse_constraint_expression(part) {
       Some(e) => e
       None => continue
@@ -695,6 +708,43 @@ fn eval_callable_runtime_constraint_message(
     match probe {
       Some(BoolValue(true)) => continue
       Some(BoolValue(false)) => {
+        let nested_violation_value : Value? = match rewritten {
+          BinaryExpr(Is, nested_target_expr, Identifier(nested_type)) =>
+            match pkl_constrained_type_constraint_text(nested_type) {
+              Some(_) => {
+                let nested_target_diags : Array[Diagnostic] = []
+                let nested_target = eval_expr_with_bindings(
+                  nested_target_expr, bindings, pred_env, class_env, captured_env,
+                  stack, declarations, nested_target_diags, resolve_import,
+                )
+                match nested_target {
+                  Some(target_value) => {
+                    let nested_base = match
+                      pkl_constrained_type_base_name(nested_type) {
+                      Some(base) => base
+                      None => nested_type
+                    }
+                    if eval_value_matches_type_annotation(
+                        nested_base, target_value, class_env, declarations,
+                      ) {
+                      let nested_env = copy_value_bindings(captured_env)
+                      nested_env.push({ name: "this", value: target_value })
+                      let nested_diags : Array[Diagnostic] = []
+                      eval_expr_with_bindings(
+                        nested_target_expr, bindings, nested_env, class_env, captured_env,
+                        stack, declarations, nested_diags, resolve_import,
+                      )
+                    } else {
+                      None
+                    }
+                  }
+                  None => None
+                }
+              }
+              None => None
+            }
+          _ => None
+        }
         let hint = match pkl_constrained_type_base_name(source) {
           Some(base) =>
             if base == "Int" ||
@@ -716,10 +766,22 @@ fn eval_callable_runtime_constraint_message(
             }
           None => None
         }
+        let rendered_violation_value = match nested_violation_value {
+          Some(nested_value) =>
+            render_pcf_value_inline_compact(nested_value, None)
+          None => render_pcf_value_inline_compact(value, hint)
+        }
+        let diagnostic_part = if part_index < diagnostic_parts.length() {
+          diagnostic_parts[part_index]
+        } else {
+          part
+        }
         return Some(
-          "Type constraint `\{pretty_constraint_text(part)}` violated. Value: \{render_pcf_value_inline_compact(value, hint)}",
+          "Type constraint `\{pretty_constraint_text(strip_balanced_outer_type_parens(diagnostic_part))}` violated. Value: \{rendered_violation_value}",
         )
       }
+      None if diagnostic_type_name is Some(_) && probe_diags.length() > 0 =>
+        return Some(probe_diags[0].message)
       _ => continue
     }
   }
@@ -732,7 +794,7 @@ fn eval_callable_runtime_constraint_message(
 /// sites concise — the `Value: <text>` segment is a recurring shape
 /// in Apple Pkl's constraint / type-mismatch wording.
 fn render_pcf_value_inline(value : Value) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   match value {
     ObjectValue(members) =>
       // PKL-148bh: every typed ObjectValue now carries the
@@ -791,7 +853,7 @@ fn render_pcf_value_inline_compact(
   value : Value,
   class_hint : String?,
 ) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   match value {
     ObjectValue(members) => {
       buf.write_string("new ")
@@ -1228,8 +1290,15 @@ fn eval_lambda_application(
       // style parameter constraints (lambdas/typedLambdas).
       match
         eval_callable_runtime_constraint_message(
-          parameter_type_name, argument_value, bindings, class_env, captured_env,
-          stack, declarations, resolve_import,
+          parameter_type_name,
+          None,
+          argument_value,
+          bindings,
+          class_env,
+          captured_env,
+          stack,
+          declarations,
+          resolve_import,
         ) {
         Some(message) => {
           diagnostics.push(diag(message))
@@ -1455,8 +1524,15 @@ fn apply_function_value(
           // `this` bound to the argument.
           match
             eval_callable_runtime_constraint_message(
-              parameter_type_name, argument_value, bindings, class_env, captured_env,
-              stack, declarations, resolve_import,
+              parameter_type_name,
+              None,
+              argument_value,
+              bindings,
+              class_env,
+              captured_env,
+              stack,
+              declarations,
+              resolve_import,
             ) {
             Some(message) => {
               diagnostics.push(diag(message))
@@ -1897,6 +1973,89 @@ fn class_method_call_available(
 }
 
 ///|
+fn eval_evaluator_settings_method_call(
+  target_expr : Expr,
+  method_name : String,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let expected_arity = if method_name == "resolveForOs" { 2 } else { 1 }
+  if arguments.length() != expected_arity {
+    diagnostics.push(
+      diag(
+        "EvaluatorSettings.\{method_name} expects \{expected_arity} arguments, got \{arguments.length()}",
+      ),
+    )
+    return None
+  }
+  let settings = match
+    eval_expr_with_bindings(
+      target_expr, bindings, env, class_env, cache, stack, declarations, diagnostics,
+      resolve_import,
+    ) {
+    Some(ObjectValue(_) as value) => value
+    Some(_) => {
+      diagnostics.push(
+        diag("EvaluatorSettings.\{method_name} expects settings"),
+      )
+      return None
+    }
+    None => return None
+  }
+  let base_uri = match
+    eval_expr_with_bindings(
+      arguments[0],
+      bindings,
+      env,
+      class_env,
+      cache,
+      stack,
+      declarations,
+      diagnostics,
+      resolve_import,
+    ) {
+    Some(StringValue(uri)) => uri
+    Some(_) => {
+      diagnostics.push(diag("EvaluatorSettings.\{method_name} expects a URI"))
+      return None
+    }
+    None => return None
+  }
+  let windows = if method_name == "resolveForOs" {
+    match
+      eval_expr_with_bindings(
+        arguments[1],
+        bindings,
+        env,
+        class_env,
+        cache,
+        stack,
+        declarations,
+        diagnostics,
+        resolve_import,
+      ) {
+      Some(ObjectValue(os_members)) =>
+        match lookup_member(os_members, "name") {
+          Some(StringValue("Windows")) => true
+          _ => false
+        }
+      Some(_) => false
+      None => return None
+    }
+  } else {
+    false
+  }
+  evaluator_resolve_settings(settings, base_uri, windows)
+}
+
+///|
 fn mixin_apply_target_type_name(members : Array[ValueMember]) -> String? {
   match find_object_class_tag(members) {
     Some(tag) => generic_argument_text(tag, "Mixin")
@@ -2109,7 +2268,17 @@ fn eval_callable_call(
                   }
                   None => ()
                 }
-                return apply_mixin_pipe_value(target, members, diagnostics)
+                match
+                  materialize_mixin_members_for_target(
+                    members, target, bindings, env, class_env, cache, stack, declarations,
+                    diagnostics, resolve_import,
+                  ) {
+                  Some(materialized) =>
+                    return apply_mixin_pipe_value(
+                      target, materialized, diagnostics,
+                    )
+                  None => return None
+                }
               }
               None => return None
             }

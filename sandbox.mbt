@@ -200,7 +200,7 @@ fn sandbox_hex_value(c : UInt16) -> Int? {
 
 ///|
 fn sandbox_percent_decode(s : String) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut i = 0
   while i < s.length() {
     if s[i] == '%' && i + 2 < s.length() {
@@ -221,7 +221,7 @@ fn sandbox_percent_decode(s : String) -> String {
 
 ///|
 fn sandbox_percent_encode_resource_key(s : String) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for c in s.iter() {
     match c {
       ' ' => buf.write_string("%20")

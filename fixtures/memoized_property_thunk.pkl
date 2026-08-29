@@ -1,0 +1,29 @@
+import "pkl:test"
+
+import "../pkspec/QuickCheck.pkl" as quickCheck
+
+local holder = new {
+  callback = (value) -> value
+  broken = "value".missing
+  left = right
+  right = left
+}
+
+local checked =
+  quickCheck.checkAllInt("nonnegative",
+  12345,
+  16,
+  0,
+  20,
+  10, (value) -> value >= 0
+  )
+
+memoizedFunctionIdentity = holder.callback == holder.callback
+callbackResult = holder.callback.apply(42)
+firstFailure = test.catch(() -> holder.broken)
+secondFailure = test.catch(() -> holder.broken)
+cycleFailure = test.catch(() -> holder.left)
+quickCheckPassed = checked.passed
+quickCheckCases = checked.cases
+quickCheckNoFailure = checked.failure == null
+quickCheckSummary = checked.summary

@@ -379,8 +379,11 @@ fn module_snapshot_member_name(
 fn module_object_value_from_scope(
   bindings : Array[Binding],
   env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
   cache : Array[ValueBinding],
   stack : Array[String],
+  declarations : Array[Declaration],
+  resolve_import : (String) -> EvalResult?,
   const_context~ : Bool,
 ) -> Value {
   let module_members : Array[ValueMember] = []
@@ -412,6 +415,47 @@ fn module_object_value_from_scope(
     Some(StringValue(path)) => reflect_display_uri(Some(path))
     _ => ""
   }
+  let module_path = match lookup_value(cache, "@__module_path") {
+    Some(StringValue(path)) => Some(path)
+    _ => None
+  }
+  let module_source = match lookup_value(cache, "@__module_source") {
+    Some(StringValue(source)) => Some(source)
+    _ => None
+  }
+  let module_name = match lookup_value(cache, "@__module_name") {
+    Some(StringValue(name)) => Some(name)
+    _ => None
+  }
+  let module_prefix = reflect_module_short_name(module_path, module_name)
+  let module_properties = if lookup_value(cache, "@__reflect_annotation_eval")
+    is Some(_) {
+    MapValue([])
+  } else {
+    MapValue(
+      reflect_module_property_entries(
+        bindings,
+        module_members,
+        declarations,
+        module_prefix,
+        None,
+        module_path,
+        module_source,
+        env,
+        class_env,
+        cache,
+        resolve_import,
+      ),
+    )
+  }
+  let module_class = match synth_class_mirror_for_name("Module") {
+    ObjectValue(class_members) => {
+      class_members.push(reflect_member("properties", module_properties))
+      class_members.push(reflect_member("allProperties", module_properties))
+      ObjectValue(class_members)
+    }
+    value => value
+  }
   module_members.push({
     name: hidden_member_name(reflect_module_metadata_name()),
     value: ObjectValue([
@@ -428,7 +472,7 @@ fn module_object_value_from_scope(
       reflect_member("supermodule", supermodule),
       reflect_member("isAmend", BoolValue(is_amend)),
       reflect_member("modifiers", SetValue([])),
-      reflect_member("moduleClass", synth_class_mirror_for_name("Module")),
+      reflect_member("moduleClass", module_class),
     ]),
     source: None,
     annotations: [],
@@ -1484,6 +1528,99 @@ fn first_deferred_error_message(value : Value) -> String? {
 }
 
 ///|
+fn first_rendered_deferred_error_message(value : Value) -> String? {
+  match value {
+    // A pending property thunk has not failed yet. Error discovery belongs
+    // to the consumer that selects and forces it (member access, renderer,
+    // converter, or explicit `force_value`), not the module binding pass.
+    ThunkValue(_) => None
+    ObjectValue(members) => {
+      for field in members {
+        if is_error_member_name(field.name) {
+          let target = String::unsafe_substring(
+            field.name,
+            start=error_member_prefix.length(),
+            end=field.name.length(),
+          )
+          if !is_local_member_name(target) {
+            match field.value {
+              StringValue(message) => return Some(message)
+              _ => ()
+            }
+          }
+        }
+      }
+      for field in members {
+        if !is_invisible_member_name(field.name) {
+          match first_rendered_deferred_error_message(field.value) {
+            Some(message) => return Some(message)
+            None => ()
+          }
+        }
+      } nobreak {
+        None
+      }
+    }
+    ListingValue(elements) | ListValue(elements) | SetValue(elements) =>
+      for element in elements {
+        match first_rendered_deferred_error_message(element) {
+          Some(message) => return Some(message)
+          None => ()
+        }
+      } nobreak {
+        None
+      }
+    DefaultedListingValue(raw, elements, _) => {
+      for element in raw {
+        match first_rendered_deferred_error_message(element) {
+          Some(message) => return Some(message)
+          None => ()
+        }
+      }
+      for element in elements {
+        match first_rendered_deferred_error_message(element) {
+          Some(message) => return Some(message)
+          None => ()
+        }
+      } nobreak {
+        None
+      }
+    }
+    MappingValue(entries) | MapValue(entries) =>
+      first_rendered_deferred_error_message_in_entries(entries)
+    DefaultedMappingValue(raw, entries, _) =>
+      match first_rendered_deferred_error_message_in_entries(raw) {
+        Some(message) => Some(message)
+        None => first_rendered_deferred_error_message_in_entries(entries)
+      }
+    PairValue(first, second) =>
+      match first_rendered_deferred_error_message(first) {
+        Some(message) => Some(message)
+        None => first_rendered_deferred_error_message(second)
+      }
+    _ => deferred_error_message(value)
+  }
+}
+
+///|
+fn first_rendered_deferred_error_message_in_entries(
+  entries : Array[ValueEntry],
+) -> String? {
+  for entry in entries {
+    match first_rendered_deferred_error_message(entry.key) {
+      Some(message) => return Some(message)
+      None => ()
+    }
+    match first_rendered_deferred_error_message(entry.value) {
+      Some(message) => return Some(message)
+      None => ()
+    }
+  } nobreak {
+    None
+  }
+}
+
+///|
 fn first_deferred_error_message_in_entries(
   entries : Array[ValueEntry],
 ) -> String? {
@@ -1650,7 +1787,7 @@ fn render_listing_union_rejection_value(elements : Array[Value]) -> String {
   if elements.length() == 0 {
     return "new Listing {}"
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("new Listing { ")
   let mut masked_tail = false
   for i = 0; i < elements.length(); i = i + 1 {
@@ -1672,7 +1809,7 @@ fn render_listing_union_rejection_value(elements : Array[Value]) -> String {
 
 ///|
 fn normalize_type_name_commas(type_name : String) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut skip_spaces_after_comma = false
   for ch in type_name {
     if skip_spaces_after_comma && ch == ' ' {
@@ -2057,6 +2194,51 @@ fn apply_mixin_pipe_value(
 }
 
 ///|
+fn mixin_body_function_member_name() -> String {
+  "@hidden$__mixinBodyFunction"
+}
+
+///|
+fn materialize_mixin_members_for_target(
+  mixin_members : Array[ValueMember],
+  target : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Array[ValueMember]? {
+  match lookup_member(mixin_members, mixin_body_function_member_name()) {
+    Some(function_value) =>
+      match
+        apply_function_value(
+          "Mixin.apply",
+          function_value,
+          [target],
+          bindings,
+          env,
+          class_env,
+          cache,
+          stack,
+          declarations,
+          diagnostics,
+          resolve_import,
+        ) {
+        Some(ObjectValue(materialized)) => Some(materialized)
+        Some(_) => {
+          diagnostics.push(diag("Mixin body must evaluate to an object."))
+          None
+        }
+        None => None
+      }
+    None => Some(mixin_members)
+  }
+}
+
+///|
 fn object_members_are_mixin_body(members : Array[ValueMember]) -> Bool {
   let mut has_visible = false
   for value_member in members {
@@ -2074,7 +2256,7 @@ fn object_members_are_mixin_body(members : Array[ValueMember]) -> Bool {
 
 ///|
 fn render_bytes_value_inline(bytes : Bytes) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("Bytes(")
   for i = 0; i < bytes.length(); i = i + 1 {
     if i > 0 {
@@ -2372,31 +2554,97 @@ fn type_annotation_has_collection_union(
 }
 
 ///|
-fn type_annotation_is_unsubstituted_parameterized_alias(
+fn type_alias_identifier_char(c : Char) -> Bool {
+  (c >= 'a' && c <= 'z') ||
+  (c >= 'A' && c <= 'Z') ||
+  (c >= '0' && c <= '9') ||
+  c == '_'
+}
+
+///|
+fn substitute_type_alias_parameter(
+  source : String,
+  parameter : String,
+  argument : String,
+) -> String {
+  if parameter == "" {
+    return source
+  }
+  let buf = StringBuilder()
+  let mut i = 0
+  while i < source.length() {
+    let matches = i + parameter.length() <= source.length() &&
+      String::unsafe_substring(source, start=i, end=i + parameter.length()) ==
+      parameter
+    let left_ok = i == 0 ||
+      !type_alias_identifier_char(source[i - 1].to_int().unsafe_to_char())
+    let right_index = i + parameter.length()
+    let right_ok = right_index >= source.length() ||
+      !type_alias_identifier_char(source[right_index].to_int().unsafe_to_char())
+    if matches && left_ok && right_ok {
+      buf.write_string(argument)
+      i = right_index
+    } else {
+      buf.write_char(source[i].to_int().unsafe_to_char())
+      i = i + 1
+    }
+  }
+  buf.to_string()
+}
+
+///|
+fn resolve_parameterized_type_alias(
   type_name : String,
   declarations : Array[Declaration],
-) -> Bool {
+) -> String? {
   let normalized = strip_balanced_outer_type_parens(
     pkl_strip_default_type_marker(pkl_constraint_trim(type_name)),
   )
-  let base = match pkl_constrained_type_base_name(normalized) {
-    Some(b) => b
-    None => normalized
-  }
-  let head = match base.find("<") {
-    Some(idx) => String::unsafe_substring(base, start=0, end=idx)
-    None => return false
-  }
   for declaration in declarations {
     match declaration {
       TypeAliasDeclaration(type_alias) =>
-        if type_alias.name == head && type_alias.type_parameters.length() > 0 {
-          return true
+        match generic_argument_text(normalized, type_alias.name) {
+          Some(inner) => {
+            let arguments = split_top_level_generic_arguments(inner)
+            if arguments.length() != type_alias.type_parameters.length() {
+              return None
+            }
+            let mut result = type_alias.target
+            for i = 0; i < arguments.length(); i = i + 1 {
+              result = substitute_type_alias_parameter(
+                result,
+                type_alias.type_parameters[i],
+                arguments[i],
+              )
+            }
+            return Some(result)
+          }
+          None => ()
         }
       ClassDeclaration(_) | FunctionDeclaration(_) => ()
     }
   }
-  false
+  None
+}
+
+///|
+fn parameterized_type_alias_source(
+  type_name : String,
+  declarations : Array[Declaration],
+) -> String? {
+  let normalized = strip_balanced_outer_type_parens(
+    pkl_strip_default_type_marker(pkl_constraint_trim(type_name)),
+  )
+  for declaration in declarations {
+    match declaration {
+      TypeAliasDeclaration(type_alias) =>
+        if generic_argument_text(normalized, type_alias.name) is Some(_) {
+          return Some(type_alias.target)
+        }
+      ClassDeclaration(_) | FunctionDeclaration(_) => ()
+    }
+  }
+  None
 }
 
 ///|
@@ -2478,7 +2726,7 @@ fn as_cast_compact_mapping_text(entries : Array[ValueEntry]) -> String {
   if entries.length() == 0 {
     return "new Mapping {}"
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("new Mapping { ")
   for i = 0; i < entries.length(); i = i + 1 {
     if i > 0 {
@@ -2498,7 +2746,7 @@ fn as_cast_compact_listing_text(elements : Array[Value]) -> String {
   if elements.length() == 0 {
     return "new Listing {}"
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("new Listing { ")
   for i = 0; i < elements.length(); i = i + 1 {
     if i > 0 {
@@ -2543,7 +2791,7 @@ fn as_cast_rejected_value_inline(value : Value) -> String {
 
 ///|
 fn render_unknown_listing_for_diag(elements : Array[Value]) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   if elements.length() == 0 {
     return "new Listing {}"
   }
@@ -2593,7 +2841,7 @@ fn render_collection_union_rejection_value(value : Value) -> String {
     ListingValue(elements) | DefaultedListingValue(_, elements, _) =>
       render_listing_union_rejection_value(elements)
     ListValue(elements) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_string("List(")
       for i = 0; i < elements.length(); i = i + 1 {
         if i > 0 {
@@ -2605,7 +2853,7 @@ fn render_collection_union_rejection_value(value : Value) -> String {
       buf.to_string()
     }
     SetValue(elements) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_string("Set(")
       for i = 0; i < elements.length(); i = i + 1 {
         if i > 0 {
@@ -2617,7 +2865,7 @@ fn render_collection_union_rejection_value(value : Value) -> String {
       buf.to_string()
     }
     MappingValue(entries) | DefaultedMappingValue(_, entries, _) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_string("new Mapping { ")
       for i = 0; i < entries.length(); i = i + 1 {
         if i > 0 {
@@ -3154,6 +3402,7 @@ fn cast_value_to_single_type_annotation(
   match
     eval_callable_runtime_constraint_message(
       Some(resolved_type),
+      parameterized_type_alias_source(display_type, declarations),
       value,
       bindings,
       class_env,
@@ -3335,10 +3584,18 @@ fn cast_value_to_type_annotation(
   declarations : Array[Declaration],
   resolve_import : (String) -> EvalResult?,
 ) -> TypeCastResult {
+  if reference_value_satisfies_annotation(display_type, value, declarations) {
+    return TypeCastOk(value)
+  }
   let aliases = eval_type_alias_bindings(declarations)
-  let resolved = strip_balanced_outer_type_parens(
-    eval_resolved_type_alias(display_type, aliases),
-  )
+  let resolved = match
+    resolve_parameterized_type_alias(display_type, declarations) {
+    Some(value) => strip_balanced_outer_type_parens(value)
+    None =>
+      strip_balanced_outer_type_parens(
+        eval_resolved_type_alias(display_type, aliases),
+      )
+  }
   if resolved == display_type && type_annotation_has_top_level_dot(display_type) {
     match value {
       ListingValue(_)
@@ -3352,12 +3609,6 @@ fn cast_value_to_type_annotation(
       | ObjectValue(_) => return TypeCastOk(value)
       _ => ()
     }
-  }
-  if resolved == display_type &&
-    type_annotation_is_unsubstituted_parameterized_alias(
-      display_type, declarations,
-    ) {
-    return TypeCastOk(value)
   }
   let choices = split_top_level_union_choices(resolved)
   if choices.length() > 1 {
@@ -3647,9 +3898,17 @@ fn eval_expr_with_bindings(
       })
       Some(
         ObjectValue(
-          eval_object_members(
-            members, bindings, env, class_env, body_cache, stack, declarations, diagnostics,
+          eval_object_members_with_options(
+            members,
+            bindings,
+            env,
+            class_env,
+            body_cache,
+            stack,
+            declarations,
+            diagnostics,
             resolve_import,
+            defer_property_errors=true,
           ),
         ),
       )
@@ -3811,6 +4070,39 @@ fn eval_expr_with_bindings(
         )
         return None
       }
+      // Pkl 0.32.1: an object-parameter Mixin (`new Mixin { it -> ... }`)
+      // is a closure over its body. Its members must be evaluated only when
+      // the mixin is applied, with the target object bound to `it`.
+      if type_name == "Mixin" || type_name.has_prefix("Mixin<") {
+        match collection_default_parameters(members) {
+          Some(parameters) => {
+            let captured = capture_value_bindings(env, cache)
+            let deferred_body = FunctionValue(
+              parameters,
+              ObjectLiteral(function_amend_regular_members(members)),
+              None,
+              captured,
+              fresh_function_id(),
+            )
+            return Some(
+              ObjectValue(
+                tag_object_with_class(
+                  [
+                    {
+                      name: mixin_body_function_member_name(),
+                      value: deferred_body,
+                      source: None,
+                      annotations: [],
+                    },
+                  ],
+                  type_name,
+                ),
+              ),
+            )
+          }
+          None => ()
+        }
+      }
       if type_name == "Listing" {
         for m in members {
           let bare = strip_member_visibility_prefix(m.name)
@@ -3843,27 +4135,19 @@ fn eval_expr_with_bindings(
       if type_name != "Listing" &&
         type_name != "List" &&
         type_name != "Dynamic" &&
-        type_name != "Object" {
+        type_name != "Object" &&
+        type_name != "Mixin" {
         let mut element_seen = false
-        let mut when_seen = false
         for m in members {
           if m.name.has_prefix("@element$") {
             element_seen = true
-          } else if m.name == "@when" {
-            when_seen = true
           }
         }
         if element_seen {
           let label = if type_name == "Mapping" {
-            if when_seen {
-              "new Mapping {}"
-            } else {
-              "Mapping"
-            }
+            "Mapping"
           } else if is_stdlib_class_name(type_name) {
             type_name
-          } else if when_seen {
-            "new \{type_name} {}"
           } else {
             let module_name = match lookup_value(cache, "@__module_name") {
               Some(StringValue(s)) => s
@@ -3890,7 +4174,8 @@ fn eval_expr_with_bindings(
         type_name != "Mapping" &&
         type_name != "Map" &&
         type_name != "Dynamic" &&
-        type_name != "Object" {
+        type_name != "Object" &&
+        type_name != "Mixin" {
         let mut entry_seen = false
         let mut when_seen = false
         for m in members {
@@ -3959,6 +4244,14 @@ fn eval_expr_with_bindings(
         name: "@__constructing_class",
         value: StringValue(type_name),
       })
+      // PKL-160: constructor bodies isolate expression failures per
+      // property, but class constraints keep their established forcing
+      // point in the constructor validation loop below. Class-default
+      // evaluation does not set this marker and continues to defer both.
+      body_cache.push({
+        name: "@__defer_expression_errors_only",
+        value: BoolValue(true),
+      })
       let merged = reeval_class_defaults_after_constructor_overrides(
         type_name,
         members,
@@ -3966,9 +4259,17 @@ fn eval_expr_with_bindings(
           merge_value_members(
             class_defaults,
             rename_overrides_for_hidden_class_properties(
-              eval_object_members(
-                members, body_bindings, env, class_env, body_cache, stack, declarations,
-                diagnostics, resolve_import,
+              eval_object_members_with_options(
+                members,
+                body_bindings,
+                env,
+                class_env,
+                body_cache,
+                stack,
+                declarations,
+                diagnostics,
+                resolve_import,
+                defer_property_errors=true,
               ),
               type_name,
               class_env,
@@ -3994,8 +4295,33 @@ fn eval_expr_with_bindings(
       // binding pass re-runs the check.
       let mut violation_emitted = false
       for field in members {
+        // PKL-162: local typed properties perform their type and constraint
+        // checks inside the thunk computation. Constructor validation must
+        // leave an unresolved handle pending until the first real access.
+        match lookup_value_member(merged, field.name) {
+          Some(value_member) if value_member.value is ThunkValue(_) => continue
+          _ => ()
+        }
+        // PKL-160: an expression-level failure captured by the lazy
+        // object-member evaluator belongs to this property. Do not turn
+        // its Null placeholder into an eager constructor type error; the
+        // `@error$<name>` sentinel is forced by member access instead.
+        if lookup_pending_error_message(merged, field.name) is Some(_) {
+          match lookup_value_member(merged, field.name) {
+            Some(value_member) if value_member.source is None => continue
+            _ => ()
+          }
+        }
         match lookup_member(merged, field.name) {
-          Some(member_value) => {
+          Some(raw_member_value) => {
+            let member_value = coerce_value_to_annotated_type(
+              raw_member_value,
+              class_property_type_annotation_from_class_env(
+                type_name,
+                strip_member_visibility_prefix(field.name),
+                class_env,
+              ),
+            )
             // PKL-148i: enforce the declared type annotation first so
             // `new Person { name = 42 }` rejects with "Expected value
             // of type `String`, but got type `Int`. Value: 42" instead
@@ -4269,7 +4595,6 @@ fn eval_expr_with_bindings(
       // element (`new Mapping { "pigeon" }`) carries an `@element$`
       // sentinel key. Raise Apple Pkl's "cannot have an element"
       // wording before the entries get rendered.
-      let mut mapping_when_seen = false
       for entry in entries {
         if collection_local_binding_from_expr(entry.key) is Some(_) {
           continue
@@ -4278,16 +4603,11 @@ fn eval_expr_with_bindings(
           continue
         }
         match entry.key {
-          WhenSpread(_) => mapping_when_seen = true
+          WhenSpread(_) => ()
           Identifier(name) =>
             if name.has_prefix("@element$") {
-              let label = if mapping_when_seen {
-                "new Mapping {}"
-              } else {
-                "Mapping"
-              }
               diagnostics.push(
-                diag("Object of type `\{label}` cannot have an element."),
+                diag("Object of type `Mapping` cannot have an element."),
               )
               return None
             }
@@ -4606,6 +4926,19 @@ fn eval_expr_with_bindings(
         }
       } else if target_expr is Identifier("module") {
         if stack.length() > 0 && member_name == stack[stack.length() - 1] {
+          // A retained property thunk is forced after its enclosing module
+          // binding has finished constructing, but it intentionally keeps
+          // the construction stack and lexical environment. The object-body
+          // evaluator records the partial module member under the inflight
+          // binding name in that environment; consult it before re-entering
+          // the module binding and reporting a false cycle.
+          match lookup_value(env, member_name) {
+            Some(ObjectValue(snapshot)) =>
+              if visible_members(snapshot).length() > 0 {
+                return Some(ObjectValue(snapshot))
+              }
+            _ => ()
+          }
           match lookup_value(cache, "outer") {
             Some(ObjectValue(snapshot)) =>
               if visible_members(snapshot).length() > 0 {
@@ -4653,8 +4986,17 @@ fn eval_expr_with_bindings(
         }
         match
           resolve_binding_value(
-            member_name, prefer_module_bindings, env, class_env, cache, stack, declarations,
-            diagnostics, resolve_import,
+            // `module.X` is rooted at module scope; object-body sibling
+            // handles in the implicit env must never shadow that binding.
+            member_name,
+            prefer_module_bindings,
+            [],
+            class_env,
+            cache,
+            stack,
+            declarations,
+            diagnostics,
+            resolve_import,
           ) {
           Some(value) => Some(value)
           None =>
@@ -4767,6 +5109,11 @@ fn eval_expr_with_bindings(
                                         _ => None
                                       },
                                       [],
+                                      bindings,
+                                      env,
+                                      class_env,
+                                      cache,
+                                      resolve_import,
                                     ),
                                   ),
                                 )
@@ -4830,7 +5177,22 @@ fn eval_expr_with_bindings(
                     // member with the actual (type-invalid) value is left
                     // in place for equality / iteration but is unreachable
                     // through this lookup path.
-                    if object_class_tag_matches(members, "Resource") &&
+                    if member_name == "$" {
+                      match lookup_member(members, member_name) {
+                        Some(reference) =>
+                          Some(
+                            reference_rebind_data(
+                              reference,
+                              ObjectValue(members),
+                            ),
+                          )
+                        None => None
+                      }
+                    } else if is_reference_value_members(members) {
+                      eval_reference_property_access(
+                        members, member_name, class_env, declarations, cache,
+                      )
+                    } else if object_class_tag_matches(members, "Resource") &&
                       resource_property_name(member_name) {
                       eval_resource_property(members, member_name, diagnostics)
                     } else if member_name == "output" {
@@ -5364,21 +5726,29 @@ fn eval_expr_with_bindings(
           None
         }
         (Some(ObjectValue(members)), Some(key_value)) =>
-          match
-            dynamic_object_subscript_value(members, key_value, diagnostics) {
-            Some(value) =>
-              match deferred_error_message(value) {
-                Some(message) => {
-                  diagnostics.push(diag(message))
-                  None
+          if is_reference_value_members(members) {
+            eval_reference_subscript_access(
+              members, key_value, class_env, declarations, cache,
+            )
+          } else {
+            match
+              dynamic_object_subscript_value(members, key_value, diagnostics) {
+              Some(value) =>
+                match deferred_error_message(value) {
+                  Some(message) => {
+                    diagnostics.push(diag(message))
+                    None
+                  }
+                  None => Some(value)
                 }
-                None => Some(value)
+              None => {
+                diagnostics.push(
+                  diag(
+                    "Cannot find key `\{render_pcf_value_inline(key_value)}`.",
+                  ),
+                )
+                None
               }
-            None => {
-              diagnostics.push(
-                diag("Cannot find key `\{render_pcf_value_inline(key_value)}`."),
-              )
-              None
             }
           }
         (Some(MappingValue(entries)), Some(key_value))
@@ -5434,7 +5804,7 @@ fn eval_expr_with_bindings(
           if index64 >= 0L && index < code_points.length() {
             Some(StringValue(code_points[index]))
           } else {
-            let buf = StringBuilder::new()
+            let buf = StringBuilder()
             render_pcf_scalar(StringValue(s), buf)
             diagnostics.push(
               diag(
@@ -5780,8 +6150,11 @@ fn eval_expr_with_bindings(
           module_object_value_from_scope(
             bindings,
             env,
+            class_env,
             cache,
             stack,
+            declarations,
+            resolve_import,
             const_context=false,
           ),
         )
@@ -5849,6 +6222,11 @@ fn eval_expr_with_bindings(
         )
         is Some(xml_value) {
         Some(xml_value)
+      } else if is_pkl_ref_constructor_call(callee, env, cache) {
+        eval_pkl_ref_constructor(
+          arguments, bindings, env, class_env, cache, stack, declarations, diagnostics,
+          resolve_import,
+        )
       } else if callee is Identifier("@__typed_listing") &&
         arguments.length() == 2 {
         match arguments[0] {
@@ -6360,7 +6738,7 @@ fn eval_expr_with_bindings(
           ) {
           Some(StringValue(s)) => {
             let pieces : Array[String] = []
-            let cur = StringBuilder::new()
+            let cur = StringBuilder()
             for c in s {
               if c == '\'' {
                 pieces.push(cur.to_string())
@@ -6370,7 +6748,7 @@ fn eval_expr_with_bindings(
               }
             }
             pieces.push(cur.to_string())
-            let out = StringBuilder::new()
+            let out = StringBuilder()
             for i = 0; i < pieces.length(); i = i + 1 {
               if i > 0 {
                 out.write_string("\\'")
@@ -6528,6 +6906,18 @@ fn eval_expr_with_bindings(
           callee, arguments, bindings, env, class_env, cache, stack, declarations,
           diagnostics, resolve_import,
         )
+      } else if is_pkl_evaluator_settings_intrinsic_call(
+          callee, bindings, stack,
+        ) {
+        eval_pkl_evaluator_settings_intrinsic(
+          callee, arguments, bindings, env, class_env, cache, stack, declarations,
+          diagnostics, resolve_import,
+        )
+      } else if is_pkl_ref_intrinsic_call(callee, bindings, stack) {
+        eval_pkl_ref_intrinsic(
+          callee, arguments, bindings, env, class_env, cache, stack, declarations,
+          diagnostics, resolve_import,
+        )
       } else if callee is Identifier("Regex") &&
         !stack_contains_binding(stack, "Regex") &&
         find_binding(bindings, "Regex") is None {
@@ -6588,6 +6978,11 @@ fn eval_expr_with_bindings(
               eval_class_method_call(
                 target_expr, method_name, arguments, false, bindings, env, class_env,
                 cache, stack, declarations, diagnostics, resolve_import,
+              )
+            } else if method_name == "resolveForOs" || method_name == "resolve" {
+              eval_evaluator_settings_method_call(
+                target_expr, method_name, arguments, bindings, env, class_env, cache,
+                stack, declarations, diagnostics, resolve_import,
               )
             } else if method_name == "getClass" && arguments.length() == 0 {
               // PKL-148: `value.getClass()` returns a `pkl:reflect.Class`
@@ -7531,7 +7926,7 @@ fn eval_expr_with_bindings(
       }
       let body_env = copy_value_bindings(env)
       let body_cache = copy_value_bindings(cache)
-      body_env.push({ name, value })
+      push_lexical_value_binding(body_env, name, value)
       eval_expr_with_bindings(
         body, bindings, body_env, class_env, body_cache, stack, declarations, diagnostics,
         resolve_import,
@@ -7890,9 +8285,17 @@ fn eval_expr_with_bindings(
                     )
                     match left_value {
                       Some(left_val) =>
-                        return apply_mixin_pipe_value(
-                          left_val, mixin_members, diagnostics,
-                        )
+                        match
+                          materialize_mixin_members_for_target(
+                            mixin_members, left_val, bindings, env, class_env, cache,
+                            stack, declarations, diagnostics, resolve_import,
+                          ) {
+                          Some(materialized) =>
+                            return apply_mixin_pipe_value(
+                              left_val, materialized, diagnostics,
+                            )
+                          None => return None
+                        }
                       None => return None
                     }
                   }
@@ -7943,9 +8346,30 @@ fn eval_expr_with_bindings(
       match (left, right) {
         (Some(IntValue(a)), Some(IntValue(b))) =>
           match op {
-            Add => Some(IntValue(a + b))
-            Subtract => Some(IntValue(a - b))
-            Multiply => Some(IntValue(a * b))
+            Add =>
+              match checked_int64_add(a, b) {
+                Some(value) => Some(IntValue(value))
+                None => {
+                  diagnostics.push(diag("Integer overflow."))
+                  None
+                }
+              }
+            Subtract =>
+              match checked_int64_sub(a, b) {
+                Some(value) => Some(IntValue(value))
+                None => {
+                  diagnostics.push(diag("Integer overflow."))
+                  None
+                }
+              }
+            Multiply =>
+              match checked_int64_mul(a, b) {
+                Some(value) => Some(IntValue(value))
+                None => {
+                  diagnostics.push(diag("Integer overflow."))
+                  None
+                }
+              }
             Divide =>
               // PKL-092: `/` widens to Float when both operands are Int,
               // mirroring Apple Pkl's `Int.div` semantics (`5 / 2 = 2.5`).
@@ -8544,7 +8968,7 @@ fn eval_expr_with_bindings(
     // `value_to_string_for_join`, which already handles every Value
     // variant (used by `Listing.join`).
     InterpolatedString(parts) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       let mut ok = true
       for part in parts {
         match
@@ -9119,6 +9543,11 @@ fn push_mixin_object_member(
 /// back to the mixin value (replace) since Apple Pkl's semantics for
 /// non-merge-eligible shapes is "the right side wins".
 fn mixin_merge_member_values(left : Value, right : Value) -> Value {
+  // Mixin application consumes both nested members. A thunk-backed
+  // `converters` mapping must be merged by shape, not replaced merely
+  // because its handle has not been forced yet.
+  let left = force_eval_thunk(left)
+  let right = force_eval_thunk(right)
   match (left, right) {
     (MappingValue(left_entries), MappingValue(right_entries))
     | (DefaultedMappingValue(_, left_entries, _), MappingValue(right_entries))
@@ -9527,8 +9956,11 @@ fn reeval_class_defaults_after_constructor_overrides(
       value: module_object_value_from_scope(
         bindings,
         env,
+        class_env,
         cache,
         stack,
+        declarations,
+        resolve_import,
         const_context=true,
       ),
     })
@@ -9700,8 +10132,11 @@ fn reeval_class_defaults_after_method_overrides(
       value: module_object_value_from_scope(
         bindings,
         env,
+        class_env,
         cache,
         stack,
+        declarations,
+        resolve_import,
         const_context=true,
       ),
     })
@@ -10431,7 +10866,7 @@ fn renderer_full_listing_text(elements : Array[Value]) -> String {
   if elements.length() == 0 {
     return "new Listing {}"
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("new Listing { ")
   for i = 0; i < elements.length(); i = i + 1 {
     if i > 0 {
@@ -10464,7 +10899,7 @@ fn renderer_placeholder_listing_text(elements : Array[Value]) -> String {
   if elements.length() == 0 {
     return "new Listing {}"
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("new Listing { ")
   for i = 0; i < elements.length(); i = i + 1 {
     if i > 0 {
@@ -10481,7 +10916,7 @@ fn renderer_placeholder_mapping_text(entries : Array[ValueEntry]) -> String {
   if entries.length() == 0 {
     return "new Mapping {}"
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("new Mapping { ")
   for i = 0; i < entries.length(); i = i + 1 {
     if i > 0 {
@@ -10505,7 +10940,7 @@ fn renderer_placeholder_object_text(members : Array[ValueMember]) -> String {
   if visible.length() == 0 {
     return "new \{class_name} {}"
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("new ")
   buf.write_string(class_name)
   buf.write_string(" { ")
@@ -10579,7 +11014,7 @@ fn renderer_yaml_mixed_object_text(members : Array[ValueMember]) -> String {
     None => "Dynamic"
   }
   let visible = visible_members(members)
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("new ")
   buf.write_string(class_name)
   if visible.length() == 0 {
@@ -10631,6 +11066,142 @@ fn renderer_write_subscript_member_value(
 }
 
 ///|
+fn evaluator_settings_http_header_name_error(name : String) -> String? {
+  let lower = name.to_lower()
+  match lower {
+    "connection"
+    | "content-length"
+    | "expect"
+    | "host"
+    | "keep-alive"
+    | "te"
+    | "trailer"
+    | "transfer-encoding"
+    | "upgrade" =>
+      return Some(
+        "Type constraint `isNotReservedHeaderName` violated. Value: \{render_pcf_value_inline(StringValue(name))}",
+      )
+    _ => ()
+  }
+  if lower.has_prefix("proxy-") || lower.has_prefix("sec-") {
+    return Some(
+      "Type constraint `doesNotStartWithReservedPrefix` violated. Value: \{render_pcf_value_inline(StringValue(name))}",
+    )
+  }
+  let mut valid = name.length() > 0
+  for c in name.iter() {
+    let alpha = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+    let digit = c >= '0' && c <= '9'
+    let punctuation = match c {
+      '!'
+      | '#'
+      | '$'
+      | '%'
+      | '&'
+      | '\''
+      | '*'
+      | '+'
+      | '-'
+      | '.'
+      | '^'
+      | '_'
+      | '`'
+      | '|'
+      | '~' => true
+      _ => false
+    }
+    if !alpha && !digit && !punctuation {
+      valid = false
+      break
+    }
+  }
+  if !valid {
+    Some(
+      "Type constraint `hasValidHeaderNameSyntax` violated. Value: \{render_pcf_value_inline(StringValue(name))}",
+    )
+  } else {
+    None
+  }
+}
+
+///|
+fn evaluator_settings_http_header_value_valid(value : String) -> Bool {
+  if value.char_length() >= 4096 {
+    return false
+  }
+  for c in value.iter() {
+    let code = c.to_int()
+    if code != 0x09 &&
+      !(code >= 0x20 && code <= 0x7e) &&
+      !(code >= 0x80 && code <= 0xff) {
+      return false
+    }
+  }
+  true
+}
+
+///|
+fn evaluator_settings_http_validation_error(value : Value) -> String? {
+  let members = match value {
+    ObjectValue(members) if object_class_tag_matches(members, "Http") => members
+    _ => return None
+  }
+  let outer_entries = match lookup_member(members, "headers") {
+    Some(MappingValue(entries)) | Some(DefaultedMappingValue(_, entries, _)) =>
+      entries
+    _ => return None
+  }
+  for outer_entry in outer_entries {
+    match outer_entry.key {
+      StringValue(pattern) =>
+        if !is_valid_pkl_glob_pattern(pattern) {
+          return Some(
+            "Type constraint `isGlobPattern` violated. Value: \{render_pcf_value_inline(StringValue(pattern))}",
+          )
+        }
+      _ => ()
+    }
+    let header_entries = match outer_entry.value {
+      MappingValue(entries) | DefaultedMappingValue(_, entries, _) => entries
+      _ => continue
+    }
+    for header_entry in header_entries {
+      match header_entry.key {
+        StringValue(name) =>
+          match evaluator_settings_http_header_name_error(name) {
+            Some(message) => return Some(message)
+            None => ()
+          }
+        _ => ()
+      }
+      let valid_value = match header_entry.value {
+        StringValue(text) => evaluator_settings_http_header_value_valid(text)
+        ListingValue(values) | DefaultedListingValue(_, values, _) => {
+          let mut valid = true
+          for item in values {
+            match item {
+              StringValue(text) =>
+                if !evaluator_settings_http_header_value_valid(text) {
+                  valid = false
+                }
+              _ => valid = false
+            }
+          }
+          valid
+        }
+        _ => false
+      }
+      if !valid_value {
+        return Some(
+          "Expected value of type `*Listing<HttpHeaderValue> | HttpHeaderValue`, but got a different `\{eval_value_type_name(header_entry.value)}`. Value: \{render_pcf_value_inline(header_entry.value)}",
+        )
+      }
+    }
+  }
+  None
+}
+
+///|
 fn eval_value_renderer_method(
   format : String,
   renderer_members : Array[ValueMember],
@@ -10666,6 +11237,13 @@ fn eval_value_renderer_method(
       resolve_import,
     ) {
     Some(value) => {
+      match evaluator_settings_http_validation_error(value) {
+        Some(message) => {
+          diagnostics.push(diag(message))
+          return None
+        }
+        None => ()
+      }
       let diagnostics_before_converters = diagnostics.length()
       let rendered_value = apply_value_renderer_converters(
         value, renderer_members, bindings, env, class_env, cache, declarations, diagnostics,
@@ -11342,7 +11920,11 @@ fn member_source_comes_from_base(
       find_value_member_exact(overrides, name),
     ) {
     (Some(base_member), Some(override_member)) =>
-      match (base_member.value, override_member.value) {
+      match
+        (
+          force_eval_thunk(base_member.value),
+          force_eval_thunk(override_member.value),
+        ) {
         (ObjectValue(_), ObjectValue(_)) => true
         _ => false
       }
@@ -11943,7 +12525,9 @@ fn merge_objects_with_late_binding(
     }
     match resolved_member {
       Some(over_member) => {
-        let new_val = match (bm.value, over_member.value) {
+        let base_value = force_eval_thunk(bm.value)
+        let override_value = force_eval_thunk(over_member.value)
+        let new_val = match (base_value, override_value) {
           (ObjectValue(inner_base), ObjectValue(inner_over)) =>
             ObjectValue(
               merge_objects_with_late_binding(
@@ -11952,9 +12536,9 @@ fn merge_objects_with_late_binding(
               ),
             )
           (_, ov) =>
-            deep_merge_amend_member_value(bm.value, ov, over_member.source)
+            deep_merge_amend_member_value(base_value, ov, over_member.source)
         }
-        let merged_source = match (bm.value, over_member.value) {
+        let merged_source = match (base_value, override_value) {
           (ObjectValue(_), ObjectValue(_)) => bm.source
           _ => over_member.source
         }
@@ -12012,7 +12596,7 @@ fn merge_objects_with_late_binding(
     if !is_invisible_member_name(m.name) ||
       is_local_member_name(m.name) ||
       is_hidden_member_name(m.name) {
-      match m.value {
+      match force_eval_thunk(m.value) {
         FunctionValue(params, body, return_type_name, _, id) =>
           local_env.push({
             name: bare,
@@ -12059,7 +12643,8 @@ fn merge_objects_with_late_binding(
               diagnostics, resolve_import,
             ) {
             Some(new_raw_val) => {
-              let new_val = match (new_raw_val, m.value) {
+              let current_value = force_eval_thunk(m.value)
+              let new_val = match (new_raw_val, current_value) {
                 (ObjectValue(reevaluated), ObjectValue(current)) =>
                   ObjectValue(
                     merge_reevaluated_object_preserving_overrides(
@@ -12083,10 +12668,10 @@ fn merge_objects_with_late_binding(
       None => ()
     }
     if !reeval_done {
-      let rebound_value = match m.value {
+      let rebound_value = match force_eval_thunk(m.value) {
         FunctionValue(params, body, return_type_name, _, id) =>
           FunctionValue(params, body, return_type_name, local_env, id)
-        _ => m.value
+        value => value
       }
       final_members.push({
         name: m.name,
@@ -12330,8 +12915,11 @@ fn resolve_object_super_member_value(
           module_object_value_from_scope(
             bindings,
             env,
+            class_env,
             cache,
             stack,
+            declarations,
+            resolve_import,
             const_context=false,
           ) {
           ObjectValue(owner_members) =>
@@ -12356,8 +12944,9 @@ fn resolve_object_super_member_value(
 /// `diagnostics` array. The ObjectValue access path picks the
 /// sentinel up at `obj.<name>` time, raises the diag, and short-
 /// circuits — matching Apple Pkl's lazy per-property class-default
-/// semantics. Module-binding eval and user-body literal eval keep
-/// the default eager behaviour (defer=false).
+/// semantics. PKL-161/163 additionally retain real memoized thunks for
+/// binding-created object bodies; member lookup, render/output, converter,
+/// and amend paths are the forcing boundaries.
 fn eval_object_members_with_options(
   members : Array[ObjectMember],
   bindings : Array[Binding],
@@ -12386,6 +12975,149 @@ fn eval_object_members_with_options(
 }
 
 ///|
+/// Evaluate one ordinary object property when its thunk is forced. The
+/// thunk owns its diagnostic buffer, so a rejected RHS becomes a memoized
+/// value-level failure instead of mutating whichever caller happened to
+/// force it first.
+fn eval_object_property_thunk_result(
+  field : ObjectMember,
+  field_value : Expr,
+  effective_type_name : String?,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  expression_cache : Array[ValueBinding],
+  constraint_cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  enclosing_members : Array[ValueMember],
+  resolve_import : (String) -> EvalResult?,
+  validate_runtime_constraint~ : Bool,
+) -> EvalThunkResult {
+  let property_diagnostics : Array[Diagnostic] = []
+  match
+    eval_expr_with_bindings(
+      field_value, bindings, env, class_env, expression_cache, stack, declarations,
+      property_diagnostics, resolve_import,
+    ) {
+    Some(raw_value) => {
+      let value = coerce_value_to_annotated_type(raw_value, effective_type_name)
+      let value = apply_collection_default_for_type(
+        value, effective_type_name, bindings, env, class_env, constraint_cache, stack,
+        declarations, property_diagnostics, resolve_import,
+      )
+      match first_deferred_error_message(value) {
+        Some(message) => return ThunkError(message)
+        None => ()
+      }
+      match effective_type_name {
+        Some(annotation) =>
+          match
+            eval_resolved_annotation_structural_rejection_message(
+              annotation, value, declarations,
+            ) {
+            Some(message) => return ThunkError(message)
+            None => ()
+          }
+        None => ()
+      }
+      let aliases = eval_type_alias_bindings(declarations)
+      if !eval_constrained_type_annotation_value_is_valid(
+          effective_type_name, value, aliases, property_diagnostics,
+        ) {
+        if property_diagnostics.length() > 0 {
+          return ThunkError(property_diagnostics[0].message)
+        }
+        return ThunkError(
+          "Property `\{strip_member_visibility_prefix(field.name)}` failed its type constraint.",
+        )
+      }
+      if !eval_user_defined_constrained_type_annotation_value_is_valid(
+          effective_type_name, value, declarations, property_diagnostics,
+        ) {
+        if property_diagnostics.length() > 0 {
+          return ThunkError(property_diagnostics[0].message)
+        }
+        return ThunkError(
+          "Property `\{strip_member_visibility_prefix(field.name)}` failed its type constraint.",
+        )
+      }
+      if validate_runtime_constraint {
+        match lookup_value(constraint_cache, "@__constructing_class") {
+          Some(StringValue(class_name)) => {
+            let receiver_members = copy_value_members(enclosing_members)
+            // Last writer wins. Appending the resolved current value keeps a
+            // constraint that reads `this` from recursively forcing itself.
+            receiver_members.push({
+              name: field.name,
+              value,
+              source: Some(field.value),
+              annotations: field.annotations,
+            })
+            if class_name != "Dynamic" {
+              let value_skips_type_check = field.value is Identifier(_)
+              if !value_skips_type_check {
+                match
+                  eval_class_property_type_rejection_message(
+                    class_name,
+                    field.name,
+                    value,
+                    declarations,
+                  ) {
+                  Some(message) => return ThunkError(message)
+                  None => ()
+                }
+              }
+              match
+                eval_class_property_constraint_value_rejection_message(
+                  class_name,
+                  field.name,
+                  value,
+                  declarations,
+                ) {
+                Some(message) => return ThunkError(message)
+                None => ()
+              }
+              match
+                eval_runtime_constraint_for_property(
+                  class_name,
+                  strip_member_visibility_prefix(field.name),
+                  value,
+                  receiver_members,
+                  bindings,
+                  env,
+                  class_env,
+                  constraint_cache,
+                  stack,
+                  declarations,
+                  resolve_import,
+                ) {
+                Some(message) => return ThunkError(message)
+                None => ()
+              }
+            }
+          }
+          _ => ()
+        }
+      }
+      if property_diagnostics.length() > 0 {
+        ThunkError(property_diagnostics[0].message)
+      } else {
+        ThunkOk(value)
+      }
+    }
+    None =>
+      if property_diagnostics.length() > 0 {
+        ThunkError(property_diagnostics[0].message)
+      } else {
+        ThunkError(
+          "Failed to evaluate property `\{strip_member_visibility_prefix(field.name)}`.",
+        )
+      }
+  }
+}
+
+///|
 fn push_prior_member_into_env(
   target : Array[ValueBinding],
   prior : ValueMember,
@@ -12410,6 +13142,34 @@ fn push_prior_member_into_env(
       target.push({ name: prior.name, value: prior.value })
     }
   }
+}
+
+///|
+fn value_bindings_contain_exact_name(
+  bindings : Array[ValueBinding],
+  name : String,
+) -> Bool {
+  for binding in bindings {
+    if binding.name == name ||
+      binding.name == hidden_member_name(name) ||
+      binding.name == local_member_name(name) {
+      return true
+    }
+  }
+  false
+}
+
+///|
+fn bindings_contain_non_sibling_name(
+  bindings : Array[Binding],
+  name : String,
+) -> Bool {
+  for binding in bindings {
+    if !binding.sibling_slot && binding.name == name {
+      return true
+    }
+  }
+  false
 }
 
 ///|
@@ -12468,9 +13228,38 @@ fn eval_object_members_with_implicit_env(
       sibling_slot: true,
     })
   }
+  // Reserve every ordinary property before initializing any computation.
+  // Each closure can therefore capture an environment containing both
+  // backward and forward sibling handles, and all paths converge on the
+  // same memo cell.
+  let member_thunk_cells : Array[EvalThunkCell?] = []
+  let member_thunk_bindings : Array[ValueBinding] = []
+  // Binding-created object literals retain property thunks past construction.
+  // The marker is lexical: class defaults explicitly shadow it because they
+  // have a separate declaration memo and materialization-cycle guard.
+  let use_property_thunks = defer_property_errors &&
+    lookup_value(cache, "@__retain_property_thunks") == Some(BoolValue(true))
+  for field in members {
+    let is_ordinary = field.name != "@when" &&
+      field.name != "@for" &&
+      field.name != "@spread" &&
+      !is_function_amend_marker_member_name(field.name) &&
+      !field.name.has_prefix("@subscript$") &&
+      !field.name.has_prefix("@element$")
+    if use_property_thunks && is_ordinary {
+      let cell = reserve_eval_thunk(strip_member_visibility_prefix(field.name))
+      member_thunk_cells.push(Some(cell))
+      member_thunk_bindings.push({
+        name: strip_member_visibility_prefix(field.name),
+        value: ThunkValue(cell),
+      })
+    } else {
+      member_thunk_cells.push(None)
+    }
+  }
   let values : Array[ValueMember] = []
   values.reserve_capacity(members.length())
-  for field in members {
+  for field_index, field in members {
     if is_function_amend_marker_member_name(field.name) {
       continue
     }
@@ -12494,16 +13283,76 @@ fn eval_object_members_with_implicit_env(
       local_env.push(binding)
     }
     for prior in values {
+      let prior_bare_name = strip_member_visibility_prefix(prior.name)
+      let prior_is_lexical_member = is_local_member_name(prior.name) ||
+        is_error_member_name(prior.name)
       push_prior_member_into_env(
         lexical_env,
         prior,
         include_receiver_members=false,
       )
-      push_prior_member_into_env(
-        local_env,
-        prior,
-        include_receiver_members=true,
-      )
+      let has_explicit_lexical_binding = value_bindings_contain_exact_name(
+          lexical_env,
+          lexical_value_binding_marker_name(prior_bare_name),
+        ) ||
+        value_bindings_contain_exact_name(
+          cache,
+          lexical_value_binding_marker_name(prior_bare_name),
+        )
+      // Visible prior members override an outer implicit receiver, but a
+      // real lexical `let` / callable parameter remains in front. `local`
+      // members and deferred-error sentinels are themselves lexical and
+      // must be copied into both environments.
+      if prior_is_lexical_member || !has_explicit_lexical_binding {
+        push_prior_member_into_env(
+          local_env,
+          prior,
+          include_receiver_members=true,
+        )
+      }
+    }
+    // Ordinary property RHS lookup uses the complete sibling thunk scope.
+    // Appending after prior snapshots preserves last-writer-wins semantics
+    // and prevents the old binding resolver from evaluating a sibling via a
+    // second, independent cache.
+    let current_bare_name = strip_member_visibility_prefix(field.name)
+    let current_name_has_enclosing_binding = value_bindings_contain_exact_name(
+        local_env, current_bare_name,
+      ) ||
+      value_bindings_contain_exact_name(cache, current_bare_name) ||
+      bindings_contain_non_sibling_name(local_bindings, current_bare_name)
+    let property_bindings : Array[Binding] = if current_name_has_enclosing_binding {
+      let filtered : Array[Binding] = []
+      for binding in local_bindings {
+        if !(binding.sibling_slot && binding.name == current_bare_name) {
+          filtered.push(binding)
+        }
+      }
+      filtered
+    } else {
+      local_bindings
+    }
+    for thunk_binding in member_thunk_bindings {
+      let lexical_marker = lexical_value_binding_marker_name(thunk_binding.name)
+      let has_lexical_binding = value_bindings_contain_exact_name(
+          lexical_env, lexical_marker,
+        ) ||
+        value_bindings_contain_exact_name(cache, lexical_marker)
+      // The current property's own name does not shadow an enclosing value
+      // in its RHS (`iterations = iterations` reads the receiver/outer
+      // binding). More generally, a lexical binding wins over an implicit
+      // receiver member in every property RHS: in `cases = cases.length;
+      // summary = cases.length`, both references read the outer Listing,
+      // not the sibling `cases: Int`. Sibling handles remain the fallback
+      // when the lexical scope has no exact name, including forward and
+      // mutually recursive references.
+      if !has_lexical_binding &&
+        (
+          thunk_binding.name != current_bare_name ||
+          !current_name_has_enclosing_binding
+        ) {
+        local_env.push(thunk_binding)
+      }
     }
     // PKL-148ah: when this object body is the RHS of a module-level
     // binding currently on the resolution stack (`foo = { b = 43;
@@ -12692,7 +13541,12 @@ fn eval_object_members_with_implicit_env(
     // ordinary object bodies opt in only for `local` members so an
     // unused typed local does not reject the whole object, while a
     // later bare-name reference still surfaces the stored diagnostic.
-    let defer_field_errors = defer_property_errors ||
+    let defer_field_errors = (
+        defer_property_errors &&
+        field.name != "@when" &&
+        field.name != "@for" &&
+        field.name != "@spread"
+      ) ||
       is_local_member_name(field.name)
     let property_diagnostics : Array[Diagnostic] = if defer_field_errors {
       []
@@ -12810,6 +13664,47 @@ fn eval_object_members_with_implicit_env(
           }
         }
       _ => collection_field_value
+    }
+    if defer_field_errors {
+      match member_thunk_cells[field_index] {
+        Some(thunk_cell) => {
+          let thunk_env = copy_value_bindings(local_env)
+          let thunk_expression_cache = cache_for_nested_object_value(
+            field_value, cache, values,
+          )
+          initialize_eval_thunk(thunk_cell, fn() {
+            eval_object_property_thunk_result(
+              field,
+              field_value,
+              effective_type_name,
+              property_bindings,
+              thunk_env,
+              class_env,
+              thunk_expression_cache,
+              cache,
+              stack,
+              declarations,
+              values,
+              resolve_import,
+              validate_runtime_constraint=match
+                lookup_value(cache, "@__constructing_class") {
+                Some(StringValue("Dynamic")) => false
+                Some(StringValue(_)) => true
+                _ =>
+                  lookup_value(cache, "@__defer_expression_errors_only") is None
+              },
+            )
+          })
+          values.push({
+            name: field.name,
+            value: ThunkValue(thunk_cell),
+            source: Some(field.value),
+            annotations: field.annotations,
+          })
+          continue
+        }
+        None => ()
+      }
     }
     match
       eval_expr_with_bindings(
@@ -12994,7 +13889,8 @@ fn eval_object_members_with_implicit_env(
                   value,
                   property_diagnostics,
                 ) {
-                let runtime_reject = if defer_property_errors {
+                let runtime_reject = if defer_property_errors &&
+                  lookup_value(cache, "@__defer_expression_errors_only") is None {
                   match lookup_value(cache, "@__constructing_class") {
                     Some(StringValue(class_name)) => {
                       let enclosing_members : Array[ValueMember] = []

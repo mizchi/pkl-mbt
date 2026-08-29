@@ -8,7 +8,7 @@ fn lookup_value(env : Array[ValueBinding], name : String) -> Value? {
   while i >= 0 {
     let binding = env[i]
     if binding.name == name {
-      return Some(binding.value)
+      return Some(force_eval_thunk(binding.value))
     }
     i = i - 1
   }
@@ -239,8 +239,12 @@ fn reflect_type_alias_gold_factory(
 /// `superclass` chain.
 fn reflect_class_gold_factory(
   arg : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
   declarations : Array[Declaration],
   cache : Array[ValueBinding],
+  resolve_import : (String) -> EvalResult?,
 ) -> Value {
   let class_name = match arg {
     ObjectValue(members) =>
@@ -269,9 +273,24 @@ fn reflect_class_gold_factory(
                 _ => None
               }
               let module_prefix = reflect_module_short_name(path, module_name)
-              return build_class_gold_mirror(
+              let gold = build_class_gold_mirror(
                 class_decl, declarations, module_prefix, path, source,
               )
+              let runtime = reflect_class_mirror_from_decl(
+                class_decl,
+                declarations,
+                module_prefix,
+                None,
+                path,
+                source,
+                [],
+                bindings,
+                env,
+                class_env,
+                cache,
+                resolve_import,
+              )
+              return reflect_overlay_property_annotations(gold, runtime)
             }
           _ => ()
         }
@@ -279,6 +298,84 @@ fn reflect_class_gold_factory(
       reflect_class_factory_value(arg)
     }
     None => reflect_class_factory_value(arg)
+  }
+}
+
+///|
+fn reflect_replace_member(
+  members : Array[ValueMember],
+  name : String,
+  value : Value,
+) -> Array[ValueMember] {
+  let result : Array[ValueMember] = []
+  let mut replaced = false
+  for value_member in members {
+    if value_member.name == name {
+      result.push(reflect_member(name, value))
+      replaced = true
+    } else {
+      result.push(value_member)
+    }
+  }
+  if !replaced {
+    result.push(reflect_member(name, value))
+  }
+  result
+}
+
+///|
+fn reflect_overlay_property_annotation_map(
+  gold_entries : Array[ValueEntry],
+  runtime_entries : Array[ValueEntry],
+) -> Unit {
+  for i = 0; i < gold_entries.length(); i = i + 1 {
+    match
+      (
+        gold_entries[i].value,
+        lookup_entry(runtime_entries, gold_entries[i].key),
+      ) {
+      (ObjectValue(gold_members), Some(ObjectValue(runtime_members))) => {
+        let mut updated = gold_members
+        match lookup_member(runtime_members, "annotations") {
+          Some(value) =>
+            updated = reflect_replace_member(updated, "annotations", value)
+          None => ()
+        }
+        match lookup_member(runtime_members, "allAnnotations") {
+          Some(value) =>
+            updated = reflect_replace_member(updated, "allAnnotations", value)
+          None => ()
+        }
+        gold_entries[i] = {
+          key: gold_entries[i].key,
+          value: ObjectValue(updated),
+        }
+      }
+      _ => ()
+    }
+  }
+}
+
+///|
+fn reflect_overlay_property_annotations(gold : Value, runtime : Value) -> Value {
+  match (gold, runtime) {
+    (ObjectValue(gold_members), ObjectValue(runtime_members)) => {
+      for property_name in ["properties", "allProperties"] {
+        match
+          (
+            lookup_member(gold_members, property_name),
+            lookup_member(runtime_members, property_name),
+          ) {
+          (Some(MapValue(gold_entries)), Some(MapValue(runtime_entries))) =>
+            reflect_overlay_property_annotation_map(
+              gold_entries, runtime_entries,
+            )
+          _ => ()
+        }
+      }
+      ObjectValue(gold_members)
+    }
+    _ => gold
   }
 }
 
@@ -474,7 +571,7 @@ fn strip_doc_comment_line(text : String) -> String {
 
 ///|
 fn join_doc_comment_lines(lines : Array[String]) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for i = 0; i < lines.length(); i = i + 1 {
     if i > 0 {
       buf.write_string("\n")
@@ -1235,17 +1332,9 @@ fn reflect_annotation_values(
 ) -> Value {
   let values : Array[Value] = []
   for annotation in annotations {
-    let class_name = if annotation.class_name.find(".") is Some(_) {
-      annotation.class_name
-    } else if declarations_contain_class(declarations, annotation.class_name) {
-      reflect_qualified_decl_name(module_prefix, annotation.class_name)
-    } else {
-      match parent_module_prefix {
-        Some(prefix) =>
-          reflect_qualified_decl_name(prefix, annotation.class_name)
-        None => annotation.class_name
-      }
-    }
+    let class_name = reflect_annotation_class_name(
+      annotation, declarations, module_prefix, parent_module_prefix,
+    )
     let members = reflect_parse_annotation_body(annotation)
     members.push(
       reflect_hidden_member(
@@ -1254,6 +1343,97 @@ fn reflect_annotation_values(
       ),
     )
     values.push(ObjectValue(tag_object_with_class(members, class_name)))
+  }
+  ListValue(values)
+}
+
+///|
+fn reflect_annotation_class_name(
+  annotation : Annotation,
+  declarations : Array[Declaration],
+  module_prefix : String,
+  parent_module_prefix : String?,
+) -> String {
+  if annotation.class_name.find(".") is Some(_) {
+    annotation.class_name
+  } else if declarations_contain_class(declarations, annotation.class_name) {
+    reflect_qualified_decl_name(module_prefix, annotation.class_name)
+  } else {
+    match parent_module_prefix {
+      Some(prefix) => reflect_qualified_decl_name(prefix, annotation.class_name)
+      None => annotation.class_name
+    }
+  }
+}
+
+///|
+fn reflect_normalize_annotation_value(
+  value : Value,
+  annotation : Annotation,
+) -> Value {
+  match value {
+    ObjectValue(members) => {
+      let normalized : Array[ValueMember] = []
+      let body_tag = hidden_member_name("__annotation_body_text")
+      normalized.push(
+        reflect_hidden_member(
+          "__annotation_body_text",
+          StringValue(trim_spaces(annotation.body_text)),
+        ),
+      )
+      for value_member in members {
+        if value_member.name != body_tag {
+          normalized.push(value_member)
+        }
+      }
+      ObjectValue(normalized)
+    }
+    _ => value
+  }
+}
+
+///|
+fn reflect_annotation_values_runtime(
+  annotations : Array[Annotation],
+  declarations : Array[Declaration],
+  module_prefix : String,
+  parent_module_prefix : String?,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  resolve_import : (String) -> EvalResult?,
+) -> Value {
+  let values : Array[Value] = []
+  for annotation in annotations {
+    let local_diagnostics : Array[Diagnostic] = []
+    let annotation_cache = copy_value_bindings(cache)
+    annotation_cache.push({
+      name: "@__reflect_annotation_eval",
+      value: BoolValue(true),
+    })
+    match
+      eval_annotation_instance(
+        annotation, bindings, env, class_env, annotation_cache, declarations, local_diagnostics,
+        resolve_import,
+      ) {
+      Some(value) =>
+        values.push(reflect_normalize_annotation_value(value, annotation))
+      None =>
+        match
+          reflect_annotation_values(
+            [annotation],
+            declarations,
+            module_prefix,
+            parent_module_prefix,
+          ) {
+          ListValue(fallback) =>
+            for value in fallback {
+              values.push(value)
+            }
+          _ => ()
+        }
+    }
   }
   ListValue(values)
 }
@@ -1519,28 +1699,6 @@ fn reflect_property_metadata_object_with_values(
 }
 
 ///|
-fn reflect_property_metadata_object(
-  name : String,
-  type_name : String?,
-  default_value : Value?,
-  annotations : Array[Annotation],
-  doc_comment : String?,
-  modifiers : Value,
-  declarations : Array[Declaration],
-  module_prefix : String,
-  parent_module_prefix : String?,
-  path : String?,
-) -> Value {
-  let annotations_value = reflect_annotation_values(
-    annotations, declarations, module_prefix, parent_module_prefix,
-  )
-  reflect_property_metadata_object_with_values(
-    name, type_name, default_value, annotations_value, annotations_value, doc_comment,
-    modifiers, modifiers, declarations, module_prefix, parent_module_prefix, path,
-  )
-}
-
-///|
 fn reflect_method_metadata_object(
   fn_decl : FunctionDecl,
   doc_comment : String?,
@@ -1801,6 +1959,11 @@ fn reflect_class_property_metadata_value(
   default_members : Array[ValueMember],
   all_annotations_value : Value,
   all_modifiers_value : Value,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  resolve_import : (String) -> EvalResult?,
 ) -> Value {
   let bare_name = strip_member_visibility_prefix(property.name)
   let modifiers = reflect_class_member_modifiers_from_source(
@@ -1818,11 +1981,16 @@ fn reflect_class_property_metadata_value(
     property.name,
     property.type_name,
     reflect_property_default_value(default_members, property.name),
-    reflect_annotation_values(
+    reflect_annotation_values_runtime(
       property.annotations,
       declarations,
       module_prefix,
       parent_module_prefix,
+      bindings,
+      env,
+      class_env,
+      cache,
+      resolve_import,
     ),
     all_annotations_value,
     doc_comment_before_class_member(
@@ -1849,6 +2017,11 @@ fn reflect_class_all_property_entries(
   path : String?,
   source : String?,
   default_members : Array[ValueMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  resolve_import : (String) -> EvalResult?,
 ) -> Array[ValueEntry] {
   let chain : Array[ClassDecl] = []
   reflect_class_decl_chain(chain, class_name, declarations, [])
@@ -1857,11 +2030,16 @@ fn reflect_class_all_property_entries(
     for property in class_decl.properties {
       let bare_name = strip_member_visibility_prefix(property.name)
       let key = StringValue(bare_name)
-      let direct_annotations = reflect_annotation_values(
+      let direct_annotations = reflect_annotation_values_runtime(
         property.annotations,
         declarations,
         module_prefix,
         parent_module_prefix,
+        bindings,
+        env,
+        class_env,
+        cache,
+        resolve_import,
       )
       let direct_modifiers = reflect_class_member_modifiers_from_source(
         source,
@@ -1889,6 +2067,11 @@ fn reflect_class_all_property_entries(
           direct_annotations, old_value,
         ),
         reflect_property_all_modifiers_for_override(direct_modifiers, old_value),
+        bindings,
+        env,
+        class_env,
+        cache,
+        resolve_import,
       )
       if idx >= 0 {
         entries[idx] = { key, value }
@@ -1909,6 +2092,11 @@ fn reflect_class_mirror_from_decl(
   path : String?,
   source : String?,
   default_members : Array[ValueMember],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  resolve_import : (String) -> EvalResult?,
 ) -> Value {
   let class_name = reflect_qualified_decl_name(module_prefix, class_decl.name)
   let property_entries : Array[ValueEntry] = []
@@ -1935,17 +2123,39 @@ fn reflect_class_mirror_from_decl(
     )
     property_entries.push({
       key: StringValue(bare_name),
-      value: reflect_property_metadata_object(
+      value: reflect_property_metadata_object_with_values(
         property.name,
         property.type_name,
         default_value,
-        property.annotations,
+        reflect_annotation_values_runtime(
+          property.annotations,
+          declarations,
+          module_prefix,
+          parent_module_prefix,
+          bindings,
+          env,
+          class_env,
+          cache,
+          resolve_import,
+        ),
+        reflect_annotation_values_runtime(
+          property.annotations,
+          declarations,
+          module_prefix,
+          parent_module_prefix,
+          bindings,
+          env,
+          class_env,
+          cache,
+          resolve_import,
+        ),
         doc_comment_before_class_member(
           source,
           class_decl.name,
           bare_name,
           "property",
         ),
+        modifiers,
         modifiers,
         declarations,
         module_prefix,
@@ -1981,6 +2191,11 @@ fn reflect_class_mirror_from_decl(
     path,
     source,
     default_members,
+    bindings,
+    env,
+    class_env,
+    cache,
+    resolve_import,
   )
   let parent_name = reflect_class_parent_name(
     class_decl, declarations, module_prefix, parent_module_prefix,
@@ -1999,11 +2214,16 @@ fn reflect_class_mirror_from_decl(
     ),
     reflect_member(
       "annotations",
-      reflect_annotation_values(
+      reflect_annotation_values_runtime(
         class_decl.annotations,
         declarations,
         module_prefix,
         parent_module_prefix,
+        bindings,
+        env,
+        class_env,
+        cache,
+        resolve_import,
       ),
     ),
     reflect_member(
@@ -2114,6 +2334,10 @@ fn reflect_module_property_entries(
   parent_module_prefix : String?,
   path : String?,
   source : String?,
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  resolve_import : (String) -> EvalResult?,
 ) -> Array[ValueEntry] {
   let entries : Array[ValueEntry] = []
   for binding in bindings {
@@ -2147,11 +2371,16 @@ fn reflect_module_property_entries(
     } else {
       modifiers
     }
-    let annotations_value = reflect_annotation_values(
+    let annotations_value = reflect_annotation_values_runtime(
       binding.annotations,
       declarations,
       module_prefix,
       parent_module_prefix,
+      bindings,
+      env,
+      class_env,
+      cache,
+      resolve_import,
     )
     entries.push({
       key: StringValue(bare_name),
@@ -2210,6 +2439,10 @@ fn reflect_module_class_mirror(
   parent_module_prefix : String?,
   path : String?,
   source : String?,
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  resolve_import : (String) -> EvalResult?,
 ) -> Value {
   let properties = reflect_module_property_entries(
     program.bindings,
@@ -2219,6 +2452,10 @@ fn reflect_module_class_mirror(
     parent_module_prefix,
     path,
     source,
+    env,
+    class_env,
+    cache,
+    resolve_import,
   )
   let methods = reflect_module_method_entries(
     program.declarations,
@@ -2370,6 +2607,11 @@ fn reflect_module_class_entries(
             current_module_path,
             current_module_source,
             default_members,
+            bindings,
+            env,
+            class_env,
+            cache,
+            resolve_import,
           ),
         })
       }
@@ -2442,15 +2684,43 @@ fn reflect_module_metadata_value(
     Some(relation) => relation.kind is ModuleAmends
     None => false
   }
+  let module_class = if is_amend {
+    match lookup_member(module_parent_members, reflect_module_metadata_name()) {
+      Some(ObjectValue(parent_metadata)) =>
+        match lookup_member(parent_metadata, "moduleClass") {
+          Some(value) => value
+          None =>
+            reflect_module_class_mirror(
+              program, module_members, module_prefix, parent_module_prefix, current_module_path,
+              current_module_source, env, class_env, cache, resolve_import,
+            )
+        }
+      _ =>
+        reflect_module_class_mirror(
+          program, module_members, module_prefix, parent_module_prefix, current_module_path,
+          current_module_source, env, class_env, cache, resolve_import,
+        )
+    }
+  } else {
+    reflect_module_class_mirror(
+      program, module_members, module_prefix, parent_module_prefix, current_module_path,
+      current_module_source, env, class_env, cache, resolve_import,
+    )
+  }
   ObjectValue([
     reflect_member("imports", imports),
     reflect_member(
       "annotations",
-      reflect_annotation_values(
+      reflect_annotation_values_runtime(
         program.module_annotations,
         program.declarations,
         module_prefix,
         parent_module_prefix,
+        bindings,
+        env,
+        class_env,
+        cache,
+        resolve_import,
       ),
     ),
     reflect_member(
@@ -2483,13 +2753,7 @@ fn reflect_module_metadata_value(
         ),
       ),
     ),
-    reflect_member(
-      "moduleClass",
-      reflect_module_class_mirror(
-        program, module_members, module_prefix, parent_module_prefix, current_module_path,
-        current_module_source,
-      ),
-    ),
+    reflect_member("moduleClass", module_class),
   ])
 }
 
@@ -2582,6 +2846,10 @@ fn reflect_module_class_properties(
       None,
       path,
       source,
+      [],
+      [],
+      cache,
+      fn(_uri : String) -> EvalResult? { None },
     ),
   )
 }
@@ -2819,7 +3087,7 @@ fn lookup_member(members : Array[ValueMember], name : String) -> Value? {
     if field.name == name ||
       field.name == hidden_prefixed ||
       field.name == local_prefixed {
-      return Some(field.value)
+      return Some(force_eval_thunk(field.value))
     }
     i = i - 1
   }
@@ -2861,7 +3129,7 @@ fn lookup_visible_member(members : Array[ValueMember], name : String) -> Value? 
   for field in members {
     if (field.name == name || field.name == hidden_prefixed) &&
       !is_local_member_name(field.name) {
-      found = Some(field.value)
+      found = Some(force_eval_thunk(field.value))
     }
   }
   found
@@ -3172,7 +3440,7 @@ fn lookup_class_method(
 fn lookup_entry(entries : Array[ValueEntry], key : Value) -> Value? {
   let mut found : Value? = None
   for entry in entries {
-    if entry.key == key {
+    if values_equal(entry.key, key) {
       found = Some(entry.value)
     }
   }
@@ -3437,6 +3705,11 @@ fn deep_merge_amend_member_value(
   replacement : Value,
   source : Expr?,
 ) -> Value {
+  // An amend selects both sides of the member it merges. Resolve their
+  // shared memo cells before shape dispatch so a thunk-backed object is
+  // deep-merged instead of being mistaken for a scalar replacement.
+  let base = force_eval_thunk(base)
+  let replacement = force_eval_thunk(replacement)
   match (base, replacement) {
     (ObjectValue(base_members), ObjectValue(over_members)) =>
       ObjectValue(merge_value_members(base_members, over_members))

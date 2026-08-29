@@ -92,7 +92,7 @@ fn build_stdlib_reflect_db(source : String) -> StdlibReflectDb {
 ///|
 fn stdlib_split_lines(source : String) -> Array[String] {
   let result : Array[String] = []
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for c in source {
     if c == '\n' {
       result.push(buf.to_string())
@@ -312,7 +312,7 @@ fn stdlib_doc_comment_above(
   if docs.length() == 0 {
     return None
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for j = 0; j < docs.length(); j = j + 1 {
     if j > 0 {
       buf.write_char('\n')
@@ -336,7 +336,7 @@ fn stdlib_line_placeholder(line : Int) -> String {
     digits = digits + 1
     n = n / 10
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for _ in 0..<digits {
     buf.write_char('X')
   }
@@ -1435,7 +1435,7 @@ fn stdlib_annotations_above(
       if !found {
         break
       }
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       for k = start; k <= i; k = k + 1 {
         if k > start {
           buf.write_char('\n')

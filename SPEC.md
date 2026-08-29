@@ -1,6 +1,6 @@
 # Test SPEC
 
-269 tests across 2 module(s) — 203 pending, 66 active
+275 tests across 2 module(s) — 204 pending, 71 active
 
 ## `specs/`
 
@@ -691,6 +691,13 @@
   > Eight upstream equality / inequality fixtures (listings, listings2, mappings, mappings2) needed three interlocking pieces. (1) `(mapping) { [key] = value }` / `(mapping) { [key] { body } }` had no eval support — every Mapping amend hit `object amendment expects Object`. New `eval_mapping_amend` mirrors `eval_listing_subscript_amend` on `Array[ValueEntry]`: `@subscript$` upserts the entry, deep-merges when the existing entry value is ObjectValue / ListingValue / MappingValue and the new body is an object literal; `@when` / `@for` / `@spread` splice MappingValue / MapValue payloads onto the entry list. (2) Named-property amend on a Listing or Mapping (`(x) { default = 9 }`) silently no-ops because pkl-mbt does not surface the element-default slot Apple Pkl tracks separately; the previous `object amendment expects Object` diagnostic was over-strict. Equality of `(x) { default = 9 }` against `x` stays `true` as a result (matches gold). (3) `local NAME = EXPR` inside a Listing or Mapping body had to hoist across the body — a bare-element reference appearing BEFORE the `local` declaration (`new Listing { x; local x = ELEM }`) used to surface a Cannot-find-property diagnostic. The previous chain-style desugar only wrapped items AFTER each `local`. New `build_listing_body` collects locals first, then wraps every element expression in nested `((local) -> elem)(value)` calls so every element sees every local — and preserves `WhenSpread(inner)` shape (wraps inner, restores spread wrapper) so `when (cond) { body }` branches still spread correctly. `parse_mapping_body` learns the same local-collection / wrap pass for entry keys and values. The amend-body sibling `local NAME = EXPR` case (`(x) { y; local y = ELEM }`) is the symmetric problem: `eval_listing_subscript_amend` and `eval_mapping_amend` now both pre-register `@local$` / `@hidden$` members in the lazy binding chain before evaluating element / subscript values, mirroring the loop in `eval_object_members_with_options`. +8 fixtures (`listings/equality`, `listings/inequality`, `listings2/equality`, `listings2/inequality`, `mappings/equality`, `mappings/inequality`, `mappings2/equality`, `mappings2/inequality`), 152 to 160; listings 31.2 to 43.8 percent, listings2 30.0 to 50.0 percent, mappings 22.2 to 44.4 percent, mappings2 25.0 to 50.0 percent.
   - contributes to: GOAL-PKL-PURE
   - depends on: PKL-148au
+  - decisions: 3 entry(ies)
+  - body: _not yet implemented_
+
+- [ ] **memoized demand-driven object property evaluation** (critical) — verifies: PKL-161 — tags: evaluator, lazy, memoize, runtime, compat
+  > Object properties produced while evaluating local or exported bindings retain their RHS as an opaque `ThunkValue` cell. Each cell moves monotonically through Pending, Evaluating, and either Resolved or Rejected; first access evaluates the RHS and its type/constraint checks, repeated access reuses the settled result, and re-entry while Evaluating produces the cyclic-property diagnostic. Lookup, output projection/rendering, converters, and amend operations force only the values they consume. The cell owns its computation and releases that closure after settlement, so returned runtime Values do not depend on a process-global registry and separate AnalysisSession instances cannot mutate each other's thunk state. Class defaults keep their independent declaration-scoped memo/materialization guard, and `eval_source` remains an eager compatibility projection.
+  - contributes to: GOAL-PKL-PURE
+  - depends on: PKL-148u
   - decisions: 3 entry(ies)
   - body: _not yet implemented_
 
@@ -1519,6 +1526,10 @@
   > The native CLI evaluates a fixture that exercises the `is` operator at runtime: `5 is Int`, `1.5 is Float`, `Number` checks against both Int and Float values, a negative check (`"x" is Int = false`), and an `if (x is Int) ...` branch inside a function. No `parser-only` diagnostic is raised — the evaluator routes through `value_is_type` and produces concrete Bool values.
   - body: `cmd` (exit 0 expected)
 
+- [x] **cli lazy property errors** — verifies: PKL-148u — tags: moonbit, cli, evaluator, lazy, compatibility, contract
+  > A failing typed-object property does not reject construction until that property is read; an independent sibling remains readable.
+  - body: `cmd` (exit 0 expected)
+
 - [x] **cli lint findings** — verifies: PKL-102 — tags: moonbit, cli, lint, analyze, contract
   > The native CLI's `analyze` subcommand runs lint checks over the parsed module and prints one `path: rule: message` line per finding. The fixture intentionally exercises all four rules: an unused `local` binding, an unused import, an unused property on an unreferenced class, and a binding name that shadows an import. Findings produce exit code 1 so scripts can fail fast.
   - body: `cmd` (exit 1 expected)
@@ -1537,6 +1548,10 @@
 
 - [x] **cli math float ops** — verifies: PKL-120 — tags: moonbit, cli, stdlib, pkl-math, float, contract
   > The native CLI evaluates a fixture that imports `pkl:math` and calls `sqrt`, `pow`, `log`, `exp`, `floor`, `ceil`, `round`, plus reads `pi`. Each call returns the expected Float value computed via MoonBit's math intrinsics.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli memoized property thunk** — verifies: PKL-161 — tags: moonbit, cli, evaluator, lazy, quickcheck, compatibility, contract
+  > A self-contained property thunk memoizes values and failures, reports cycles, and supports the QuickCheck callback workload through the public CLI.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli new body inference** — verifies: PKL-138 — tags: moonbit, cli, parser, evaluator, pkf-pkspec, contract
@@ -1595,6 +1610,14 @@
   > The native CLI accepts `-f textproto` and renders typed Pkl objects through the protobuf text-format renderer. Scalar properties render as `name: value`, nested typed objects render as `name: { ... }`, listings become repeated fields, and mappings become repeated `{ key: ..., value: ... }` messages.
   - body: `cmd` (exit 0 expected)
 
+- [x] **cli root help** — verifies: PKL-094 — tags: moonbit, cli, compatibility, contract
+  > The native CLI accepts --help without requiring a module path.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **cli root version** — verifies: PKL-094 — tags: moonbit, cli, compatibility, contract
+  > The native CLI reports its Pkl compatibility target and pkl-mbt package version.
+  - body: `cmd` (exit 0 expected)
+
 - [x] **cli sandbox flags** — verifies: PKL-106 — tags: moonbit, cli, sandbox, prop, contract
   > The native CLI accepts `-p NAME=VALUE` (repeatable) to populate the `prop:` resolver. The fixture reads two props via `read("prop:NAME")` and the rendered output binds the values back onto module keys so the contract can pattern-match on them. The flag lifts `prop:` into the `read` allow-list alongside `env:`; without the flag the same `read` call surfaces `read: prop <name> is not set`.
   - body: `cmd` (exit 0 expected)
@@ -1608,7 +1631,7 @@
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli stdlib coverage probe** — verifies: PKL-141 — tags: moonbit, cli, stdlib, contract
-  > The native CLI's `stdlib` subcommand evaluates one minimal probe per documented stdlib surface area (pkl:base value-variant ops + Renderer classes, pkl:math constants / Int + Float helpers, pkl:semver parse + compare, pkl:platform stub, pkl:test catch, pkl:reflect mirror constants + factories, pkl:json / pkl:yaml Parser shells, pkl:xml / pkl:protobuf Renderer shells) and prints `[PASS]` / `[FAIL]` per probe. The contract pins the trailing `stdlib: N / N passed` summary so a regression to any probe breaks CI.
+  > The native CLI's `stdlib` subcommand evaluates one minimal probe per documented stdlib surface area, including the Pkl 0.32 Project, settings, Command, documentation, and pklbinary modules, and prints `[PASS]` / `[FAIL]` per probe. The contract pins the trailing `stdlib: N / N passed` summary so a regression to any probe breaks CI.
   - body: `cmd` (exit 0 expected)
 
 - [x] **cli stdlib modifiers** — verifies: PKL-140 — tags: moonbit, cli, parser, stdlib, contract
@@ -1668,7 +1691,11 @@
   - body: `cmd` (exit 0 expected)
 
 - [x] **upstream apple pkl parser suite** — verifies: PKL-015 — tags: moonbit, upstream, parser, compatibility, contract
-  > All apple/pkl LanguageSnippetTests parser fixtures, excluding the same invalid cases as ParserComparisonTest, parse through the native CLI.
+  > All apple/pkl LanguageSnippetTests parser fixtures are checked against ParserComparisonTest acceptance: valid inputs parse and invalid inputs emit diagnostics.
+  - body: `cmd` (exit 0 expected)
+
+- [x] **upstream apple pkl stdlib public symbols** — verifies: PKL-080, PKL-123, PKL-124, PKL-152, PKL-154 — tags: moonbit, upstream, stdlib, compatibility, contract
+  > Every public top-level declaration from Apple Pkl 0.32.1's standard-library sources resolves through the corresponding embedded pkl: module without an exclusion list.
   - body: `cmd` (exit 0 expected)
 
 ## Spec implementation index
@@ -1842,6 +1869,7 @@
 - **PKL-080** — minimal pkl:reflect support
   - test: `specs/Test.pkl` — cli reflect minimal stub
   - test: `specs/Test.pkl` — moon unit tests
+  - test: `specs/Test.pkl` — upstream apple pkl stdlib public symbols
 - **PKL-081** — Regex literal and Regex methods
   - test: `specs/Test.pkl` — moon unit tests
 - **PKL-082** — Duration and DataSize literals with arithmetic comparison and unit conversion
@@ -1878,6 +1906,8 @@
   - test: `specs/Test.pkl` — cli eval json
   - test: `specs/Test.pkl` — cli eval properties
   - test: `specs/Test.pkl` — cli eval yaml
+  - test: `specs/Test.pkl` — cli root help
+  - test: `specs/Test.pkl` — cli root version
 - **PKL-095** — CLI test runner integrates pkl:test facts
   - test: `specs/Test.pkl` — cli test failing facts
   - test: `specs/Test.pkl` — cli test passing facts
@@ -1946,8 +1976,10 @@
   - test: `specs/Test.pkl` — cli string unicode
 - **PKL-123** — pkl:platform and pkl:semver stdlib modules
   - test: `specs/Test.pkl` — cli platform semver
+  - test: `specs/Test.pkl` — upstream apple pkl stdlib public symbols
 - **PKL-124** — pkl:json / pkl:yaml / pkl:xml / pkl:protobuf stdlib modules
   - test: `specs/Test.pkl` — cli renderer stdlib modules
+  - test: `specs/Test.pkl` — upstream apple pkl stdlib public symbols
 - **PKL-125** — YAML literal block scalars
   - test: `specs/Test.pkl` — cli yaml block scalars
 - **PKL-126a** — plist renderer
@@ -2093,6 +2125,7 @@
 - **PKL-148t** — callable return / argument type checks resolve aliases generics and unions
   - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
 - **PKL-148u** — structural type rejection with lazy per-property class-default semantics
+  - test: `specs/Test.pkl` — cli lazy property errors
   - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
 - **PKL-148v** — class parent typealias resolved through alias chain
   - test: `specs/Test.pkl` — upstream apple pkl fixture smoke
@@ -2106,5 +2139,11 @@
   - _No active implementation._
 - **PKL-150** — as and pipe operator runtime semantics
   - _No active implementation._
+- **PKL-152**
+  - test: `specs/Test.pkl` — upstream apple pkl stdlib public symbols
 - **PKL-153** — Silent-mismatch survey
   - _No active implementation._
+- **PKL-154**
+  - test: `specs/Test.pkl` — upstream apple pkl stdlib public symbols
+- **PKL-161** — memoized demand-driven object property evaluation
+  - test: `specs/Test.pkl` — cli memoized property thunk

@@ -10,7 +10,7 @@ pub fn render_value_as_xml_with_options(
   indent_text : String,
   xml_version : String,
 ) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_string("<?xml version=\"")
   write_xml_escaped_attr(xml_version, buf)
   buf.write_string("\" encoding=\"UTF-8\"?>\n")
@@ -41,7 +41,7 @@ pub fn render_value_as_xml_fragment(
   value : Value,
   indent_text : String,
 ) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   render_xml_fragment_value(value, 0, indent_text, buf)
   buf.to_string()
 }
@@ -58,6 +58,17 @@ fn render_xml_named_element(
     return
   }
   match value {
+    // Force before deciding whether this is a regular named node or an XML
+    // helper object. Treating a thunk as inline content discards both the
+    // requested element name and the resolved value's structural markers.
+    ThunkValue(_) =>
+      render_xml_named_element(
+        name,
+        force_eval_thunk(value),
+        level,
+        indent_text,
+        buf,
+      )
     ObjectValue(members) =>
       match xml_object_kind(members) {
         Some("Inline") =>
@@ -387,7 +398,7 @@ fn render_xml_member_to_string(
   level : Int,
   indent_text : String,
 ) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   render_xml_member(field, level, indent_text, buf)
   buf.to_string()
 }
@@ -421,7 +432,7 @@ fn xml_strip_leading_newline(rendered : String) -> String {
 
 ///|
 fn xml_indent_string(level : Int, indent_text : String) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   write_xml_indent(buf, level, indent_text)
   buf.to_string()
 }
@@ -548,6 +559,7 @@ fn render_xml_inline_content(value : Value, buf : StringBuilder) -> Unit {
     None => ()
   }
   match value {
+    ThunkValue(_) => render_xml_inline_content(force_eval_thunk(value), buf)
     IntValue(n) => buf.write_string("\{n}")
     FloatValue(d) => buf.write_string(render_float_text(d))
     BoolValue(true) => buf.write_string("true")
@@ -914,7 +926,7 @@ fn xml_coerce_key(value : Value) -> String {
     BoolValue(false) => "false"
     NullValue => "null"
     _ => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       render_pcf_inline(value, 0, false, buf)
       buf.to_string()
     }
@@ -1076,7 +1088,7 @@ fn xml_unsupported_here_value_text(kind : String, value : Value) -> String {
 fn xml_placeholder_value_text(value : Value) -> String {
   match value {
     ObjectValue(members) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       buf.write_string("{ ")
       let mut first = true
       for field in visible_members(members) {

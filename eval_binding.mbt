@@ -111,6 +111,28 @@ fn copy_value_bindings(bindings : Array[ValueBinding]) -> Array[ValueBinding] {
 }
 
 ///|
+// Scope-origin marker used only inside evaluator environments. ValueBinding
+// intentionally stays a small public contract type; pairing an ordinary
+// binding with this impossible-to-spell Pkl name records that a `let` or
+// callable parameter is lexical rather than part of an implicit receiver.
+fn lexical_value_binding_marker_name(name : String) -> String {
+  "@__lexical$\{name}"
+}
+
+///|
+fn push_lexical_value_binding(
+  target : Array[ValueBinding],
+  name : String,
+  value : Value,
+) -> Unit {
+  target.push({ name, value })
+  target.push({
+    name: lexical_value_binding_marker_name(name),
+    value: BoolValue(true),
+  })
+}
+
+///|
 fn capture_value_bindings(
   env : Array[ValueBinding],
   cache : Array[ValueBinding],
@@ -130,6 +152,7 @@ fn capture_value_bindings(
       binding.name == "@__module_source" ||
       binding.name == "@__module_is_amend" ||
       binding.name == "@__open_module" ||
+      binding.name == "@__retain_property_thunks" ||
       binding.name == "@__class_default_scope" ||
       binding.name == "@__class_default_call_scope" {
       continue
@@ -233,6 +256,42 @@ fn checked_int64_mul(a : Int64, b : Int64) -> Int64? {
   }
   if ok {
     Some(a * b)
+  } else {
+    None
+  }
+}
+
+///|
+fn checked_int64_add(a : Int64, b : Int64) -> Int64? {
+  let max = 9223372036854775807L
+  let min = 0L - 9223372036854775807L - 1L
+  let ok = if b > 0L {
+    a <= max - b
+  } else if b < 0L {
+    a >= min - b
+  } else {
+    true
+  }
+  if ok {
+    Some(a + b)
+  } else {
+    None
+  }
+}
+
+///|
+fn checked_int64_sub(a : Int64, b : Int64) -> Int64? {
+  let max = 9223372036854775807L
+  let min = 0L - 9223372036854775807L - 1L
+  let ok = if b > 0L {
+    a >= min + b
+  } else if b < 0L {
+    a <= max + b
+  } else {
+    true
+  }
+  if ok {
+    Some(a - b)
   } else {
     None
   }
@@ -624,18 +683,38 @@ fn resolve_binding_value(
         } else {
           strip_sibling_slot_bindings(bindings)
         }
-        match
-          eval_expr_with_bindings(
-            rewritten_value,
-            rhs_bindings,
-            env,
-            class_env,
-            cache,
-            push_binding_stack(stack, name),
-            declarations,
-            diagnostics,
-            resolve_import,
-          ) {
+        let rhs_cache = copy_value_bindings(cache)
+        // PKL-161/163: object properties retain thunks beyond construction.
+        // Output, converter, and amend consumers explicitly force the values
+        // they select; keeping the marker lexical prevents it from becoming a
+        // captured user binding while still covering nested object literals.
+        rhs_cache.push({
+          name: "@__retain_property_thunks",
+          value: BoolValue(true),
+        })
+        let evaluated_rhs = eval_expr_with_bindings(
+          rewritten_value,
+          rhs_bindings,
+          env,
+          class_env,
+          rhs_cache,
+          push_binding_stack(stack, name),
+          declarations,
+          diagnostics,
+          resolve_import,
+        )
+        // The marker needs an isolated lexical scope, but values resolved
+        // transitively while evaluating this RHS still belong to the shared
+        // module/object cache. Publish those entries back so two sibling
+        // module bindings observe the same local object and its memo cells.
+        for i = cache.length(); i < rhs_cache.length(); i = i + 1 {
+          let resolved = rhs_cache[i]
+          if resolved.name != "@__retain_property_thunks" &&
+            lookup_value(cache, resolved.name) is None {
+            cache.push(resolved)
+          }
+        }
+        match evaluated_rhs {
           Some(raw_value) => {
             let value = coerce_value_to_annotated_type(
               raw_value,
@@ -916,7 +995,7 @@ fn object_class_tag_matches(
 
 ///|
 fn render_directive_text(value : Value) -> String? {
-  match value {
+  match force_eval_thunk(value) {
     ObjectValue(members) =>
       if object_class_tag_matches(members, "RenderDirective") {
         match lookup_member(members, "text") {
@@ -958,6 +1037,7 @@ fn qualify_value_type_name(
 ///|
 fn eval_value_type_name(value : Value) -> String {
   match value {
+    ThunkValue(_) => eval_value_type_name(force_eval_thunk(value))
     IntValue(_) => "Int"
     FloatValue(_) => "Float"
     BoolValue(_) => "Boolean"

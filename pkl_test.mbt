@@ -6,6 +6,44 @@ test "parse source builds a CST-backed program" {
 }
 
 ///|
+test "parser validation reports lexical and delimiter errors" {
+  let cases = [
+    "value = \"unterminated", "value = \"bad\\aescape\"", "value = 0x_01", "value = List(1, 2",
+    "outer = 1", "value = 1 ^ 2",
+  ]
+  for source in cases {
+    let parsed = parse_source(source)
+    assert_true(parsed.diagnostics.length() > 0)
+    assert_true(parsed.diagnostics[0].start >= 0)
+  }
+  inspect(
+    parse_source("value = \"ok\\n\\u{1f920}\"").diagnostics.length(),
+    content="0",
+  )
+}
+
+///|
+test "parser validation distinguishes malformed structure from valid Pkl" {
+  let invalid = [
+    "value = List(1, 2 3)", "function f(a b) = a", "value: String Int = \"x\"", "value: *String",
+    "value: *String | *Int", "value: String|()|Int = \"x\"", "value: Listing<String> { \"x\" }",
+    "/// detached\n\n/// attached\nvalue = 1", "value = 1\n/// dangling",
+  ]
+  for source in invalid {
+    assert_true(parse_source(source).diagnostics.length() > 0)
+  }
+  let valid = [
+    "value = List(1, 2, 3)", "function f(a, b) = a", "value: String | Int = \"x\"",
+    "value: *String | Int = \"x\"", "function f(): () -> Int = () -> 1", "value = if (true) 1 else 0",
+    "value = let (x = 1) x", "value = new Listing { for (n: Int in List(1)) { n } }",
+    "typealias T = *(\"a\" | *\"b\") | \"c\"",
+  ]
+  for source in valid {
+    inspect(parse_source(source).diagnostics.length(), content="0")
+  }
+}
+
+///|
 test "evaluate integer arithmetic with precedence" {
   assert_true(eval_source("1 + 2 * 3") == EvalOk(IntValue(7)))
 }
@@ -510,7 +548,7 @@ test "PCF rendered object members reparse to the original module" {
   // through the parser; listing / mapping rendering drops the type tag
   // and uses Pkl's element shorthand which our parser does not yet
   // accept, so this round-trip stays on the object-member subset.
-  let source = "outer = new {\n  inner = new {\n    deep = new {\n      x = 1\n    }\n  }\n  flat = 42\n}"
+  let source = "root = new {\n  inner = new {\n    deep = new {\n      x = 1\n    }\n  }\n  flat = 42\n}"
   guard eval_source(source) is EvalOk(first_pass) else { panic() }
   let rendered = render_value(first_pass)
   guard eval_source(rendered) is EvalOk(second_pass) else { panic() }
@@ -914,7 +952,7 @@ test "YAML renderer quotes Pkl and mapping keys like upstream" {
 
 ///|
 test "YAML renderer emits explicit mapping keys when required" {
-  let key_buf = StringBuilder::new()
+  let key_buf = StringBuilder()
   for _i = 0; _i < 1025; _i = _i + 1 {
     key_buf.write_char('a')
   }

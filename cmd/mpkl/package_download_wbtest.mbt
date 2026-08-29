@@ -335,6 +335,19 @@ test "register expr io preloads string literal resource arguments for dynamic re
 }
 
 ///|
+test "register expr io ignores strings that cannot be OS paths" {
+  let parsed = @pkl.parse_source(
+    (
+      #|value = "\u{D800}"
+      #|
+    ),
+  )
+  for binding in parsed.program.bindings {
+    register_expr_io("main.pkl", binding.value)
+  }
+}
+
+///|
 test "register expr io preloads string literal glob arguments for dynamic read star" {
   @pkl.reset_sandbox_io_cache()
   let from = "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/basic/readGlob.pkl"
@@ -390,6 +403,30 @@ test "project dependency glob keeps @ visible keys with projectpackage resources
     content="projectpackage://localhost:0/birds@0.5.0#/catalog/Ostrich.pkl",
   )
   @pkl.configure_sandbox_package_caches([])
+}
+
+///|
+test "Pkl 0.32.1 local project dependency dot-dot stays at dependency root" {
+  let from = "third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/projects/project1/localProject2.pkl"
+  inspect(
+    resolve_import_path(from, "@project2/../penguin.pkl"),
+    content="third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/projects/project2/penguin.pkl",
+  )
+  inspect(
+    resolve_import_path(from, "@project2/foo/../../penguin.pkl"),
+    content="third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input/projects/project2/penguin.pkl",
+  )
+  let resources = glob_resources_from(from, "@project2/../../*")
+  inspect(resources.length(), content="3")
+  inspect(resources[0].uri, content="@project2/../../PklProject")
+  inspect(resources[2].uri, content="@project2/../../penguin.pkl")
+  guard read_resource_from(from, "@project2/../../") is Some(directory) else {
+    panic()
+  }
+  inspect(
+    directory.text,
+    content="penguin.pkl\nPklProject\nPklProject.deps.json\n",
+  )
 }
 
 ///|

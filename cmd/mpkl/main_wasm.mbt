@@ -23,7 +23,7 @@ fn wasm_result(exit_code : Int, output : String) -> WasmCommandResult {
 
 ///|
 fn render_wasm_diagnostics(diagnostics : Array[@pkl.Diagnostic]) -> String {
-  let output = StringBuilder::new()
+  let output = StringBuilder()
   let mut first = true
   for diagnostic in diagnostics {
     if first {
@@ -132,7 +132,7 @@ fn normalize_wasm_path(path : String) -> String {
     }
     resolved.push(segment)
   }
-  let output = StringBuilder::new()
+  let output = StringBuilder()
   output.write_string(head)
   if leading_slash {
     output.write_char('/')

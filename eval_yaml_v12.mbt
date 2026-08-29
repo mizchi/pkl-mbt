@@ -32,7 +32,7 @@ fn yaml_v12_source_rewrite(source : String) -> String {
     return source
   }
   if is_v12_string_only_scalar(trimmed) {
-    let buf = StringBuilder::new()
+    let buf = StringBuilder()
     buf.write_char('\'')
     buf.write_string(trimmed)
     buf.write_char('\'')
@@ -192,7 +192,7 @@ fn yaml_v12_source_ends_in_block_scalar(source : String) -> Bool {
 ///|
 fn split_lines_for_block_detect(source : String) -> Array[String] {
   let result : Array[String] = []
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for c in source {
     if c == '\n' {
       result.push(buf.to_string())
@@ -420,7 +420,7 @@ fn yaml_scalar_contains_structure(scalar : String) -> Bool {
 
 ///|
 fn yaml_quote_plain_scalar(scalar : String) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   buf.write_char('\'')
   buf.write_string(scalar)
   buf.write_char('\'')
@@ -510,7 +510,7 @@ fn yaml_legacy_base60(scalar : String) -> String? {
       return None
     }
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   if negative {
     buf.write_char('-')
   }
@@ -571,7 +571,7 @@ fn yaml_v12_rewrite_binary(source : String) -> String {
   if len < needle.length() {
     return source
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut i = 0
   while i < len {
     if i + needle.length() <= len && substring_equals(source, i, needle) {
@@ -617,7 +617,7 @@ fn yaml_v12_rewrite_set(source : String) -> String {
   if len < needle.length() {
     return source
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut i = 0
   while i < len {
     if i + needle.length() <= len && substring_equals(source, i, needle) {
@@ -672,7 +672,7 @@ fn substring_equals(source : String, start : Int, needle : String) -> Bool {
 
 ///|
 fn strip_yaml_whitespace_v12(text : String) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   for c in text {
     if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
       continue
@@ -774,7 +774,7 @@ fn extract_yaml_scalar_after(source : String, start : Int) -> (String, Int)? {
       // No indented payload found.
       return Some((String::unsafe_substring(source, start=j, end=j), j))
     }
-    let payload = StringBuilder::new()
+    let payload = StringBuilder()
     let mut k = j
     while k < len {
       // Count this line's leading-space count.
@@ -864,7 +864,7 @@ fn yaml_v12_map_is_set(m : Map[String, @yaml.Yaml]) -> Bool {
 /// the vast majority of YAML inputs.
 fn yaml_v12_rewrite_complex_keys(source : String) -> String {
   let lines = split_lines_for_block_detect(source)
-  let out = StringBuilder::new()
+  let out = StringBuilder()
   let mut i = 0
   let mut first = true
   while i < lines.length() {
@@ -881,7 +881,7 @@ fn yaml_v12_rewrite_complex_keys(source : String) -> String {
       // line (after `? `), plus continuation lines that are indented
       // strictly more than `indent`. The key block terminates at the
       // matching `: ` line at the same indent (`indent` again).
-      let key_buf = StringBuilder::new()
+      let key_buf = StringBuilder()
       // First line of the key block: everything after `? `.
       if line.length() > body_start + 2 {
         key_buf.write_string(

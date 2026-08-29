@@ -865,7 +865,7 @@ fn pretty_constraint_text(text : String) -> String {
   let trimmed = pkl_constraint_trim(text)
   let multi : Array[String] = [">=", "<=", "==", "!=", "&&", "||"]
   let single : Array[Char] = ['>', '<']
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let n = trimmed.length()
   let mut i = 0
   let mut depth = 0
@@ -993,7 +993,7 @@ fn ensure_trailing_space(buf : StringBuilder) -> Unit {
 
 ///|
 fn collapse_spaces(text : String) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut prev_space = false
   for i = 0; i < text.length(); i = i + 1 {
     let c = text[i].to_int().unsafe_to_char()
@@ -1080,11 +1080,20 @@ fn rewrite_implicit_this_in_expr(
     UnaryExpr(op, inner) =>
       UnaryExpr(op, rewrite_implicit_this_in_expr(inner, bindings, env, cache))
     BinaryExpr(op, l, r) =>
-      BinaryExpr(
-        op,
-        rewrite_implicit_this_in_expr(l, bindings, env, cache),
-        rewrite_implicit_this_in_expr(r, bindings, env, cache),
-      )
+      match op {
+        Is | As =>
+          BinaryExpr(
+            op,
+            rewrite_implicit_this_in_expr(l, bindings, env, cache),
+            r,
+          )
+        _ =>
+          BinaryExpr(
+            op,
+            rewrite_implicit_this_in_expr(l, bindings, env, cache),
+            rewrite_implicit_this_in_expr(r, bindings, env, cache),
+          )
+      }
     NonNullExpr(inner) =>
       NonNullExpr(rewrite_implicit_this_in_expr(inner, bindings, env, cache))
     ConditionalExpr(c, t, e) =>
@@ -1774,6 +1783,9 @@ fn eval_class_property_type_rejection_message(
       if eval_type_name_is_type_parameter(source_name, declarations) {
         return None
       }
+      if reference_value_satisfies_annotation(source_name, value, declarations) {
+        return None
+      }
       // PKL-148bb: arity mismatch on a function-typed property (`f:
       // () -> Int` amended with `(str) -> str.length`) projects to
       // `Expected value of type \`FunctionN\`, but got type
@@ -2014,8 +2026,12 @@ fn eval_expr_class_property_constraints_are_valid(
     (TypedObjectLiteral(class_name, members), ObjectValue(values)) => {
       let mut ok = true
       for field in members {
-        match lookup_member(values, field.name) {
-          Some(member_value) => {
+        match lookup_value_member(values, field.name) {
+          // Property thunks own their type and class-constraint checks.
+          // Keeping the handle unresolved here preserves lazy object
+          // construction; the same checks run exactly once on first force.
+          Some({ value: ThunkValue(_), .. }) => ()
+          Some({ value: member_value, .. }) => {
             match
               eval_class_property_constraint_value_rejection_message(
                 class_name,
@@ -2051,8 +2067,11 @@ fn eval_expr_class_property_constraints_are_valid(
     (ObjectLiteral(members), ObjectValue(values)) => {
       let mut ok = true
       for field in members {
-        match lookup_member(values, field.name) {
-          Some(member_value) =>
+        match lookup_value_member(values, field.name) {
+          // Alias validation for a pending property is likewise deferred to
+          // the thunk's annotated-type validation path.
+          Some({ value: ThunkValue(_), .. }) => ()
+          Some({ value: member_value, .. }) =>
             if !eval_expr_class_property_constraints_are_valid(
                 field.value,
                 member_value,
@@ -2079,8 +2098,9 @@ fn eval_object_member_alias_constraints_are_valid(
 ) -> Bool {
   let mut ok = true
   for object_member in members {
-    match lookup_member(values, object_member.name) {
-      Some(value) => {
+    match lookup_value_member(values, object_member.name) {
+      Some({ value: ThunkValue(_), .. }) => ()
+      Some({ value, .. }) => {
         if !eval_constrained_type_annotation_value_is_valid(
             object_member.type_name,
             value,

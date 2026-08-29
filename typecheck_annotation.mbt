@@ -18,7 +18,7 @@ pub fn render_type(typ : Type) -> String {
     FunctionType(_, _) => "Function"
     ConstrainedType(_, inner) => render_type(inner)
     UnionType(types) => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       let mut first = true
       for typ in types {
         if first {
@@ -135,7 +135,7 @@ fn builtin_type_from_annotation(name : String) -> Type? {
 ///|
 fn split_top_level_generic_arguments(text : String) -> Array[String] {
   let parts : Array[String] = []
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut parens = 0
   let mut brackets = 0
   let mut angles = 0
@@ -177,7 +177,7 @@ fn split_top_level_union_choices(text : String) -> Array[String] {
     return [text]
   }
   let parts : Array[String] = []
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut parens = 0
   let mut brackets = 0
   let mut angles = 0
@@ -570,7 +570,7 @@ fn substitute_typealias_target_text(
   parameters : Array[String],
   arguments : Array[String],
 ) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   let mut i = 0
   while i < target.length() {
     let c = target[i].to_int().unsafe_to_char()

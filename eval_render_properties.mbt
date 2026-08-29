@@ -7,7 +7,7 @@ pub fn render_value_as_properties(value : Value) -> String {
     Some(text) => return text
     None => ()
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   match value {
     ObjectValue(members) => render_properties_members(members, "", buf)
     MappingValue(entries) | DefaultedMappingValue(_, entries, _) =>
@@ -26,7 +26,7 @@ pub fn render_value_as_properties_fragment(value : Value) -> String {
     Some(text) => return text
     None => ()
   }
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   write_properties_scalar(value, buf)
   buf.to_string()
 }
@@ -109,7 +109,7 @@ fn render_properties_leaf(
 
 ///|
 fn render_properties_compact_json(value : Value) -> String {
-  let buf = StringBuilder::new()
+  let buf = StringBuilder()
   write_compact_json_value(value, buf)
   buf.to_string()
 }
@@ -117,6 +117,7 @@ fn render_properties_compact_json(value : Value) -> String {
 ///|
 fn write_compact_json_value(value : Value, buf : StringBuilder) -> Unit {
   match value {
+    ThunkValue(_) => write_compact_json_value(force_eval_thunk(value), buf)
     IntValue(n) => buf.write_string("\{n}")
     FloatValue(d) => buf.write_string(render_float_text(d))
     BoolValue(true) => buf.write_string("true")
@@ -290,7 +291,7 @@ fn properties_coerce_key(value : Value) -> String {
     BoolValue(false) => "false"
     NullValue => "null"
     _ => {
-      let buf = StringBuilder::new()
+      let buf = StringBuilder()
       render_pcf_inline(value, 0, false, buf)
       buf.to_string()
     }
