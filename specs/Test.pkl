@@ -1636,7 +1636,7 @@ local cliRootVersion = new Test {
   specRef { "PKL-094" }
   cmd = "moon run cmd/mpkl --target native -- --version"
   workdir = ".."
-  expectStdoutContains { "Pkl 0.32.1 compatible surface (pkl-mbt 0.6.0)" }
+  expectStdoutContains { "Pkl 0.32.1 compatible surface (pkl-mbt 0.7.0)" }
   timeoutSec = 120
 }
 

@@ -38,7 +38,7 @@
 
 ## 現在の開発状況
 
-- 現在 version は `0.6.0` (`moon.mod`)。
+- 現在 version は `0.7.0` (`moon.mod`)。
 - 上流の Apple Pkl 0.32.1 LanguageSnippetTests に対する gold-match: **416 / 416 (100.0%)**。確認は `pkf run coverage` で。
 - カテゴリ別の内訳と最終更新は `README.md` / `TODO.md` が source of truth。
 - 0.2.0 で追加された embedded-API: `configure_sandbox_resource_reader(scheme, fn)`、 `extends` chain の base-local 解決、 cross-module recursive function、 `Listing<T>` 返り値推論、 `mpkl test --junit-reports <dir>`。 詳細は `README.md` の "0.2.0 highlights"。
@@ -47,7 +47,7 @@
 
 GitHub Issues に「user impact 順」で並んでいる。次セッションは **必ず最初に tracking issue を見る**:
 
-- **[#32 Tracking: Apple Pkl 0.32.1 compatibility gaps](https://github.com/mizchi/pkl-mbt/issues/32)** — 追加・変更された 17 fixture はすべて gold-match へ復帰済み。close 前に release gate と文書同期を確認する。
+- **[#32 Tracking: Apple Pkl 0.32.1 compatibility gaps](https://github.com/mizchi/pkl-mbt/issues/32)** — 追加・変更された 17 fixture はすべて gold-match へ復帰し、0.7.0 release gate と文書同期を確認済み。
 
 個別 issue / release backlog (impact 大きい順):
 

@@ -1,6 +1,6 @@
 # Release TODO
 
-Current version: `0.6.0` (see `moon.mod`).
+Current version: `0.7.0` (see `moon.mod`).
 Current coverage against Apple Pkl 0.32.1: 416 / 416 PCF gold-match (100.0%).
 Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-08-30.
 Tracking issue: [#32 Apple Pkl 0.32.1 compatibility gaps](https://github.com/mizchi/pkl-mbt/issues/32).
@@ -300,7 +300,7 @@ Main dependencies:
 
 ## Issue Sync
 
-- #32 Apple Pkl 0.32.1 compatibility: all 17 tracked PCF DIFF fixtures are restored; release-gate verification remains before close.
+- #32 Apple Pkl 0.32.1 compatibility: all 17 tracked PCF DIFF fixtures are restored; the 0.7.0 release gate is verified.
 - #4 Lazy local evaluation: implemented through the local-scope fixture slice and closed as completed.
 - #6 XML / Protobuf renderer bodies: all upstream XML `.xml` renderer fixtures now promote (`xmlRenderer1`, `xmlRenderer2`, `xmlRenderer3`, `xmlRenderer6`, `xmlRenderer9`, `xmlRendererCData`, `xmlRendererElement`, `xmlRendererInline`, `xmlRendererInline2`, `xmlRendererInline3`, `xmlRendererHtml`); JSON output now promotes `jsonRenderer1`, `jsonRenderer2`, `jsonRenderer3`, `jsonRenderer6`, and `jsonRenderer9`; YAML output now promotes `yamlRenderer1`, `yamlRenderer2`, `yamlRenderer3`, `yamlRenderer6`, `yamlRenderer8`, `yamlRenderer9`, `yamlRenderer10`, `yamlRendererBug66849708`, `yamlRendererEmpty`, `yamlRendererIndentationWidth2/4/5`, `yamlRendererKeys`, and `yamlRendererStrings`; direct renderer-method / validation PCF fixtures now cover `pcfRenderer2`, `pcfRenderer2b`, `pcfRenderer4`, `pcfRenderer5`, `jsonRenderer2b`, `jsonRenderer4`, `jsonRenderer5`, `yamlRenderer2b`, `yamlRenderer4`, `yamlRenderer5`, `yamlRendererStream1`, `yamlRendererStream2`, `plistRenderer2b`, `pListRenderer4`, `pListRenderer5`, `propertiesRenderer2b`, `propertiesRenderer4`, `propertiesRenderer5`, `xmlRenderer2b`, `xmlRenderer4`, `xmlRenderer5`, `xmlRendererValidation10`, `xmlRendererValidation11`, `protobuf`, and `protobuf2`; Protobuf text also promotes `protobuf3.txtpb`. Remaining Protobuf work is outside the current upstream LanguageSnippetTests surface, so #6 should be closed or rescoped before release.
 - #8 Umbrella practical blockers: closed after with-gold coverage reached 416 / 416. Resource / Path, YAML parser / renderer modes, reflect metadata, and polymorphic call sites are gold-matching.

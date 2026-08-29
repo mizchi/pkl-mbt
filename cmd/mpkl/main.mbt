@@ -2777,7 +2777,7 @@ async fn main {
     return
   }
   if args.length() == 2 && (args[1] == "--version" || args[1] == "-v") {
-    println("Pkl 0.32.1 compatible surface (pkl-mbt 0.6.0)")
+    println("Pkl 0.32.1 compatible surface (pkl-mbt 0.7.0)")
     return
   }
   // PKL-080: register the bundled stdlib `base.pkl` source so the
