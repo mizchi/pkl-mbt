@@ -33,6 +33,7 @@ fn render_plist_value(value : Value, indent : Int, buf : StringBuilder) -> Unit 
     None => ()
   }
   match value {
+    ThunkValue(_) => render_plist_value(force_eval_thunk(value), indent, buf)
     IntValue(n) => {
       write_plist_indent(buf, indent)
       buf.write_string("<integer>\{n}</integer>")

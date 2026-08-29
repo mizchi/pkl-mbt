@@ -43,6 +43,8 @@ pub fn fdlibm_tan(Double) -> Double
 
 pub fn finalize_output_super_text_for_format(Value, String) -> Value
 
+pub fn force_value(Value) -> Value
+
 pub fn lint_program(Program) -> Array[LintFinding]
 
 pub fn lookup_triple_dot_resolution(String, String) -> String?
@@ -274,6 +276,19 @@ pub(all) enum EvalResult {
   EvalError(Array[Diagnostic])
 } derive(Eq, @debug.Debug)
 
+pub struct EvalThunkCell {
+  // private fields
+}
+pub impl Eq for EvalThunkCell
+pub impl @debug.Debug for EvalThunkCell
+
+pub enum EvalThunkState {
+  PendingThunk
+  EvaluatingThunk
+  ResolvedThunk(Value)
+  RejectedThunk(String)
+}
+
 pub(all) enum Expr {
   IntLiteral(Int64)
   FloatLiteral(Double)
@@ -449,6 +464,7 @@ pub(all) enum Value {
   StringValue(String)
   NullValue
   DeferredImportValue(String)
+  ThunkValue(EvalThunkCell)
   ObjectValue(Array[ValueMember])
   ListingValue(Array[Value])
   ListValue(Array[Value])

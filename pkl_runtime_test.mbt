@@ -961,6 +961,41 @@ test "PKL-148ay: Int power matches Apple Pkl negative exponent and overflow" {
 }
 
 ///|
+test "Pkl 0.32.1: Int arithmetic detects overflow and minInt radix renders" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:math"
+      #|multiply = module.catch(() -> math.maxInt * 2)
+      #|add = module.catch(() -> math.maxInt + 2)
+      #|subtract = module.catch(() -> math.minInt - 2)
+      #|minimum = math.minInt.toRadixString(10)
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(ObjectValue(members)) else {
+    panic()
+  }
+  let mut multiply = ""
+  let mut add = ""
+  let mut subtract = ""
+  let mut minimum = ""
+  for slot in members {
+    match (slot.name, slot.value) {
+      ("multiply", StringValue(value)) => multiply = value
+      ("add", StringValue(value)) => add = value
+      ("subtract", StringValue(value)) => subtract = value
+      ("minimum", StringValue(value)) => minimum = value
+      _ => ()
+    }
+  }
+  inspect(multiply, content="Integer overflow.")
+  inspect(add, content="Integer overflow.")
+  inspect(subtract, content="Integer overflow.")
+  inspect(minimum, content="-9223372036854775808")
+}
+
+///|
 test "PKL-131b: codegen dispatcher returns same output as codegen_moonbit for MoonBit target" {
   let parsed = @pkl.parse_source(
     "class Person {\n  name: String\n  age: Int\n}",
@@ -2588,6 +2623,49 @@ test "PKL-152: reflected annotation toString preserves body text" {
 }
 
 ///|
+test "Pkl 0.32.1: reflected annotations evaluate lexical bodies" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:reflect"
+      #|const function plus(it) = it + 3
+      #|local const label = "myProp"
+      #|class MyClass {
+      #|  @MyAnnotation { func = (it) -> plus(it); prop = label }
+      #|  foo: Int
+      #|}
+      #|@MyAnnotation { func = (it) -> plus(it + 1); prop = label }
+      #|hidden qux: Int
+      #|class MyAnnotation extends Annotation {
+      #|  func: ((Any) -> Any)
+      #|  prop: Any
+      #|}
+      #|local nested = reflect.Class(MyClass).properties["foo"].annotations.first as MyAnnotation
+      #|local moduleAnn = reflect.Module(module).moduleClass.properties["qux"].annotations.first as MyAnnotation
+      #|nestedResult = nested.func.apply(15)
+      #|nestedProp = nested.prop
+      #|moduleResult = moduleAnn.func.apply(15)
+      #|moduleProp = moduleAnn.prop
+    ),
+  )
+  let value = match session.eval_path("main.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got: \{diagnostics[0].message}")
+  }
+  inspect(
+    @pkl.render_value(value),
+    content=(
+      #|nestedResult = 18
+      #|nestedProp = "myProp"
+      #|moduleResult = 19
+      #|moduleProp = "myProp"
+    ),
+  )
+}
+
+///|
 test "PKL-148c: reflect module class exposes output property metadata" {
   let session = AnalysisSession::new()
   session.set_source(
@@ -3519,17 +3597,33 @@ test "PKL-154: reflected module class retains its module-specific reflectee" {
     ),
   )
   session.set_source(
+    "Amended.pkl",
+    (
+      #|amends "BaseModule.pkl"
+      #|
+      #|value = 2
+    ),
+  )
+  session.set_source(
     "main.pkl",
     (
       #|import "pkl:reflect"
       #|import "BaseModule.pkl" as BaseModule
+      #|import "Amended.pkl" as Amended
       #|
       #|local reflected = reflect.Module(BaseModule)
       #|sameClass = reflected.moduleClass.reflectee == BaseModule.getClass()
+      #|amendSameClass = reflect.Module(Amended).moduleClass.reflectee == BaseModule.getClass()
     ),
   )
   guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
-  inspect(@pkl.render_value(value), content="sameClass = true")
+  inspect(
+    @pkl.render_value(value),
+    content=(
+      #|sameClass = true
+      #|amendSameClass = true
+    ),
+  )
 }
 
 ///|
@@ -3606,6 +3700,31 @@ test "PKL-148ar: predicate members amend mapping entries" {
   let rendered = @pkl.render_value(value)
   inspect(rendered.contains("[\"Barn Owl\"] {"), content="true")
   inspect(rendered.contains("age = 99"), content="true")
+  inspect(rendered.contains("age = 42"), content="true")
+}
+
+///|
+test "Pkl 0.32.1: predicate member expression continues after newline" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|hidden people = new Listing {
+      #|  new { name = "Pigeon"; age = 42 }
+      #|  new { name = "Barn Owl"; age = 21 }
+      #|}
+      #|res = (people) {
+      #|  [[(people) { [[name == "Barn Owl"]] { age = 99 } }.toList().find((it) -> it.age == 99).name
+      #|    == name]] {
+      #|    age = 55
+      #|  }
+      #|}
+      #|
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("age = 55"), content="true")
   inspect(rendered.contains("age = 42"), content="true")
 }
 
@@ -3906,6 +4025,82 @@ test "PKL-148bm: Mixin object apply mirrors pipe semantics" {
       "err2 = \"Expected value of type `main#Person`, but got type `Int`. Value: 1\"",
     ),
     content="true",
+  )
+}
+
+///|
+test "Pkl 0.32.1: Mixin accepts entries and object-parameter generators" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|local key = "hello"
+      #|entry = new Mixin { [key] = "world" }.apply(new Dynamic {})
+      #|function mapEnv(env: Dynamic) = new Mixin { it ->
+      #|  new { res = it }
+      #|  for (k, v in env) { new { name = k; value = v } }
+      #|}
+      #|elements = new Listing { "elem" } |> mapEnv(new Dynamic { one = "One" })
+      #|
+    ),
+  )
+  let value = match session.eval_path("main.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got: \{diagnostics[0].message}")
+  }
+  let rendered = @pkl.render_value(value)
+  inspect(rendered.contains("[\"hello\"] = \"world\""), content="true")
+  inspect(rendered.contains("res {"), content="true")
+  inspect(rendered.contains("name = \"one\""), content="true")
+  inspect(rendered.contains("value = \"One\""), content="true")
+}
+
+///|
+test "Pkl 0.32.1: generated element parent diagnostics keep runtime type" {
+  let source =
+    #|import "pkl:test"
+    #|class Person {}
+    #|person = test.catch(() -> new Person { when (false) { 0 }; "pigeon" })
+    #|mapping = test.catch(() -> new Mapping { when (false) { 0 }; "pigeon" })
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  let value = match session.eval_path("main.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got: \{diagnostics[0].message}")
+  }
+  let rendered = @pkl.render_value(value)
+  inspect(
+    rendered.contains(
+      "person = \"Object of type `main#Person` cannot have an element.\"",
+    ),
+    content="true",
+  )
+  inspect(
+    rendered.contains(
+      "mapping = \"Object of type `Mapping` cannot have an element.\"",
+    ),
+    content="true",
+  )
+}
+
+///|
+test "Pkl 0.32.1: parameterized typealias constraints run during casts" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:test"
+      #|typealias FirstIs<T> = List(this[0] is T)
+      #|local value = List("bad")
+      #|result = test.catch(() -> value as FirstIs<Int>)
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(
+    @pkl.render_value(value),
+    content="result = \"Type constraint `this[0] is T` violated. Value: List(\\\"bad\\\")\"",
   )
 }
 
@@ -4983,4 +5178,43 @@ test "PKL-default-ref: `default { ... }` collection-default member still recogni
   guard eval_source(source) is EvalOk(value) else { panic() }
   let rendered = render_value(value)
   inspect(rendered.contains("name = \"Parrot\"\n    age = 21"), content="true")
+}
+
+///|
+test "PKL-160: typed object properties are forced independently" {
+  let source =
+    #|import "pkl:test"
+    #|class Result {
+    #|  broken: Int
+    #|  good: Boolean = true
+    #|}
+    #|local result = new Result {
+    #|  broken = "value".missing
+    #|}
+    #|unusedBrokenProperty = result.good
+    #|forcedBrokenProperty = test.catch(() -> result.broken)
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = render_value(value)
+  inspect(rendered.contains("unusedBrokenProperty = true"), content="true")
+  inspect(rendered.contains("Cannot find property `missing`"), content="true")
+}
+
+///|
+test "PKL-160: dynamic object properties are forced independently" {
+  let source =
+    #|import "pkl:test"
+    #|local result = new {
+    #|  broken = "value".missing
+    #|  good = true
+    #|}
+    #|unusedBrokenProperty = result.good
+    #|forcedBrokenProperty = test.catch(() -> result.broken)
+  let session = AnalysisSession::new()
+  session.set_source("main.pkl", source)
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let rendered = render_value(value)
+  inspect(rendered.contains("unusedBrokenProperty = true"), content="true")
+  inspect(rendered.contains("Cannot find property `missing`"), content="true")
 }

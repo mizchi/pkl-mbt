@@ -1,0 +1,13 @@
+import "pkl:test"
+
+class Result {
+  broken: Int
+  good: Boolean = true
+}
+
+local result = new Result {
+  broken = "value".missing
+}
+
+unusedBrokenProperty = result.good
+forcedBrokenProperty = test.catch(() -> result.broken)

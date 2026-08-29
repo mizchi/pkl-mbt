@@ -96,6 +96,8 @@ fn jsonnet_emit_value(
     None => ()
   }
   match value {
+    ThunkValue(_) =>
+      jsonnet_emit_value(force_eval_thunk(value), indent, ctx, buf)
     NullValue => buf.write_string("null")
     DeferredImportValue(_) => buf.write_string("null")
     BoolValue(true) => buf.write_string("true")

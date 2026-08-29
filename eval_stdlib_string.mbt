@@ -37,6 +37,7 @@ fn eval_string_property(
       }
       Some(BoolValue(!blank))
     }
+    "isGlobPattern" => Some(BoolValue(is_valid_pkl_glob_pattern(s)))
     "base64" =>
       // PKL-148: encode the string's UTF-8 bytes as standard base64.
       // Apple Pkl projects this as a property, not a method.
@@ -1437,6 +1438,7 @@ fn eval_string_method(
     | "lastIndex"
     | "isBase64"
     | "isRegex"
+    | "isGlobPattern"
     | "base64Decoded"
     | "base64DecodedBytes" =>
       if arg_values.length() != 0 {
@@ -1451,6 +1453,47 @@ fn eval_string_method(
       }
     _ => None
   }
+}
+
+///|
+fn is_valid_pkl_glob_pattern(pattern : String) -> Bool {
+  let mut brace_depth = 0
+  let mut bracket_depth = 0
+  let mut escaped = false
+  for c in pattern.iter() {
+    if escaped {
+      escaped = false
+      continue
+    }
+    if c == '\\' {
+      escaped = true
+      continue
+    }
+    if c == '{' {
+      // Pkl's alternation groups cannot nest. This also rejects the
+      // canonical malformed fixture `{{}}`.
+      if brace_depth != 0 {
+        return false
+      }
+      brace_depth = 1
+    } else if c == '}' {
+      if brace_depth != 1 {
+        return false
+      }
+      brace_depth = 0
+    } else if c == '[' {
+      if bracket_depth != 0 {
+        return false
+      }
+      bracket_depth = 1
+    } else if c == ']' {
+      if bracket_depth != 1 {
+        return false
+      }
+      bracket_depth = 0
+    }
+  }
+  !escaped && brace_depth == 0 && bracket_depth == 0
 }
 
 ///|

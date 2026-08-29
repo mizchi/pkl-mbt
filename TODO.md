@@ -1,8 +1,8 @@
 # Release TODO
 
-Current version: `0.4.1` (see `moon.mod`).
-Current coverage against Apple Pkl 0.32.1: 399 / 416 PCF gold-match (95.9%).
-Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-08-29.
+Current version: `0.6.0` (see `moon.mod`).
+Current coverage against Apple Pkl 0.32.1: 416 / 416 PCF gold-match (100.0%).
+Last verified with `pkf run coverage` / `scripts/coverage-by-category.sh` on 2026-08-30.
 Tracking issue: [#32 Apple Pkl 0.32.1 compatibility gaps](https://github.com/mizchi/pkl-mbt/issues/32).
 
 ## 0.2.0 landing notes
@@ -26,9 +26,9 @@ Embedded-host blockers cleared during the 0.2.0 round:
 - **PKL-153b** (`f0a5a7f`): dropped a `module.X` short-circuit that returned the whole `outer` snapshot as the result of `module.X` when X wasn't in cache but lived in the bindings list. Inside a nested object-literal body (`new R { workflowTests = new Listing { for (wt in module.workflowTests) { ... } } }`), this returned R's in-flight body as `module.workflowTests`, which then iterated as four pseudo-members and produced "Cannot find property `name` in object of type `Listing`" on the inner field access.
 - Combined effect: pkfire's `examples/basic/Taskfile.pkl` (`amends "package://pkg.pkl-lang.org/github.com/mizchi/pkfire/pkfire@0.10.0#/Taskfile.pkl"`) now evaluates byte-identically to Apple Pkl 0.31.1. The pkspec / pkfire wire-format consumer no longer needs the JVM `pkl` CLI for this schema.
 
-Known follow-up (not blocking the release gate):
+0.4.0 lazy-evaluation follow-up (completed 2026-08-02):
 
-- `length on Int` in `QuickCheck.test.pkl`'s `checkAllInt` fact — Apple Pkl works because of lazy property evaluation (the failing slot `cases = cases.length` inside a `new Result { ... }` body is never demanded by the caller's `r.passed && r.failure == null` reads). mpkl evaluates eagerly and trips on the in-progress self-reference. A real fix needs lazy property evaluation across `new T { ... }` bodies — a major architectural change, deferred.
+- `Value::ThunkValue` now carries an opaque, self-contained property cell with `Pending` / `Evaluating` / `Resolved` / `Rejected` states. Successful and failed RHS computations are memoized on first access, the computation closure is released after settlement, and separate `AnalysisSession` instances do not share cell state. This resolves the `QuickCheck.pkl` `cases = cases.length` false self-reference while keeping unused properties unforced. Lookup, output/rendering, converter, and amend boundaries force only selected values; class defaults retain their separate declaration memo/materialization guard.
 
 Release focus:
 
@@ -67,17 +67,7 @@ For this release pass, Resource / Glob, Numeric / Bytes, nullable basics, and th
 
 Measured from the release binary against Apple Pkl 0.32.1 LanguageSnippetTests gold files.
 
-`basic` remaining DIFFs: `basic/int`, `basic/localProperty3`, `basic/reference`, `basic/string`.
-
-`generators` remaining DIFFs: `generators/forGeneratorInMixinWithObjectParam`.
-
-`api` remaining DIFFs:
-
-- Core collection / scalar API: `api/int`, `api/string`.
-- Evaluator / project / reference API: `api/evaluatorSettings`, `api/evaluatorSettingsModulePosix`, `api/evaluatorSettingsModuleWindows`, `api/project1`, `api/reference`, `api/reflect3`.
-- Renderer / parser API: none.
-
-Other remaining DIFFs: `annotation/annotation7`, `projects/project1/localProject2`, `projects/project1/localProjectRead2`, `types/typeAliasConstraint3`.
+Remaining with-gold DIFFs: none. `pkf run coverage` reports 416 PASS / 0 DIFF.
 
 ## RenderDirective parity (deferred)
 
@@ -310,16 +300,16 @@ Main dependencies:
 
 ## Issue Sync
 
-- #32 Apple Pkl 0.32.1 compatibility: tracks the 17 current PCF DIFF fixtures and the path back to 416 / 416.
+- #32 Apple Pkl 0.32.1 compatibility: all 17 tracked PCF DIFF fixtures are restored; release-gate verification remains before close.
 - #4 Lazy local evaluation: implemented through the local-scope fixture slice and closed as completed.
 - #6 XML / Protobuf renderer bodies: all upstream XML `.xml` renderer fixtures now promote (`xmlRenderer1`, `xmlRenderer2`, `xmlRenderer3`, `xmlRenderer6`, `xmlRenderer9`, `xmlRendererCData`, `xmlRendererElement`, `xmlRendererInline`, `xmlRendererInline2`, `xmlRendererInline3`, `xmlRendererHtml`); JSON output now promotes `jsonRenderer1`, `jsonRenderer2`, `jsonRenderer3`, `jsonRenderer6`, and `jsonRenderer9`; YAML output now promotes `yamlRenderer1`, `yamlRenderer2`, `yamlRenderer3`, `yamlRenderer6`, `yamlRenderer8`, `yamlRenderer9`, `yamlRenderer10`, `yamlRendererBug66849708`, `yamlRendererEmpty`, `yamlRendererIndentationWidth2/4/5`, `yamlRendererKeys`, and `yamlRendererStrings`; direct renderer-method / validation PCF fixtures now cover `pcfRenderer2`, `pcfRenderer2b`, `pcfRenderer4`, `pcfRenderer5`, `jsonRenderer2b`, `jsonRenderer4`, `jsonRenderer5`, `yamlRenderer2b`, `yamlRenderer4`, `yamlRenderer5`, `yamlRendererStream1`, `yamlRendererStream2`, `plistRenderer2b`, `pListRenderer4`, `pListRenderer5`, `propertiesRenderer2b`, `propertiesRenderer4`, `propertiesRenderer5`, `xmlRenderer2b`, `xmlRenderer4`, `xmlRenderer5`, `xmlRendererValidation10`, `xmlRendererValidation11`, `protobuf`, and `protobuf2`; Protobuf text also promotes `protobuf3.txtpb`. Remaining Protobuf work is outside the current upstream LanguageSnippetTests surface, so #6 should be closed or rescoped before release.
-- #8 Umbrella practical blockers: the Apple Pkl 0.32.1 sweep is 399 / 416. Resource / Path, YAML parser / renderer modes, reflect metadata, and polymorphic call sites remain in the curated gold-matching gate.
-- #17 YAML Parser complex mapping keys: still open for `api/yamlParser6`; this is not a release blocker unless full YAML complex-key parity is advertised.
+- #8 Umbrella practical blockers: closed after with-gold coverage reached 416 / 416. Resource / Path, YAML parser / renderer modes, reflect metadata, and polymorphic call sites are gold-matching.
+- #17 YAML Parser complex mapping keys: closed after the `api/yamlParser6` fixture joined the gold-matching surface.
 - #1 Stdlib module evaluation gaps: relevant for long-term stdlib parity, especially external declarations, variance, and `pkl:` module loading.
 
 ## Suggested Release Path
 
-1. Keep GitHub issues and release docs aligned with the current Apple Pkl 0.32.1 `399 / 416` baseline; stale issue bodies should not be used as the source of truth over this file.
-2. Preserve the curated release baseline while working through the 17 new/changed 0.32.1 DIFF fixtures, NOGOLD diagnostic contracts, and remaining open issues.
+1. Keep GitHub issues and release docs aligned with the current Apple Pkl 0.32.1 `416 / 416` baseline; stale issue bodies should not be used as the source of truth over this file.
+2. Preserve the full with-gold baseline while working on NOGOLD diagnostic contracts and remaining open issues.
 3. Done: treat `api/list` / `api/listing` / `api/mapping` / `api/set` / `api/string` as the next low-risk user-facing API cluster.
 4. Done: `api/reflectedDeclaration`, `api/mathModule`, and `internal/polymorphicCallSite` are in the gold-matching surface; `internal/polymorphicCallSite` is now an explicit release-smoke fixture.

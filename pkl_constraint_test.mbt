@@ -2130,6 +2130,51 @@ test "Pkl Listing element constraint resolves class-local predicate" {
 }
 
 ///|
+test "Pkl Listing class-local predicate survives an amended module" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "snippetTest.pkl", "open module snippetTest\nextends \"pkl:test\"",
+  )
+  session.set_source(
+    "main.pkl",
+    (
+      #|amends "snippetTest.pkl"
+      #|local class TheClass {
+      #|  local isLongString = (it) -> it.length > 10
+      #|  prop: Listing<String(isLongString)>
+      #|}
+      #|examples {
+      #|  ["name resolution"] {
+      #|    module.catch(() -> new TheClass {
+      #|      prop { "too short" }
+      #|    }.prop[0])
+      #|    new TheClass {
+      #|      prop { "this is long enough" }
+      #|    }
+      #|  }
+      #|}
+    ),
+  )
+  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  inspect(
+    render_value(value),
+    content=(
+      #|catch = null
+      #|examples {
+      #|  ["name resolution"] {
+      #|    "Type constraint `isLongString` violated. Value: \"too short\""
+      #|    new {
+      #|      prop {
+      #|        "this is long enough"
+      #|      }
+      #|    }
+      #|  }
+      #|}
+    ),
+  )
+}
+
+///|
 test "Pkl Listing element constraint resolves amended receiver members" {
   let session = AnalysisSession::new()
   let source =

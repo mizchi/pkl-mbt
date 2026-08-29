@@ -881,7 +881,20 @@ fn eval_listing_method(
             if i > 0 {
               buf.write_string(sep)
             }
-            buf.write_string(value_to_string_for_join(elements[i]))
+            match elements[i] {
+              ObjectValue(reference) if is_reference_value_members(reference) =>
+                match
+                  eval_reference_to_string(
+                    reference, bindings, env, class_env, cache, stack, declarations,
+                    diagnostics, resolve_import,
+                  ) {
+                  Some(StringValue(text)) => buf.write_string(text)
+                  Some(value) =>
+                    buf.write_string(value_to_string_for_join(value))
+                  None => return None
+                }
+              value => buf.write_string(value_to_string_for_join(value))
+            }
           }
           Some(StringValue(buf.to_string()))
         }

@@ -117,6 +117,7 @@ fn render_properties_compact_json(value : Value) -> String {
 ///|
 fn write_compact_json_value(value : Value, buf : StringBuilder) -> Unit {
   match value {
+    ThunkValue(_) => write_compact_json_value(force_eval_thunk(value), buf)
     IntValue(n) => buf.write_string("\{n}")
     FloatValue(d) => buf.write_string(render_float_text(d))
     BoolValue(true) => buf.write_string("true")

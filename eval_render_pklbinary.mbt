@@ -342,6 +342,7 @@ fn pklbinary_write_value(
   cache : Array[ValueBinding],
 ) -> Unit {
   match value {
+    ThunkValue(_) => pklbinary_write_value(buf, force_eval_thunk(value), cache)
     IntValue(number) => pklbinary_write_int(buf, number)
     FloatValue(number) => {
       pklbinary_write_u8(buf, 0xcb)

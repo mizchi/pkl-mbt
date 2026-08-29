@@ -15,6 +15,10 @@ pub(all) enum Value {
   StringValue(String)
   NullValue
   DeferredImportValue(String)
+  // PKL-161/166: opaque, self-contained property thunk. The cell owns its
+  // memo state and computation, so runtime Values do not depend on a global
+  // evaluator registry and release captured environments with normal GC.
+  ThunkValue(EvalThunkCell)
   ObjectValue(Array[ValueMember])
   ListingValue(Array[Value])
   // PKL-148h: `List(...)` constructor result, kept distinct from
@@ -166,7 +170,7 @@ fn deferred_error_value(message : String) -> Value {
 
 ///|
 fn deferred_error_message(value : Value) -> String? {
-  match value {
+  match force_eval_thunk(value) {
     ObjectValue(members) =>
       match lookup_member(members, error_member_name("@deferred")) {
         Some(StringValue(message)) => Some(message)
@@ -243,7 +247,16 @@ pub fn eval_source(source : String) -> EvalResult {
   // `render_value` already skips hidden members, so this filter is the
   // only place the symmetry needs to be re-stated.
   match eval_source_with_imports(source, fn(_) { None }) {
-    EvalOk(value) => EvalOk(strip_invisible_recursive(value))
+    EvalOk(value) => {
+      let stripped = strip_invisible_recursive(value)
+      // `eval_source` is an eager, test-facing projection. Property thunks
+      // rejected while stripping must preserve the historical EvalError
+      // contract instead of leaking a DeferredErrorValue inside EvalOk.
+      match first_rendered_deferred_error_message(stripped) {
+        Some(message) => EvalError([diag(message)])
+        None => EvalOk(stripped)
+      }
+    }
     other => other
   }
 }
@@ -258,6 +271,13 @@ pub fn eval_source(source : String) -> EvalResult {
 /// tagging in `tag_object_with_class` started writing the
 /// `@hidden$__class` marker for every typed body).
 fn strip_invisible_recursive(value : Value) -> Value {
+  let value = force_eval_thunk(value)
+  // Preserve a rejected thunk's sentinel until the eager `eval_source`
+  // boundary has converted it to EvalError. Stripping it here would turn
+  // the failure into an indistinguishable empty object.
+  if deferred_error_message(value) is Some(_) {
+    return value
+  }
   match value {
     ObjectValue(members) => {
       let kept : Array[ValueMember] = []
@@ -531,6 +551,16 @@ fn eval_value_matches_generic_type_annotation(
   class_env : Array[ClassBinding],
   declarations : Array[Declaration],
 ) -> Bool? {
+  match generic_argument_text(type_name, "ref.Reference") {
+    Some(_) =>
+      return Some(
+        match value {
+          ObjectValue(members) => is_reference_value_members(members)
+          _ => false
+        },
+      )
+    None => ()
+  }
   match generic_argument_text(type_name, "List") {
     Some(element_type) =>
       return match value {
@@ -711,6 +741,11 @@ fn eval_value_matches_bare_type(
     "Mapping" =>
       value is MappingValue(_) || value is DefaultedMappingValue(_, _, _)
     "Pair" => value is PairValue(_, _)
+    "ref.Reference" | "Reference" =>
+      match value {
+        ObjectValue(members) => is_reference_value_members(members)
+        _ => false
+      }
     "IntSeq" => value is IntSeqValue(_, _, _)
     "Mixin" =>
       match value {

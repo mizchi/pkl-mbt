@@ -38,27 +38,27 @@
 
 ## 現在の開発状況
 
-- 現在 version は `0.4.1` (`moon.mod`)。
-- 上流の Apple Pkl 0.32.1 LanguageSnippetTests に対する gold-match: **399 / 416 (95.9%)**。確認は `pkf run coverage` で。
+- 現在 version は `0.6.0` (`moon.mod`)。
+- 上流の Apple Pkl 0.32.1 LanguageSnippetTests に対する gold-match: **416 / 416 (100.0%)**。確認は `pkf run coverage` で。
 - カテゴリ別の内訳と最終更新は `README.md` / `TODO.md` が source of truth。
 - 0.2.0 で追加された embedded-API: `configure_sandbox_resource_reader(scheme, fn)`、 `extends` chain の base-local 解決、 cross-module recursive function、 `Listing<T>` 返り値推論、 `mpkl test --junit-reports <dir>`。 詳細は `README.md` の "0.2.0 highlights"。
 
 ## 次に触るべきタスク
 
-GitHub Issues に「user impact 順」で並んでいる。次セッションは **必ず最初に umbrella issue を見る**:
+GitHub Issues に「user impact 順」で並んでいる。次セッションは **必ず最初に tracking issue を見る**:
 
-- **[#8 Tracking: practical blockers](https://github.com/mizchi/pkl-mbt/issues/8)** — Tier1/Tier2/Tier3 で並べた採用ブロッカーの全体マップ。チェック済み行で進捗を追える。
+- **[#32 Tracking: Apple Pkl 0.32.1 compatibility gaps](https://github.com/mizchi/pkl-mbt/issues/32)** — 追加・変更された 17 fixture はすべて gold-match へ復帰済み。close 前に release gate と文書同期を確認する。
 
 個別 issue / release backlog (impact 大きい順):
 
-- `TODO.md` Current DIFF Snapshot — Apple Pkl 0.32.1 で追加・変更された DIFF 17 件を user impact 順に選ぶ。
+- `TODO.md` Current DIFF Snapshot — with-gold fixture は全件一致。次は NOGOLD の診断契約または open issue を user impact 順に選ぶ。
 - [#1 Evaluate Apple Pkl stdlib modules](https://github.com/mizchi/pkl-mbt/issues/1) — `analyze` / `benchmark` / `release` module surface と長期 stdlib parity。
-- [#17 YAML Parser: support complex mapping keys](https://github.com/mizchi/pkl-mbt/issues/17) — `api/yamlParser6` 系。フル YAML parser parity を掲げるまでは非リリースブロッカー。
-- [#6 XML / Protobuf renderer bodies](https://github.com/mizchi/pkl-mbt/issues/6) — upstream XML / Protobuf text fixtures は通過済み。close/rescope 候補。
+- #17 YAML Parser complex mapping keys — `api/yamlParser6` の gold-match 後に close 済み。
+- #6 XML / Protobuf renderer bodies — upstream XML / Protobuf text fixtures の通過後に close 済み。
 
 ## 次セッションを始めるときの定型手順
 
-1. `gh issue list --state open` で生きてる issue を確認。新規ブロッカーが追加されてれば umbrella (#8) に反映。
+1. `gh issue list --state open` で生きてる issue を確認。新規ブロッカーが追加されていれば tracking issue に反映。
 2. `pkf run coverage` で現在の gold-match を取り、`README.md` の数字とズレてないか確認。
 3. 取り組む issue / TODO priority を 1 件 pick。AST に触る変更は破壊範囲が大きいので、別ブランチ + 段階的 commit を推奨。
 4. 1 issue 1 PR が原則。 小さな PASS を狙う場合は `coverage-by-category.sh` の DIFF 出力から fixture 単位で当たる。

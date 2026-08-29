@@ -906,7 +906,11 @@ fn eval_pkl_reflect_intrinsic(
       }
     "_pkl_reflect_class" =>
       if arg is ObjectValue(_) {
-        Some(reflect_class_gold_factory(arg, declarations, cache))
+        Some(
+          reflect_class_gold_factory(
+            arg, bindings, env, class_env, declarations, cache, resolve_import,
+          ),
+        )
       } else {
         Some(reflect_class_factory_value(arg))
       }
@@ -978,6 +982,591 @@ fn is_pkl_analyze_intrinsic_call(
       !stack_contains_binding(stack, "_pkl_analyze_import_graph") &&
       find_binding(bindings, "_pkl_analyze_import_graph") is None
     _ => false
+  }
+}
+
+///|
+fn is_pkl_evaluator_settings_intrinsic_call(
+  callee : Expr,
+  bindings : Array[Binding],
+  stack : Array[String],
+) -> Bool {
+  match callee {
+    Identifier("_pkl_evaluator_settings_resolve") =>
+      !stack_contains_binding(stack, "_pkl_evaluator_settings_resolve") &&
+      find_binding(bindings, "_pkl_evaluator_settings_resolve") is None
+    _ => false
+  }
+}
+
+///|
+fn is_pkl_ref_intrinsic_call(
+  callee : Expr,
+  bindings : Array[Binding],
+  stack : Array[String],
+) -> Bool {
+  match callee {
+    Identifier(name) =>
+      (
+        name == "_pkl_ref_get_domain" ||
+        name == "_pkl_ref_get_data" ||
+        name == "_pkl_ref_get_path" ||
+        name == "_pkl_ref_to_string"
+      ) &&
+      !stack_contains_binding(stack, name) &&
+      find_binding(bindings, name) is None
+    _ => false
+  }
+}
+
+///|
+fn is_pkl_ref_constructor_call(
+  callee : Expr,
+  env : Array[ValueBinding],
+  cache : Array[ValueBinding],
+) -> Bool {
+  let module_alias = match callee {
+    MemberAccess(Identifier(name), "Reference") => name
+    _ => return false
+  }
+  let target = match lookup_value(env, module_alias) {
+    Some(value) => Some(value)
+    None => lookup_value(cache, module_alias)
+  }
+  match target {
+    Some(ObjectValue(members)) =>
+      module_members_path(members) is Some("pkl:ref")
+    _ => false
+  }
+}
+
+///|
+fn eval_pkl_ref_constructor(
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  if arguments.length() != 3 {
+    diagnostics.push(
+      diag("ref.Reference expects 3 arguments, got \{arguments.length()}"),
+    )
+    return None
+  }
+  let values : Array[Value] = []
+  for argument in arguments {
+    match
+      eval_expr_with_bindings(
+        argument, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      ) {
+      Some(value) => values.push(value)
+      None => return None
+    }
+  }
+  let type_name = match class_name_from_mirror_value(values[1]) {
+    Some(name) => reference_normalize_type(name, class_env, declarations, cache)
+    None => {
+      diagnostics.push(
+        diag("ref.Reference expects a Class as its second argument"),
+      )
+      return None
+    }
+  }
+  Some(reference_value(values[0], type_name, values[2], []))
+}
+
+///|
+fn eval_pkl_ref_intrinsic(
+  callee : Expr,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let name = match callee {
+    Identifier(name) => name
+    _ => return None
+  }
+  if arguments.length() != 1 {
+    diagnostics.push(diag("\{name} expects 1 argument"))
+    return None
+  }
+  let reference = match
+    eval_expr_with_bindings(
+      arguments[0],
+      bindings,
+      env,
+      class_env,
+      cache,
+      stack,
+      declarations,
+      diagnostics,
+      resolve_import,
+    ) {
+    Some(ObjectValue(members)) if is_reference_value_members(members) => members
+    Some(value) => {
+      diagnostics.push(
+        diag(
+          "\{name} expects a ref.Reference, got \{eval_value_type_name(value)}: \{render_pcf_value_inline(value)}",
+        ),
+      )
+      return None
+    }
+    None => return None
+  }
+  match name {
+    "_pkl_ref_get_domain" => reference_hidden_value(reference, "domain")
+    "_pkl_ref_get_data" => reference_hidden_value(reference, "data")
+    "_pkl_ref_get_path" => reference_hidden_value(reference, "path")
+    "_pkl_ref_to_string" =>
+      eval_reference_to_string(
+        reference, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      )
+    _ => None
+  }
+}
+
+///|
+fn evaluator_path_join(parts : Array[String], separator : String) -> String {
+  let out = StringBuilder()
+  for i, part in parts {
+    if i > 0 {
+      out.write_string(separator)
+    }
+    out.write_string(part)
+  }
+  out.to_string()
+}
+
+///|
+fn evaluator_normalize_segments(path : String) -> Array[String] {
+  let resolved : Array[String] = []
+  for part in path.split("/") {
+    if part == "" || part == "." {
+      continue
+    }
+    if part == ".." {
+      if resolved.length() > 0 {
+        let _ = resolved.pop()
+      }
+      continue
+    }
+    resolved.push(part.to_owned())
+  }
+  resolved
+}
+
+///|
+fn evaluator_normalize_posix_path(path : String) -> String {
+  let absolute = path.has_prefix("/")
+  let parts = evaluator_normalize_segments(path)
+  let body = evaluator_path_join(parts, "/")
+  if absolute {
+    if body == "" {
+      "/"
+    } else {
+      "/" + body
+    }
+  } else {
+    body
+  }
+}
+
+///|
+fn evaluator_windows_drive_path(path : String) -> Bool {
+  path.length() >= 2 && path[1] == ':'
+}
+
+///|
+fn evaluator_normalize_windows_path(raw : String) -> String {
+  let path = raw.replace_all(old="\\", new="/")
+  let normalized = if path.has_prefix("//") {
+    let rest = String::unsafe_substring(path, start=2, end=path.length())
+    let raw_parts = rest.split("/").collect()
+    let server = if raw_parts.length() > 0 {
+      raw_parts[0].to_owned()
+    } else {
+      ""
+    }
+    let share = if raw_parts.length() > 1 {
+      raw_parts[1].to_owned()
+    } else {
+      ""
+    }
+    let parts : Array[String] = []
+    for i = 2; i < raw_parts.length(); i = i + 1 {
+      let part = raw_parts[i]
+      if part == "" || part == "." {
+        continue
+      }
+      if part == ".." {
+        if parts.length() > 0 {
+          let _ = parts.pop()
+        }
+      } else {
+        parts.push(part.to_owned())
+      }
+    }
+    let root = "//" + server + "/" + share
+    if parts.length() == 0 {
+      root + "/"
+    } else {
+      root + "/" + evaluator_path_join(parts, "/")
+    }
+  } else if evaluator_windows_drive_path(path) {
+    let drive = String::unsafe_substring(path, start=0, end=2)
+    let absolute = path.length() >= 3 && path[2] == '/'
+    let rest = if absolute {
+      String::unsafe_substring(path, start=3, end=path.length())
+    } else {
+      String::unsafe_substring(path, start=2, end=path.length())
+    }
+    let parts = evaluator_normalize_segments(rest)
+    if parts.length() == 0 {
+      if absolute {
+        drive + "/"
+      } else {
+        drive
+      }
+    } else if absolute {
+      drive + "/" + evaluator_path_join(parts, "/")
+    } else {
+      drive + evaluator_path_join(parts, "/")
+    }
+  } else {
+    let absolute = path.has_prefix("/")
+    let parts = evaluator_normalize_segments(path)
+    let body = evaluator_path_join(parts, "/")
+    if absolute {
+      if body == "" {
+        "/"
+      } else {
+        "/" + body
+      }
+    } else {
+      body
+    }
+  }
+  normalized.replace_all(old="/", new="\\")
+}
+
+///|
+fn evaluator_file_path_from_uri(uri : String, windows : Bool) -> String {
+  let decoded = sandbox_percent_decode(uri)
+  if decoded.has_prefix("file://") {
+    let rest = String::unsafe_substring(
+      decoded,
+      start="file://".length(),
+      end=decoded.length(),
+    )
+    if windows {
+      if rest.has_prefix("/") {
+        if rest.length() >= 3 && rest[2] == ':' {
+          String::unsafe_substring(rest, start=1, end=rest.length())
+        } else {
+          rest
+        }
+      } else {
+        "//" + rest
+      }
+    } else if rest.has_prefix("/") {
+      rest
+    } else {
+      "/" + rest
+    }
+  } else if decoded.has_prefix("file:") {
+    String::unsafe_substring(
+      decoded,
+      start="file:".length(),
+      end=decoded.length(),
+    )
+  } else {
+    decoded
+  }
+}
+
+///|
+fn evaluator_path_dirname(path : String) -> String {
+  let normalized = path.replace_all(old="\\", new="/")
+  if normalized.has_suffix("/") {
+    normalized
+  } else {
+    match normalized.rev_find("/") {
+      Some(index) =>
+        if index == 0 {
+          "/"
+        } else {
+          String::unsafe_substring(normalized, start=0, end=index)
+        }
+      None => if evaluator_windows_drive_path(normalized) { "/" } else { "" }
+    }
+  }
+}
+
+///|
+fn evaluator_windows_unc_root(path : String) -> String? {
+  if !path.has_prefix("//") {
+    return None
+  }
+  let rest = String::unsafe_substring(path, start=2, end=path.length())
+  let parts = rest.split("/").collect()
+  if parts.length() == 0 {
+    Some("//")
+  } else if parts.length() == 1 {
+    Some("//" + parts[0].to_owned() + "/")
+  } else {
+    Some("//" + parts[0].to_owned() + "/" + parts[1].to_owned())
+  }
+}
+
+///|
+fn evaluator_resolve_path(
+  base_uri : String,
+  raw_path : String,
+  windows : Bool,
+) -> String {
+  let base_path = evaluator_file_path_from_uri(base_uri, windows)
+  let base_dir = evaluator_path_dirname(base_path)
+  if !windows {
+    let combined = if raw_path.has_prefix("/") {
+      raw_path
+    } else if base_dir.has_suffix("/") || base_dir == "" {
+      base_dir + raw_path
+    } else {
+      base_dir + "/" + raw_path
+    }
+    return evaluator_normalize_posix_path(combined)
+  }
+  let path = raw_path.replace_all(old="\\", new="/")
+  let combined = if path.has_prefix("//") || evaluator_windows_drive_path(path) {
+    path
+  } else if path.has_prefix("/") {
+    match evaluator_windows_unc_root(base_dir) {
+      Some(root) => root + path
+      None if evaluator_windows_drive_path(base_dir) =>
+        String::unsafe_substring(base_dir, start=0, end=2) + path
+      None if base_path == "C:" => "/" + path
+      None => path
+    }
+  } else if base_dir.has_suffix("/") || base_dir == "" {
+    base_dir + path
+  } else {
+    base_dir + "/" + path
+  }
+  evaluator_normalize_windows_path(combined)
+}
+
+///|
+fn evaluator_replace_value_member(
+  value_member : ValueMember,
+  value : Value,
+) -> ValueMember {
+  {
+    name: value_member.name,
+    value,
+    source: value_member.source,
+    annotations: value_member.annotations,
+  }
+}
+
+///|
+fn evaluator_resolve_reader(
+  value : Value,
+  base_uri : String,
+  windows : Bool,
+) -> Value {
+  match value {
+    ObjectValue(members) => {
+      let resolved : Array[ValueMember] = []
+      let mut saw_working_dir = false
+      for value_member in members {
+        // Reader objects can carry demand-driven property values. Resolution
+        // is the consumer boundary for these fields, so inspect the forced
+        // value instead of silently treating a thunk as an absent/default
+        // path.
+        let member_value = force_eval_thunk(value_member.value)
+        if value_member.name == "executable" {
+          let next = match member_value {
+            StringValue(path) =>
+              if path.contains("/") || path.contains("\\") {
+                StringValue(evaluator_resolve_path(base_uri, path, windows))
+              } else {
+                member_value
+              }
+            _ => member_value
+          }
+          resolved.push(evaluator_replace_value_member(value_member, next))
+        } else if value_member.name == "workingDir" {
+          saw_working_dir = true
+          let path = match member_value {
+            StringValue(path) => path
+            _ => "./"
+          }
+          resolved.push(
+            evaluator_replace_value_member(
+              value_member,
+              StringValue(evaluator_resolve_path(base_uri, path, windows)),
+            ),
+          )
+        } else {
+          resolved.push(value_member)
+        }
+      }
+      if !saw_working_dir {
+        resolved.push({
+          name: "workingDir",
+          value: StringValue(evaluator_resolve_path(base_uri, "./", windows)),
+          source: None,
+          annotations: [],
+        })
+      }
+      ObjectValue(resolved)
+    }
+    _ => value
+  }
+}
+
+///|
+fn evaluator_resolve_readers(
+  value : Value,
+  base_uri : String,
+  windows : Bool,
+) -> Value {
+  let resolve_entries = fn(entries : Array[ValueEntry]) -> Array[ValueEntry] {
+    let next : Array[ValueEntry] = []
+    for entry in entries {
+      next.push({
+        key: entry.key,
+        value: evaluator_resolve_reader(entry.value, base_uri, windows),
+      })
+    }
+    next
+  }
+  match value {
+    MappingValue(entries) => MappingValue(resolve_entries(entries))
+    DefaultedMappingValue(_, entries, _) =>
+      MappingValue(resolve_entries(entries))
+    MapValue(entries) => MappingValue(resolve_entries(entries))
+    _ => value
+  }
+}
+
+///|
+fn evaluator_resolve_settings(
+  value : Value,
+  base_uri : String,
+  windows : Bool,
+) -> Value? {
+  match value {
+    ObjectValue(members) => {
+      let resolved : Array[ValueMember] = []
+      for value_member in members {
+        let next = match (value_member.name, value_member.value) {
+          ("modulePath", ListingValue(paths)) => {
+            let values : Array[Value] = []
+            for item in paths {
+              match item {
+                StringValue(path) =>
+                  values.push(
+                    StringValue(evaluator_resolve_path(base_uri, path, windows)),
+                  )
+                _ => values.push(item)
+              }
+            }
+            ListingValue(values)
+          }
+          ("modulePath", DefaultedListingValue(_, paths, _)) => {
+            let values : Array[Value] = []
+            for item in paths {
+              match item {
+                StringValue(path) =>
+                  values.push(
+                    StringValue(evaluator_resolve_path(base_uri, path, windows)),
+                  )
+                _ => values.push(item)
+              }
+            }
+            ListingValue(values)
+          }
+          ("moduleCacheDir", StringValue(path))
+          | ("rootDir", StringValue(path)) =>
+            StringValue(evaluator_resolve_path(base_uri, path, windows))
+          ("externalModuleReaders", readers)
+          | ("externalResourceReaders", readers) =>
+            evaluator_resolve_readers(readers, base_uri, windows)
+          _ => value_member.value
+        }
+        resolved.push(evaluator_replace_value_member(value_member, next))
+      }
+      Some(ObjectValue(resolved))
+    }
+    _ => None
+  }
+}
+
+///|
+fn eval_pkl_evaluator_settings_intrinsic(
+  callee : Expr,
+  arguments : Array[Expr],
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  stack : Array[String],
+  declarations : Array[Declaration],
+  diagnostics : Array[Diagnostic],
+  resolve_import : (String) -> EvalResult?,
+) -> Value? {
+  let name = match callee {
+    Identifier(name) => name
+    _ => return None
+  }
+  if arguments.length() != 3 {
+    diagnostics.push(
+      diag("\{name} expects 3 arguments, got \{arguments.length()}"),
+    )
+    return None
+  }
+  let values : Array[Value] = []
+  for argument in arguments {
+    match
+      eval_expr_with_bindings(
+        argument, bindings, env, class_env, cache, stack, declarations, diagnostics,
+        resolve_import,
+      ) {
+      Some(value) => values.push(value)
+      None => return None
+    }
+  }
+  match (values[1], values[2]) {
+    (StringValue(base_uri), BoolValue(windows)) =>
+      match evaluator_resolve_settings(values[0], base_uri, windows) {
+        Some(value) => Some(value)
+        None => {
+          diagnostics.push(
+            diag("EvaluatorSettings.resolveForOs expects settings"),
+          )
+          None
+        }
+      }
+    _ => {
+      diagnostics.push(
+        diag("EvaluatorSettings.resolveForOs expects a URI and OS"),
+      )
+      None
+    }
   }
 }
 

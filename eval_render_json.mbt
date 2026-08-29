@@ -41,6 +41,8 @@ fn render_json_value(
     None => ()
   }
   match value {
+    ThunkValue(_) =>
+      render_json_value(force_eval_thunk(value), indent, indent_text, buf)
     IntValue(n) => buf.write_string("\{n}")
     FloatValue(d) => buf.write_string(render_float_text(d))
     BoolValue(true) => buf.write_string("true")
@@ -116,7 +118,7 @@ fn dynamic_listing_elements_from_members(
     if !field.name.has_prefix("@element$") {
       return None
     }
-    elements.push(field.value)
+    elements.push(force_eval_thunk(field.value))
   }
   if elements.length() > 0 {
     Some(elements)

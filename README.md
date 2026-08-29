@@ -2,7 +2,7 @@
 
 Pure MoonBit parser, typechecker, and evaluator for Apple's [Pkl](https://pkl-lang.org/) language. Ships as both a CLI (`mpkl`) and a library (`mizchi/pkl`).
 
-**Compatibility policy**: behaviour follows [Apple Pkl](https://pkl-lang.org/). The release gate pins a curated upstream regression surface; the broader Apple Pkl 0.32.1 PCF sweep currently gold-matches 399 of 416 fixtures. Divergent output or a crash where Apple Pkl returns a value is a bug; please file an issue with the source snippet and Apple Pkl's output for comparison.
+**Compatibility policy**: behaviour follows [Apple Pkl](https://pkl-lang.org/). The release gate targets Apple Pkl 0.32.1 and byte-matches all 416 LanguageSnippetTests fixtures that ship reference PCF output. Divergent output or a crash where Apple Pkl returns a value is a bug; please file an issue with the source snippet and Apple Pkl's output for comparison.
 
 ## Install
 
@@ -66,7 +66,7 @@ These don't exist in Apple Pkl:
 
 ## Status
 
-The parser, evaluator, typechecker, package/project loading, and advertised renderers (PCF, JSON, YAML, properties, plist, textproto, XML, and Jsonnet) are passing the curated release test gate. The broader Apple Pkl 0.32.1 sweep is at 399 / 416 PCF gold matches (95.9%). The 17-fixture compatibility work is tracked in [#32](https://github.com/mizchi/pkl-mbt/issues/32); see [TODO.md](TODO.md) for the current DIFF inventory and release notes.
+The parser, evaluator, typechecker, package/project loading, and advertised renderers (PCF, JSON, YAML, properties, plist, textproto, XML, and Jsonnet) are passing the curated release test gate. The broader Apple Pkl 0.32.1 sweep is at 416 / 416 PCF gold matches (100.0%); see [TODO.md](TODO.md) for the remaining NOGOLD and release work.
 
 ### 0.2.2 highlights
 

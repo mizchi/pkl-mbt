@@ -607,7 +607,11 @@ test "PKL-150: Float stdlib property and conversion surface" {
       #|badFixed = test.catch(() -> 1.23.toFixed(21))
     ),
   )
-  guard session.eval_path("main.pkl") is EvalOk(value) else { panic() }
+  let value = match session.eval_path("main.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got: \{diagnostics[0].message}")
+  }
   let rendered = render_value(value)
   inspect(rendered.contains("nan = true"), content="true")
   inspect(rendered.contains("finite = true"), content="true")
@@ -2046,6 +2050,117 @@ test "PKL-154: pkl:EvaluatorSettings supports nested evaluator configuration" {
       #|mode = "test"
       #|proxyAddress = "http://proxy.example.com:5080"
       #|noProxyCount = 1
+    ),
+  )
+}
+
+///|
+test "Pkl 0.32.1: EvaluatorSettings resolves POSIX and Windows paths" {
+  let session = AnalysisSession::new()
+  let source =
+    #|import "pkl:EvaluatorSettings"
+    #|
+    #|local posix = new { name = "macOS" }
+    #|local windows = new { name = "Windows" }
+    #|posixRoot = new EvaluatorSettings { rootDir = "../root" }
+    #|  .resolveForOs("file:///work/project/PklProject", posix).rootDir
+    #|windowsRoot = new EvaluatorSettings { rootDir = #"..\root"# }
+    #|  .resolveForOs("file:///C:/work/project/PklProject", windows).rootDir
+    #|local resolved = new EvaluatorSettings {
+    #|  externalModuleReaders {
+    #|    ["bare"] { executable = "reader" }
+    #|    ["relative"] {
+    #|      executable = "bin/reader"
+    #|      workingDir = "/tmp"
+    #|    }
+    #|  }
+    #|}.resolveForOs("file:///work/project/PklProject", posix)
+    #|command = resolved.externalModuleReaders["bare"].executable
+    #|relativeCommand = resolved.externalModuleReaders["relative"].executable
+    #|absoluteWorkingDir = resolved.externalModuleReaders["relative"].workingDir
+  session.set_source("main.pkl", source)
+  let value = match session.eval_path("main.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got: \{diagnostics[0].message}")
+  }
+  inspect(
+    render_value(value),
+    content=(
+      #|posixRoot = "/work/root"
+      #|windowsRoot = "C:\\work\\root"
+      #|command = "reader"
+      #|relativeCommand = "/work/project/bin/reader"
+      #|absoluteWorkingDir = "/tmp"
+    ),
+  )
+}
+
+///|
+test "Pkl 0.32.1: String.isGlobPattern rejects malformed braces" {
+  let result = eval_source(
+    (
+      #|valid = "**".isGlobPattern && "hello".isGlobPattern
+      #|invalid = "{{}}".isGlobPattern
+    ),
+  )
+  guard result is EvalOk(value) else { panic() }
+  inspect(
+    render_value(value),
+    content=(
+      #|valid = true
+      #|invalid = false
+    ),
+  )
+}
+
+///|
+test "Pkl 0.32.1: lone surrogate escapes normalize to question mark" {
+  let result = eval_source(
+    (
+      #|value = "\u{D800}hello".substring(0, 2)
+    ),
+  )
+  guard result is EvalOk(value) else { panic() }
+  inspect(render_value(value), content="value = \"?h\"")
+}
+
+///|
+test "Pkl 0.32.1: pkl:ref derives typed property and subscript paths" {
+  let session = AnalysisSession::new()
+  session.set_source(
+    "main.pkl",
+    (
+      #|import "pkl:ref"
+      #|class Domain extends ref.Domain {
+      #|  function renderReference(reference: ref.Reference): String =
+      #|    reference.getData().toString() +
+      #|      reference.getPath().map((it) ->
+      #|        if (it.isProperty) ".\(it.property)" else "[\(it.key)]"
+      #|      ).join("")
+      #|}
+      #|class Holder {
+      #|  values: Mapping<String, Int>
+      #|}
+      #|local domain: Domain = new {}
+      #|local first = ref.Reference(domain, Holder, "root")
+      #|local second = ref.Reference(domain, Holder, "root")
+      #|property = first.values.toString()
+      #|subscript = first.values["key"].toString()
+      #|equal = first.values["key"] == second.values["key"]
+    ),
+  )
+  let value = match session.eval_path("main.pkl") {
+    EvalOk(value) => value
+    EvalError(diagnostics) =>
+      fail("expected EvalOk, got: \{diagnostics[0].message}")
+  }
+  inspect(
+    render_value(value),
+    content=(
+      #|property = "root.values"
+      #|subscript = "root.values[key]"
+      #|equal = true
     ),
   )
 }

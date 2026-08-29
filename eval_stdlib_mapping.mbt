@@ -39,7 +39,7 @@ fn is_mapping_method_name(name : String) -> Bool {
 ///|
 fn contains_entry_key(entries : Array[ValueEntry], key : Value) -> Bool {
   for entry in entries {
-    if entry.key == key {
+    if values_equal(entry.key, key) {
       return true
     }
   }
@@ -1003,7 +1003,7 @@ fn eval_map_method(
       }
       let key = arg_values[0]
       for entry in entries {
-        if entry.key == key {
+        if values_equal(entry.key, key) {
           return Some(BoolValue(true))
         }
       }
@@ -1020,7 +1020,7 @@ fn eval_map_method(
       }
       let v = arg_values[0]
       for entry in entries {
-        if entry.value == v {
+        if values_equal(entry.value, v) {
           return Some(BoolValue(true))
         }
       }
@@ -1035,7 +1035,7 @@ fn eval_map_method(
       }
       let key = arg_values[0]
       for entry in entries {
-        if entry.key == key {
+        if values_equal(entry.key, key) {
           return Some(entry.value)
         }
       }
@@ -1050,7 +1050,7 @@ fn eval_map_method(
       }
       let key = arg_values[0]
       for entry in entries {
-        if entry.key == key {
+        if values_equal(entry.key, key) {
           return Some(entry.value)
         }
       }

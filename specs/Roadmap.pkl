@@ -355,12 +355,14 @@
 ///                     qux(...) = ...`), instead of surfacing a
 ///                     cyclic-property diagnostic. +1 fixture
 ///                     (`methods/methodParameterConstraints1`),
-///                     115 → 116. The typeAlias* fixtures need
+///                     115 → 116. The typeAlias* fixtures needed
 ///                     additional per-property lazy class
 ///                     instantiation (so `test.catch(() ->
 ///                     bad.res13)` isolates one property's check
 ///                     rather than re-evaluating all 12 on `new
-///                     Bad {}`), deferred.
+///                     Bad {}`); PKL-148u supplied deferred class
+///                     defaults and PKL-161 later generalized the
+///                     runtime to memoized property thunk cells.
 ///   PKL-148u (21st)   Structural type rejection + lazy per-
 ///                     property class-default semantics. (1) New
 ///                     `eval_resolved_annotation_structural_rejection_message`

@@ -1,6 +1,6 @@
 name = "mizchi/pkl"
 
-version = "0.4.1"
+version = "0.6.0"
 
 import {
   "mizchi/cst@0.1.10",
