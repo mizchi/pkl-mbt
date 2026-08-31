@@ -528,6 +528,22 @@ fn module_object_value_from_scope(
   resolve_import : (String) -> EvalResult?,
   const_context~ : Bool,
 ) -> Value {
+  let stack_top = if stack.length() > 0 {
+    Some(stack[stack.length() - 1])
+  } else {
+    None
+  }
+  for entry in module_snapshot_cache.val {
+    if module_snapshot_entry_matches(
+        entry, bindings, env, class_env, cache, declarations, stack_top,
+        const_context,
+      ) {
+      // Hand out a fresh array: callers of this function store the
+      // snapshot as a runtime value, and member arrays are appended to in
+      // place elsewhere in the evaluator.
+      return ObjectValue(entry.members.copy())
+    }
+  }
   let module_members : Array[ValueMember] = []
   // Upper bound: every cache+env binding may flow into the snapshot
   // plus the two metadata members (`imports`, `@__module_path`).
@@ -728,7 +744,79 @@ fn module_object_value_from_scope(
       None => ()
     }
   }
-  ObjectValue(tag_object_with_class(module_members, "Module"))
+  let tagged = tag_object_with_class(module_members, "Module")
+  while module_snapshot_cache.val.length() >= 8 {
+    let _ = module_snapshot_cache.val.remove(0)
+  }
+  module_snapshot_cache.val.push({
+    bindings,
+    bindings_length: bindings.length(),
+    env,
+    env_length: env.length(),
+    class_env,
+    class_env_length: class_env.length(),
+    cache,
+    cache_length: cache.length(),
+    declarations,
+    declarations_length: declarations.length(),
+    stack_top,
+    const_context,
+    members: tagged.copy(),
+  })
+  ObjectValue(tagged)
+}
+
+///|
+/// One memoized module snapshot. `env` / `cache` are append-only during
+/// evaluation and never rewritten in place, so identity plus length pins
+/// their contents; the entry holds a strong reference to each array, which
+/// is what makes the identity comparison meaningful.
+priv struct ModuleSnapshotEntry {
+  bindings : Array[Binding]
+  bindings_length : Int
+  env : Array[ValueBinding]
+  env_length : Int
+  class_env : Array[ClassBinding]
+  class_env_length : Int
+  cache : Array[ValueBinding]
+  cache_length : Int
+  declarations : Array[Declaration]
+  declarations_length : Int
+  stack_top : String?
+  const_context : Bool
+  members : Array[ValueMember]
+}
+
+///|
+/// The module snapshot is rebuilt for every object body and every
+/// class-default layer, and the scopes it reads are usually the same
+/// arrays. Memoizing it is what stops the remaining per-body cost from
+/// scaling with module size.
+let module_snapshot_cache : Ref[Array[ModuleSnapshotEntry]] = { val: [] }
+
+///|
+fn module_snapshot_entry_matches(
+  entry : ModuleSnapshotEntry,
+  bindings : Array[Binding],
+  env : Array[ValueBinding],
+  class_env : Array[ClassBinding],
+  cache : Array[ValueBinding],
+  declarations : Array[Declaration],
+  stack_top : String?,
+  const_context : Bool,
+) -> Bool {
+  entry.const_context == const_context &&
+  entry.bindings_length == bindings.length() &&
+  entry.env_length == env.length() &&
+  entry.class_env_length == class_env.length() &&
+  entry.cache_length == cache.length() &&
+  entry.declarations_length == declarations.length() &&
+  entry.stack_top == stack_top &&
+  physical_equal(entry.bindings, bindings) &&
+  physical_equal(entry.env, env) &&
+  physical_equal(entry.class_env, class_env) &&
+  physical_equal(entry.cache, cache) &&
+  physical_equal(entry.declarations, declarations)
 }
 
 ///|
