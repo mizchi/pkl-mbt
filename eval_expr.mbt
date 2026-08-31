@@ -279,13 +279,13 @@ fn push_collection_context_bindings(
 ///|
 fn module_snapshot_member_error(
   name : String,
-  bindings : Array[Binding],
+  index : ModuleBindingIndex,
   const_context : Bool,
 ) -> String? {
   if !const_context {
     return None
   }
-  match find_binding(bindings, name) {
+  match index.by_name.get(name) {
     Some(binding) =>
       if !binding.is_const && !(binding.value is LambdaExpr(_, _, _)) {
         Some(
@@ -303,7 +303,7 @@ fn push_module_snapshot_member(
   members : Array[ValueMember],
   name : String,
   value : Value,
-  bindings : Array[Binding],
+  index : ModuleBindingIndex,
   const_context : Bool,
 ) -> Unit {
   if name == "super" ||
@@ -325,7 +325,7 @@ fn push_module_snapshot_member(
   if !replaced {
     members.push({ name, value, source: None, annotations: [] })
   }
-  match module_snapshot_member_error(name, bindings, const_context) {
+  match module_snapshot_member_error(name, index, const_context) {
     Some(message) =>
       members.push({
         name: error_member_name(name),
@@ -352,26 +352,61 @@ fn bindings_declare_annotations(bindings : Array[Binding]) -> Bool {
 }
 
 ///|
+/// Name index over a module's bindings, built once per module snapshot.
+///
+/// `module_snapshot_member_name` walked the whole binding list twice per
+/// snapshot member. With one member per cache entry that makes a single
+/// snapshot quadratic in module size, and the snapshot itself is rebuilt
+/// once per object body -- cubic overall on a module whose properties
+/// reference each other. The binding list does not change during
+/// evaluation, so one pass can answer both walks.
+priv struct ModuleBindingIndex {
+  /// Bare names of bindings stored under `@hidden$`.
+  hidden_bare : Map[String, Unit]
+  /// The binding `find_binding` would return, keyed by every name it
+  /// answers to: its own storage name, plus its bare name when the
+  /// storage name carries a visibility prefix. Later bindings overwrite
+  /// earlier ones under the same key, which is what the reverse walk's
+  /// "last shadowing binding wins" comes out to.
+  by_name : Map[String, Binding]
+}
+
+///|
+fn build_module_binding_index(bindings : Array[Binding]) -> ModuleBindingIndex {
+  let hidden_bare : Map[String, Unit] = Map([], capacity=bindings.length())
+  let by_name : Map[String, Binding] = Map([], capacity=bindings.length() * 2)
+  for binding in bindings {
+    by_name[binding.name] = binding
+    if is_hidden_member_name(binding.name) || is_local_member_name(binding.name) {
+      let bare = strip_member_visibility_prefix(binding.name)
+      by_name[bare] = binding
+      if is_hidden_member_name(binding.name) {
+        hidden_bare[bare] = ()
+      }
+    }
+  }
+  { hidden_bare, by_name }
+}
+
+///|
 fn module_snapshot_member_name(
   name : String,
-  bindings : Array[Binding],
-  cache : Array[ValueBinding],
+  index : ModuleBindingIndex,
+  super_members : Array[ValueMember]?,
 ) -> String {
   if is_invisible_member_name(name) {
     return name
   }
-  let inherited_hidden_name = hidden_member_name(name)
-  for binding in bindings {
-    // `hidden` is inherited by an amend that spells the bare property
-    // name. Prefer the ancestor's storage visibility over the leaf's
-    // syntactically bare override so `module.toMap()` cannot leak hidden
-    // configuration such as credentials, feature flags, or helper maps.
-    if binding.name == inherited_hidden_name {
-      return inherited_hidden_name
-    }
+  // `hidden` is inherited by an amend that spells the bare property
+  // name. Prefer the ancestor's storage visibility over the leaf's
+  // syntactically bare override so `module.toMap()` cannot leak hidden
+  // configuration such as credentials, feature flags, or helper maps.
+  if index.hidden_bare.contains(name) {
+    return hidden_member_name(name)
   }
-  match module_receiver_super_members_from_cache(cache) {
+  match super_members {
     Some(parent_members) => {
+      let inherited_hidden_name = hidden_member_name(name)
       if find_value_member_exact(parent_members, inherited_hidden_name)
         is Some(_) {
         return inherited_hidden_name
@@ -383,7 +418,7 @@ fn module_snapshot_member_name(
     }
     None => ()
   }
-  match find_binding(bindings, name) {
+  match index.by_name.get(name) {
     Some(binding) if is_invisible_member_name(binding.name) => binding.name
     _ => name
   }
@@ -406,6 +441,10 @@ fn module_object_value_from_scope(
   // Reserve to avoid the growth churn observed in the GC profile —
   // this function ran once per class-default layer.
   module_members.reserve_capacity(cache.length() + env.length() + 2)
+  let binding_index = build_module_binding_index(bindings)
+  // `cache` is not written while the snapshot is assembled, so the
+  // supermodule's members are the same for every member below.
+  let super_members = module_receiver_super_members_from_cache(cache)
   match lookup_value(cache, "@__module_path") {
     Some(StringValue(path)) =>
       module_members.push({
@@ -416,7 +455,7 @@ fn module_object_value_from_scope(
       })
     _ => ()
   }
-  let supermodule = match module_receiver_super_members_from_cache(cache) {
+  let supermodule = match super_members {
     Some(parent_members) =>
       reflect_module_factory_value(ObjectValue(parent_members))
     None => NullValue
@@ -526,7 +565,7 @@ fn module_object_value_from_scope(
     source: None,
     annotations: [],
   })
-  match module_receiver_super_members_from_cache(cache) {
+  match super_members {
     Some(parent_members) =>
       for parent_member in parent_members {
         if !is_module_runtime_metadata_name(parent_member.name) {
@@ -534,7 +573,7 @@ fn module_object_value_from_scope(
             module_members,
             parent_member.name,
             parent_member.value,
-            bindings,
+            binding_index,
             const_context,
           )
         }
@@ -544,23 +583,27 @@ fn module_object_value_from_scope(
   for value_binding in cache {
     push_module_snapshot_member(
       module_members,
-      module_snapshot_member_name(value_binding.name, bindings, cache),
+      module_snapshot_member_name(value_binding.name, binding_index, super_members),
       value_binding.value,
-      bindings,
+      binding_index,
       const_context,
     )
   }
   for value_binding in env {
-    match find_binding(bindings, value_binding.name) {
+    match binding_index.by_name.get(value_binding.name) {
       // Object-literal siblings belong to the implicit receiver, not the
       // enclosing module. In particular, `module` inside `output.value`
       // must not expose the preceding `output.renderer` property.
       Some(binding) if !binding.sibling_slot =>
         push_module_snapshot_member(
           module_members,
-          module_snapshot_member_name(value_binding.name, bindings, cache),
+          module_snapshot_member_name(
+            value_binding.name,
+            binding_index,
+            super_members,
+          ),
           value_binding.value,
-          bindings,
+          binding_index,
           const_context,
         )
       _ => ()
@@ -572,9 +615,13 @@ fn module_object_value_from_scope(
       Some(value) =>
         push_module_snapshot_member(
           module_members,
-          module_snapshot_member_name(inflight_name, bindings, cache),
+          module_snapshot_member_name(
+            inflight_name,
+            binding_index,
+            super_members,
+          ),
           value,
-          bindings,
+          binding_index,
           const_context,
         )
       None => ()
