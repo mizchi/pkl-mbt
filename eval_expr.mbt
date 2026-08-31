@@ -369,10 +369,18 @@ priv struct ModuleBindingIndex {
   /// earlier ones under the same key, which is what the reverse walk's
   /// "last shadowing binding wins" comes out to.
   by_name : Map[String, Binding]
+  /// Bare names of supermodule members stored under `@hidden$` /
+  /// `@local$`. An amending module carries its parent's members here, so
+  /// the visibility check against them is a per-member scan otherwise.
+  parent_hidden_bare : Map[String, Unit]
+  parent_local_bare : Map[String, Unit]
 }
 
 ///|
-fn build_module_binding_index(bindings : Array[Binding]) -> ModuleBindingIndex {
+fn build_module_binding_index(
+  bindings : Array[Binding],
+  super_members : Array[ValueMember]?,
+) -> ModuleBindingIndex {
   let hidden_bare : Map[String, Unit] = Map([], capacity=bindings.length())
   let by_name : Map[String, Binding] = Map([], capacity=bindings.length() * 2)
   for binding in bindings {
@@ -385,14 +393,26 @@ fn build_module_binding_index(bindings : Array[Binding]) -> ModuleBindingIndex {
       }
     }
   }
-  { hidden_bare, by_name }
+  let parent_hidden_bare : Map[String, Unit] = Map([], capacity=8)
+  let parent_local_bare : Map[String, Unit] = Map([], capacity=8)
+  match super_members {
+    Some(parent_members) =>
+      for parent_member in parent_members {
+        if is_hidden_member_name(parent_member.name) {
+          parent_hidden_bare[strip_member_visibility_prefix(parent_member.name)] = ()
+        } else if is_local_member_name(parent_member.name) {
+          parent_local_bare[strip_member_visibility_prefix(parent_member.name)] = ()
+        }
+      }
+    None => ()
+  }
+  { hidden_bare, by_name, parent_hidden_bare, parent_local_bare }
 }
 
 ///|
 fn module_snapshot_member_name(
   name : String,
   index : ModuleBindingIndex,
-  super_members : Array[ValueMember]?,
 ) -> String {
   if is_invisible_member_name(name) {
     return name
@@ -401,22 +421,11 @@ fn module_snapshot_member_name(
   // name. Prefer the ancestor's storage visibility over the leaf's
   // syntactically bare override so `module.toMap()` cannot leak hidden
   // configuration such as credentials, feature flags, or helper maps.
-  if index.hidden_bare.contains(name) {
+  if index.hidden_bare.contains(name) || index.parent_hidden_bare.contains(name) {
     return hidden_member_name(name)
   }
-  match super_members {
-    Some(parent_members) => {
-      let inherited_hidden_name = hidden_member_name(name)
-      if find_value_member_exact(parent_members, inherited_hidden_name)
-        is Some(_) {
-        return inherited_hidden_name
-      }
-      let local_name = local_member_name(name)
-      if find_value_member_exact(parent_members, local_name) is Some(_) {
-        return local_name
-      }
-    }
-    None => ()
+  if index.parent_local_bare.contains(name) {
+    return local_member_name(name)
   }
   match index.by_name.get(name) {
     Some(binding) if is_invisible_member_name(binding.name) => binding.name
@@ -441,10 +450,10 @@ fn module_object_value_from_scope(
   // Reserve to avoid the growth churn observed in the GC profile —
   // this function ran once per class-default layer.
   module_members.reserve_capacity(cache.length() + env.length() + 2)
-  let binding_index = build_module_binding_index(bindings)
   // `cache` is not written while the snapshot is assembled, so the
   // supermodule's members are the same for every member below.
   let super_members = module_receiver_super_members_from_cache(cache)
+  let binding_index = build_module_binding_index(bindings, super_members)
   match lookup_value(cache, "@__module_path") {
     Some(StringValue(path)) =>
       module_members.push({
@@ -583,7 +592,7 @@ fn module_object_value_from_scope(
   for value_binding in cache {
     push_module_snapshot_member(
       module_members,
-      module_snapshot_member_name(value_binding.name, binding_index, super_members),
+      module_snapshot_member_name(value_binding.name, binding_index),
       value_binding.value,
       binding_index,
       const_context,
@@ -597,11 +606,7 @@ fn module_object_value_from_scope(
       Some(binding) if !binding.sibling_slot =>
         push_module_snapshot_member(
           module_members,
-          module_snapshot_member_name(
-            value_binding.name,
-            binding_index,
-            super_members,
-          ),
+          module_snapshot_member_name(value_binding.name, binding_index),
           value_binding.value,
           binding_index,
           const_context,
@@ -615,11 +620,7 @@ fn module_object_value_from_scope(
       Some(value) =>
         push_module_snapshot_member(
           module_members,
-          module_snapshot_member_name(
-            inflight_name,
-            binding_index,
-            super_members,
-          ),
+          module_snapshot_member_name(inflight_name, binding_index),
           value,
           binding_index,
           const_context,
@@ -13262,9 +13263,7 @@ fn value_bindings_contain_exact_name(
   name : String,
 ) -> Bool {
   for binding in bindings {
-    if binding.name == name ||
-      binding.name == hidden_member_name(name) ||
-      binding.name == local_member_name(name) {
+    if member_name_matches_any_visibility(binding.name, name) {
       return true
     }
   }

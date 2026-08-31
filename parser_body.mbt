@@ -1149,6 +1149,48 @@ fn string_starts_with_marker(name : String, marker : String) -> Bool {
 }
 
 ///|
+/// True when `stored` equals `marker + name`, without building that
+/// string. Length is checked first, so a miss costs one comparison.
+fn string_equals_after_marker(
+  stored : String,
+  marker : String,
+  name : String,
+) -> Bool {
+  let m = marker.length()
+  if stored.length() != m + name.length() {
+    return false
+  }
+  for i = 0; i < m; i = i + 1 {
+    if stored[i].to_int() != marker[i].to_int() {
+      return false
+    }
+  }
+  for i = 0; i < name.length(); i = i + 1 {
+    if stored[m + i].to_int() != name[i].to_int() {
+      return false
+    }
+  }
+  true
+}
+
+///|
+/// True when `stored` is `name` itself or one of its `@hidden$` /
+/// `@local$` storage forms. Every scope walk asks this of every binding
+/// it inspects; spelling it as three string equalities meant building the
+/// two prefixed forms first, and the walks that built them inside the
+/// loop allocated two strings per binding inspected.
+fn member_name_matches_any_visibility(stored : String, name : String) -> Bool {
+  if stored == name {
+    return true
+  }
+  if stored.length() == 0 || stored[0].to_int() != '@'.to_int() {
+    return false
+  }
+  string_equals_after_marker(stored, hidden_member_prefix, name) ||
+  string_equals_after_marker(stored, local_member_prefix, name)
+}
+
+///|
 fn is_hidden_member_name(name : String) -> Bool {
   if name.length() == 0 || name[0].to_int() != '@'.to_int() {
     return false

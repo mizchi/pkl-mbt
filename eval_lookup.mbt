@@ -3079,14 +3079,10 @@ fn lookup_member(members : Array[ValueMember], name : String) -> Value? {
   // forms so internal callers (binding-cache resolvers, amend merges)
   // see the same data the writer wrote. Reverse-walk + early break:
   // last writer wins.
-  let hidden_prefixed = hidden_member_name(name)
-  let local_prefixed = local_member_name(name)
   let mut i = members.length() - 1
   while i >= 0 {
     let field = members[i]
-    if field.name == name ||
-      field.name == hidden_prefixed ||
-      field.name == local_prefixed {
+    if member_name_matches_any_visibility(field.name, name) {
       return Some(force_eval_thunk(field.value))
     }
     i = i - 1
@@ -3099,14 +3095,10 @@ fn lookup_value_member(
   members : Array[ValueMember],
   name : String,
 ) -> ValueMember? {
-  let hidden_prefixed = hidden_member_name(name)
-  let local_prefixed = local_member_name(name)
   let mut i = members.length() - 1
   while i >= 0 {
     let field = members[i]
-    if field.name == name ||
-      field.name == hidden_prefixed ||
-      field.name == local_prefixed {
+    if member_name_matches_any_visibility(field.name, name) {
       return Some(field)
     }
     i = i - 1
@@ -3124,10 +3116,12 @@ fn lookup_value_member(
 /// disappear from the rendered envelope), matching Apple Pkl's
 /// distinction between the two visibility modifiers.
 fn lookup_visible_member(members : Array[ValueMember], name : String) -> Value? {
-  let hidden_prefixed = hidden_member_name(name)
   let mut found : Value? = None
   for field in members {
-    if (field.name == name || field.name == hidden_prefixed) &&
+    if (
+        field.name == name ||
+        string_equals_after_marker(field.name, hidden_member_prefix, name)
+      ) &&
       !is_local_member_name(field.name) {
       found = Some(force_eval_thunk(field.value))
     }
@@ -3746,14 +3740,10 @@ fn fresh_function_id() -> Int {
 fn find_binding(bindings : Array[Binding], name : String) -> Binding? {
   // Reverse-walk + early-break: preserves "last shadowing binding
   // wins" semantics without the full O(N) overwrite scan.
-  let hidden = hidden_member_name(name)
-  let local_name = local_member_name(name)
   let mut i = bindings.length() - 1
   while i >= 0 {
     let binding = bindings[i]
-    if binding.name == name ||
-      binding.name == hidden ||
-      binding.name == local_name {
+    if member_name_matches_any_visibility(binding.name, name) {
       return Some(binding)
     }
     i = i - 1
