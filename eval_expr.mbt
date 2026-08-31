@@ -286,8 +286,8 @@ fn module_snapshot_member_error(
     return None
   }
   match index.by_name.get(name) {
-    Some(binding) =>
-      if !binding.is_const && !(binding.value is LambdaExpr(_, _, _)) {
+    Some(facts) =>
+      if !facts.is_const && !facts.is_lambda {
         Some(
           "Cannot reference property `\{name}` from here because it is not `const`.",
         )
@@ -363,12 +363,18 @@ fn bindings_declare_annotations(bindings : Array[Binding]) -> Bool {
 priv struct ModuleBindingIndex {
   /// Bare names of bindings stored under `@hidden$`.
   hidden_bare : Map[String, Unit]
-  /// The binding `find_binding` would return, keyed by every name it
-  /// answers to: its own storage name, plus its bare name when the
-  /// storage name carries a visibility prefix. Later bindings overwrite
-  /// earlier ones under the same key, which is what the reverse walk's
-  /// "last shadowing binding wins" comes out to.
-  by_name : Map[String, Binding]
+  /// What the snapshot needs to know about the binding `find_binding`
+  /// would return, keyed by every name it answers to: its own storage
+  /// name, plus its bare name when the storage name carries a visibility
+  /// prefix. Later bindings overwrite earlier ones under the same key,
+  /// which is what the reverse walk's "last shadowing binding wins" comes
+  /// out to.
+  ///
+  /// Only these three facts are held, never the `Binding` itself: module
+  /// loading backfills inherited `type_name`s into the binding list in
+  /// place, so a cached index must not be able to hand back a field that
+  /// a later load can change.
+  by_name : Map[String, ModuleBindingFacts]
   /// Bare names of supermodule members stored under `@hidden$` /
   /// `@local$`. An amending module carries its parent's members here, so
   /// the visibility check against them is a per-member scan otherwise.
@@ -377,17 +383,92 @@ priv struct ModuleBindingIndex {
 }
 
 ///|
+priv struct ModuleBindingFacts {
+  storage_name : String
+  is_const : Bool
+  is_lambda : Bool
+  sibling_slot : Bool
+}
+
+///|
+/// Cache of module binding indexes keyed by physical identity of the
+/// binding list and of the supermodule's members (with length checks for
+/// staleness), following `class_env_index_cache`. Neither array is written
+/// during evaluation, and the snapshot that needs the index is rebuilt once
+/// per object body, so without this the hashing alone is quadratic in
+/// module size.
+let module_binding_index_cache : Ref[Array[ModuleBindingIndexEntry]] = {
+  val: [],
+}
+
+///|
+priv struct ModuleBindingIndexEntry {
+  bindings : Array[Binding]
+  bindings_length : Int
+  super_members : Array[ValueMember]?
+  super_length : Int
+  index : ModuleBindingIndex
+}
+
+///|
+fn module_binding_index(
+  bindings : Array[Binding],
+  super_members : Array[ValueMember]?,
+) -> ModuleBindingIndex {
+  let bindings_length = bindings.length()
+  let super_length = match super_members {
+    Some(members) => members.length()
+    None => -1
+  }
+  for entry in module_binding_index_cache.val {
+    if physical_equal(entry.bindings, bindings) &&
+      entry.bindings_length == bindings_length &&
+      entry.super_length == super_length &&
+      (
+        match (entry.super_members, super_members) {
+          (Some(cached), Some(current)) => physical_equal(cached, current)
+          (None, None) => true
+          _ => false
+        }
+      ) {
+      return entry.index
+    }
+  }
+  let index = build_module_binding_index(bindings, super_members)
+  while module_binding_index_cache.val.length() >= 4 {
+    let _ = module_binding_index_cache.val.remove(0)
+  }
+  module_binding_index_cache.val.push({
+    bindings,
+    bindings_length,
+    super_members,
+    super_length,
+    index,
+  })
+  index
+}
+
+///|
 fn build_module_binding_index(
   bindings : Array[Binding],
   super_members : Array[ValueMember]?,
 ) -> ModuleBindingIndex {
   let hidden_bare : Map[String, Unit] = Map([], capacity=bindings.length())
-  let by_name : Map[String, Binding] = Map([], capacity=bindings.length() * 2)
+  let by_name : Map[String, ModuleBindingFacts] = Map(
+    [],
+    capacity=bindings.length() * 2,
+  )
   for binding in bindings {
-    by_name[binding.name] = binding
+    let facts : ModuleBindingFacts = {
+      storage_name: binding.name,
+      is_const: binding.is_const,
+      is_lambda: binding.value is LambdaExpr(_, _, _),
+      sibling_slot: binding.sibling_slot,
+    }
+    by_name[binding.name] = facts
     if is_hidden_member_name(binding.name) || is_local_member_name(binding.name) {
       let bare = strip_member_visibility_prefix(binding.name)
-      by_name[bare] = binding
+      by_name[bare] = facts
       if is_hidden_member_name(binding.name) {
         hidden_bare[bare] = ()
       }
@@ -428,7 +509,8 @@ fn module_snapshot_member_name(
     return local_member_name(name)
   }
   match index.by_name.get(name) {
-    Some(binding) if is_invisible_member_name(binding.name) => binding.name
+    Some(facts) if is_invisible_member_name(facts.storage_name) =>
+      facts.storage_name
     _ => name
   }
 }
@@ -453,7 +535,7 @@ fn module_object_value_from_scope(
   // `cache` is not written while the snapshot is assembled, so the
   // supermodule's members are the same for every member below.
   let super_members = module_receiver_super_members_from_cache(cache)
-  let binding_index = build_module_binding_index(bindings, super_members)
+  let binding_index = module_binding_index(bindings, super_members)
   match lookup_value(cache, "@__module_path") {
     Some(StringValue(path)) =>
       module_members.push({
@@ -603,7 +685,7 @@ fn module_object_value_from_scope(
       // Object-literal siblings belong to the implicit receiver, not the
       // enclosing module. In particular, `module` inside `output.value`
       // must not expose the preceding `output.renderer` property.
-      Some(binding) if !binding.sibling_slot =>
+      Some(facts) if !facts.sibling_slot =>
         push_module_snapshot_member(
           module_members,
           module_snapshot_member_name(value_binding.name, binding_index),
