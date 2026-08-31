@@ -301,6 +301,7 @@ fn module_snapshot_member_error(
 ///|
 fn push_module_snapshot_member(
   members : Array[ValueMember],
+  slots : Map[String, Int],
   name : String,
   value : Value,
   index : ModuleBindingIndex,
@@ -313,17 +314,18 @@ fn push_module_snapshot_member(
     is_module_runtime_metadata_name(name) {
     return
   }
+  // `slots` records the position each bare name already occupies, so a
+  // later definition overwrites in place without rescanning -- and
+  // stripping -- every member pushed so far. The snapshot holds one
+  // member per module property, so the scan it replaces was quadratic in
+  // module size, once per object body.
   let bare = strip_member_visibility_prefix(name)
-  let mut replaced = false
-  for i = 0; i < members.length(); i = i + 1 {
-    if strip_member_visibility_prefix(members[i].name) == bare {
-      members[i] = { name, value, source: None, annotations: [] }
-      replaced = true
-      break
+  match slots.get(bare) {
+    Some(slot) => members[slot] = { name, value, source: None, annotations: [] }
+    None => {
+      slots[bare] = members.length()
+      members.push({ name, value, source: None, annotations: [] })
     }
-  }
-  if !replaced {
-    members.push({ name, value, source: None, annotations: [] })
   }
   match module_snapshot_member_error(name, index, const_context) {
     Some(message) =>
@@ -656,12 +658,25 @@ fn module_object_value_from_scope(
     source: None,
     annotations: [],
   })
+  // Seed from whatever the two metadata pushes above already placed, so
+  // the map answers exactly what the scan it replaces would have found.
+  let member_slots : Map[String, Int] = Map(
+    [],
+    capacity=cache.length() + env.length() + 2,
+  )
+  for slot, value_member in module_members {
+    let bare = strip_member_visibility_prefix(value_member.name)
+    if !member_slots.contains(bare) {
+      member_slots[bare] = slot
+    }
+  }
   match super_members {
     Some(parent_members) =>
       for parent_member in parent_members {
         if !is_module_runtime_metadata_name(parent_member.name) {
           push_module_snapshot_member(
             module_members,
+            member_slots,
             parent_member.name,
             parent_member.value,
             binding_index,
@@ -674,6 +689,7 @@ fn module_object_value_from_scope(
   for value_binding in cache {
     push_module_snapshot_member(
       module_members,
+      member_slots,
       module_snapshot_member_name(value_binding.name, binding_index),
       value_binding.value,
       binding_index,
@@ -688,6 +704,7 @@ fn module_object_value_from_scope(
       Some(facts) if !facts.sibling_slot =>
         push_module_snapshot_member(
           module_members,
+          member_slots,
           module_snapshot_member_name(value_binding.name, binding_index),
           value_binding.value,
           binding_index,
@@ -702,6 +719,7 @@ fn module_object_value_from_scope(
       Some(value) =>
         push_module_snapshot_member(
           module_members,
+          member_slots,
           module_snapshot_member_name(inflight_name, binding_index),
           value,
           binding_index,
