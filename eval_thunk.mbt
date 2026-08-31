@@ -67,6 +67,18 @@ fn reserve_eval_thunk(name : String) -> EvalThunkCell {
 }
 
 ///|
+/// Wrap a computation that is already known to be safe to defer in a
+/// memoized cell. `initialize_eval_thunk` exists for property bodies,
+/// which have their own error channel; callers here hand over a plain
+/// `Value` producer and get back the `ThunkValue` to store in place of
+/// the value they would otherwise have built eagerly.
+fn lazy_eval_thunk(name : String, computation : () -> Value) -> Value {
+  let cell = reserve_eval_thunk(name)
+  cell.computation.val = Some(computation)
+  ThunkValue(cell)
+}
+
+///|
 fn initialize_eval_thunk(
   cell : EvalThunkCell,
   computation : () -> EvalThunkResult,

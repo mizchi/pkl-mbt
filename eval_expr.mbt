@@ -338,6 +338,20 @@ fn push_module_snapshot_member(
 }
 
 ///|
+/// True when any module property declares an annotation. Annotation
+/// values are evaluated in the caller's scope, which is what stops the
+/// reflection mirror in `module_object_value_from_scope` from being
+/// deferred.
+fn bindings_declare_annotations(bindings : Array[Binding]) -> Bool {
+  for binding in bindings {
+    if binding.annotations.length() > 0 {
+      return true
+    }
+  }
+  false
+}
+
+///|
 fn module_snapshot_member_name(
   name : String,
   bindings : Array[Binding],
@@ -428,10 +442,20 @@ fn module_object_value_from_scope(
     _ => None
   }
   let module_prefix = reflect_module_short_name(module_path, module_name)
+  // The module snapshot is rebuilt for every object body and every
+  // class-default layer, but `getClass().properties` is read by almost
+  // nothing — on a 14-deep chain of 20-property objects the mirror cost
+  // 42% of the whole evaluation and was discarded every time. When no
+  // module property carries an annotation the mirror depends only on the
+  // program's bindings, declarations and source text, all fixed for the
+  // whole evaluation, so it is safe to build on first read instead.
+  // Annotated properties keep the eager path: their values are evaluated
+  // against `env` / `cache`, which keep growing after this snapshot is
+  // taken, so deferring would pin a later scope than the caller saw.
   let module_properties = if lookup_value(cache, "@__reflect_annotation_eval")
     is Some(_) {
     MapValue([])
-  } else {
+  } else if bindings_declare_annotations(bindings) {
     MapValue(
       reflect_module_property_entries(
         bindings,
@@ -447,6 +471,31 @@ fn module_object_value_from_scope(
         resolve_import,
       ),
     )
+  } else {
+    // `module_members` is still being assembled below; snapshot the
+    // entries the eager call would have seen so the deferred mirror
+    // reports the same defaults.
+    let mirror_members : Array[ValueMember] = []
+    for value_member in module_members {
+      mirror_members.push(value_member)
+    }
+    lazy_eval_thunk("moduleClass.properties", fn() {
+      MapValue(
+        reflect_module_property_entries(
+          bindings,
+          mirror_members,
+          declarations,
+          module_prefix,
+          None,
+          module_path,
+          module_source,
+          env,
+          class_env,
+          cache,
+          resolve_import,
+        ),
+      )
+    })
   }
   let module_class = match synth_class_mirror_for_name("Module") {
     ObjectValue(class_members) => {
