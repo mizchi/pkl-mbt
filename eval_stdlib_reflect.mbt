@@ -61,7 +61,7 @@ fn stdlib_reflect_db() -> StdlibReflectDb? {
 ///|
 fn build_stdlib_reflect_db(source : String) -> StdlibReflectDb {
   let parsed = parse_source(source)
-  let lines = stdlib_split_lines(source)
+  let lines = stdlib_lines_of(source)
   let classes : Map[String, StdlibClassMeta] = Map([], capacity=64)
   for decl in parsed.program.declarations {
     match decl {
@@ -87,6 +87,45 @@ fn build_stdlib_reflect_db(source : String) -> StdlibReflectDb {
     }
   }
   { classes, }
+}
+
+///|
+/// One line-split source, kept so the next lookup can reuse it.
+priv struct StdlibLineIndex {
+  source : String
+  length : Int
+  lines : Array[String]
+}
+
+///|
+/// Line-split sources, memoized by identity.
+///
+/// The bundled `base.pkl` is resolved once, but every reflection lookup
+/// re-split it — 3.7k strings rebuilt per property mirror, per call.
+/// `api/reflect4` spent 22 seconds there, and only when run from a
+/// directory where the bundled source resolves at all, which is why it
+/// looked like a fixture that was merely slow.
+///
+/// Keyed by the string's identity (with a length check) rather than by a
+/// resolved-once flag, so a caller that swaps the stdlib source through
+/// `configure_stdlib_base_source`, or passes some other module's source,
+/// still gets its own lines. The arrays handed out are never written to.
+let stdlib_line_cache : Ref[Array[StdlibLineIndex]] = { val: [] }
+
+///|
+fn stdlib_lines_of(source : String) -> Array[String] {
+  let length = source.length()
+  for entry in stdlib_line_cache.val {
+    if entry.length == length && physical_equal(entry.source, source) {
+      return entry.lines
+    }
+  }
+  let lines = stdlib_split_lines(source)
+  while stdlib_line_cache.val.length() >= 4 {
+    let _ = stdlib_line_cache.val.remove(0)
+  }
+  stdlib_line_cache.val.push({ source, length, lines })
+  lines
 }
 
 ///|
@@ -403,7 +442,7 @@ fn gold_display_uri_for_path_str(p : String) -> String {
 /// declaration header sits on; `-1` when not found (or no source).
 fn gold_decl_line(source : String?, name : String, kind : String) -> Int {
   let lines = match source {
-    Some(s) => stdlib_split_lines(s)
+    Some(s) => stdlib_lines_of(s)
     None => return -1
   }
   for i = 0; i < lines.length(); i = i + 1 {
@@ -1246,7 +1285,7 @@ fn stdlib_property_line(
     Some(s) => s
     None => return -1
   }
-  let lines = stdlib_split_lines(source)
+  let lines = stdlib_lines_of(source)
   let start = if class_line > 0 { class_line - 1 } else { 0 }
   let mut depth = 0
   let mut entered = false
@@ -1322,7 +1361,7 @@ fn build_stdlib_property_mirror(
   ])
   let (doc, annotations) = match sandbox_stdlib_base_source() {
     Some(s) => {
-      let lines = stdlib_split_lines(s)
+      let lines = stdlib_lines_of(s)
       let dc = stdlib_doc_comment_above(lines, prop_line)
       let anns = stdlib_annotations_above(lines, prop_line)
       (dc, anns)
@@ -1644,7 +1683,7 @@ fn stdlib_method_line(
     Some(s) => s
     None => return -1
   }
-  let lines = stdlib_split_lines(source)
+  let lines = stdlib_lines_of(source)
   let start = if class_line > 0 { class_line - 1 } else { 0 }
   let mut depth = 0
   let mut entered = false
@@ -1711,7 +1750,7 @@ fn build_stdlib_method_mirror(
   ])
   let (doc, annotations) = match sandbox_stdlib_base_source() {
     Some(s) => {
-      let lines = stdlib_split_lines(s)
+      let lines = stdlib_lines_of(s)
       let dc = stdlib_doc_comment_above(lines, method_line)
       let anns = stdlib_annotations_above(lines, method_line)
       (dc, anns)
@@ -1796,7 +1835,7 @@ fn stdlib_doc_comment_lookup(
     return None
   }
   let lines = match source {
-    Some(s) => stdlib_split_lines(s)
+    Some(s) => stdlib_lines_of(s)
     None => return None
   }
   stdlib_doc_comment_above(lines, line)
