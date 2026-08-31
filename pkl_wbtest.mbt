@@ -132,3 +132,71 @@ test "typecheck tracks Listing higher-order methods and module builtins" {
     #|}
   guard typecheck_source(source) is TypeOk(_) else { panic() }
 }
+
+///|
+/// `member_name_matches_any_visibility` replaced three string equalities
+/// against `name`, `@hidden$name` and `@local$name` on the scope-walk hot
+/// paths. It has to accept and reject exactly what those comparisons did,
+/// including for a `name` that is already prefixed.
+test "member name matching accepts every visibility form without allocating" {
+  assert_true(member_name_matches_any_visibility("x", "x"))
+  assert_true(member_name_matches_any_visibility("@hidden$x", "x"))
+  assert_true(member_name_matches_any_visibility("@local$x", "x"))
+  // A different member, a prefix of one, and an extension of one.
+  assert_false(member_name_matches_any_visibility("y", "x"))
+  assert_false(member_name_matches_any_visibility("@hidden$xy", "x"))
+  assert_false(member_name_matches_any_visibility("@hidden$", "x"))
+  assert_false(member_name_matches_any_visibility("x", "@hidden$x"))
+  // `@error$` is a separate namespace: the old comparison never matched it.
+  assert_false(member_name_matches_any_visibility("@error$x", "x"))
+  // Doubly-prefixed storage names answer to their prefixed bare form.
+  assert_true(member_name_matches_any_visibility("@hidden$@hidden$x", "@hidden$x"))
+  assert_true(member_name_matches_any_visibility("@hidden$x", "@hidden$x"))
+  // Empty and single-character edges.
+  assert_false(member_name_matches_any_visibility("", "x"))
+  assert_true(member_name_matches_any_visibility("", ""))
+  assert_true(member_name_matches_any_visibility("@hidden$", ""))
+}
+
+///|
+test "module snapshot member name prefers inherited hidden storage" {
+  let bindings : Array[Binding] = [
+    {
+      name: "@hidden$secret",
+      type_name: None,
+      value: NullLiteral,
+      exported: true,
+      is_const: false,
+      annotations: [],
+      abstract_slot: false,
+      sibling_slot: false,
+    },
+    {
+      name: "plain",
+      type_name: None,
+      value: NullLiteral,
+      exported: true,
+      is_const: false,
+      annotations: [],
+      abstract_slot: false,
+      sibling_slot: false,
+    },
+  ]
+  let parent_members : Array[ValueMember] = [
+    { name: "@hidden$inherited", value: NullValue, source: None, annotations: [] },
+    { name: "@local$scoped", value: NullValue, source: None, annotations: [] },
+    { name: "visible", value: NullValue, source: None, annotations: [] },
+  ]
+  let index = build_module_binding_index(bindings, Some(parent_members))
+  // Declared `hidden` in this module.
+  assert_eq(module_snapshot_member_name("secret", index), "@hidden$secret")
+  // `hidden` / `local` inherited from the amended parent.
+  assert_eq(module_snapshot_member_name("inherited", index), "@hidden$inherited")
+  assert_eq(module_snapshot_member_name("scoped", index), "@local$scoped")
+  // Ordinary properties keep their bare name.
+  assert_eq(module_snapshot_member_name("plain", index), "plain")
+  assert_eq(module_snapshot_member_name("visible", index), "visible")
+  assert_eq(module_snapshot_member_name("absent", index), "absent")
+  // Already-invisible names pass through untouched.
+  assert_eq(module_snapshot_member_name("@hidden$secret", index), "@hidden$secret")
+}
