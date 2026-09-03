@@ -58,6 +58,25 @@ jobs:
           moon run cmd/mpkl --target native -- eval fixtures/cli.pkl
           moon run cmd/mpkl --target native -- stdlib
 
+      # Reflection over stdlib declarations needs the bundled base.pkl.
+      # The candidate paths used to be relative to the working directory,
+      # so this fixture gold-matched from the repo root and silently
+      # produced a hundredth of the output from anywhere else.
+      - name: Smoke - reflection does not depend on the working directory
+        run: |
+          set -eu
+          BIN="$PWD/_build/native/release/build/cmd/mpkl/mpkl.exe"
+          IN=third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/input
+          GOLD=third_party/apple-pkl/pkl-core/src/test/files/LanguageSnippetTests/output/api/reflectedDeclaration.pcf
+          "$BIN" eval "$PWD/$IN/api/reflectedDeclaration.pkl" > /tmp/from-root.pcf
+          ( cd /tmp && "$BIN" eval "$GITHUB_WORKSPACE/$IN/api/reflectedDeclaration.pkl" ) > /tmp/from-elsewhere.pcf
+          diff -u "$GOLD" /tmp/from-root.pcf > /dev/null \
+            || { echo "evaluating from the repo root no longer gold-matches"; exit 1; }
+          diff -u /tmp/from-root.pcf /tmp/from-elsewhere.pcf > /dev/null \
+            || { echo "reflection output depends on the working directory"; \
+                 echo "root: $(wc -c < /tmp/from-root.pcf) bytes, elsewhere: $(wc -c < /tmp/from-elsewhere.pcf) bytes"; exit 1; }
+          ( cd /tmp && "$BIN" stdlib | head -1 )
+
   contracts:
     name: pkspec contracts
     runs-on: ubuntu-latest
