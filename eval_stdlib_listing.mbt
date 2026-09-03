@@ -1,4 +1,12 @@
 ///|
+/// Upper bound on what `repeat` will pre-reserve. A product past this is
+/// still built element by element: reserving for it would ask the
+/// allocator for more than the result can plausibly fit in memory, and
+/// failing at the reservation rather than where the elements are
+/// actually produced would report the wrong thing.
+const MAX_REPEAT_ELEMENTS : Int64 = 1_000_000_000L
+
+///|
 fn is_listing_property_name(name : String) -> Bool {
   match name {
     "length"
@@ -1892,7 +1900,21 @@ fn eval_listing_method(
             None
           } else {
             let out : Array[Value] = []
-            for _ in 0..<n.to_int() {
+            // The result is `n` copies of the same element references, so
+            // its size is known before the first push. Growing into it
+            // instead re-copied the whole backing array at every doubling:
+            // on the upstream `List(0).repeat(118866785).length` fixture
+            // that was most of a gigabyte of memcpy, and 99.5% of the
+            // fixture's run time.
+            let total = n * elements.length().to_int64()
+            if total > 0L && total <= MAX_REPEAT_ELEMENTS {
+              out.reserve_capacity(total.to_int())
+            }
+            // Count in Int64. `n.to_int()` truncated to 32 bits, so a
+            // count past that range wrapped -- `repeat(3_000_000_000)`
+            // answered with an empty list rather than with a list of
+            // three billion elements or an honest failure.
+            for _i = 0L; _i < n; _i = _i + 1L {
               for e in elements {
                 out.push(e)
               }

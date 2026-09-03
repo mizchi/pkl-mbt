@@ -963,6 +963,104 @@ fn package_uri_triple_dot_path(from : String, remainder : String) -> String? {
 }
 
 ///|
+/// Where the bundled `base.pkl` was read from, so `mpkl stdlib` can say
+/// whether reflection is running with full class mirrors or the
+/// name-only fallback. Empty until the source is first requested.
+let stdlib_source_origin : Ref[String] = { val: "" }
+
+///|
+/// The directory holding this executable, or `None` when argv[0] does
+/// not name one (a bare name resolved through `PATH`).
+fn executable_dir() -> String? {
+  let args = @env.args()
+  if args.length() == 0 {
+    return None
+  }
+  let exe = args[0]
+  let mut slash = -1
+  for i = 0; i < exe.length(); i = i + 1 {
+    if exe.unsafe_get(i) == '/' {
+      slash = i
+    }
+  }
+  if slash < 0 {
+    return None
+  }
+  let dir = String::unsafe_substring(exe, start=0, end=slash)
+  if dir.has_prefix("/") {
+    return Some(normalize_path_segments(dir))
+  }
+  let cwd = match @env.get_env_var("PWD") {
+    Some(p) if p != "" => Some(p)
+    _ =>
+      match @env.current_dir() {
+        Some(p) if p != "" => Some(p)
+        _ => None
+      }
+  }
+  match cwd {
+    Some(base) => Some(normalize_path_segments(base + "/" + dir))
+    None => None
+  }
+}
+
+///|
+/// Paths to try for the bundled `base.pkl`, most specific first.
+///
+/// These used to be three plain relative paths, so they resolved against
+/// the current working directory: run from the repo root the vendored
+/// `third_party/apple-pkl/stdlib/base.pkl` was found and full class
+/// mirrors were built, run from anywhere else it silently fell back to
+/// the name-only form. Same binary, same input, different reflection
+/// output depending on where the caller happened to be standing — and it
+/// hid a 22-second quadratic in the reflection path, because the fixture
+/// that exercised it only looked slow from one directory.
+///
+/// So: `PKL_MBT_STDLIB` names the file outright, the executable's own
+/// location is searched (walking up, so an in-repo build finds the
+/// vendored tree from any directory), and the historical cwd-relative
+/// candidates stay last so an existing checkout keeps working.
+fn stdlib_base_candidates() -> Array[String] {
+  let candidates : Array[String] = []
+  match @env.get_env_var("PKL_MBT_STDLIB") {
+    Some(path) if path != "" => candidates.push(path)
+    _ => ()
+  }
+  // `_build/native/release/build/cmd/mpkl/mpkl.exe` sits six levels
+  // below an in-repo `third_party/`; an installed `bin/mpkl` sits one
+  // level below `share/pkl/stdlib` or a sibling `stdlib/`. Eight hops
+  // covers both without reaching the filesystem root.
+  match executable_dir() {
+    Some(dir) => {
+      let mut here = dir
+      for hop = 0; hop < 8; hop = hop + 1 {
+        if here == "" || here == "/" {
+          break
+        }
+        candidates.push(here + "/third_party/apple-pkl/stdlib/base.pkl")
+        candidates.push(here + "/share/pkl/stdlib/base.pkl")
+        candidates.push(here + "/stdlib/base.pkl")
+        let mut slash = -1
+        for i = 0; i < here.length(); i = i + 1 {
+          if here.unsafe_get(i) == '/' {
+            slash = i
+          }
+        }
+        if slash <= 0 {
+          break
+        }
+        here = String::unsafe_substring(here, start=0, end=slash)
+      }
+    }
+    None => ()
+  }
+  candidates.push("third_party/apple-pkl/stdlib/base.pkl")
+  candidates.push("stdlib/base.pkl")
+  candidates.push("/usr/local/share/pkl/stdlib/base.pkl")
+  candidates
+}
+
+///|
 /// PKL-152: collapse `..` / `.` segments. See analysis.mbt's twin —
 /// the CLI has its own resolver for FS-aware loading, so we duplicate
 /// the normalizer here rather than depending on the `mizchi/pkl`
@@ -2782,17 +2880,13 @@ async fn main {
   }
   // PKL-080: register the bundled stdlib `base.pkl` source so the
   // library-side reflect machinery can build full Class mirrors for
-  // stdlib types (`api/reflectedDeclaration` etc.). The candidate
-  // paths are tried in order — `third_party/...` for in-repo builds,
-  // a few common bundle locations as fallbacks. Failure is silent;
+  // stdlib types (`api/reflectedDeclaration` etc.). Failure is silent;
   // the reflect surface degrades to the minimal "name only" form.
-  let stdlib_candidates = [
-    "third_party/apple-pkl/stdlib/base.pkl", "stdlib/base.pkl", "/usr/local/share/pkl/stdlib/base.pkl",
-  ]
   @pkl.configure_stdlib_base_paths(fn() {
-    for candidate in stdlib_candidates {
+    for candidate in stdlib_base_candidates() {
       let source = @fs.read_file_to_string(candidate) catch { _ => "" }
       if source != "" {
+        stdlib_source_origin.val = candidate
         return Some(source)
       }
     }

@@ -144,3 +144,54 @@ test "PKL-154: upstream explicit output.bytes survives evaluation" {
   guard extract_output_bytes(value) is Some(bytes) else { panic() }
   inspect(bytes.length() > 0, content="true")
 }
+
+///|
+/// The search order is what stops reflection from depending on the
+/// working directory, so pin its shape: an explicit request leads, the
+/// executable's own tree comes next (walking up), and the historical
+/// cwd-relative paths stay last.
+test "the stdlib search looks beside the executable before the working directory" {
+  let previous = @env.get_env_var("PKL_MBT_STDLIB")
+  @env.set_env_var("PKL_MBT_STDLIB", "/explicit/base.pkl")
+  let candidates = stdlib_base_candidates()
+  match previous {
+    Some(v) => @env.set_env_var("PKL_MBT_STDLIB", v)
+    None => @env.set_env_var("PKL_MBT_STDLIB", "")
+  }
+  // An explicit request is tried first.
+  assert_eq(candidates[0], "/explicit/base.pkl")
+  // The cwd-relative fallbacks are last, in their historical order.
+  let n = candidates.length()
+  assert_eq(candidates[n - 3], "third_party/apple-pkl/stdlib/base.pkl")
+  assert_eq(candidates[n - 2], "stdlib/base.pkl")
+  assert_eq(candidates[n - 1], "/usr/local/share/pkl/stdlib/base.pkl")
+  // Everything between is anchored at the executable, so it resolves the
+  // same way whatever directory the process was started from. The test
+  // binary lives inside the repo, so at least one such candidate exists.
+  let mut absolute_between = 0
+  for i = 1; i < n - 3; i = i + 1 {
+    if candidates[i].has_prefix("/") {
+      absolute_between = absolute_between + 1
+    }
+  }
+  assert_true(absolute_between > 0)
+  assert_eq(absolute_between, n - 4)
+}
+
+///|
+/// An empty `PKL_MBT_STDLIB` must not become a candidate: an empty path
+/// reads as the current directory on some filesystems, and a silent
+/// wrong answer is the thing this search order exists to prevent.
+test "an empty PKL_MBT_STDLIB contributes no candidate" {
+  let previous = @env.get_env_var("PKL_MBT_STDLIB")
+  @env.set_env_var("PKL_MBT_STDLIB", "")
+  let candidates = stdlib_base_candidates()
+  match previous {
+    Some(v) => @env.set_env_var("PKL_MBT_STDLIB", v)
+    None => ()
+  }
+  for candidate in candidates {
+    assert_true(candidate != "")
+  }
+  assert_eq(candidates[0].has_prefix("/") || candidates[0] == "third_party/apple-pkl/stdlib/base.pkl", true)
+}

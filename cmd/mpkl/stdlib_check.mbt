@@ -590,6 +590,35 @@ let stdlib_probes : Array[StdlibProbe] = [
 /// failure), and exit non-zero when any probe fails. Designed to be
 /// called as `mpkl stdlib`.
 fn run_stdlib_check() -> Unit {
+  // Report which `base.pkl` backs the run before the probes. Reflection
+  // degrades to a name-only form when none is found, and that used to be
+  // invisible — the probes below pass either way, so a reader had no way
+  // to tell which mode they were looking at.
+  let requested = match @env.get_env_var("PKL_MBT_STDLIB") {
+    Some(path) if path != "" => Some(path)
+    _ => None
+  }
+  match @pkl.sandbox_stdlib_base_source() {
+    Some(_) => {
+      println("# stdlib source: \{stdlib_source_origin.val}")
+      // An explicit request that lost to a fallback is worth saying out
+      // loud: naming a path and silently getting a different one is the
+      // same class of surprise this search order exists to remove.
+      match requested {
+        Some(path) if path != stdlib_source_origin.val =>
+          println(
+            "#   note: PKL_MBT_STDLIB=\{path} was not readable; the path above was used instead",
+          )
+        _ => ()
+      }
+    }
+    None =>
+      println(
+        "# stdlib source: none found — reflection reports names only.\n" +
+        "#   Set PKL_MBT_STDLIB to a base.pkl, or run from a tree that has one.",
+      )
+  }
+  println("")
   let mut failed = 0
   let mut last_group = ""
   for probe in stdlib_probes {
