@@ -240,3 +240,45 @@ test "repeat does not truncate its count to 32 bits" {
   assert_eq(zero_elements.length(), 0)
   assert_true(eval_source("xs = List(1).repeat(-1)") is EvalError(_))
 }
+
+///|
+/// The object-body path answers "does this scope already bind this name?"
+/// from a set now, instead of scanning. The set has to accept exactly what
+/// the scan accepted -- a binding answers to its own storage name and, when
+/// prefixed, to the bare name underneath -- and it has to notice when the
+/// array it summarises has grown, because the evaluator appends to `cache`
+/// while members are being evaluated.
+test "the value-binding name set matches the scan it replaces, and sees growth" {
+  let bindings : Array[ValueBinding] = [
+    { name: "plain", value: NullValue },
+    { name: "@hidden$secret", value: NullValue },
+    { name: "@local$scoped", value: NullValue },
+    { name: "@error$broken", value: NullValue },
+  ]
+  let names = ValueBindingNames::of(bindings)
+  let probes = [
+    "plain", "secret", "scoped", "broken", "@hidden$secret", "@local$scoped",
+    "@error$broken", "absent", "", "@hidden$plain",
+  ]
+  for probe in probes {
+    assert_eq(
+      names.contains(probe),
+      value_bindings_contain_exact_name(bindings, probe),
+    )
+  }
+  // A binding appended after the first query must still be found.
+  assert_false(names.contains("late"))
+  bindings.push({ name: "late", value: NullValue })
+  assert_true(names.contains("late"))
+  assert_eq(
+    names.contains("late"),
+    value_bindings_contain_exact_name(bindings, "late"),
+  )
+  // And a prefixed one appended later answers to its bare name too.
+  bindings.push({ name: "@hidden$later", value: NullValue })
+  assert_true(names.contains("later"))
+  assert_eq(
+    names.contains("later"),
+    value_bindings_contain_exact_name(bindings, "later"),
+  )
+}
