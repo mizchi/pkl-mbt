@@ -200,3 +200,43 @@ test "module snapshot member name prefers inherited hidden storage" {
   // Already-invisible names pass through untouched.
   assert_eq(module_snapshot_member_name("@hidden$secret", index), "@hidden$secret")
 }
+
+///|
+/// `repeat` counted in 32 bits, so a count past that range wrapped and the
+/// call answered with an empty list instead of building one. The upstream
+/// fixture uses 118,866,785 -- inside the range, and named for the
+/// overflow it triggered in the original implementation -- so nothing in
+/// the gold suite covered the wrap.
+test "repeat does not truncate its count to 32 bits" {
+  // 2^32 + 1 copies of an empty list is still an empty list, and gets
+  // there without building anything. Under the truncating loop the count
+  // wrapped to 1; under a correct one the answer is the same, so assert
+  // on the arithmetic that decides it rather than on a huge allocation.
+  guard eval_source("n = List().repeat(4294967297).length") is EvalOk(value) else {
+    panic()
+  }
+  guard value is ObjectValue(members) else { panic() }
+  assert_eq(lookup_member(members, "n"), Some(IntValue(0L)))
+  // And the ordinary case still repeats, in order.
+  guard eval_source("xs = List(1, 2).repeat(3)") is EvalOk(list_value) else {
+    panic()
+  }
+  guard list_value is ObjectValue(list_members) else { panic() }
+  guard lookup_member(list_members, "xs") is Some(ListValue(elements)) else {
+    panic()
+  }
+  assert_eq(elements.length(), 6)
+  assert_eq(elements[0], IntValue(1L))
+  assert_eq(elements[1], IntValue(2L))
+  assert_eq(elements[5], IntValue(2L))
+  // Zero copies is empty, and a negative count is refused.
+  guard eval_source("xs = List(1).repeat(0)") is EvalOk(zero_value) else {
+    panic()
+  }
+  guard zero_value is ObjectValue(zero_members) else { panic() }
+  guard lookup_member(zero_members, "xs") is Some(ListValue(zero_elements)) else {
+    panic()
+  }
+  assert_eq(zero_elements.length(), 0)
+  assert_true(eval_source("xs = List(1).repeat(-1)") is EvalError(_))
+}
