@@ -13446,6 +13446,58 @@ fn push_prior_member_into_env(
 }
 
 ///|
+/// Name-set view of a value-binding array, rebuilt when the array grows.
+///
+/// `value_bindings_contain_exact_name` is a linear scan, and the object-body
+/// path asks it once per prior member and twice per thunk binding, so the
+/// scans are quadratic in member count with the scope size on top. On a
+/// 14-deep chain of task objects that was 1.56 M of the 1.89 M name
+/// comparisons in the whole run.
+///
+/// A binding answers to its own storage name and, when that name carries a
+/// visibility prefix, to the bare name underneath -- the same two keys
+/// `member_name_matches_any_visibility` accepts, so set membership decides
+/// exactly what the scan decided.
+priv struct ValueBindingNames {
+  source : Array[ValueBinding]
+  mut length : Int
+  mut names : Map[String, Unit]
+}
+
+///|
+fn ValueBindingNames::of(source : Array[ValueBinding]) -> ValueBindingNames {
+  { source, length: -1, names: Map([], capacity=0) }
+}
+
+///|
+fn ValueBindingNames::contains(
+  self : ValueBindingNames,
+  name : String,
+) -> Bool {
+  // The evaluator appends to `cache` while members are being evaluated, and
+  // `lexical_env` grows as prior members are folded in, so the length is
+  // checked before answering: a stale set would report a miss for a binding
+  // that had just been added. Rebuilding on growth costs one pass, which is
+  // what a single scan cost anyway.
+  if self.length != self.source.length() {
+    let names : Map[String, Unit] = Map(
+      [],
+      capacity=self.source.length() * 2,
+    )
+    for binding in self.source {
+      names[binding.name] = ()
+      if is_hidden_member_name(binding.name) ||
+        is_local_member_name(binding.name) {
+        names[strip_member_visibility_prefix(binding.name)] = ()
+      }
+    }
+    self.names = names
+    self.length = self.source.length()
+  }
+  self.names.contains(name)
+}
+
+///|
 fn value_bindings_contain_exact_name(
   bindings : Array[ValueBinding],
   name : String,
@@ -13538,6 +13590,10 @@ fn eval_object_members_with_implicit_env(
   // have a separate declaration memo and materialization-cycle guard.
   let use_property_thunks = defer_property_errors &&
     lookup_value(cache, "@__retain_property_thunks") == Some(BoolValue(true))
+  // One name set for `cache`, shared by every existence check below. The
+  // array is appended to while members evaluate, so the set rebuilds itself
+  // whenever it has grown.
+  let cache_names = ValueBindingNames::of(cache)
   for field in members {
     let is_ordinary = field.name != "@when" &&
       field.name != "@for" &&
@@ -13590,14 +13646,10 @@ fn eval_object_members_with_implicit_env(
         prior,
         include_receiver_members=false,
       )
+      let prior_marker = lexical_value_binding_marker_name(prior_bare_name)
       let has_explicit_lexical_binding = value_bindings_contain_exact_name(
-          lexical_env,
-          lexical_value_binding_marker_name(prior_bare_name),
-        ) ||
-        value_bindings_contain_exact_name(
-          cache,
-          lexical_value_binding_marker_name(prior_bare_name),
-        )
+          lexical_env, prior_marker,
+        ) || cache_names.contains(prior_marker)
       // Visible prior members override an outer implicit receiver, but a
       // real lexical `let` / callable parameter remains in front. `local`
       // members and deferred-error sentinels are themselves lexical and
@@ -13618,7 +13670,7 @@ fn eval_object_members_with_implicit_env(
     let current_name_has_enclosing_binding = value_bindings_contain_exact_name(
         local_env, current_bare_name,
       ) ||
-      value_bindings_contain_exact_name(cache, current_bare_name) ||
+      cache_names.contains(current_bare_name) ||
       bindings_contain_non_sibling_name(local_bindings, current_bare_name)
     let property_bindings : Array[Binding] = if current_name_has_enclosing_binding {
       let filtered : Array[Binding] = []
@@ -13631,12 +13683,14 @@ fn eval_object_members_with_implicit_env(
     } else {
       local_bindings
     }
+    // `lexical_env` is complete by this point and does not change while the
+    // thunk bindings are walked, so both sides of this check answer from a
+    // set built once per member rather than a scan per thunk binding.
+    let lexical_names = ValueBindingNames::of(lexical_env)
     for thunk_binding in member_thunk_bindings {
       let lexical_marker = lexical_value_binding_marker_name(thunk_binding.name)
-      let has_lexical_binding = value_bindings_contain_exact_name(
-          lexical_env, lexical_marker,
-        ) ||
-        value_bindings_contain_exact_name(cache, lexical_marker)
+      let has_lexical_binding = lexical_names.contains(lexical_marker) ||
+        cache_names.contains(lexical_marker)
       // The current property's own name does not shadow an enclosing value
       // in its RHS (`iterations = iterations` reads the receiver/outer
       // binding). More generally, a lexical binding wins over an implicit
